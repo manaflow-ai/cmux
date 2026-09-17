@@ -4447,7 +4447,10 @@ pub enum MenuAction {
     BrowserActivate(PaneId),
     RenameTab(PaneId),
     RenameSurface(SurfaceId),
-    MoveTabToWorkspace { surface: SurfaceId, workspace: Option<WorkspaceId> },
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    },
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
     CopyStatusMessage,
@@ -12403,8 +12406,9 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface)
-            | MenuAction::MoveTabToWorkspace { surface, .. } => Some(MenuActionResource::Surface(surface)),
+            MenuAction::RenameSurface(surface) | MenuAction::MoveTabToWorkspace { surface, .. } => {
+                Some(MenuActionResource::Surface(surface))
+            }
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }
@@ -21030,29 +21034,53 @@ impl App {
     }
 
     fn move_tab_to_workspace(&mut self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
-        if self.surface_only.is_some() || self.tab_location(surface).is_none() { return; }
-        if workspace.is_none() && self.workspace_creation_policy() != Some(WorkspaceCreationPolicy::SessionOwned) { return; }
-        if workspace.is_some_and(|id| !self.tree.workspaces().iter().any(|ws| ws.id == id)) { return; }
+        if self.surface_only.is_some() || self.tab_location(surface).is_none() {
+            return;
+        }
+        if workspace.is_none()
+            && self.workspace_creation_policy() != Some(WorkspaceCreationPolicy::SessionOwned)
+        {
+            return;
+        }
+        if workspace.is_some_and(|id| !self.tree.workspaces().iter().any(|ws| ws.id == id)) {
+            return;
+        }
         if self.prepare_pty_input_before_mutation() {
             self.session.move_tab_to_workspace(surface, workspace);
         }
     }
 
     fn tab_move_workspace_item(&self, surface: SurfaceId) -> Option<MenuItem> {
-        if self.surface_only.is_some() { return None; }
+        if self.surface_only.is_some() {
+            return None;
+        }
         let (source_pane, _) = self.tab_location(surface)?;
-        let mut items = self.tree.workspaces().iter().filter(|ws| {
-            !ws.screens.iter().any(|screen| screen.panes.iter().any(|pane| pane.id == source_pane))
-        }).map(|ws| MenuItem::LabeledAction {
-            label: ws.name.clone(),
-            action: MenuAction::MoveTabToWorkspace { surface, workspace: Some(ws.id) },
-        }).collect::<Vec<_>>();
+        let mut items = self
+            .tree
+            .workspaces()
+            .iter()
+            .filter(|ws| {
+                !ws.screens
+                    .iter()
+                    .any(|screen| screen.panes.iter().any(|pane| pane.id == source_pane))
+            })
+            .map(|ws| MenuItem::LabeledAction {
+                label: ws.name.clone(),
+                action: MenuAction::MoveTabToWorkspace { surface, workspace: Some(ws.id) },
+            })
+            .collect::<Vec<_>>();
         if self.workspace_creation_policy() == Some(WorkspaceCreationPolicy::SessionOwned) {
-            if !items.is_empty() { items.push(MenuItem::Separator); }
-            items.push(MenuItem::Action(MenuAction::MoveTabToWorkspace { surface, workspace: None }));
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+            items.push(MenuItem::Action(MenuAction::MoveTabToWorkspace {
+                surface,
+                workspace: None,
+            }));
         }
         (!items.is_empty()).then(|| MenuItem::Submenu {
-            label: localization::catalog().menu.move_tab_workspace.to_string(), items,
+            label: localization::catalog().menu.move_tab_workspace.to_string(),
+            items,
         })
     }
 
@@ -21060,11 +21088,18 @@ impl App {
         match self.hit_at(x, y)? {
             Hit::CreateWorkspace { mode: None }
             | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(None), .. }
-            | Hit::SidebarAction { action: SidebarActionTarget::Run(Action::NewWorkspace), .. }
-                if self.workspace_creation_policy() == Some(WorkspaceCreationPolicy::SessionOwned) => Some(None),
+            | Hit::SidebarAction {
+                action: SidebarActionTarget::Run(Action::NewWorkspace), ..
+            } if self.workspace_creation_policy()
+                == Some(WorkspaceCreationPolicy::SessionOwned) =>
+            {
+                Some(None)
+            }
             Hit::Workspace { id, .. }
             | Hit::ProjectionRow { target: ProjectionTarget::Workspace { id, .. }, .. }
-            | Hit::ProjectionToggle { branch: ProjectionBranch::Workspace(id), .. } => Some(Some(id)),
+            | Hit::ProjectionToggle { branch: ProjectionBranch::Workspace(id), .. } => {
+                Some(Some(id))
+            }
             _ => None,
         }
     }
@@ -23966,7 +24001,9 @@ impl App {
                 }
                 Some(Hit::SidebarTab { surface, .. }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
-                    if let Some(item) = self.tab_move_workspace_item(surface) { groups.push(vec![item]); }
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 Some(Hit::ProjectionRow {
                     target: ProjectionTarget::Workspace { id, .. }, ..
@@ -23996,7 +24033,9 @@ impl App {
                     ..
                 }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
-                    if let Some(item) = self.tab_move_workspace_item(surface) { groups.push(vec![item]); }
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 _ => {}
             }
@@ -24041,7 +24080,9 @@ impl App {
                     .into_iter()
                     .map(|group| self.menu_group(group))
                     .collect::<Vec<Vec<MenuItem>>>();
-                if let Some(item) = self.tab_move_workspace_item(surface) { groups.push(vec![item]); }
+                if let Some(item) = self.tab_move_workspace_item(surface) {
+                    groups.push(vec![item]);
+                }
                 if self.surface_only.is_none() {
                     let zoomed = self
                         .tree
@@ -26366,23 +26407,47 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let first_pane = app.tab_location(first.id).unwrap().0;
-        let chip = app.hits.iter().find_map(|(rect, hit)| {
-            matches!(hit, super::Hit::Tab { pane, index: 0 } if *pane == first_pane).then_some(*rect)
-        }).expect("inactive tab chip");
+        let chip = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Tab { pane, index: 0 } if *pane == first_pane)
+                    .then_some(*rect)
+            })
+            .expect("inactive tab chip");
         app.open_context_menu(chip.x, chip.y);
-        let move_existing = MenuAction::MoveTabToWorkspace { surface: first.id, workspace: Some(destination) };
+        let move_existing =
+            MenuAction::MoveTabToWorkspace { surface: first.id, workspace: Some(destination) };
         assert!(app.menu.as_ref().unwrap().actions().contains(&move_existing));
         app.activate_menu(move_existing).unwrap();
         while app.session.has_pending_mutations() {
             app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
         }
-        assert_eq!(mux.with_state(|state| state.pane_of(first.id)), mux.with_state(|state| state.pane_of(target.id)));
-        assert_ne!(mux.with_state(|state| state.pane_of(first.id)), mux.with_state(|state| state.pane_of(second.id)));
+        assert_eq!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(target.id))
+        );
+        assert_ne!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(second.id))
+        );
         app.menu = None;
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
-        let footer = app.hits.iter().find_map(|(rect, hit)| {
-            matches!(hit, super::Hit::CreateWorkspace { mode: None } | super::Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(None), .. }).then_some(*rect)
-        }).expect("new workspace footer");
+        let footer = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: None }
+                        | super::Hit::SidebarAction {
+                            action: SidebarActionTarget::CreateWorkspace(None),
+                            ..
+                        }
+                )
+                .then_some(*rect)
+            })
+            .expect("new workspace footer");
         let before = app.tree.workspaces().len();
         app.drag = Some(Drag::Tab { surface: first.id, target: None });
         app.handle_left_up(footer.x, footer.y).unwrap();
@@ -26392,7 +26457,9 @@ mod tests {
         assert_eq!(app.tree.workspaces().len(), before + 1);
         assert_eq!(app.tree.active_screen().unwrap().panes[0].tabs[0].surface, first.id);
         assert!(Arc::ptr_eq(&first, &mux.surface(first.id).unwrap()));
-        for surface in [first.id, second.id, target.id] { mux.close_surface(surface).unwrap(); }
+        for surface in [first.id, second.id, target.id] {
+            mux.close_surface(surface).unwrap();
+        }
     }
 
     #[test]

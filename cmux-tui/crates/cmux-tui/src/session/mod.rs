@@ -2067,12 +2067,18 @@ impl Session {
         }
     }
 
-    pub fn move_tab_to_workspace(&self, surface: SurfaceId, workspace: Option<WorkspaceId>) -> anyhow::Result<()> {
+    pub fn move_tab_to_workspace(
+        &self,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
-            Session::Remote(remote) => remote.request(json!({
-                "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
-            })).map(|_| ()),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
+                }))
+                .map(|_| ()),
         }
     }
 
