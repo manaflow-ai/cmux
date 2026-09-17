@@ -284,6 +284,28 @@ struct RemoteSessionReadinessParkingTests {
         _ = await coordinator.stopAndWait(cleanupScope: .transport)
     }
 
+    @Test("A managed Cloud VM session, whose broker redials while the machine wakes, carries no deadline")
+    func cloudVMSessionsAreNotDeadlined() async throws {
+        let fixture = try await Self.makeCoordinator(
+            host: ReadinessRecordingHost(),
+            runner: ReadinessScriptedProcessRunner(daemon: .missing),
+            relayPort: nil,
+            skipDaemonBootstrap: true,
+            clock: ManualBrokerClock()
+        )
+        let coordinator = fixture.coordinator
+        defer { fixture.cleanUp() }
+
+        let token = coordinator.queue.sync { () -> UUID? in
+            coordinator.proxyConnectionDesired = true
+            coordinator.armReadinessDeadlineLocked()
+            return coordinator.readinessDeadlineToken
+        }
+        #expect(token == nil)
+
+        _ = await coordinator.stopAndWait(cleanupScope: .transport)
+    }
+
     // MARK: - Fixtures
 
     private static let requiredCapabilities = [
@@ -328,6 +350,7 @@ struct RemoteSessionReadinessParkingTests {
         proxyBroker: any RemoteProxyBrokering = SSHOverrideUnusedRemoteProxyBroker(),
         reverseRelayLauncher: any RemoteReverseRelayLaunching = RecordingReverseRelayLauncher(),
         relayPort: Int? = 64_044,
+        skipDaemonBootstrap: Bool = false,
         clock: any RemoteProxyRetryClock
     ) throws -> ReadinessCoordinatorFixture {
         let scratchDirectory = FileManager.default.temporaryDirectory
@@ -361,7 +384,8 @@ struct RemoteSessionReadinessParkingTests {
                 ownerWorkspaceID: UUID(),
                 terminalStartupCommand: nil,
                 preserveAfterTerminalExit: false,
-                persistentDaemonSlot: nil
+                persistentDaemonSlot: nil,
+                skipDaemonBootstrap: skipDaemonBootstrap
             )
         )
         let coordinator = RemoteSessionCoordinator(

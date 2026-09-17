@@ -56,8 +56,14 @@ extension RemoteSessionCoordinator {
     /// exactly the loop this bounds. A bounded, cancellable deadline is the
     /// intended behavior here, driven by the injected clock so tests advance
     /// it; the token guard drops a wakeup from a cancelled or consumed arm.
+    ///
+    /// Scoped to sessions that bootstrap their own daemon over SSH. A managed
+    /// Cloud VM (`skipDaemonBootstrap`) has no relay, and its proxy broker
+    /// legitimately keeps redialing while the machine wakes or its endpoint
+    /// is re-minted, which can take longer than this deadline.
     func armReadinessDeadlineLocked() {
-        guard !isStopping, proxyConnectionDesired, readinessDeadlineToken == nil else { return }
+        guard !isStopping, proxyConnectionDesired, !configuration.skipDaemonBootstrap,
+              readinessDeadlineToken == nil else { return }
         let token = UUID()
         readinessDeadlineToken = token
         readinessDeadlineTask = Task { [weak self] in
