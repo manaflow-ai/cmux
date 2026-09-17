@@ -12,8 +12,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `370f08cf1`, on fork branch
-`issue-12753-hangul-filename-shaping` pending Ghostty PR #221. It is cmux
+The submodule pinned by this branch is `370f08cf1`, reachable from fork `main`
+after Ghostty PR #221 was merged as `3869e81a0`. It is cmux
 `main`'s pin `4a0e9e185` (termio `MemoryPool` write pool and the
 `GHOSTTY_BIN_DIR` use-after-free fix, from cmux #12842) merged with the NFD
 Hangul shaping fix, and nothing else: fork `main`'s `clear_screen` changes are
@@ -27,10 +27,11 @@ visibility, and Hangul canonical font resolution.
 ### Current feature pin
 
 - Branch:
-  - https://github.com/manaflow-ai/ghostty/tree/issue-12753-hangul-filename-shaping
+  - https://github.com/manaflow-ai/ghostty/tree/main (contains the pin through
+    merge commit `3869e81a0`; feature branch `issue-12753-hangul-filename-shaping`)
 - Commit:
   - `370f08cf1` (merge of cmux `main`'s pin `4a0e9e185` into the issue-12753
-    Hangul shaping fix and coverage; pending PR #221)
+    Hangul shaping fix and coverage; merged to fork `main` by PR #221)
 - Summary:
   - Adds the NFD Hangul shaping fix and jamo/style coverage on top of cmux's prior pin, preserving
     incremental embedded configuration propagation and Fish SSH feature gating,
@@ -48,10 +49,12 @@ visibility, and Hangul canonical font resolution.
     found 1942` (the Apple SD Gothic Neo glyph ID from the report), HarfBuzz
     `expected 218, found 0` (`.notdef`). The inherited fork CI skips tests
     outside ghostty-org, so these were run by hand on a leased fleet Mac.
-- Previous pin artifact (does not include the Hangul shaping fix):
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-  - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
-    is pinned in `scripts/ghosttykit-checksums.txt`.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-370f08cf15a6ab646b9a291f72af034bb0960fb3-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `ec53b8992b466ecd9cc87b42754188fe504898ff0b139f54b3eef1dc6a441233`
+    is pinned in `scripts/ghosttykit-checksums.txt`. Built and published by
+    `build-ghosttykit.yml` run 35197286294; the archive embeds
+    `1.3.2-HEAD-+370f08c`.
 
 ### Fish SSH feature gating
 
