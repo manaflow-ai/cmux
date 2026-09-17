@@ -4,9 +4,36 @@ import CmuxMobileRPC
 import Foundation
 import Testing
 @testable import CmuxMobileShell
+#if DEBUG
+import CmuxMobileShellReleaseGateSupport
+#endif
 
 @MainActor
 extension ReconnectRouteSelectionTests {
+    #if DEBUG
+    @Test func soakReconnectReplacesAnAlreadyHealthyConnection() async throws {
+        let fixture = try await makeRecoveryOwnerFixture()
+        defer { fixture.release() }
+        #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        let originalClient = try #require(fixture.store.remoteClient)
+
+        do {
+            _ = try await fixture.store.runIrohSoakUsageStep(cycle: 119, marker: "SOAK_RECONNECT")
+        } catch let failure as MobileIrohReleaseGateProbeFailure {
+            // This fixture has no native Iroh observation. The observable
+            // regression is whether the stress action actually replaces its
+            // live client before inspecting native connection evidence.
+            #expect(failure == .unauthenticatedIrohSession || failure == .continuityEvidenceUnavailable)
+        }
+
+        let replacement = try #require(fixture.store.remoteClient)
+        #expect(replacement !== originalClient)
+        #expect(fixture.store.connectionState == .connected)
+        #expect(fixture.factory.attemptedKinds() == [.iroh, .iroh])
+    }
+    #endif
+
     @Test func establishedIrohSessionRedialsOnceAfterTransportDies() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
