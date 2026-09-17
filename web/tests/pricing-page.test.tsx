@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToReadableStream } from "react-dom/server";
 import { renderSettled } from "./helpers/render-settled";
+import { readInitialMain } from "./helpers/render-stream";
 
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
@@ -127,7 +128,7 @@ describe("localized pricing page", () => {
     const stream = await renderToReadableStream(element);
     const reader = stream.getReader();
     try {
-      const first = new TextDecoder().decode((await reader.read()).value);
+      const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
       expect(first.includes("Up to 64 GB RAM per machine")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);

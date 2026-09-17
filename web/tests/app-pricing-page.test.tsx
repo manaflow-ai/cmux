@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToReadableStream } from "react-dom/server";
 import { renderSettled } from "./helpers/render-settled";
+import { readInitialMain } from "./helpers/render-stream";
 
 import { stripeSubscriptions } from "../db/schema";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
@@ -141,7 +142,7 @@ describe("app pricing page", () => {
     }));
     const reader = stream.getReader();
     try {
-      const first = new TextDecoder().decode((await reader.read()).value);
+      const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("/api/billing/checkout")).toBe(false);
