@@ -1882,6 +1882,9 @@ jobs:
             exit "$test_status"
           fi
 
+      - name: Test Codex writer ownership at the restore exec boundary
+        run: python3 tests/test_codex_writer_restore.py
+
       - name: Run Swift package unit tests
         run: |
           set -euo pipefail
