@@ -17,7 +17,6 @@ public struct MobileIrohReleaseGateScene: View {
         irx: MobileIrxRuntimeComposition,
         settingsController: any CmxIrohSettingsControlling
     ) {
-        MobileReleaseGateUIProbe.reset()
         self.root = root
         self.irx = irx
         self.settingsController = settingsController
