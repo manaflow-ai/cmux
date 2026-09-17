@@ -1,5 +1,7 @@
 # IROH v2 decisions
 
+> Provider update (2026-09-16): cmux Cloud now uses PlanetScale Postgres. Aurora references below describe the historical design and do not authorize AWS database operations. Use `skills/cmux-backend/references/cloud-vm-control-plane.md` for the current database workflow.
+
 Updated 15 September 2026, revision 23. Accepted directions are recorded here; unresolved implementation details are listed at the end. Revision 23 clarifies that new Macs must support older iOS apps; new iOS apps only need to support new Macs.
 
 ## Backend and scope

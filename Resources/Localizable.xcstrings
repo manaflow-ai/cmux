@@ -369639,55 +369639,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+            "value": "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定が空の場合のみ、cmux の管理するライト／ダークパレットがアプリの外観に追従します。既存の Ghostty 設定には重ねて適用しません。"
+            "value": "Ghostty のテーマやターミナルの色が設定されていない場合、外観に合わせたライト／ダークの既定色を使用します。フォントなどの設定は保持されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仅当你的 Ghostty 配置没有任何设置时，cmux 托管的浅色与深色调色板才会跟随应用外观。已有的 Ghostty 设置永远不会被覆盖。"
+            "value": "未配置 Ghostty 主题或终端颜色时，使用随外观变化的浅色和深色默认终端配色。字体及其他设置会保留。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die von cmux verwalteten hellen und dunklen Paletten folgen dem Erscheinungsbild der App nur dann, wenn Ihre Ghostty-Konfiguration keine Einstellungen enthält. Bestehende Ghostty-Einstellungen werden niemals überschrieben."
+            "value": "Helle und dunkle Standardfarben für das Terminal verwenden, wenn kein Ghostty-Theme und keine Terminalfarben konfiguriert sind. Schrift- und andere Einstellungen bleiben erhalten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les palettes claire et sombre gérées de cmux suivent l’apparence de l’application uniquement si votre configuration Ghostty ne contient aucun paramètre. Les paramètres Ghostty existants ne sont jamais écrasés."
+            "value": "Utilise les couleurs claires et sombres par défaut du terminal si aucun thème Ghostty ni couleur de terminal n’est configuré. La police et les autres paramètres sont conservés."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتبع لوحات الألوان الفاتحة والداكنة المدارة لـ cmux مظهر التطبيق فقط عندما لا يحتوي تكوين Ghostty على إعدادات. لا يتم تداخل إعدادات Ghostty الحالية مطلقًا."
+            "value": "استخدم ألوان الطرفية الافتراضية الفاتحة والداكنة عندما لا يتم تكوين سمة Ghostty أو ألوان الطرفية. يتم الاحتفاظ بإعدادات الخط والإعدادات الأخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las paletas clara y oscura administradas de cmux siguen la apariencia de la aplicación solo cuando tu configuración de Ghostty no tiene ajustes. Los ajustes existentes de Ghostty nunca se sobrescriben."
+            "value": "Usa los colores claros y oscuros predeterminados del terminal cuando no hay ningún tema de Ghostty ni colores del terminal configurados. Se conservan la fuente y los demás ajustes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "僅在您的 Ghostty 設定檔中沒有任何設定時，cmux 管理的淺色與深色調色盤才會隨軟體外觀變更。現有的 Ghostty 設定絕不會被覆蓋。"
+            "value": "未設定 Ghostty 主題或終端機顏色時，使用隨外觀變更的淺色和深色預設終端機配色。字體及其他設定會保留。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정에 아무런 설정이 없는 경우에만 cmux가 관리하는 라이트 및 다크 팔레트가 앱 외양을 따릅니다. 기존 Ghostty 설정은 절대로 덮어씌워지지 않습니다."
+            "value": "Ghostty 테마나 터미널 색상이 설정되지 않은 경우 모양에 따라 라이트 및 다크 기본 터미널 색상을 사용합니다. 글꼴 및 기타 설정은 유지됩니다."
           }
         }
       }
