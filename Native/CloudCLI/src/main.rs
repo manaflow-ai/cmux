@@ -681,13 +681,6 @@ fn process_exit_code(exit_code: i64) -> i32 {
     }
 }
 
-fn unix_timestamp_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0)
-}
-
 fn shell_quote(value: &str) -> String {
     if !value.is_empty()
         && value
