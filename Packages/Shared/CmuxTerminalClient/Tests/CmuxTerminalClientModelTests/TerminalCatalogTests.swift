@@ -33,4 +33,3 @@ import Testing
         #expect(TerminalOutputEvent(kind: 9, bytes: Data(), cols: 0, rows: 0) == nil)
     }
 }
-

@@ -140,23 +140,17 @@ impl Dialer for SocksDialer {
     }
 }
 
-/// An in-process WireGuard tunnel for addresses inside its routes; everything
-/// else goes to the fallback dialer.
+/// An in-process WireGuard tunnel that rejects addresses outside its routes.
 #[cfg(feature = "wireguard-transport")]
 pub struct WireGuardDialer {
     net: Arc<cmux_wg::WgNet>,
-    fallback: Arc<dyn Dialer>,
 }
 
 #[cfg(feature = "wireguard-transport")]
 impl WireGuardDialer {
-    /// Tunnel addresses go through `net`; others use the operating system.
+    /// Every address must be inside `net`'s configured routes.
     pub fn new(net: Arc<cmux_wg::WgNet>) -> Self {
-        Self::with_fallback(net, Arc::new(OsTcpDialer))
-    }
-
-    pub fn with_fallback(net: Arc<cmux_wg::WgNet>, fallback: Arc<dyn Dialer>) -> Self {
-        Self { net, fallback }
+        Self { net }
     }
 
     pub fn net(&self) -> &Arc<cmux_wg::WgNet> {
@@ -167,11 +161,7 @@ impl WireGuardDialer {
 #[cfg(feature = "wireguard-transport")]
 impl fmt::Debug for WireGuardDialer {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("WireGuardDialer")
-            .field("routes", &self.net.routes())
-            .field("fallback", &self.fallback)
-            .finish()
+        formatter.debug_struct("WireGuardDialer").field("routes", &self.net.routes()).finish()
     }
 }
 
@@ -184,15 +174,18 @@ impl Dialer for WireGuardDialer {
 
     async fn dial(&self, host: &str, port: u16) -> Result<DialedStream, LinkError> {
         let addresses = resolve_dial_target(host, port).await?;
-        if let Some(address) =
-            addresses.iter().copied().find(|address| self.net.routes_contain(address.ip()))
-        {
-            let stream = self.net.connect(address).await.map_err(|error| {
-                LinkError::Transport(format!("wireguard connect {address}: {error}"))
-            })?;
-            return Ok(Box::new(stream));
-        }
-        self.fallback.dial(host, port).await
+        let address = addresses
+            .into_iter()
+            .find(|address| self.net.routes_contain(address.ip()))
+            .ok_or_else(|| {
+            LinkError::Transport(format!(
+                "{host}:{port} is outside the configured WireGuard routes"
+            ))
+        })?;
+        let stream = self.net.connect(address).await.map_err(|error| {
+            LinkError::Transport(format!("wireguard connect {address}: {error}"))
+        })?;
+        Ok(Box::new(stream))
     }
 }
 

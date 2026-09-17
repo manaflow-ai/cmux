@@ -31,7 +31,7 @@ let stripeConfigured = true;
 let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
 let customerRows: { id: string }[] = [{ id: "cus_123" }];
-let stripeSubscriptionRows: { id: string }[] = [];
+let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 
 const getUser = mock(async (options?: unknown) => {
   const or =
@@ -61,20 +61,22 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
-        where: () => ({
-          limit: mock(async () => {
-            if (table === stripeCustomers) return customerRows;
-            if (table === stripeSubscriptions) return stripeSubscriptionRows;
-            return [];
-          }),
-        }),
+        where: () => {
+          const rows = table === stripeCustomers ? customerRows : table === stripeSubscriptions ? stripeSubscriptionRows : [];
+          return Object.assign(Promise.resolve(rows), {
+            limit: async () => rows,
+            orderBy: () => ({ limit: async () => rows }),
+          });
+        },
       }),
     }),
   }),
 }));
 
+const resolvePersonalPlanSwitchPortalConfiguration = mock(async () => "bpc_switch");
 mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
+  resolvePersonalPlanSwitchPortalConfiguration,
   isStripeBillingConfigured: () => stripeConfigured,
   stripe: () => ({
     billingPortal: {
@@ -113,6 +115,45 @@ describe("billing portal route", () => {
     captureBillingError.mockClear();
   });
 
+  test("opens Stripe's plan switch flow on the active Pro subscription for flow=switch_plan", async () => {
+    stripeSubscriptionRows = [{ id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_123",
+      return_url: "https://cmux.test/dashboard/billing",
+      configuration: "bpc_switch",
+      flow_data: {
+        type: "subscription_update",
+        subscription_update: { subscription: "sub_pro" },
+      },
+    });
+  });
+
+  test("falls back to the plain portal when there is no active personal subscription to switch", async () => {
+    stripeSubscriptionRows = [];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_123",
+      return_url: "https://cmux.test/dashboard/billing",
+    });
+  });
+
+  test("never puts a lifetime Founder purchase in the plan switch flow", async () => {
+    stripeSubscriptionRows = [{ id: "sub_founder", status: "active", plan: "pro", raw: { metadata: { founders_edition: "true" } } }];
+    await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+    expect(createPortalSession.mock.calls[0]?.[0]).not.toHaveProperty("flow_data");
+  });
+
   test("redirects signed-in users with a Stripe customer row to the portal session", async () => {
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),
@@ -124,7 +165,7 @@ describe("billing portal route", () => {
     );
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_123",
-      return_url: "https://cmux.test/pricing",
+      return_url: "https://cmux.test/dashboard/billing",
     });
     expect(getUser).toHaveBeenCalledWith({ or: "return-null" });
   });
@@ -190,7 +231,7 @@ describe("billing portal route", () => {
     expect(getUser).toHaveBeenCalledWith({ or: "anonymous-if-exists[deprecated]" });
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_anonymous",
-      return_url: "https://cmux.test/pricing",
+      return_url: "https://cmux.test/dashboard/billing",
     });
   });
 
@@ -222,7 +263,7 @@ describe("billing portal route", () => {
     expect(response.status).toBe(302);
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_user",
-      return_url: "https://cmux.test/pricing",
+      return_url: "https://cmux.test/dashboard/billing",
     });
   });
 
@@ -273,7 +314,7 @@ describe("billing portal route", () => {
 
   test("captures missing customer rows for Stripe-managed users and redirects unavailable", async () => {
     customerRows = [];
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", status: "active", plan: "pro", scope: "user" }];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),
