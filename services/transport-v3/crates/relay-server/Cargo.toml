@@ -15,6 +15,7 @@ clap.workspace = true
 futures.workspace = true
 hex.workspace = true
 libp2p.workspace = true
+reqwest.workspace = true
 prometheus-client.workspace = true
 tokio = { workspace = true, features = ["signal"] }
 tracing.workspace = true

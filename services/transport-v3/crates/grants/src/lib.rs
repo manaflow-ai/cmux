@@ -266,7 +266,7 @@ impl AuthorityKeys {
     }
 
     pub fn admit_revocation(&self, token: &str, team: &str, now: u64) -> Result<RevocationUpdate, Error> {
-        if token.len() > MAX_TOKEN_BYTES || team.is_empty() || team.len() > 256 { return Err(Error::InvalidGrant); }
+        if token.len() > MAX_TOKEN_BYTES || team.len() > 256 { return Err(Error::InvalidGrant); }
         let header = jsonwebtoken::decode_header(token).map_err(|_| Error::InvalidGrant)?;
         if header.alg != Algorithm::EdDSA || header.typ.as_deref() != Some(REVOCATION_TOKEN_TYPE) { return Err(Error::InvalidGrant); }
         let key = header.kid.as_ref().and_then(|id| self.0.get(id)).ok_or(Error::UnknownSigner)?;
@@ -275,7 +275,7 @@ impl AuthorityKeys {
         validation.leeway = 0;
         let update = jsonwebtoken::decode::<RevocationUpdate>(token, key, &validation)
             .map_err(|_| Error::InvalidGrant)?.claims;
-        if update.team_id != team { return Err(Error::WrongScope); }
+        if !team.is_empty() && update.team_id != team { return Err(Error::WrongScope); }
         update.validate(now)?;
         Ok(update)
     }

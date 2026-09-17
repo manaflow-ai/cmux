@@ -8,6 +8,7 @@ use cmux_v3_grants::{GrantSigner, LeasePolicy, OfflineAccess};
 use ed25519_dalek::SigningKey;
 use libp2p_identity::{Keypair, PeerId};
 use sqlx::postgres::PgPoolOptions;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 fn peer() -> PeerId {
@@ -196,4 +197,11 @@ async fn postgres_authorization_and_revocation_are_atomic_and_tenant_scoped() {
     .await
     .unwrap();
     assert_eq!(events, 1);
+    let relay = peer();
+    let feed_token = "relay-feed-secret";
+    sqlx::query("INSERT INTO transport_v3_relays(peer_id,region,addresses,feed_token_hash) VALUES($1,'westus2','[]',$2)")
+        .bind(relay.to_string()).bind(Sha256::digest(feed_token.as_bytes()).to_vec()).execute(&db).await.unwrap();
+    assert!(store.relay_token_valid(&relay.to_string(), feed_token).await.unwrap());
+    assert!(!store.relay_token_valid(&relay.to_string(), "wrong").await.unwrap());
+    assert!(!store.relay_events(&team, 0, 256).await.unwrap().is_empty());
 }

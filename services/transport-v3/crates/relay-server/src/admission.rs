@@ -54,6 +54,16 @@ impl Gate {
     pub fn drain(&self) {
         self.draining.store(true, Ordering::Release);
     }
+    /// Apply an authority-signed ordered update received from the control
+    /// service. A gap, rollback or forged token leaves the old state intact.
+    pub fn apply_revocation_token(&self, token: &str) -> Result<(), cmux_v3_grants::Error> {
+        let update = self.keys.admit_revocation(token, "", self.now())?;
+        let mut permits = self.permits.write().map_err(|_| cmux_v3_grants::Error::InvalidGrant)?;
+        let mut next = permits.revocations.clone();
+        next.apply_update(&update)?;
+        permits.revocations = next;
+        Ok(())
+    }
     fn now(&self) -> u64 {
         unix_now().max(self.epoch.saturating_add(self.started.elapsed().as_secs()))
     }
@@ -492,5 +502,22 @@ mod tests {
             ),
             Response::Denied
         );
+    }
+
+    #[test]
+    fn signed_feed_revocation_disconnects_an_unlimited_cached_permission() {
+        let (gate, signer) = fixture();
+        let source = peer();
+        let reserve = token(&signer, "a", source, gate.relay, "relay_reserve", true);
+        assert_eq!(gate.authorize(source, Request::Reserve { team: "a".into(), grant: reserve }), Response::Accepted);
+        assert!(gate.allow_reservation(source));
+        let update = cmux_v3_grants::RevocationUpdate {
+            key_id: String::new(), team_id: "a".into(), sequence: 1, policy_revision: 2,
+            revoked_peers: vec![source.to_string()], issued_at: unix_now(),
+        };
+        let token = signer.sign_revocation(update, unix_now()).unwrap();
+        gate.apply_revocation_token(&token).unwrap();
+        assert!(!gate.allow_reservation(source));
+        assert_eq!(gate.sweep(), vec![source]);
     }
 }

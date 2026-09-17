@@ -120,6 +120,18 @@ pub struct EventRequest {
     #[serde(default = "event_limit")]
     pub limit: i64,
 }
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelayEventRequest {
+    pub relay_peer: String,
+    #[serde(default = "all_teams")]
+    pub team: String,
+    #[serde(default)]
+    pub after_sequence: i64,
+    #[serde(default = "event_limit")]
+    pub limit: i64,
+}
+fn all_teams() -> String { "*".into() }
 fn event_limit() -> i64 { 256 }
 
 fn token(headers: &HeaderMap) -> Result<&str, Error> {
@@ -156,6 +168,7 @@ pub fn router(service: Service) -> Router {
         .route("/v3/revoke", post(revoke))
         .route("/v3/directory", post(directory))
         .route("/v3/events", post(events))
+        .route("/v3/relay-events", post(relay_events))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(axum::middleware::from_fn(
             move |request: axum::extract::Request, next: axum::middleware::Next| {
@@ -319,4 +332,25 @@ async fn events(
         }));
     }
     Ok(Json(serde_json::json!({"team":identity.team,"events":updates})))
+}
+async fn relay_events(
+    State(s): State<Service>, headers: HeaderMap, Json(input): Json<RelayEventRequest>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let bearer = token(&headers)?;
+    if input.relay_peer.parse::<libp2p_identity::PeerId>().is_err()
+        || input.team.len() > 256 || input.after_sequence < 0 || !(1..=256).contains(&input.limit)
+    { return Err(Error::Invalid); }
+    if !s.store.relay_token_valid(&input.relay_peer, bearer).await? { return Err(Error::Unauthorized); }
+    let rows = s.store.relay_events(&input.team, input.after_sequence, input.limit).await?;
+    let mut updates = Vec::with_capacity(rows.len());
+    for row in rows {
+        let revoked_peers = if row.action == "revoke" { row.peer_id.into_iter().collect() } else { Vec::new() };
+        let update = RevocationUpdate { key_id: String::new(), team_id: row.team_id,
+            sequence: row.sequence as u64, policy_revision: row.revision as u64,
+            revoked_peers, issued_at: now() };
+        updates.push(serde_json::json!({"sequence":update.sequence,
+            "policy_revision":update.policy_revision,
+            "update":s.signer.sign_revocation(update, now()).map_err(|_| Error::Unavailable)?}));
+    }
+    Ok(Json(serde_json::json!({"events":updates})))
 }

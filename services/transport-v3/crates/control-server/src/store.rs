@@ -6,6 +6,7 @@ use cmux_v3_authority::{Device, TeamPolicy, DEFAULT_POLICY};
 use cmux_v3_grants::{Grant, GrantSigner, LeasePolicy, Scope};
 use libp2p_identity::PeerId;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool, Postgres, Transaction};
 
 #[derive(Clone)]
@@ -26,6 +27,7 @@ struct Record {
 }
 #[derive(FromRow)]
 pub struct EventRecord {
+    pub team_id: String,
     pub sequence: i64,
     pub revision: i64,
     pub action: String,
@@ -352,8 +354,20 @@ impl Store {
     pub async fn events(&self, identity: &Identity, after: i64, limit: i64) -> Result<Vec<EventRecord>, Error> {
         if after < 0 || !(1..=256).contains(&limit) { return Err(Error::Invalid); }
         sqlx::query_as::<_, EventRecord>(
-            "SELECT sequence,revision,action,peer_id FROM transport_v3_events WHERE team_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3"
+            "SELECT team_id,sequence,revision,action,peer_id FROM transport_v3_events WHERE team_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3"
         )
         .bind(&identity.team).bind(after).bind(limit).fetch_all(&self.0).await.map_err(Into::into)
+    }
+    pub async fn relay_token_valid(&self, relay: &str, token: &str) -> Result<bool, Error> {
+        if relay.parse::<PeerId>().is_err() || token.is_empty() || token.len() > 8192 { return Ok(false); }
+        let hash = Sha256::digest(token.as_bytes()).to_vec();
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM transport_v3_relays WHERE peer_id=$1 AND active AND feed_token_hash=$2)")
+            .bind(relay).bind(hash).fetch_one(&self.0).await?)
+    }
+    pub async fn relay_events(&self, team: &str, after: i64, limit: i64) -> Result<Vec<EventRecord>, Error> {
+        if team.len() > 256 || !(1..=256).contains(&limit) || after < 0 { return Err(Error::Invalid); }
+        sqlx::query_as::<_, EventRecord>(
+            "SELECT team_id,sequence,revision,action,peer_id FROM transport_v3_events WHERE ($1='*' OR team_id=$1) AND sequence>$2 ORDER BY sequence LIMIT $3"
+        ).bind(team).bind(after).bind(limit).fetch_all(&self.0).await.map_err(Into::into)
     }
 }
