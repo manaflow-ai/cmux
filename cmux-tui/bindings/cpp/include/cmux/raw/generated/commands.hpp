@@ -89,6 +89,7 @@ public:
     [[nodiscard]] Result<ListClientsResult> list_clients(const ListClientsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<MachineListeningTcpResult> machine_listening_tcp(const MachineListeningTcpRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineStatsResult> machine_stats(const MachineStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineStatsStream> machine_stats_follow(const MachineStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
@@ -107,6 +108,7 @@ public:
     [[nodiscard]] Result<NotifyResult> notify(const NotifyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> pairing_response(const PairingResponseRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PaneNeighborResult> pane_neighbor(const PaneNeighborRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PingResult> ping(const PingRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ProcessInfoResult> process_info(const ProcessInfoRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});

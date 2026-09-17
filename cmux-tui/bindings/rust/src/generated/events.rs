@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90.
+// cmux-tui mux protocol 12, IR 94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -101,6 +101,8 @@ pub struct ColorsChangedEvent {
     pub cursor_style: Optional<T::CursorStyle>,
     pub fg: Nullable<T::ColorHex>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<T::TerminalColorOverrides>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, T::ColorHex>>,
     pub selection_bg: Nullable<T::ColorHex>,
     pub selection_fg: Nullable<T::ColorHex>,
@@ -111,6 +113,11 @@ pub struct ColorsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConfigReloadRequestedEvent {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DaemonShutdownEvent {
 }
 
 #[rustfmt::skip]
@@ -540,6 +547,7 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
+    DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
     Frame(FrameEvent),
@@ -595,6 +603,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
+            Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
             Self::Frame(_) => Some("frame"),
@@ -649,6 +658,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
+            Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
@@ -763,6 +773,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("config-reload-requested") => match serde_json::from_value::<ConfigReloadRequestedEvent>(raw.clone()) {
             Ok(event) => Event::ConfigReloadRequested(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("daemon-shutdown") => match serde_json::from_value::<DaemonShutdownEvent>(raw.clone()) {
+            Ok(event) => Event::DaemonShutdown(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

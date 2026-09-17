@@ -1,8 +1,13 @@
 import {
+  coderouterControlRoute,
+  recordCoderouterIdentity,
+} from "@/services/coderouter/requestTelemetry";
+import {
   authenticateRouteToken,
   issueRouteToken,
   revokeRouteToken,
 } from "../../../../services/coderouter/repository";
+import { authenticateCoderouterCredential, authenticateRequestRouteToken } from "../../../../services/coderouter/routeTokenAuth";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
@@ -21,17 +26,18 @@ const defaultDependencies: SessionDependencies = {
   issueToken: issueRouteToken,
 };
 
-export const POST = makeCoderouterSessionPostHandler();
+export const POST = coderouterControlRoute("session", "/api/coderouter/session", makeCoderouterSessionPostHandler());
 
-export const GET = makeCoderouterSessionGetHandler();
+export const GET = coderouterControlRoute("session", "/api/coderouter/session", makeCoderouterSessionGetHandler());
 
 export function makeCoderouterSessionGetHandler(
-  authenticate: typeof authenticateRouteToken = authenticateRouteToken,
+  authenticate: typeof authenticateRouteToken = authenticateCoderouterCredential,
 ) {
   return async function GET(request: Request): Promise<Response> {
     const authorization = request.headers.get("authorization")?.trim() ?? "";
     const token = /^Bearer[ \t]+(.+)$/i.exec(authorization)?.[1]?.trim();
-    const identity = token ? await authenticate(token) : null;
+    const auth = await authenticateRequestRouteToken(request, authenticate);
+    const identity = auth.ok ? auth.identity : null;
     if (!identity) {
       addCoderouterBreadcrumb(
         "auth",
@@ -56,6 +62,12 @@ export function makeCoderouterSessionGetHandler(
         { status: 401, headers: { "cache-control": "no-store" } },
       );
     }
+    recordCoderouterIdentity({
+      teamId: identity.teamId,
+      stackUserId: identity.stackUserId,
+      vmId: identity.vmId ?? null,
+      ...(identity.apiKeyId ? { apiKeyId: identity.apiKeyId } : {}),
+    });
     return new Response(null, {
       status: 204,
       headers: { "cache-control": "no-store" },
@@ -114,7 +126,9 @@ export function makeCoderouterSessionPostHandler(
   };
 }
 
-export async function DELETE(request: Request): Promise<Response> {
+export const DELETE = coderouterControlRoute("session", "/api/coderouter/session", handleDelete);
+
+async function handleDelete(request: Request): Promise<Response> {
   const resolved = await resolveCodeRouterRequestContext(request);
   if (!resolved.ok) return resolved.response;
   const routeToken = request.headers.get("x-coderouter-route-token")?.trim();

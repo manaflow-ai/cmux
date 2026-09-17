@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4b31d5c6f6df8765a5f839ffd558d586a763c0a3b7a1b93f34e865bed5d03b90.
+// cmux-tui mux protocol 12, IR 94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -583,6 +583,11 @@ pub type ListWorkspacesResult = T::Tree;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MachineListeningTcpRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MachineStatsRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub follow: Option<bool>,
@@ -783,6 +788,30 @@ pub type PairingResponseResult = T::EmptyResult;
 pub struct PaneNeighborRequest {
     pub dir: T::PaneDirection,
     pub pane: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasteImageRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub data: Optional<String>,
+    pub lease: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mime: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub size: Optional<u64>,
+    pub surface: T::Id,
+    pub terminal_id: String,
+    pub upload_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PasteImageResult {
+    pub accepted: bool,
 }
 
 #[rustfmt::skip]
@@ -1540,6 +1569,10 @@ impl CmuxClient {
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 
+    pub fn machine_listening_tcp(&mut self, request: MachineListeningTcpRequest) -> Result<T::MachineListeningTcpResult> {
+        self.execute(&MACHINE_LISTENING_TCP_METADATA, &request)
+    }
+
     pub fn machine_stats(&mut self, request: MachineStatsRequest) -> Result<T::MachineStatsResult> {
         let mut request = request;
         request.follow = Some(false);
@@ -1630,6 +1663,10 @@ impl CmuxClient {
 
     pub fn pane_neighbor(&mut self, request: PaneNeighborRequest) -> Result<T::PaneNeighborResult> {
         self.execute(&PANE_NEIGHBOR_METADATA, &request)
+    }
+
+    pub fn paste_image(&mut self, request: PasteImageRequest) -> Result<PasteImageResult> {
+        self.execute(&PASTE_IMAGE_METADATA, &request)
     }
 
     pub fn ping(&mut self, request: PingRequest) -> Result<T::PingResult> {

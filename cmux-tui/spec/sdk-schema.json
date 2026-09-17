@@ -4459,6 +4459,36 @@
    },
    "additional_properties": false
   },
+  "TerminalColorOverrides": {
+   "kind": "object",
+   "fields": {
+    "fg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "bg": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "cursor": {
+     "type": {
+      "kind": "ref",
+      "name": "ColorHex"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "TerminalColors": {
    "kind": "object",
    "fields": {
@@ -4486,6 +4516,15 @@
      "presence": "optional",
      "nullable": true,
      "since": 6
+    },
+    "overrides": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalColorOverrides"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
     },
     "selection_bg": {
      "type": {
@@ -4737,6 +4776,24 @@
    "constraints": [
     "period_days is the trailing window length in days.",
     "api_equivalent_usd is the list-price equivalent of the machine's model traffic in that window."
+   ]
+  },
+  "MachineListeningTcpResult": {
+   "kind": "object",
+   "fields": {
+    "stdout": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "The daemon runs only a fixed socket-listing command; callers cannot supply command text.",
+    "The output is limited to 524288 bytes."
    ]
   },
   "MachineUsageResult": {
@@ -6705,8 +6762,8 @@
       "nullable": false,
       "constraints": [
        {
-        "pattern": "^[0-9a-f]{32}$",
-        "format": "UUIDv4 hex without dashes"
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
        }
       ]
      }
@@ -10352,6 +10409,24 @@
     "Call only after the external provider durably accepts the rename."
    ]
   },
+  "machine-listening-tcp": {
+   "authority": "control",
+   "since": 12,
+   "capability": "machine-listening-tcp-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "MachineListeningTcpResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Routine Cloud port inventory uses this command over the authenticated private cmux-tui link."
+   ]
+  },
   "machine-usage": {
    "authority": "control",
    "since": 12,
@@ -10384,6 +10459,111 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll."
+   ]
+  },
+  "paste-image": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-image-paste-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "lease": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "upload_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "op": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "mime": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "size": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "offset": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "accepted": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
    ]
   },
   "machine-stats": {
@@ -10827,6 +11007,15 @@
       "presence": "optional",
       "nullable": true
      },
+     "overrides": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalColorOverrides"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
      "selection_bg": {
       "type": {
        "kind": "ref",
@@ -10889,6 +11078,28 @@
       "type": {
        "kind": "literal",
        "value": "config-reload-requested"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "daemon-shutdown": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "daemon-shutdown"
       },
       "presence": "required",
       "nullable": false

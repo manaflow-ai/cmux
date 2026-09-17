@@ -10,10 +10,15 @@ import {
   providerField,
   stringField,
 } from "../services/vms/routeInput";
-import { VmFreeAccessExpiredError, VmNotFoundError } from "../services/vms/errors";
+import {
+  VmFreeAccessExpiredError,
+  VmNotFoundError,
+  VmResizeInProgressError,
+} from "../services/vms/errors";
 import {
   vmCreateLikeErrorResponse,
   vmResourceErrorResponse,
+  vmWorkflowErrorResponse,
 } from "../services/vms/routeHelpers";
 
 async function responseBody(response: Response): Promise<Record<string, unknown>> {
@@ -123,14 +128,27 @@ describe("Cloud VM route error adapters", () => {
     expect((await responseBody(expired!)).error).toBe("vm_access_requires_pro");
   });
 
+  test("maps a concurrent disk resize to a retryable conflict", async () => {
+    const response = await vmWorkflowErrorResponse(new VmResizeInProgressError({
+      vmId: "vm-resize-in-progress",
+    }));
+    expect(response?.status).toBe(409);
+    expect(response?.headers.get("retry-after")).toBe("5");
+    expect(await responseBody(response!)).toMatchObject({
+      error: "vm_resize_in_progress",
+      retryable: true,
+      retryAfterSeconds: 5,
+    });
+  });
+
   test("keeps fork and restore provisioning guidance distinct", async () => {
     const error = { _tag: "VmCreateFailedError", idempotencyKey: "key" };
-    const fork = vmCreateLikeErrorResponse(error, {
+    const fork = await vmCreateLikeErrorResponse(error, {
       operation: "fork",
       planId: "free",
       retryAction: "fork retry",
     });
-    const restore = vmCreateLikeErrorResponse(error, {
+    const restore = await vmCreateLikeErrorResponse(error, {
       operation: "restore",
       planId: "free",
       retryAction: "restore retry",
