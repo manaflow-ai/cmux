@@ -34,6 +34,7 @@ fn enrollment(team: &str) -> Signed<Enrollment> {
         request: Enrollment {
             team: team.into(),
             device_id: Uuid::new_v4(),
+            addresses: vec![],
         },
         proof: proof(),
     }
@@ -80,6 +81,7 @@ async fn postgres_authorization_and_revocation_are_atomic_and_tenant_scoped() {
         request: Enrollment {
             team: team.clone(),
             device_id: enroll.request.device_id,
+            addresses: vec![],
         },
         proof: proof(),
     };

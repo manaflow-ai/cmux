@@ -24,6 +24,7 @@ struct Record {
     active: bool,
     tags: serde_json::Value,
     lease: serde_json::Value,
+    addresses: serde_json::Value,
 }
 #[derive(FromRow)]
 pub struct EventRecord {
@@ -113,12 +114,18 @@ impl Store {
         input: &Signed<Enrollment>,
         peer: PeerId,
     ) -> Result<i64, Error> {
-        if input.request.team != identity.team || input.request.device_id.is_nil() {
+        if input.request.team != identity.team
+            || input.request.device_id.is_nil()
+            || input.request.addresses.len() > 16
+            || input.request.addresses.iter().any(|address| {
+                address.len() > 2048 || address.parse::<multiaddr::Multiaddr>().is_err()
+            })
+        {
             return Err(Error::Denied);
         }
         let (mut tx, team) = self.lock(identity).await?;
         Self::nonce(&mut tx, identity, &input.proof).await?;
-        let old=sqlx::query_as::<_,Record>("SELECT peer_id,device_id,owner_user_id,active,tags,lease FROM transport_v3_devices WHERE team_id=$1 AND peer_id=$2")
+        let old=sqlx::query_as::<_,Record>("SELECT peer_id,device_id,owner_user_id,active,tags,lease,addresses FROM transport_v3_devices WHERE team_id=$1 AND peer_id=$2")
             .bind(&identity.team).bind(peer.to_string()).fetch_optional(&mut *tx).await?;
         if let Some(old) = old {
             if old.owner_user_id != identity.user
@@ -127,6 +134,14 @@ impl Store {
             {
                 return Err(Error::Denied);
             }
+            sqlx::query(
+                "UPDATE transport_v3_devices SET addresses=$3 WHERE team_id=$1 AND peer_id=$2",
+            )
+            .bind(&identity.team)
+            .bind(peer.to_string())
+            .bind(serde_json::to_value(&input.request.addresses).map_err(|_| Error::Invalid)?)
+            .execute(&mut *tx)
+            .await?;
             tx.commit().await?;
             return Ok(team.revision);
         }
@@ -138,8 +153,14 @@ impl Store {
         if count >= 10000 {
             return Err(Error::Denied);
         }
-        sqlx::query("INSERT INTO transport_v3_devices(team_id,peer_id,device_id,owner_user_id) VALUES($1,$2,$3,$4)")
-            .bind(&identity.team).bind(peer.to_string()).bind(input.request.device_id).bind(&identity.user).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO transport_v3_devices(team_id,peer_id,device_id,owner_user_id,addresses) VALUES($1,$2,$3,$4,$5)")
+            .bind(&identity.team)
+            .bind(peer.to_string())
+            .bind(input.request.device_id)
+            .bind(&identity.user)
+            .bind(serde_json::to_value(&input.request.addresses).map_err(|_| Error::Invalid)?)
+            .execute(&mut *tx)
+            .await?;
         Self::event(
             &mut tx,
             identity,
@@ -177,7 +198,7 @@ impl Store {
             .map_err(|_| Error::Invalid)?;
         let (mut tx, team) = self.lock(identity).await?;
         Self::nonce(&mut tx, identity, &input.proof).await?;
-        let rows=sqlx::query_as::<_,Record>("SELECT peer_id,device_id,owner_user_id,active,tags,lease FROM transport_v3_devices WHERE team_id=$1 AND (peer_id=$2 OR peer_id=$3)")
+        let rows=sqlx::query_as::<_,Record>("SELECT peer_id,device_id,owner_user_id,active,tags,lease,addresses FROM transport_v3_devices WHERE team_id=$1 AND (peer_id=$2 OR peer_id=$3)")
             .bind(&identity.team).bind(source.to_string()).bind(destination.to_string()).fetch_all(&mut *tx).await?;
         let src = rows
             .iter()
@@ -343,7 +364,7 @@ impl Store {
     }
     pub async fn directory(&self, identity: &Identity) -> Result<serde_json::Value, Error> {
         let (mut tx, team) = self.lock(identity).await?;
-        let rows=sqlx::query_as::<_,Record>("SELECT peer_id,device_id,owner_user_id,active,tags,lease FROM transport_v3_devices WHERE team_id=$1 ORDER BY peer_id LIMIT 10001")
+        let rows=sqlx::query_as::<_,Record>("SELECT peer_id,device_id,owner_user_id,active,tags,lease,addresses FROM transport_v3_devices WHERE team_id=$1 ORDER BY peer_id LIMIT 10001")
             .bind(&identity.team).fetch_all(&mut *tx).await?;
         if rows.len() > 10000 {
             return Err(Error::Unavailable);

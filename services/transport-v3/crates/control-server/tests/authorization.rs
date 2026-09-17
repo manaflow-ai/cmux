@@ -9,6 +9,7 @@ fn proof_binds_user_region_deployment_operation_and_payload() {
     let body = Enrollment {
         team: "team-a".into(),
         device_id: Uuid::new_v4(),
+        addresses: vec![],
     };
     let mut proof = Proof {
         public_key: hex::encode(key.verifying_key().as_bytes()),
@@ -50,7 +51,8 @@ fn proof_binds_user_region_deployment_operation_and_payload() {
             "/v3/enroll",
             &Enrollment {
                 team: "team-b".into(),
-                device_id: body.device_id
+                device_id: body.device_id,
+                addresses: vec![],
             },
             100
         )
@@ -69,8 +71,7 @@ fn proof_binds_user_region_deployment_operation_and_payload() {
 #[test]
 fn enrollment_cannot_assign_privileges_and_no_claimed_source_identity() {
     let proof = serde_json::json!({"public_key":"00".repeat(32),"nonce":Uuid::new_v4(),"issued_at":100,"signature":"00".repeat(64)});
-    let valid =
-        serde_json::json!({"request":{"team":"a","device_id":Uuid::new_v4()},"proof":proof});
+    let valid = serde_json::json!({"request":{"team":"a","device_id":Uuid::new_v4(),"addresses":[]},"proof":proof});
     assert!(serde_json::from_value::<Signed<Enrollment>>(valid.clone()).is_ok());
     for (field, value) in [
         ("tags", serde_json::json!(["admin"])),

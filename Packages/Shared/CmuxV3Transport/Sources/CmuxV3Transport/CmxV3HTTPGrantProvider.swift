@@ -22,6 +22,11 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
             guard origin.scheme?.lowercased() == "https" || origin.host == "127.0.0.1" || origin.host == "localhost" else {
                 throw CmxV3HTTPGrantError.insecureOrigin
             }
+            guard origin.host != nil, origin.user?.isEmpty ?? true, origin.password == nil,
+                  origin.query == nil, origin.fragment == nil,
+                  origin.path.isEmpty || origin.path == "/" else {
+                throw CmxV3HTTPGrantError.invalidConfiguration
+            }
             guard !audience.isEmpty, !team.isEmpty, !deviceID.isEmpty else { throw CmxV3HTTPGrantError.invalidConfiguration }
             self.origin = origin; self.audience = audience; self.team = team; self.deviceID = deviceID
             self.signingKey = signingKey; self.accessToken = accessToken; self.userID = userID
@@ -32,12 +37,25 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
     private let session: URLSession
     public init(configuration: Configuration, session: URLSession = .shared) { self.configuration = configuration; self.session = session }
 
+    public func enroll(peerID: String, deviceID: UUID, addresses: [String] = []) async throws {
+        let payload = EnrollmentPayload(team: configuration.team, deviceID: deviceID, addresses: addresses)
+        let response: EnrollmentResponse = try await post(
+            "/v3/enroll",
+            body: Signed(request: payload, proof: try await proof(path: "/v3/enroll", payload: payload))
+        )
+        guard response.peer == peerID else { throw CmxV3HTTPGrantError.identityMismatch }
+    }
+
     public func authorization(for request: CmxByteTransportRequest, source: String) async throws -> CmxV3Authorization {
+        try await authorization(for: request, source: source, action: "connect")
+    }
+
+    public func authorization(for request: CmxByteTransportRequest, source: String, action: String) async throws -> CmxV3Authorization {
         let directory: Directory = try await post("/v3/directory", body: DirectoryRequest(team: configuration.team))
         guard let target = directory.devices.first(where: { $0.peerID == request.route.v3PeerID }) else { throw CmxV3HTTPGrantError.unknownPeer }
-        let payload = AuthorizationPayload(team: configuration.team, destination: target.peerID, action: "connect")
+        let payload = AuthorizationPayload(team: configuration.team, destination: target.peerID, action: action)
         let grant: GrantResponse = try await post("/v3/authorize", body: Signed(request: payload, proof: try await proof(path: "/v3/authorize", payload: payload)))
-        return CmxV3Authorization(deviceID: target.deviceID, peerID: target.peerID, grant: grant.grant)
+        return CmxV3Authorization(deviceID: target.deviceID, peerID: target.peerID, grant: grant.grant, addresses: target.addresses)
     }
 
     public func relayGrant(for request: CmxByteTransportRequest, source: String, relay: String) async throws -> String? {
@@ -90,8 +108,16 @@ public enum CmxV3HTTPGrantError: Error, Equatable, Sendable {
     case unknownPeer
     case requestFailed
     case signingFailed
+    case identityMismatch
 }
 private struct DirectoryRequest: Encodable { let team: String }
+private struct EnrollmentPayload: Codable {
+    let team: String
+    let deviceID: UUID
+    let addresses: [String]
+    enum CodingKeys: String, CodingKey { case team; case deviceID = "device_id"; case addresses }
+}
+private struct EnrollmentResponse: Decodable { let peer: String }
 private struct AuthorizationPayload: Codable {
     let team: String
     let destination: String
@@ -109,7 +135,18 @@ private struct Signed<Request: Encodable>: Encodable { let request: Request; let
 private struct CmxV3DeviceProof: Codable { let publicKey: String; let nonce: UUID; let issuedAt: UInt64; let signature: String; enum CodingKeys: String, CodingKey { case publicKey = "public_key"; case nonce; case issuedAt = "issued_at"; case signature } }
 private struct GrantResponse: Decodable { let grant: String }
 private struct Directory: Decodable { let devices: [DirectoryDevice] }
-private struct DirectoryDevice: Decodable { let peerID: String; let deviceID: String; enum CodingKeys: String, CodingKey { case peerID = "peer_id"; case deviceID = "device_id" } }
+private struct DirectoryDevice: Decodable {
+    let peerID: String
+    let deviceID: String
+    let addresses: [String]
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        peerID = try container.decode(String.self, forKey: .peerID)
+        deviceID = try container.decode(String.self, forKey: .deviceID)
+        addresses = try container.decodeIfPresent([String].self, forKey: .addresses) ?? []
+    }
+    enum CodingKeys: String, CodingKey { case peerID = "peer_id"; case deviceID = "device_id"; case addresses }
+}
 private struct ProofMessage<Payload: Encodable>: Encodable {
     let audience: String; let user: String; let path: String; let nonce: UUID; let issuedAt: UInt64; let payload: Payload
     func encode(to encoder: Encoder) throws {

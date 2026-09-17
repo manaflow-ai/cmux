@@ -75,6 +75,7 @@ pub struct Signed<T> {
 pub struct Enrollment {
     pub team: String,
     pub device_id: Uuid,
+    pub addresses: Vec<String>,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

@@ -7,9 +7,15 @@ import Foundation
 public protocol CmxV3GrantProviding: Sendable {
     /// Resolve the device through the authenticated directory before requesting its grant.
     func authorization(for request: CmxByteTransportRequest, source: String) async throws -> CmxV3Authorization
+    /// Request a grant for one exact application lane action.
+    func authorization(for request: CmxByteTransportRequest, source: String, action: String) async throws -> CmxV3Authorization
 }
 
 public extension CmxV3GrantProviding {
+    func authorization(for request: CmxByteTransportRequest, source: String, action: String) async throws -> CmxV3Authorization {
+        guard action == "connect" else { throw CmxV3TransportError.actionUnsupported }
+        return try await authorization(for: request, source: source)
+    }
     func relayGrant(for request: CmxByteTransportRequest, source: String, relay: String) async throws -> String? { nil }
 }
 
@@ -17,10 +23,12 @@ public struct CmxV3Authorization: Sendable {
     public let deviceID: String
     public let peerID: String
     public let grant: String
-    public init(deviceID: String, peerID: String, grant: String) {
+    public let addresses: [String]
+    public init(deviceID: String, peerID: String, grant: String, addresses: [String] = []) {
         self.deviceID = deviceID
         self.peerID = peerID
         self.grant = grant
+        self.addresses = addresses
     }
 }
 
@@ -41,16 +49,34 @@ public struct CmxV3ByteTransportFactory: CmxRouteAwareByteTransportFactory {
     }
 
     public func makeTransport(for request: CmxByteTransportRequest) throws -> any CmxByteTransport {
+        try makeLaneTransport(for: request, kind: 0, resource: nil, cursor: nil)
+    }
+
+    /// Builds one independently authorized session lane. `kind` uses the
+    /// shared v3 lane table: 0 control, 1 events, 2 terminal read, 3 terminal
+    /// input, 4 artifact, 5 simulator.
+    public func makeLaneTransport(
+        for request: CmxByteTransportRequest,
+        kind: UInt8,
+        resource: String? = nil,
+        cursor: UInt64? = nil
+    ) throws -> any CmxByteTransport {
         try request.route.validate()
         guard request.route.kind == .v3 else { throw CmxV3TransportError.unsupportedRoute }
         guard case let .v3Peer(identity) = request.route.endpoint,
               request.authorizationMode == .transportAdmission,
-              !identity.addresses.isEmpty
+              !identity.addresses.isEmpty,
+              kind <= 5
         else { throw CmxV3TransportError.peerIntentRequired }
         let endpoint = self.endpoint
         let grants = self.grants
         return V3ByteTransport { operation in
-            let authorization = try await grants.authorization(for: request, source: endpoint.peerId())
+            let action = switch kind {
+            case 2: "terminal_read"
+            case 3: "terminal_write"
+            default: "connect"
+            }
+            let authorization = try await grants.authorization(for: request, source: endpoint.peerId(), action: action)
             if let expected = request.expectedPeerDeviceID, authorization.deviceID != expected {
                 throw CmxV3TransportError.peerIntentRequired
             }
@@ -66,7 +92,7 @@ public struct CmxV3ByteTransportFactory: CmxRouteAwareByteTransportFactory {
                     } else { nil }
                     return try await endpoint.open(peerId: identity.peerID, address: address,
                         grant: authorization.grant, relayGrant: relayGrant,
-                        lane: LaneDescriptor(kind: 0, resource: nil, cursor: nil), operation: operation)
+                        lane: LaneDescriptor(kind: kind, resource: resource, cursor: cursor), operation: operation)
                 } catch NativeError.Transport {
                     lastError = NativeError.Transport
                 }
@@ -74,6 +100,7 @@ public struct CmxV3ByteTransportFactory: CmxRouteAwareByteTransportFactory {
             throw lastError
         }
     }
+
 }
 
 private extension String {
@@ -88,4 +115,5 @@ private extension String {
 public enum CmxV3TransportError: Error, Equatable, Sendable {
     case unsupportedRoute
     case peerIntentRequired
+    case actionUnsupported
 }
