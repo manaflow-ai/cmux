@@ -9,51 +9,51 @@ import SwiftUI
 import UIKit
 
 /// Every user-facing string of the local Linux feature, in one place.
-enum LocalLinuxStrings {
-    static var computerTitle: String {
+private struct LocalLinuxStrings {
+    var computerTitle: String {
         L10n.string("mobile.localLinux.computer.title", defaultValue: "This iPhone")
     }
 
-    static var computerSubtitle: String {
+    var computerSubtitle: String {
         L10n.string("mobile.localLinux.computer.subtitle", defaultValue: "Local Alpine Linux")
     }
 
-    static var title: String {
+    var title: String {
         L10n.string("mobile.localLinux.title", defaultValue: "Local Linux")
     }
 
-    static var starting: String {
+    var starting: String {
         L10n.string("mobile.localLinux.starting", defaultValue: "Starting local Linux…")
     }
 
-    static var startingDetail: String {
+    var startingDetail: String {
         L10n.string(
             "mobile.localLinux.starting.detail",
             defaultValue: "Preparing an Alpine shell on this device."
         )
     }
 
-    static var progress: String {
+    var progress: String {
         L10n.string("mobile.localLinux.progress", defaultValue: "Loading local Linux")
     }
 
-    static var ended: String {
+    var ended: String {
         L10n.string("mobile.localLinux.ended", defaultValue: "The local Linux session ended")
     }
 
-    static var endedDetail: String {
+    var endedDetail: String {
         L10n.string("mobile.localLinux.ended.detail", defaultValue: "Start a new shell to continue.")
     }
 
-    static var errorTitle: String {
+    var errorTitle: String {
         L10n.string("mobile.localLinux.error.title", defaultValue: "Local Linux is unavailable")
     }
 
-    static var retry: String {
+    var retry: String {
         L10n.string("mobile.localLinux.retry", defaultValue: "Try Again")
     }
 
-    static var retryHint: String {
+    var retryHint: String {
         L10n.string(
             "mobile.localLinux.retry.hint",
             defaultValue: "Activate Try Again to restart the local shell."
@@ -62,7 +62,7 @@ enum LocalLinuxStrings {
 
     /// One sentence per failure class so a missing image, a kernel fault, a
     /// dead renderer, and a broken pty are distinguishable without logs.
-    static func detail(for error: LocalLinuxError?) -> String {
+    func detail(for error: LocalLinuxError?) -> String {
         switch error {
         case .rootfsAssetMissing:
             L10n.string(
@@ -127,9 +127,9 @@ public final class LocalLinuxComputerProvider: MobileLocalComputerProviding {
         self.init(controller: LocalLinuxComputerController(runtime: runtime))
     }
 
-    public var title: String { LocalLinuxStrings.computerTitle }
+    public var title: String { LocalLinuxStrings().computerTitle }
 
-    public var subtitle: String { LocalLinuxStrings.computerSubtitle }
+    public var subtitle: String { LocalLinuxStrings().computerSubtitle }
 
     public var symbolName: String { "iphone" }
 
@@ -184,7 +184,7 @@ public struct LocalLinuxComputerView: View {
             }
         }
         .background(Color.black)
-        .navigationTitle(LocalLinuxStrings.title)
+        .navigationTitle(LocalLinuxStrings().title)
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -203,26 +203,26 @@ private struct LocalLinuxComputerStatusOverlay: View {
     private var title: String {
         switch state {
         case .idle, .starting:
-            LocalLinuxStrings.starting
+            LocalLinuxStrings().starting
         case .running:
-            LocalLinuxStrings.title
+            LocalLinuxStrings().title
         case .ended:
-            LocalLinuxStrings.ended
+            LocalLinuxStrings().ended
         case .failed:
-            LocalLinuxStrings.errorTitle
+            LocalLinuxStrings().errorTitle
         }
     }
 
     private var detail: String? {
         switch state {
         case .idle, .starting:
-            LocalLinuxStrings.startingDetail
+            LocalLinuxStrings().startingDetail
         case .running:
             nil
         case .ended:
-            LocalLinuxStrings.endedDetail
+            LocalLinuxStrings().endedDetail
         case .failed:
-            LocalLinuxStrings.detail(for: error)
+            LocalLinuxStrings().detail(for: error)
         }
     }
 
@@ -231,7 +231,7 @@ private struct LocalLinuxComputerStatusOverlay: View {
             if state == .idle || state == .starting {
                 ProgressView()
                     .tint(.white)
-                    .accessibilityLabel(LocalLinuxStrings.progress)
+                    .accessibilityLabel(LocalLinuxStrings().progress)
             } else {
                 Image(systemName: state == .failed ? "exclamationmark.triangle" : "pause.circle")
                     .font(.title2)
@@ -257,12 +257,12 @@ private struct LocalLinuxComputerStatusOverlay: View {
             // cannot be safely reinitialized in place.
             if canRetry {
                 Button(action: retry) {
-                    Label(LocalLinuxStrings.retry, systemImage: "arrow.clockwise")
+                    Label(LocalLinuxStrings().retry, systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.white)
                 .foregroundStyle(.black)
-                .accessibilityHint(LocalLinuxStrings.retryHint)
+                .accessibilityHint(LocalLinuxStrings().retryHint)
             }
         }
         .padding(.horizontal, 24)
