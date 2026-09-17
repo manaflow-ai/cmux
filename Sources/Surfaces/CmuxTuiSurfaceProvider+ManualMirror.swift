@@ -25,7 +25,11 @@ extension CmuxTuiSurfaceProvider {
         try catalog.validateOwnership(of: [resource.id], at: destination)
         // A pool terminal opened into a mirrored workspace takes its tab there, not in
         // whichever workspace the daemon happens to focus.
-        let resolved = try await resolveSurfaceIDForMaterialization(
+        let resolved: (surfaceID: UInt64, placement: SurfaceRemotePlacement?)
+        if let attachment = resource.creationAttachment {
+            resolved = (attachment.surfaceID, nil)
+        } else {
+        resolved = try await resolveSurfaceIDForMaterialization(
             terminalID: resource.id.key,
             socketPath: connected.socketPath,
             link: link,
@@ -41,11 +45,13 @@ extension CmuxTuiSurfaceProvider {
                 )
         )
 
+        }
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
             remoteSurfaceID: resolved.surfaceID,
             operations: links.operations,
+            creationAttachment: resource.creationAttachment,
             correlationID: correlationID,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()

@@ -375,7 +375,22 @@ fn dispatch_exact_topology_mutation(
         | ResourceOperation::PaneRun
         | ResourceOperation::TabCreateTerminal
         | ResourceOperation::TabCreateBrowser => {
-            mutation_result(mux, commit.result, commit.revision, commit.replayed)
+            // The durable receipt stays replayable. Runtime handles are derived
+            // from its exact live tab on each response, never persisted/replayed.
+            let attachment = commit.result["terminal_id"].as_str().and_then(|terminal| {
+                let surface_id = mux.resource_surface_for_created_path(&commit.result).ok()?;
+                let surface = mux.surface(surface_id)?;
+                if surface.terminal_public_id().map(|id| id.as_str()) != Some(terminal) {
+                    return None;
+                }
+                let (_, generation) = mux.registry_identity();
+                Some(json!({"surface":surface_id,"terminal_id":terminal,"generation":generation}))
+            });
+            let mut result = mutation_result(mux, commit.result, commit.revision, commit.replayed)?;
+            if let Some(attachment) = attachment {
+                result["attachment"] = attachment;
+            }
+            Ok(result)
         }
         _ => Err(ResourceError::operation_failed(
             super::operation_name(operation),

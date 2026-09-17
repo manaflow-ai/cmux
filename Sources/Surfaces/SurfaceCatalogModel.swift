@@ -1613,12 +1613,21 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneIndex: Int? = nil
 }
 
+/// Transient creation response metadata. The daemon must validate this identity
+/// again when attaching; numeric handles alone are unsafe across restarts.
+struct CloudCreationAttachment: Hashable, Codable, Sendable {
+    let surfaceID: UInt64
+    let generation: String
+    let terminalID: String
+}
+
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     var id: SurfaceResourceID
     var title: String
     /// cwd for terminals, URL for browsers, display name for screens.
     var detail: String?
     var lifecycle: SurfaceLifecycle
+    var creationAttachment: CloudCreationAttachment? = nil
     var agent: SurfaceAgentBadge?
     /// The workspace of the resource's first view (compat: pre-multi-view callers read
     /// one workspace). nil when the resource has zero views, or is local.

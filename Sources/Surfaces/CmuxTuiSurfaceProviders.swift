@@ -824,6 +824,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             port: nil,
             url: nil
         )
+        resource.creationAttachment = created.attachment
         if let tabID = created.tabID {
             resource.remoteViews = [SurfaceRemoteView(
                 tabID: tabID,
