@@ -178,8 +178,7 @@ enum FileDropTextDropController {
         workspace: Workspace,
         panelId: UUID,
         focusIntent: PanelFocusIntent,
-        window: NSWindow?,
-        pasteboard: NSPasteboard? = nil
+        window: NSWindow?
     ) {
         AppDelegate.shared?.noteMainPanelKeyboardFocusIntent(
             workspaceId: workspace.id,
