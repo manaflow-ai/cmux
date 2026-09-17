@@ -26,6 +26,10 @@ pub const AUTH_STATE_VERSION: u32 = 2;
 const MAX_INVITATION_TTL: Duration = Duration::from_secs(5 * 60);
 const MAX_LIVE_INVITATIONS: usize = 256;
 const APPROVAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// Device-id prefix of a grant issued by a trusted-network listener. Such a
+/// connection is admitted by the network it arrived on; it is never revoked by
+/// the daemon's device list or its carrier policy, only by leaving the network.
+pub const TRUSTED_NETWORK_DEVICE_PREFIX: &str = "network:";
 const ENROLLMENT_RETRY_GRACE: Duration = Duration::from_secs(60);
 const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
@@ -1152,6 +1156,9 @@ impl AuthDatabase {
     }
 
     pub async fn device_is_active(&self, device_id: &str) -> bool {
+        if device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
+            return true;
+        }
         if device_id.starts_with("carrier:") {
             return self.allow_carrier;
         }
@@ -1167,6 +1174,9 @@ impl AuthDatabase {
     /// published. The generation check closes the race where a revocation can
     /// happen after the Noise handshake but before all physical lanes arrive.
     pub async fn grant_is_current(&self, grant: &AuthGrant) -> bool {
+        if grant.device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX) {
+            return true;
+        }
         if grant.device_id.starts_with("carrier:") {
             return self.allow_carrier;
         }
@@ -1375,7 +1385,10 @@ impl AuthDatabase {
         device_id: &str,
         connection_attempt: ConnectionAttemptId,
     ) -> Result<(), IdentityError> {
-        if device_id.starts_with("carrier:") {
+        // Carrier and trusted-network grants have no device record to stamp;
+        // their admission is the transport's, not the device list's.
+        if device_id.starts_with("carrier:") || device_id.starts_with(TRUSTED_NETWORK_DEVICE_PREFIX)
+        {
             return Ok(());
         }
         let now = unix_time()?;
@@ -1567,6 +1580,23 @@ impl ServerAuthenticator for AuthDatabase {
                     device_id: fingerprint,
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: generation,
+                })
+            }
+            // A trusted-network listener vouches for every peer that can reach it;
+            // the grant still names the client's own key so connections stay
+            // attributable and individually disconnectable. The `network:` prefix
+            // keeps it apart from a policy-gated `carrier:` grant: the network's
+            // membership, not `allow_carrier`, is what keeps it current.
+            AuthKind::Carrier
+                if matches!(&request.inbound, InboundAuthEvidence::TrustedNetwork(_)) =>
+            {
+                Ok(AuthGrant {
+                    device_id: format!(
+                        "{TRUSTED_NETWORK_DEVICE_PREFIX}{}",
+                        public_key_fingerprint(&request.device_public_key)
+                    ),
+                    daemon_name: self.daemon_name.clone(),
+                    revocation_generation: *self.revocation_tx.borrow(),
                 })
             }
             AuthKind::Carrier
