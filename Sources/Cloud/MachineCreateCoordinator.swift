@@ -506,11 +506,11 @@ final class MachineCreateCoordinator {
             progressMarkerCarry.removeValue(forKey: id)
         }
         let finished = Finished(operation: operation, outcome: outcome)
+        if case let .created(_, workspaceID) = outcome, let workspaceID { selectCreatedWorkspace(workspaceID, for: operation.request) }
         lastFinished = finished
         notifier(MachineCreateNotice(finished: finished))
         postDidChange(finished: finished)
     }
-
     /// De-duplicates cleanup requests when a machine id appears in progress
     /// output and again in the process's final completion.
     private func cleanupCancelledMachine(_ machineID: String) {
