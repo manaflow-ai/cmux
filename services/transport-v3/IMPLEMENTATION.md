@@ -131,3 +131,26 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - Very short offline leases now request correspondingly fresher Stack evidence.
   Non-local Postgres connections require verified TLS. Neither change is in the
   already-built relay image; the relay binary itself was unchanged.
+
+## Live East US proof
+
+- East US staging node is installed and running on Standard_D2als_v7:
+  v3-staging-eastus-g0916a.eastus.cloudapp.azure.com (20.127.94.86), PeerId
+  12D3KooWPUivP2Fdq4BnD2hU477MG4X31rEdznqnH1k5GuKNiwUQ.
+- TCP 4001, QUIC/UDP 4001, and WSS/TLS 443 each passed a real fleet-to-Azure
+  authenticated relay exchange: 160 messages, 327680 application bytes each
+  direction, forged grant rejected. TLS certificate/hostname verification stayed
+  enabled. These prove relay paths, not direct NAT traversal or iOS behavior.
+- Private metrics confirm 6 accepted grants, 3 rejected grants, readiness 1,
+  and zero remaining connections/circuits after the probes. Public scans from the
+  fleet find SSH 22, management 8080 and internal WebSocket 4002 unreachable;
+  public TCP 4001 and TLS 443 are reachable. Receipts are in HQ artifacts under
+  transport-v3/azure-staging (g0916a.json, eastus-{tcp,quic,wss}.json, metrics).
+- West Europe refused NSG creation because the region is not accepting new
+  customers for this subscription. North Europe allowed networking but restricts
+  ordinary small VM sizes; no second relay has been created yet. Evaluating
+  another supported ordinary VM region without switching to confidential/GPU VMs.
+- Cloud-init's historical package error came from azure-cli missing in the
+  default Ubuntu repository. Installation now reconciles runtime packages and
+  installs CLI from Microsoft's signed repository, then checks actual relay
+  readiness. It does not equate VM provisioning or boot history with readiness.
