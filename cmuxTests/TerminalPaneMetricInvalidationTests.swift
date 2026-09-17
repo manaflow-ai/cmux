@@ -117,9 +117,11 @@ struct TerminalPaneMetricInvalidationTests {
         let rendered = try #require(fixture.surface.mobileRenderGridFrame(stateSeq: 0, includeTheme: false))
         #expect(rendered.frame.columns == sample.columns)
         #expect(rendered.frame.rows == sample.rows)
-        #expect(rendered.frame.rowSpans.allSatisfy {
-            $0.row < sample.rows && $0.column + $0.gridCellWidth <= sample.columns
-        })
+        for span in rendered.frame.rowSpans {
+            let cellWidth = try #require(span.cellWidth)
+            #expect(span.row < sample.rows)
+            #expect(span.column + cellWidth <= sample.columns)
+        }
         let rows = rendered.rows
         #expect(rows.allSatisfy { $0.count <= sample.columns })
         let compact = rows.joined().filter { !$0.isWhitespace }
