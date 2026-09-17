@@ -4,7 +4,7 @@ import Testing
 @testable import CmuxTerminalCore
 
 /// Verifies that cmux preserves configured Ghostty colors while retaining its
-/// adaptive managed palette for an untouched Ghostty configuration
+/// adaptive managed palette for configurations without authored terminal colors
 /// (https://github.com/manaflow-ai/cmux/issues/10199).
 @Suite struct GhosttyConfigThemeParityTests {
     enum Scenario: String, CaseIterable, Sendable {
@@ -108,16 +108,10 @@ import Testing
     }
 
     private func makeFixture(for scenario: Scenario, in directory: URL) throws -> ScenarioFixture {
-        let ghosttyDefaults = snapshot(
-            foreground: "#FFFFFF",
-            background: "#282C34",
-            palette: Self.ghosttyDefaultPalette
-        )
-
         switch scenario {
-        case .noConfig:
+        case .noConfig, .nonAppearanceSetting:
             return ScenarioFixture(
-                configContents: "# no Ghostty settings\n",
+                configContents: scenario == .noConfig ? "# no Ghostty settings\n" : "font-family = Menlo\n",
                 light: snapshot(
                     foreground: "#000000",
                     background: "#FEFFFF",
@@ -137,14 +131,6 @@ import Testing
                     palette: Self.managedDarkPalette
                 ),
                 changesWithAppearance: true
-            )
-
-        case .nonAppearanceSetting:
-            return ScenarioFixture(
-                configContents: "font-family = Menlo\n",
-                light: ghosttyDefaults,
-                dark: ghosttyDefaults,
-                changesWithAppearance: false
             )
 
         case .partialExplicitColors:
