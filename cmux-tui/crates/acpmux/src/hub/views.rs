@@ -30,6 +30,11 @@ impl Hub {
             "currentModeId": m.modes.as_ref().and_then(|x| x.get("currentModeId")).cloned(),
             "model": current_model(&m),
             "policy": m.permission_policy,
+            "rules": m.permission_rules.is_some(),
+            "tags": live_tags(&m),
+            "stateSeq": session.state_seq.load(Ordering::SeqCst),
+            "unread": m.unread,
+            "attached": session.attached.load(Ordering::SeqCst),
         })
     }
 
@@ -43,6 +48,7 @@ impl Hub {
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["forkSeq"] = json!(m.fork_seq);
+        v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
         v["pending"] = Value::Array(
             session
                 .pending_permissions()

@@ -62,6 +62,7 @@ impl Hub {
             prompt_preview: short_text(&text, 200),
         });
         self.append(session, "mux", "user_message", json!({"text": text, "client": client}));
+        let turn_seq = self.append(session, "mux", "turn_started", json!({"prompt": short_text(&text, 200), "client": client})).seq;
         self.set_status(session, SessionStatus::Running);
         let result = child
             .request(method::SESSION_PROMPT, json!({"sessionId": agent_sid, "prompt": blocks}))
@@ -71,10 +72,17 @@ impl Hub {
             Ok(v) => {
                 let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
                 self.append(session, "mux", "turn_end", json!({"stopReason": stop}));
+                let status = if stop.as_str() == Some("cancelled") { "cancelled" } else { "completed" };
+                self.append(session, "mux", "turn_result", json!({"status": status, "stopReason": stop, "turnSeq": turn_seq}));
             }
             Err(e) => {
                 self.append(session, "mux", "turn_error", json!({"error": e.message, "code": e.code}));
+                self.append(session, "mux", "turn_result", json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq}));
             }
+        }
+        // Nobody watching: the sidebar dot and `wait --until done` see it.
+        if session.attached.load(Ordering::SeqCst) == 0 {
+            session.meta.lock().unwrap().unread = true;
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
@@ -300,6 +308,9 @@ impl Hub {
             event_count: 0,
             turn_count: parent_meta.turn_count,
             usage: None,
+            permission_rules: None,
+            tags: Default::default(),
+            unread: false,
         };
         let new = self.make_session(meta);
         if is_claude {

@@ -6,6 +6,7 @@
 //! (prompt, cancel, config), `transfer` (export, import), `views` (summaries).
 
 mod lifecycle;
+pub mod rules;
 mod peers;
 mod permissions;
 mod transfer;
@@ -82,6 +83,10 @@ pub struct Session {
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
     pub(super) purged: AtomicBool,
+    /// Bumps on every status, permission and turn change; waits gate on it.
+    pub(super) state_seq: AtomicU64,
+    /// Clients attached right now (TUI, web, CLI streams).
+    pub(super) attached: std::sync::atomic::AtomicUsize,
 }
 
 impl Session {
@@ -122,6 +127,18 @@ pub struct Hub {
     /// whenever a session starts, so the picker can list a harness that has
     /// no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
+}
+
+/// Tags that have not expired, as a flat map.
+pub fn live_tags(m: &SessionMeta) -> Value {
+    let now = now_ms();
+    let mut out = serde_json::Map::new();
+    for (k, t) in &m.tags {
+        if t.expires_at.map(|e| e > now).unwrap_or(true) {
+            out.insert(k.clone(), Value::String(t.value.clone()));
+        }
+    }
+    Value::Object(out)
 }
 
 pub(super) fn short_text(s: &str, max: usize) -> String {
@@ -193,6 +210,8 @@ impl Hub {
             sessions.insert(session.id.clone(), session);
         }
         tracing::info!("loaded {} sessions from store", sessions.len());
+        drop(sessions);
+        self.mark_unknown_outcomes();
     }
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
@@ -213,6 +232,8 @@ impl Hub {
             steering: AtomicBool::new(false),
             fork_from: StdMutex::new(None),
             purged: AtomicBool::new(false),
+            state_seq: AtomicU64::new(0),
+            attached: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
@@ -275,12 +296,160 @@ impl Hub {
             m.event_count += 1;
             m.updated_at = record.at;
         }
+        if matches!(kind, "status" | "permission_request" | "permission_decision" | "permission_auto" | "turn_started" | "turn_result" | "turn_end" | "turn_error" | "queued" | "created" | "tags" | "rules") {
+            session.state_seq.fetch_add(1, Ordering::SeqCst);
+        }
         let _ = self.events.send(HubEvent {
             session_id: session.id.clone(),
             record: record.clone(),
             remote: None,
         });
         record
+    }
+
+    /// A client attached or detached. Attaching clears the unread bit.
+    pub fn attach_count(&self, session: &Session, delta: i32) {
+        use std::sync::atomic::AtomicUsize;
+        let _ = AtomicUsize::new(0);
+        if delta > 0 {
+            session.attached.fetch_add(delta as usize, Ordering::SeqCst);
+            let was_unread = {
+                let mut m = session.meta.lock().unwrap();
+                std::mem::replace(&mut m.unread, false)
+            };
+            if was_unread {
+                self.save_meta(session);
+                self.append(session, "mux", "status", json!({"status": session.status().to_string(), "read": true}));
+            }
+        } else {
+            let d = (-delta) as usize;
+            let _ = session.attached.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(d)));
+        }
+    }
+
+    /// Orchestrator tags with optional expiry.
+    pub fn set_tags(&self, session: &Session, set: Option<&serde_json::Map<String, Value>>, remove: &[String], ttl_seconds: Option<u64>) {
+        {
+            let mut m = session.meta.lock().unwrap();
+            let expires_at = ttl_seconds.map(|t| now_ms() + t * 1000);
+            if let Some(set) = set {
+                for (k, v) in set {
+                    let value = match v { Value::String(s) => s.clone(), other => other.to_string() };
+                    m.tags.insert(k.clone(), crate::store::Tag { value, expires_at });
+                }
+            }
+            for k in remove {
+                m.tags.remove(k);
+            }
+        }
+        self.save_meta(session);
+        self.append(session, "mux", "tags", json!({"tags": live_tags(&session.meta())}));
+    }
+
+    pub fn set_rules(&self, session: &Session, rules: Option<Value>) {
+        {
+            let mut m = session.meta.lock().unwrap();
+            m.permission_rules = rules.clone();
+        }
+        self.save_meta(session);
+        self.append(session, "mux", "rules", json!({"rules": rules}));
+    }
+
+    /// Turn-by-turn summary from the event log.
+    pub fn history(&self, session: &Session, limit: usize) -> Vec<Value> {
+        let events = self.store.events(&session.id, 0, 500_000).unwrap_or_default();
+        let mut turns: Vec<Value> = Vec::new();
+        let mut cur: Option<serde_json::Map<String, Value>> = None;
+        for e in events {
+            match e.kind.as_str() {
+                "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
+                    if let Some(t) = cur.take() {
+                        turns.push(Value::Object(t));
+                    }
+                    let mut t = serde_json::Map::new();
+                    t.insert("seq".into(), json!(e.seq));
+                    t.insert("startedAt".into(), json!(e.at));
+                    t.insert("prompt".into(), json!(short_text(e.msg.get("text").and_then(Value::as_str).unwrap_or(""), 120)));
+                    t.insert("toolCalls".into(), json!(0));
+                    t.insert("permissions".into(), json!(0));
+                    t.insert("status".into(), json!("running"));
+                    cur = Some(t);
+                }
+                "tool_call" => {
+                    if let Some(t) = cur.as_mut() {
+                        let n = t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0);
+                        t.insert("toolCalls".into(), json!(n + 1));
+                    }
+                }
+                "permission_request" | "permission_auto" => {
+                    if let Some(t) = cur.as_mut() {
+                        let n = t.get("permissions").and_then(Value::as_u64).unwrap_or(0);
+                        t.insert("permissions".into(), json!(n + 1));
+                    }
+                }
+                "usage_update" => {
+                    if let Some(t) = cur.as_mut() {
+                        if let Some(u) = e.msg.pointer("/params/update/used").and_then(Value::as_u64) {
+                            t.insert("tokens".into(), json!(u));
+                        }
+                    }
+                }
+                "turn_result" => {
+                    if let Some(t) = cur.as_mut() {
+                        t.insert("status".into(), e.msg.get("status").cloned().unwrap_or(json!("completed")));
+                        t.insert("stopReason".into(), e.msg.get("stopReason").cloned().unwrap_or(Value::Null));
+                        t.insert("endedAt".into(), json!(e.at));
+                        let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
+                        t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
+                        if let Some(err) = e.msg.get("error") {
+                            t.insert("error".into(), err.clone());
+                        }
+                    }
+                }
+                "turn_end" | "turn_error" => {
+                    // Older logs without turn_result.
+                    if let Some(t) = cur.as_mut() {
+                        if t.get("endedAt").is_none() {
+                            let failed = e.kind == "turn_error";
+                            t.insert("status".into(), json!(if failed { "failed" } else { "completed" }));
+                            t.insert("stopReason".into(), e.msg.get("stopReason").cloned().unwrap_or(Value::Null));
+                            t.insert("endedAt".into(), json!(e.at));
+                            let started = t.get("startedAt").and_then(Value::as_u64).unwrap_or(e.at);
+                            t.insert("wallMs".into(), json!(e.at.saturating_sub(started)));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(t) = cur.take() {
+            turns.push(Value::Object(t));
+        }
+        let n = turns.len();
+        turns.into_iter().skip(n.saturating_sub(limit)).collect()
+    }
+
+    /// After a restart: a turn that started but never settled gets a
+    /// `turn_result failed outcome_unknown`, so nobody replays a prompt that
+    /// may have run to completion.
+    pub(super) fn mark_unknown_outcomes(&self) {
+        for session in self.sessions() {
+            let last = session.meta().last_seq;
+            let from = last.saturating_sub(400);
+            let Ok(events) = self.store.events(&session.id, from, 400) else { continue };
+            let mut open: Option<u64> = None;
+            for e in &events {
+                match e.kind.as_str() {
+                    "turn_started" => open = Some(e.seq),
+                    "turn_result" => open = None,
+                    _ => {}
+                }
+            }
+            if let Some(seq) = open {
+                self.append(&session, "mux", "turn_result", json!({"status": "failed", "detail": "outcome_unknown", "turnSeq": seq, "error": "the daemon restarted before this turn settled"}));
+                self.save_meta(&session);
+            }
+        }
     }
 
     pub(super) fn save_meta(&self, session: &Session) {

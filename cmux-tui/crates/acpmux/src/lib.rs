@@ -13,6 +13,7 @@ pub mod hub;
 pub mod native;
 pub mod peer;
 pub mod rpc;
+pub mod schema;
 pub mod server;
 pub mod session_name;
 pub mod store;

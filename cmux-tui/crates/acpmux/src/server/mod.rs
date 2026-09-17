@@ -32,8 +32,11 @@ impl Conn {
     fn subscribed(&self, session_id: &str) -> bool {
         self.subs.lock().unwrap().contains(session_id)
     }
-    fn subscribe(&self, session_id: &str) {
-        self.subs.lock().unwrap().insert(session_id.to_owned());
+    fn subscribe(&self, session_id: &str) -> bool {
+        self.subs.lock().unwrap().insert(session_id.to_owned())
+    }
+    fn unsubscribe(&self, session_id: &str) -> bool {
+        self.subs.lock().unwrap().remove(session_id)
     }
     fn label(&self) -> String {
         let n = self.name.lock().unwrap().clone();
@@ -290,6 +293,13 @@ pub async fn serve_connection(hub: Arc<Hub>, mut inbound: mpsc::Receiver<String>
         }
     }
     fan.abort();
+    // Every attachment this connection held ends with it.
+    let subs: Vec<String> = conn.subs.lock().unwrap().drain().collect();
+    for id in subs {
+        if let Ok(s) = hub.resolve(&id) {
+            hub.attach_count(&s, -1);
+        }
+    }
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -336,7 +346,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux"
             && matches!(
                 rec.kind.as_str(),
-                "status" | "created" | "user_message" | "turn_end" | "turn_error" | "renamed" | "forked" | "imported" | "permission_request" | "permission_decision" | "mode" | "model" | "config" | "policy"
+                "status" | "created" | "user_message" | "turn_end" | "turn_error" | "renamed" | "forked" | "imported" | "permission_request" | "permission_decision" | "mode" | "model" | "config" | "policy" | "rules" | "tags" | "turn_started" | "turn_result"
             )
         {
             if let Ok(s) = hub.resolve(&ev.session_id) {
@@ -404,4 +414,5 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 mod requests;
+mod wait;
 use requests::{handle_notification, handle_request};

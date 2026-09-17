@@ -8,7 +8,7 @@ use crate::config::{StoreConfig, StoreMode, write_atomic};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -105,6 +105,22 @@ pub struct SessionMeta {
     pub turn_count: u64,
     #[serde(default)]
     pub usage: Option<Value>,
+    /// Per-session permission rules layered above the policy (see hub/rules.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_rules: Option<Value>,
+    /// Orchestrator labels: key -> (value, expiry unix ms).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tags: BTreeMap<String, Tag>,
+    /// A turn ended while no client was attached.
+    #[serde(default)]
+    pub unread: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Tag {
+    pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
 }
 
 pub const META_SCHEMA: &str = "acpmux.session.v1";
@@ -384,6 +400,9 @@ mod tests {
             event_count: 0,
             turn_count: 0,
             usage: None,
+            permission_rules: None,
+            tags: Default::default(),
+            unread: false,
         }
     }
 

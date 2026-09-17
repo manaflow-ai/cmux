@@ -220,6 +220,11 @@ pub mod method {
     pub const MUX_EVENTS: &str = "_acpmux/events";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     pub const MUX_SET_POLICY: &str = "_acpmux/set_policy";
+    pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
+    pub const MUX_TAG: &str = "_acpmux/tag";
+    pub const MUX_WAIT: &str = "_acpmux/wait";
+    pub const MUX_HISTORY: &str = "_acpmux/history";
+    pub const MUX_SCHEMA: &str = "_acpmux/schema";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";

@@ -5,6 +5,7 @@ use crate::client::Client;
 use crate::config::{Config, home, socket_path};
 use crate::hub::Hub;
 use anyhow::{Context, Result, anyhow};
+use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,6 +52,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let hub = Hub::new(config, store);
     std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
     hub.probe_models().await;
+    tokio::spawn(notify_loop(hub.clone()));
 
     let unix = tokio::spawn(crate::server::listen_unix(hub.clone(), socket_path()));
     let ws_task = ws.map(|(listen, token)| tokio::spawn(crate::server::listen_ws(hub.clone(), listen, token)));
@@ -157,4 +159,37 @@ fn spawn_detached() -> Result<()> {
     }
     cmd.spawn().context("spawn acpmux daemon")?;
     Ok(())
+}
+
+/// Run `notify_command` from the config on two transitions only: a
+/// permission request, and a turn that ended while no client was attached.
+async fn notify_loop(hub: Arc<Hub>) {
+    let mut rx = hub.subscribe();
+    loop {
+        let ev = match rx.recv().await {
+            Ok(e) => e,
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(_) => break,
+        };
+        let kind = ev.record.kind.as_str();
+        if kind != "permission_request" && kind != "turn_result" {
+            continue;
+        }
+        let Some(cmd) = hub.config.read().await.notify_command.clone() else { continue };
+        let Ok(session) = hub.resolve(&ev.session_id) else { continue };
+        let summary = hub.session_summary(&session);
+        let attached = summary.get("attached").and_then(Value::as_u64).unwrap_or(0);
+        if kind == "turn_result" && attached > 0 {
+            continue;
+        }
+        let name = summary.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+        let text = match kind {
+            "permission_request" => format!("{name} needs a permission: {}", ev.record.msg.pointer("/request/toolCall/title").and_then(Value::as_str).unwrap_or("tool")),
+            _ => format!("{name} finished ({})", ev.record.msg.get("status").and_then(Value::as_str).unwrap_or("completed")),
+        };
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(&cmd).env("ACPMUX_EVENT", kind).env("ACPMUX_SESSION_ID", &ev.session_id).env("ACPMUX_SESSION_NAME", &name).env("ACPMUX_TEXT", &text);
+        crate::config::scrub_nested_claude_env_tokio(&mut c);
+        let _ = c.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn();
+    }
 }

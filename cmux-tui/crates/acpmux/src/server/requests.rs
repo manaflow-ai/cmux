@@ -2,6 +2,16 @@
 
 use super::*;
 
+/// Subscribe the connection to a session and, when that is new, count it
+/// as attached (remote sessions are not counted; their host does that).
+fn attach(hub: &Hub, conn: &Conn, id: &str) {
+    if conn.subscribe(id) {
+        if let Ok(s) = hub.resolve(id) {
+            hub.attach_count(&s, 1);
+        }
+    }
+}
+
 pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
     match m {
         method::SESSION_CANCEL => {
@@ -50,7 +60,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                         obj.insert("sessionId".into(), Value::String(id.clone()));
                     }
                     if matches!(m, method::MUX_ATTACH | method::SESSION_PROMPT | method::SESSION_LOAD | method::SESSION_RESUME | method::SESSION_FORK) {
-                        conn.subscribe(&id);
+                        attach(hub, conn, &id);
                         if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                             let _ = peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
                         }
@@ -58,7 +68,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                     let mut result = peer.request(m, p).await?;
                     if m == method::SESSION_FORK {
                         if let Some(new_id) = result.get("sessionId").and_then(Value::as_str) {
-                            conn.subscribe(new_id);
+                            attach(hub, conn, new_id);
                             peer.mark_attached(new_id);
                         }
                     }
@@ -104,7 +114,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                     }
                     let mut result = peer.request(method::SESSION_NEW, p).await?;
                     if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
-                        conn.subscribe(id);
+                        attach(hub, conn, id);
                         peer.mark_attached(id);
                     }
                     if let Some(obj) = result.as_object_mut() {
@@ -142,7 +152,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
             let s = hub.new_session(&agent, name, cwd, policy).await?;
-            conn.subscribe(&s.id);
+            attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
                 "sessionId": s.id,
@@ -153,7 +163,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         }
         method::SESSION_LOAD | method::SESSION_RESUME => {
             let s = hub.resolve(session_key(&params)?)?;
-            conn.subscribe(&s.id);
+            attach(hub, conn, &s.id);
             // Replay history as ACP updates, then answer.
             let events = hub.events(&s.id, 0, 100_000).map_err(|e| RpcError::internal(e.to_string()))?;
             for rec in events {
@@ -193,7 +203,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         }
         method::SESSION_PROMPT => {
             let s = hub.resolve(session_key(&params)?)?;
-            conn.subscribe(&s.id);
+            attach(hub, conn, &s.id);
             let blocks = params
                 .get("prompt")
                 .and_then(Value::as_array)
@@ -216,7 +226,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 .or_else(|| params.get("name").and_then(Value::as_str))
                 .map(str::to_owned);
             let new = hub.fork(&s, name, cwd).await?;
-            conn.subscribe(&new.id);
+            attach(hub, conn, &new.id);
             let meta = new.meta();
             Ok(json!({"sessionId": new.id, "modes": meta.modes, "configOptions": meta.config_options, "_meta": {"acpmux": hub.session_summary(&new)}}))
         }
@@ -291,9 +301,31 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let s = hub.resolve(session_key(&params)?)?;
             Ok(hub.session_detail(&s))
         }
+        method::MUX_WAIT => wait::wait(hub, &params).await,
+        method::MUX_SCHEMA => Ok(serde_json::from_str(crate::schema::SCHEMA).unwrap_or(Value::Null)),
+        method::MUX_HISTORY => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
+            Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
+        }
+        method::MUX_TAG => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let remove: Vec<String> = params.get("remove").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+            hub.set_tags(&s, params.get("set").and_then(Value::as_object), &remove, params.get("ttlSeconds").and_then(Value::as_u64));
+            Ok(hub.session_summary(&s))
+        }
+        method::MUX_SET_RULES => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let rules = params.get("rules").cloned().filter(|r| !r.is_null());
+            if let Some(r) = &rules {
+                crate::hub::rules::validate(r).map_err(RpcError::invalid_params)?;
+            }
+            hub.set_rules(&s, rules);
+            Ok(hub.session_summary(&s))
+        }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
-            conn.subscribe(&s.id);
+            attach(hub, conn, &s.id);
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
             let detail = hub.session_detail(&s);
@@ -311,7 +343,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         }
         method::MUX_DETACH => {
             let s = hub.resolve(session_key(&params)?)?;
-            conn.subs.lock().unwrap().remove(&s.id);
+            if conn.unsubscribe(&s.id) {
+                hub.attach_count(&s, -1);
+            }
             Ok(json!({}))
         }
         method::MUX_WATCH => {
@@ -323,6 +357,10 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let s = hub.resolve(session_key(&params)?)?;
             let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(5000) as usize;
+            let last = s.meta().last_seq;
+            if after > last {
+                return Err(RpcError::invalid_params(format!("cursor_future: afterSeq {after} is beyond the last event {last}")));
+            }
             let events = hub.events(&s.id, after, limit).map_err(|e| RpcError::internal(e.to_string()))?;
             Ok(json!({"events": events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>()}))
         }
@@ -366,7 +404,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let path = str_param(&params, "path").map(PathBuf::from).ok_or_else(|| RpcError::invalid_params("path is required"))?;
             let name = str_param(&params, "name").map(str::to_owned);
             let s = hub.import(&path, name).await?;
-            conn.subscribe(&s.id);
+            attach(hub, conn, &s.id);
             Ok(hub.session_summary(&s))
         }
         method::MUX_SHUTDOWN => {

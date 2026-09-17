@@ -62,6 +62,9 @@ impl Hub {
             event_count: 0,
             turn_count: 0,
             usage: None,
+            permission_rules: None,
+            tags: Default::default(),
+            unread: false,
         };
         let session = self.make_session(meta);
         self.store
@@ -177,11 +180,11 @@ impl Hub {
                     *tr.session_id.lock().await = Some(sid);
                 }
             }
-            ChildAgent::spawn_with(&meta.agent, profile, &meta.cwd, session.inbound_tx.clone(), tap, Some((plan.program, plan.args)), Some(tr))
+            ChildAgent::spawn_with(&meta.agent, profile, &meta.cwd, session.inbound_tx.clone(), tap, Some((plan.program, plan.args)), Some(tr), Some((&session.id, &meta.name)))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         } else {
-            ChildAgent::spawn(&meta.agent, profile, &meta.cwd, session.inbound_tx.clone(), tap)
+            ChildAgent::spawn_with(&meta.agent, profile, &meta.cwd, session.inbound_tx.clone(), tap, None, None, Some((&session.id, &meta.name)))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         };
@@ -260,6 +263,8 @@ impl Hub {
             return Ok(child);
         }
         let existing = session.meta().agent_session_id;
+        // What the user had chosen before; replayed after load or new.
+        let saved = session.meta();
         let loaded = match existing {
             Some(sid) if supports_load => {
                 session.loading.store(true, Ordering::SeqCst);
@@ -314,11 +319,58 @@ impl Hub {
                 self.append(session, "mux", "resumed", json!({"level": "rehydrate"}));
             }
         }
+        if saved.agent_session_id.is_some() {
+            self.replay_config(session, &child, &saved).await;
+        }
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.agent, &meta_now);
         Ok(child)
+    }
+
+    /// Re-assert the saved mode, then model, then every config option on a
+    /// respawned ACP session, in that order. The model is sent even when
+    /// unchanged: its acknowledgement reconciles sibling options such as
+    /// Codex's reasoning effort. Failures are logged, never fatal.
+    async fn replay_config(&self, session: &Arc<Session>, child: &Arc<ChildAgent>, saved: &SessionMeta) {
+        let Some(sid) = session.meta().agent_session_id else { return };
+        if let Some(mode) = saved.modes.as_ref().and_then(|m| m.get("currentModeId")).and_then(Value::as_str) {
+            if let Err(e) = child.request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode})).await {
+                tracing::warn!(session = %session.id, "replay mode {mode}: {}", e.message);
+            } else if let Some(m) = session.meta.lock().unwrap().modes.as_mut() {
+                m["currentModeId"] = json!(mode);
+            }
+        }
+        let opts: Vec<(String, Value)> = saved
+            .config_options
+            .as_ref()
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|o| Some((o.get("id")?.as_str()?.to_owned(), o.get("currentValue")?.clone()))).collect())
+            .unwrap_or_default();
+        // Model first.
+        let ordered: Vec<(String, Value)> = opts.iter().filter(|(k, _)| k == "model").chain(opts.iter().filter(|(k, _)| k != "model")).cloned().collect();
+        for (id, value) in ordered {
+            if value.is_null() {
+                continue;
+            }
+            match child.request(method::SESSION_SET_CONFIG_OPTION, json!({"sessionId": sid, "configId": id, "value": value})).await {
+                Ok(res) => {
+                    if let Some(o) = res.get("configOptions") {
+                        session.meta.lock().unwrap().config_options = Some(o.clone());
+                    }
+                }
+                Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
+            }
+        }
+        if opts.is_empty() {
+            if let Some(model) = saved.models.as_ref().and_then(|m| m.get("currentModelId")).and_then(Value::as_str) {
+                if let Err(e) = child.request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model})).await {
+                    tracing::warn!(session = %session.id, "replay model {model}: {}", e.message);
+                }
+            }
+        }
+        self.append(session, "mux", "config", json!({"replayed": true}));
     }
 
     /// Remember the models an agent lists so the picker can show them for

@@ -123,7 +123,12 @@ impl Hub {
             .and_then(|t| t.get("kind"))
             .and_then(Value::as_str)
             .unwrap_or("");
-        let auto = match policy {
+        let rule = session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &request));
+        let auto = match rule {
+            Some(super::rules::RuleDecision::Approve) => pick(&["allow_once", "allow_always"]),
+            Some(super::rules::RuleDecision::Deny) => pick(&["reject_once", "reject_always"]),
+            Some(super::rules::RuleDecision::Ask) => None,
+            None => match policy {
             PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
             PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
             PermissionPolicy::ApproveReads => {
@@ -141,6 +146,7 @@ impl Hub {
                 }
             }
             PermissionPolicy::Ask => None,
+            },
         };
         let permission_id = uuid::Uuid::now_v7().to_string();
         if let Some(option_id) = auto {
@@ -148,7 +154,7 @@ impl Hub {
                 session,
                 "mux",
                 "permission_auto",
-                json!({"permissionId": permission_id, "policy": policy.to_string(), "optionId": option_id, "request": request}),
+                json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "request": request}),
             );
             return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
         }

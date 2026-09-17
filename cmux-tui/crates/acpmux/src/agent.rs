@@ -71,7 +71,7 @@ impl ChildAgent {
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
     ) -> Result<Arc<Self>> {
-        Self::spawn_with(name, profile, cwd, inbound, tap, None, None).await
+        Self::spawn_with(name, profile, cwd, inbound, tap, None, None, None).await
     }
 
     /// Spawn with an explicit command line (used by the Claude stdio backend,
@@ -84,6 +84,9 @@ impl ChildAgent {
         tap: Tap,
         command_line: Option<(String, Vec<String>)>,
         translator: Option<Arc<crate::claude_stdio::Translator>>,
+        // (session id, session name): exported to the agent as ACPMUX_* so
+        // it can drive its own session and siblings through the CLI.
+        session: Option<(&str, &str)>,
     ) -> Result<Arc<Self>> {
         let owned: (String, Vec<String>) = match command_line {
             Some(c) => c,
@@ -98,6 +101,20 @@ impl ChildAgent {
         let (program, args) = (&owned.0, &owned.1);
         let mut cmd = Command::new(program);
         crate::config::scrub_nested_claude_env_tokio(&mut cmd);
+        // Caller context, herdr-style: the agent knows which session it is.
+        for (k, _) in std::env::vars_os() {
+            if k.to_string_lossy().starts_with("ACPMUX_") {
+                cmd.env_remove(&k);
+            }
+        }
+        // A nested launch must not be taken for its parent's thread.
+        cmd.env_remove("CODEX_THREAD_ID").env_remove("OMPCODE");
+        if let Some((id, sname)) = session {
+            cmd.env("ACPMUX_ENV", "1")
+                .env("ACPMUX_SESSION_ID", id)
+                .env("ACPMUX_SESSION_NAME", sname)
+                .env("ACPMUX_SOCKET", crate::config::socket_path());
+        }
         cmd.args(args)
             .envs(profile.env.iter())
             // Claude refuses to nest inside another Claude session.
