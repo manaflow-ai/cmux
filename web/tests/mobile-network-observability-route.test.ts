@@ -191,6 +191,19 @@ describe("iOS mobile network observability route", () => {
     expect(await response.json()).toEqual({ error: "observability_unavailable" });
   });
 
+  test("accepts bounded histogram summaries and rejects malformed buckets", async () => {
+    const event = terminalWindow();
+    const properties = event.properties as Record<string, unknown>;
+    properties.histogram_version = 1;
+    properties.input_failed_count = 0;
+    for (const name of ["input_to_output", "input_to_visible", "render"]) {
+      properties[`${name}_histogram`] = JSON.stringify([4, ...Array(16).fill(0)]);
+    }
+    expect((await POST(outcomeRequest([event]))).status).toBe(200);
+    properties.render_histogram = JSON.stringify([4, ...Array(15).fill(0), -1]);
+    expect((await POST(outcomeRequest([event]))).status).toBe(400);
+  });
+
   test("acknowledges an emitted batch when trace flush is ambiguous", async () => {
     flushResult = false;
     const response = await POST(outcomeRequest([
