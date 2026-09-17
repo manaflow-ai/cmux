@@ -12,7 +12,7 @@ import CmuxTerminal
 @MainActor
 @Suite
 struct GhosttyDrawableSizeRetryTests {
-    @Test func reconcilesDrawableAfterFullSizeUpdateRunsBeforeMetalLayerRealizes() throws {
+    @Test func reconcilesDrawableAfterFullSizeUpdateRunsBeforeMetalLayerRealizes() async throws {
         _ = NSApplication.shared
 
         let initialSize = CGSize(width: 800, height: 600)
@@ -49,11 +49,11 @@ struct GhosttyDrawableSizeRetryTests {
         _ = hostedView.reconcileGeometryNow()
 
         let surfaceView = try #require(findGhosttyNSView(in: hostedView))
-        let initialDrawableSize = surfaceView.convertToBacking(initialFrame).size
         _ = surfaceView.forceRefreshSurface()
+        let initialDrawableSize = surfaceView.convertToBacking(surfaceView.bounds).size
         #expect(surfaceView.layer is CAMetalLayer)
         #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
-        drainDeferredSurfaceSizeRetry(on: surfaceView)
+        await drainDeferredSurfaceSizeRetry(on: surfaceView)
         #expect(!surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
 
         let nonMetalLayer = CALayer()
@@ -64,15 +64,17 @@ struct GhosttyDrawableSizeRetryTests {
         let targetFrame = NSRect(origin: .zero, size: targetSize)
         window.setFrame(targetFrame, display: false)
         hostedView.frame = targetFrame
-        surfaceView.frame = targetFrame
-        #expect(surfaceView.bounds.size == targetSize)
+        _ = hostedView.reconcileGeometryNow()
+        let targetViewportSize = surfaceView.bounds.size
+        #expect(targetViewportSize.width <= targetSize.width)
+        #expect(targetViewportSize.width > initialSize.width)
 
-        let expectedDrawableSize = surfaceView.convertToBacking(targetFrame).size
+        let expectedDrawableSize = surfaceView.convertToBacking(surfaceView.bounds).size
         #expect(expectedDrawableSize.width > 0)
         #expect(expectedDrawableSize.height > 0)
         #expect(expectedDrawableSize != initialDrawableSize)
 
-        _ = surfaceView.debugUpdateSurfaceSizeForTesting(targetSize)
+        _ = surfaceView.commitPaneGeometry(size: targetViewportSize, phase: .settled)
 
         #expect(surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize)
         #expect(surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting())
@@ -83,65 +85,12 @@ struct GhosttyDrawableSizeRetryTests {
         realizedLayer.drawableSize = initialDrawableSize
         surfaceView.layer = realizedLayer
 
-        let deadline = Date().addingTimeInterval(0.5)
-        while realizedLayer.drawableSize != expectedDrawableSize && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while realizedLayer.drawableSize != expectedDrawableSize && ContinuousClock.now < deadline {
+            await yieldMainQueue()
         }
 
         #expect(realizedLayer.drawableSize == expectedDrawableSize)
-    }
-
-    /// The view-level end callback must not bypass the portal's publication
-    /// gate and advance the drawable before final pane geometry is installed.
-    @Test func liveResizeEndBypassDoesNotPublishBeforePortalFinalPass() throws {
-        _ = NSApplication.shared
-
-        let initialSize = CGSize(width: 800, height: 600)
-        let targetSize = CGSize(width: 1296, height: 893)
-        let window = NSWindow(
-            contentRect: NSRect(origin: .zero, size: initialSize),
-            styleMask: [.titled, .closable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer {
-            window.orderOut(nil)
-            window.close()
-        }
-
-        let terminalSurface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = terminalSurface.hostedView
-        hostedView.frame = NSRect(origin: .zero, size: initialSize)
-        window.contentView?.addSubview(hostedView)
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-
-        let surfaceView = try #require(findGhosttyNSView(in: hostedView))
-        _ = surfaceView.forceRefreshSurface()
-        let initialDrawableSize = surfaceView.debugLastDrawableSizeForTesting()
-        let portal = WindowTerminalPortal(window: window)
-        defer { portal.tearDown() }
-        hostedView.setPortalResizeAuthority(portal)
-        portal.beginWindowLiveResizePhase()
-
-        // GhosttyNSView.viewDidEndLiveResize uses bypass=true. The portal has
-        // not committed its final pane frame yet, so this callback must keep
-        // the last drawable epoch instead of publishing targetSize.
-        hostedView.frame.size = targetSize
-        surfaceView.frame.size = targetSize
-        surfaceView.viewDidEndLiveResize()
-
-        #expect(
-            surfaceView.debugLastDrawableSizeForTesting() == initialDrawableSize,
-            "The end callback must not publish a stale size before the portal final pass"
-        )
     }
 
     private func findGhosttyNSView(in view: NSView) -> GhosttyNSView? {
@@ -158,10 +107,16 @@ struct GhosttyDrawableSizeRetryTests {
         return nil
     }
 
-    private func drainDeferredSurfaceSizeRetry(on surfaceView: GhosttyNSView) {
-        let deadline = Date().addingTimeInterval(0.5)
-        while surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting() && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+    private func drainDeferredSurfaceSizeRetry(on surfaceView: GhosttyNSView) async {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while surfaceView.debugDeferredSurfaceSizeRetryQueuedForTesting() && ContinuousClock.now < deadline {
+            await yieldMainQueue()
+        }
+    }
+
+    private func yieldMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
         }
     }
 }

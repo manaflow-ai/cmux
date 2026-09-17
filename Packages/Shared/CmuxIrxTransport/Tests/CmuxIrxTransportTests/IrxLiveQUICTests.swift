@@ -201,6 +201,114 @@ struct IrxLiveQUICTests {
         try? await client.close()
     }
 
+    @Test(
+        "native closure cannot rebind an existing control transport",
+        .timeLimit(.minutes(1)),
+        arguments: [false, true]
+    )
+    func nativeClosureCannotRebindControlTransport(sendAfterClosure: Bool) async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        defer {
+            Task {
+                try? await server.close()
+                try? await client.close()
+            }
+        }
+        let serverTask = Task { () throws -> [(IrxConnection, IrxLaneStream)] in
+            var pairs: [(IrxConnection, IrxLaneStream)] = []
+            for _ in 0..<2 {
+                guard let incoming = await server.acceptNext() else { break }
+                let native = try await incoming.accept().connect()
+                let connection = IrxConnection(
+                    connection: native, role: .acceptor, journal: journal)
+                guard let (_, control, _) = await IrxAdmission.performServer(
+                    connection: connection,
+                    judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                    journal: journal
+                ) else { break }
+                pairs.append((connection, control))
+            }
+            return pairs
+        }
+        var clientPairs: [(IrxConnection, IrxLaneStream)] = []
+        for _ in 0..<2 {
+            let native = try await client.connect(
+                addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+            let connection = IrxConnection(connection: native, role: .dialer, journal: journal)
+            let (_, control) = try await IrxAdmission.performClient(
+                connection: connection, grantJWS: "good-grant", journal: journal)
+            clientPairs.append((connection, control))
+        }
+        let serverPairs = try await serverTask.value
+        try #require(serverPairs.count == 2)
+        let first = clientPairs[0]
+        let replacement = clientPairs[1]
+        let establishments = AsyncStream<Void>.makeStream()
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: {
+                establishments.continuation.yield(())
+                return await first.0.isConnectionClosed() ? replacement : first
+            },
+            onClose: { connection, code, retiresConnection in
+                #expect(connection.underlying.stableId() == first.0.underlying.stableId())
+                await releaseProbe.record(closeCode: code, retiresConnection: retiresConnection)
+            }
+        )
+        try await transport.connect()
+        try await transport.connect()
+        await serverPairs[0].0.close(code: .hostShutdown, origin: .local)
+        // Synchronize with Iroh's native closure without receiving on the old
+        // control lane, which would independently mark the transport closed.
+        _ = await first.0.underlying.closed()
+        #expect(await transport.isTransportClosed())
+
+        do {
+            if sendAfterClosure {
+                try await transport.send(Data("old RPC generation".utf8))
+            } else {
+                try await transport.connect()
+            }
+            Issue.record("closed control transport adopted a replacement session")
+        } catch let error as IrxConnectionError {
+            guard case .closed = error else {
+                Issue.record("unexpected connection error after native closure: \(error)")
+                return
+            }
+        } catch {
+            Issue.record("unexpected error after native closure: \(error)")
+        }
+
+        // A delayed close from this RPC generation must only release its
+        // original claim; it must never reach the replacement connection.
+        await transport.close()
+        #expect(await releaseProbe.count == 1)
+        #expect(await releaseProbe.retiresConnections == [false])
+        establishments.continuation.finish()
+        var establishmentCount = 0
+        for await _ in establishments.stream { establishmentCount += 1 }
+        #expect(establishmentCount == 1)
+        #expect(await !replacement.0.isConnectionClosed())
+
+        let replacementTransport = IrxControlByteTransport(
+            connection: replacement.0, control: replacement.1, closeCode: .explicitRedial)
+        try await replacementTransport.connect()
+        let message = Data("new RPC generation".utf8)
+        let received = try await withIrxDeadline(.seconds(1), onTimeout: {
+            await serverPairs[1].1.reader.stop()
+        }) {
+            try await replacementTransport.send(message)
+            return try await serverPairs[1].1.reader.readRaw()
+        }
+        #expect(received == message)
+        await replacementTransport.close()
+    }
+
     @Test("cancelling a control read retires the owner locally")
     func cancelledControlReadRetiresLocally() async throws {
         let journal = IrxLiveTestSupport.journal()
@@ -586,7 +694,7 @@ struct IrxLiveQUICTests {
             )
         )
         await retired.connection.close(code: .explicitRedial, origin: .local)
-        try await Task.sleep(for: .milliseconds(150))
+        _ = await retired.connection.termination()
         #expect(await engine.currentSession() == nil)
         #expect(
             journal.counterSnapshot()["dial-started"] ?? 0

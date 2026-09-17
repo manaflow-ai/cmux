@@ -326,6 +326,7 @@ enum MobileHostPublicStatusCache {
 
     static func result(
         includeIdentity: Bool = false,
+        deviceID authorizedDeviceID: String? = nil,
         additionalCapabilities: Set<String> = [],
         phonePushAdmission: PhonePushAdmission = .unknown,
         phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
@@ -333,7 +334,10 @@ enum MobileHostPublicStatusCache {
     ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
-        let deviceID = v2DeviceID
+        // An admitted older peer uses the account-directory identity; modern
+        // peers use the team-directory identity. One response cannot rename
+        // the other protocol's saved computer.
+        let deviceID = authorizedDeviceID ?? v2DeviceID
         lock.unlock()
         guard includeIdentity else {
             return .ok(MobileHostService.publicStatusPayload(routes: cachedRoutes))

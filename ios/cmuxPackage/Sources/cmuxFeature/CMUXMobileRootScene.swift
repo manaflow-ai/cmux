@@ -245,7 +245,21 @@ public struct CMUXMobileRootScene: View {
             let directory = support.appendingPathComponent("cmux-iroh-v2", isDirectory: true)
                 .appendingPathComponent(Data(environment.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_"), isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let store = try MobilePairedMacStore(databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"))
+            // Official builds previously kept saved Computers under cmux/. The
+            // app container supplies bundle isolation; user/team/build keys stay
+            // intact inside the imported rows. Dev stores have no trustworthy
+            // legacy environment label, so they must start their own partition.
+            let legacyURL: URL?
+            #if DEBUG
+            legacyURL = nil
+            #else
+            legacyURL = environment == "production" && MobileIOSBuildScope.current() == nil
+                ? support.appendingPathComponent("cmux/paired-macs.sqlite3") : nil
+            #endif
+            let store = try MobilePairedMacStore(
+                databaseURL: directory.appendingPathComponent("paired-macs.sqlite3"),
+                importingLegacyDatabaseURL: legacyURL
+            )
             diagnosticLog?.recordAppEvent(.pairedMacStoreOpened)
             return store
         } catch {
@@ -361,6 +375,8 @@ public struct CMUXMobileRootScene: View {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
+        } else if UITestConfig.whatsNewPreviewEnabled {
+            MobileWhatsNewPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {

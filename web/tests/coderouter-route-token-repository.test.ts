@@ -86,13 +86,9 @@ describe("coderouter route token VM binding", () => {
     expect(statements[1]?.values).toMatchObject({ label: "cli", vmId: null });
   });
 
-  test("authenticateRouteToken returns the binding", async () => {
+  test("a malformed stored VM binding fails closed while CLI tokens still authenticate", async () => {
     returnedRows = [{ teamId: "team-1", stackUserId: "user-1", vmId: "vm-1" }];
-    await expect(authenticateRouteToken(TOKEN)).resolves.toEqual({
-      teamId: "team-1",
-      stackUserId: "user-1",
-      vmId: "vm-1",
-    });
+    await expect(authenticateRouteToken(TOKEN)).resolves.toBeNull();
     returnedRows = [{ teamId: "team-1", stackUserId: "user-1", vmId: null }];
     await expect(authenticateRouteToken(TOKEN)).resolves.toMatchObject({ vmId: null });
     returnedRows = [];

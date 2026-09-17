@@ -17,11 +17,13 @@ extension CmuxTuiSurfaceProvider {
         adopting reservation: CloudTerminalPaneReservation? = nil,
         restoringPanelID: UUID? = nil
     ) async throws -> CloudManualMirrorMaterialization {
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
         }
         let correlationID = UUID().uuidString.lowercased()
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         // A pool terminal opened into a mirrored workspace takes its tab there, not in
         // whichever workspace the daemon happens to focus.
         let resolved = try await resolveSurfaceIDForMaterialization(
@@ -60,6 +62,7 @@ extension CmuxTuiSurfaceProvider {
         )
         let inputRouter = session.inputRouter
         do {
+            try catalog.validateOwnership(of: [resource.id], at: destination)
             let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
             if let reservation {
                 // The user's pane already exists; bind the attachment to it. A pane

@@ -32,18 +32,34 @@ struct IrxLivenessTests {
         await session.connection.close(code: .userRequested, origin: .local)
     }
 
-    @Test func suspensionDuringAProbeCannotAccumulateStrikes() async throws {
-        let host = try await IrxLivenessTestHost.make(behavior: .delayFirstProbe)
+    @Test func repeatedProbeTimeoutsPreserveNativeConnectionAndControlTraffic() async throws {
+        let host = try await IrxLivenessTestHost.make(behavior: .ignoreFirstConnection)
         defer { Task { await host.stop() } }
         let session = try await host.dial()
         try await session.connection.startClientKeepalive(interval: .milliseconds(10), deadline: .milliseconds(100)) {
             await host.recordDeath()
         }
+        try await waitUntil { host.journal.counterSnapshot()["miss", default: 0] >= 3 }
+        #expect(await host.probeCount >= 3)
+        #expect(await host.connectionCount == 1)
+        #expect(await host.deathCount == 0)
+        #expect(await !session.connection.isClosed)
+        try await expectControlRoundTrip(on: session, message: "control-survives-probe-timeouts")
+        await session.connection.close(code: .userRequested, origin: .local)
+    }
+
+    @Test func suspensionCancelsProbeWithoutDeclaringFailure() async throws {
+        let host = try await IrxLivenessTestHost.make(behavior: .delayFirstProbe)
+        defer { Task { await host.stop() } }
+        let session = try await host.dial()
+        let probe = Task { await session.connection.probeLiveness(deadline: .seconds(30)) }
         try await waitUntil { await host.probeCount == 1 }
+        try await session.connection.startClientKeepalive(interval: .milliseconds(10), deadline: .milliseconds(100)) {
+            await host.recordDeath()
+        }
         await session.connection.setApplicationActive(false)
-        // Deliberately outlast both old probe deadlines. This represents time
-        // during which iOS is backgrounded and cannot perform application work.
-        try await Task.sleep(for: .milliseconds(250))
+        #expect(await probe.value == false)
+        try await expectControlRoundTrip(on: session, message: "control-survives-suspension")
         #expect(host.journal.counterSnapshot()["miss", default: 0] == 0)
         #expect(await host.deathCount == 0)
         #expect(await host.probeCount == 1)
@@ -101,7 +117,7 @@ struct IrxLivenessTests {
         await engine.stop()
     }
 
-    @Test func silentPeerGetsBoundedFreshProbesBeforeForegroundReplacement() async throws {
+    @Test func unansweredForegroundProbeRetainsSessionAndControlTraffic() async throws {
         let host = try await IrxLivenessTestHost.make(behavior: .ignoreFirstConnection)
         defer { Task { await host.stop() } }
         let engine = IrxPeerEngine(config: .init(keepaliveInterval: .seconds(60)), journal: host.journal) {
@@ -109,19 +125,45 @@ struct IrxLivenessTests {
         }
         let first = try await engine.ensureSession(trigger: "test")
         await engine.setApplicationActive(false)
-        let started = ContinuousClock.now
         await engine.setApplicationActive(true)
-        try await waitUntil {
-            guard let current = await engine.currentSession() else { return false }
-            return current.admit.session != first.admit.session
-        }
-        let elapsed = started.duration(to: .now)
-        #expect(elapsed < .seconds(2))
-        host.journal.record("acceptance", "silent-peer-resume", ["elapsed": String(describing: elapsed)])
-        #expect(await host.probeCount == 2)
-        #expect(await host.connectionCount == 2)
-        #expect(await first.connection.isClosed)
+        try await waitUntil { host.journal.counterSnapshot()["foreground-session-retained", default: 0] > 0 }
+        #expect(await engine.currentSession()?.admit.session == first.admit.session)
+        #expect(await host.probeCount == 1)
+        #expect(await host.connectionCount == 1)
+        #expect(await !first.connection.isClosed)
+        #expect(host.journal.counterSnapshot()["session-ended", default: 0] == 0)
+        #expect(host.journal.counterSnapshot()["auto-redial", default: 0] == 0)
+        try await expectControlRoundTrip(on: first, message: "control-survives-foreground-probe")
         await engine.stop()
+    }
+
+    @Test func terminalPeerCloseRemainsParkedAcrossForeground() async throws {
+        let host = try await IrxLivenessTestHost.make(behavior: .respond)
+        defer { Task { await host.stop() } }
+        let engine = IrxPeerEngine(config: .init(keepaliveInterval: .seconds(60)), journal: host.journal) {
+            try await host.dial()
+        }
+        _ = try await engine.ensureSession(trigger: "test")
+        await engine.setApplicationActive(false)
+        await host.closeFirstConnection(code: .superseded)
+        try await waitUntil { host.journal.counterSnapshot()["auto-redial-suppressed", default: 0] > 0 }
+        await engine.setApplicationActive(true)
+        await engine.foregroundKick()
+        #expect(await engine.currentState == .closed(code: IrxCloseCode.superseded.rawValue))
+        #expect(await engine.currentSession() == nil)
+        #expect(await host.connectionCount == 1)
+        #expect(host.journal.counterSnapshot()["auto-redial", default: 0] == 0)
+        await engine.stop()
+    }
+
+    private func expectControlRoundTrip(on session: IrxClientSession, message: String) async throws {
+        let response = try await withIrxDeadline(.seconds(1), onTimeout: {
+            await session.control.reader.stop()
+        }) {
+            try await session.control.writer.writeControlFrame(message)
+            return try await session.control.reader.readControlFrame(String.self)
+        }
+        #expect(response == message)
     }
 
     @Test func deferredWarmupResumesWithoutAUserAction() async throws {
@@ -174,10 +216,17 @@ private actor IrxLivenessTestHost {
                 do {
                     let native = try await incoming.accept().connect()
                     let connection = IrxConnection(connection: native, role: .acceptor, journal: journal)
-                    guard await IrxAdmission.performServer(connection: connection,
-                        judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"), journal: journal) != nil else { continue }
+                    guard let (_, control, _) = await IrxAdmission.performServer(connection: connection,
+                        judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"), journal: journal) else { continue }
                     connections.append(connection)
                     let index = connections.count
+                    tasks.append(Task {
+                        do {
+                            while let message = try await control.reader.readControlFrame(String.self), !Task.isCancelled {
+                                try await control.writer.writeControlFrame(message)
+                            }
+                        } catch { /* Closing the test connection ends its echo stream. */ }
+                    })
                     tasks.append(Task {
                         while let lane = await connection.acceptLane(), !Task.isCancelled {
                             guard lane.descriptor.lane == .keepalive else { continue }
@@ -217,7 +266,9 @@ private actor IrxLivenessTestHost {
     }
 
     func recordDeath() { deathCount += 1 }
-    func closeFirstConnection() async { await connections.first?.close(code: .hostShutdown, origin: .local) }
+    func closeFirstConnection(code: IrxCloseCode = .hostShutdown) async {
+        await connections.first?.close(code: code, origin: .local)
+    }
     func stop() async {
         await releaseResponse.signal()
         tasks.forEach { $0.cancel() }
