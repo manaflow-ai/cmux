@@ -21,86 +21,6 @@ enum TerminalImageTransferPreparedContent: Codable, Equatable, Sendable {
     case reject
 }
 
-enum PasteboardFileURLReader {
-    static let legacyFilenamesPboardType = NSPasteboard.PasteboardType(rawValue: "NSFilenamesPboardType")
-    static let promisedFileURLPasteboardType = NSPasteboard.PasteboardType(
-        rawValue: "com.apple.pasteboard.promised-file-url"
-    )
-    static let fileURLPasteboardTypes: Set<NSPasteboard.PasteboardType> = [
-        .fileURL,
-        legacyFilenamesPboardType,
-        promisedFileURLPasteboardType,
-    ]
-
-    static func hasFileURLType(_ pasteboardTypes: [NSPasteboard.PasteboardType]) -> Bool {
-        return pasteboardTypes.contains { fileURLPasteboardTypes.contains($0) }
-    }
-
-    static func hasPromisedFileURLType(
-        _ pasteboardTypes: [NSPasteboard.PasteboardType]
-    ) -> Bool {
-        pasteboardTypes.contains(promisedFileURLPasteboardType)
-    }
-
-    static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
-        var fileURLs: [URL] = []
-        var didReadPromisedFileURL = false
-
-        let objects = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) ?? []
-        for object in objects {
-            if let url = object as? URL, url.isFileURL {
-                fileURLs.append(url.standardizedFileURL)
-            }
-        }
-
-        if let paths = pasteboard.propertyList(forType: legacyFilenamesPboardType) as? [String] {
-            fileURLs.append(
-                contentsOf: paths
-                    .filter { !$0.isEmpty }
-                    .map { URL(fileURLWithPath: $0).standardizedFileURL }
-            )
-        }
-
-        if let rawFileURL = pasteboard.string(forType: .fileURL),
-           let url = URL(string: rawFileURL),
-           url.isFileURL {
-            fileURLs.append(url.standardizedFileURL)
-        }
-
-        for item in pasteboard.pasteboardItems ?? [] {
-            guard let rawPromisedFileURL = item.string(
-                forType: promisedFileURLPasteboardType
-            ),
-            let url = URL(string: rawPromisedFileURL),
-            url.isFileURL else {
-                continue
-            }
-            fileURLs.append(url.standardizedFileURL)
-            didReadPromisedFileURL = true
-        }
-
-        // A few providers expose the promised value on the pasteboard rather
-        // than on an individual item. Preserve that legacy representation as
-        // a fallback after item-level extraction.
-        if !didReadPromisedFileURL,
-           let rawPromisedFileURL = pasteboard.string(
-               forType: promisedFileURLPasteboardType
-           ),
-           let url = URL(string: rawPromisedFileURL),
-           url.isFileURL {
-            fileURLs.append(url.standardizedFileURL)
-        }
-
-        var seen: Set<String> = []
-        return fileURLs.filter { url in
-            seen.insert(url.path).inserted
-        }
-    }
-}
-
 enum TerminalImageTransferExecutionError: Error {
     case cancelled
 }
@@ -445,6 +365,22 @@ enum TerminalImageTransferPlanner {
         pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent {
+        if let selection = prepareBackingFiles(pasteboard: pasteboard, pasteboardService: pasteboardService) {
+            return selection
+        }
+        let text = pasteboardService.stringContents(from: pasteboard)
+        if text?.isEmpty != false {
+            switch pasteboardService.materializeImageFileURLIfNeeded(from: pasteboard) {
+            case .saved(let imageURL):
+                return .fileURLs([imageURL])
+            case .rejectedImagePayload:
+                return .reject
+            case .noDecodableImagePayload:
+                break
+            }
+        }
+
+        // Preserve file selections after resolving an image copy's auxiliary URLs.
         guard let fileURLs = pasteboardService.durableDroppedFileURLs(
             fileURLs(from: pasteboard),
             sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
@@ -456,21 +392,8 @@ enum TerminalImageTransferPlanner {
         if !fileURLs.isEmpty {
             return .fileURLs(fileURLs)
         }
-
-        if let string = pasteboardService.stringContents(from: pasteboard),
-           !string.isEmpty {
-            return .insertText(string)
-        }
-
-        switch pasteboardService.materializeImageFileURLIfNeeded(
-            from: pasteboard
-        ) {
-        case .saved(let imageURL):
-            return .fileURLs([imageURL])
-        case .rejectedImagePayload:
-            return .reject
-        case .noDecodableImagePayload:
-            break
+        if let text, !text.isEmpty {
+            return .insertText(text)
         }
 
         // Clipboard managers can advertise unusable image types alongside valid text.
@@ -491,6 +414,9 @@ enum TerminalImageTransferPlanner {
         pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> TerminalImageTransferPreparedContent {
+        if let selection = prepareBackingFiles(pasteboard: pasteboard, pasteboardService: pasteboardService) {
+            return selection
+        }
         guard let fileURLs = materializedFileURLs(
             from: pasteboard,
             pasteboardService: pasteboardService
@@ -512,25 +438,38 @@ enum TerminalImageTransferPlanner {
         return .reject
     }
 
+    private static func prepareBackingFiles(
+        pasteboard: NSPasteboard,
+        pasteboardService: TerminalPasteboardService
+    ) -> TerminalImageTransferPreparedContent? {
+        let urls = fileURLs(from: pasteboard)
+        // Finder adds image previews to file selections. Preserve the original
+        // files without decoding those previews for either paste or drop.
+        // Folder, web, and expired URLs can still accompany actual image copies.
+        guard !urls.isEmpty, urls.allSatisfy(isRemoteUploadableFileURL) else { return nil }
+        guard let durableURLs = pasteboardService.durableDroppedFileURLs(
+            urls,
+            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(pasteboard.types ?? [])
+        ) else { return .reject }
+        return .fileURLs(durableURLs)
+    }
+
     private static func materializedFileURLs(
         from pasteboard: NSPasteboard,
         pasteboardService: TerminalPasteboardService
     ) -> [URL]? {
-        guard let urls = pasteboardService.durableDroppedFileURLs(
-            fileURLs(from: pasteboard),
-            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
-                pasteboard.types ?? []
+        let urls = fileURLs(from: pasteboard)
+        let durableURLs = {
+            pasteboardService.durableDroppedFileURLs(
+                urls,
+                sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(pasteboard.types ?? [])
             )
-        ) else {
-            return nil
         }
-        if !urls.isEmpty {
-            return urls
+        switch pasteboardService.materializeImageFileURLsIfNeeded(from: pasteboard) {
+        case .saved(let urls): return urls
+        case .rejectedImagePayload: return nil
+        case .noDecodableImagePayload: return durableURLs()
         }
-        return pasteboardService.saveImageFileURLsIfNeeded(
-            from: pasteboard,
-            assumeNoText: true
-        )
     }
 
     private static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {

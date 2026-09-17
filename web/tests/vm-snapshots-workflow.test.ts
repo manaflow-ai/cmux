@@ -24,6 +24,8 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     id: "row-1",
     userId: "user-1",
     billingTeamId: "team-1",
+    ownerTeamId: "team-1",
+    coderouterPoolId: null,
     billingPlanId: "pro",
     provider: "freestyle",
     providerVmId: "fs-1",
@@ -40,7 +42,7 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureMessage: null,
     providerMetadata: {},
     ...overrides,
-  } as unknown as CloudVmRow;
+  };
 }
 
 const snapshots = [
