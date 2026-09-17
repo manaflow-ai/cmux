@@ -133,10 +133,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
 
             switch method {
-            case "vm.attach_info":
+            case "vm.ssh_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["id"] as? String, vmID)
-                XCTAssertEqual(params["require_daemon"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -203,7 +202,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux@gateway.freestyle.sh state=connecting\n")
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["vm.ssh_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
     }
 
