@@ -115,6 +115,15 @@ describe("billing portal route", () => {
     captureBillingError.mockClear();
   });
 
+  test("uses native Stack tokens for CLI portal requests", async () => {
+    const response = await GET(new NextRequest("https://cmux.test/api/billing/portal", {
+      headers: { authorization: "Bearer native-access", "x-stack-refresh-token": "native-refresh" },
+    }));
+    expect(response.status).toBe(302);
+    expect(getUser).toHaveBeenCalledWith({ tokenStore: { accessToken: "native-access", refreshToken: "native-refresh" } });
+    expect(createPortalSession).toHaveBeenCalledTimes(1);
+  });
+
   test("opens Stripe's plan switch flow on the active Pro subscription for flow=switch_plan", async () => {
     stripeSubscriptionRows = [{ id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro" }];
 
