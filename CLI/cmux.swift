@@ -15554,6 +15554,9 @@ struct CMUXCLI {
             if !filtered.isEmpty,
                !cliWrite(filtered, to: .standardOutput, onBrokenPipe: .ignore) {
                 // A closed output consumer still has to unwind the termios owner.
+                // Keep the remote lifecycle available for the wrapper's recovery
+                // reconciliation; local output failure does not prove the PTY ended.
+                preserveLifecycleForRecovery = true
                 throw CLIError(message: "", exitCode: 0)
             }
         }

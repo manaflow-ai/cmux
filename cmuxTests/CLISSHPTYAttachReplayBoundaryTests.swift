@@ -7,6 +7,14 @@ import Testing
 @Suite(.serialized)
 struct CLISSHPTYAttachReplayBoundaryTests {
     @Test
+    func bridgeStopIsIdempotentAfterServerExit() throws {
+        let bridge = try CLISSHPTYAttachBridgeServer { _ in }
+
+        #expect(bridge.stop())
+        #expect(bridge.stop())
+    }
+
+    @Test
     func inputTypedDuringReplayIsDiscardedBeforeForwarding() throws {
         // The CLI writes bridge output to the terminal only after every setup
         // step that precedes replay, so the mode seen once the replay head is
@@ -84,7 +92,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         }
     }
 
-    @Test(arguments: ["0.64.22", "", "0.0.0-incompatible"])
+    @Test(arguments: [BundledCLITestSupport.appVersion + "-incompatible", "", "0.0.0-incompatible"])
     func incompatibleDaemonLeavesCallerInputUntouched(version: String) throws {
         let requestSeen = DispatchSemaphore(value: 0)
         let releaseResponse = DispatchSemaphore(value: 0)

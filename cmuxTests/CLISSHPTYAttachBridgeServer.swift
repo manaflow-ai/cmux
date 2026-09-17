@@ -66,8 +66,67 @@ struct CLISSHPTYAttachBridgeConnection {
 /// script.
 final class CLISSHPTYAttachBridgeServer: @unchecked Sendable {
     let port: Int
-    private let stopWriteFD: Int32
-    private let finished = DispatchSemaphore(value: 0)
+    private let lifecycle: StopPipeLifecycle
+
+    /// Coordinates the stop pipe's ownership across the server and caller
+    /// threads. The lock makes the running-to-stopped transition and both fd
+    /// closes single-shot, so a late or repeated stop cannot write to a closed
+    /// pipe.
+    private final class StopPipeLifecycle: @unchecked Sendable {
+        private let lock = NSLock()
+        private let finished = DispatchGroup()
+        private var stopReadFD: Int32
+        private var stopWriteFD: Int32
+        private var stopRequested = false
+        private var didFinish = false
+
+        init(stopReadFD: Int32, stopWriteFD: Int32) {
+            self.stopReadFD = stopReadFD
+            self.stopWriteFD = stopWriteFD
+            finished.enter()
+        }
+
+        func requestStop() {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !stopRequested, !didFinish else { return }
+            stopRequested = true
+            if stopReadFD >= 0, stopWriteFD >= 0 {
+                var byte: UInt8 = 1
+                _ = Darwin.write(stopWriteFD, &byte, 1)
+            }
+            closeWriteLocked()
+        }
+
+        func finish() {
+            lock.lock()
+            guard !didFinish else {
+                lock.unlock()
+                return
+            }
+            didFinish = true
+            closeReadLocked()
+            closeWriteLocked()
+            lock.unlock()
+            finished.leave()
+        }
+
+        func waitForFinish() -> Bool {
+            finished.wait(timeout: .now() + 5) == .success
+        }
+
+        private func closeReadLocked() {
+            guard stopReadFD >= 0 else { return }
+            Darwin.close(stopReadFD)
+            stopReadFD = -1
+        }
+
+        private func closeWriteLocked() {
+            guard stopWriteFD >= 0 else { return }
+            Darwin.close(stopWriteFD)
+            stopWriteFD = -1
+        }
+    }
 
     init(script: @escaping @Sendable (CLISSHPTYAttachBridgeConnection) -> Void) throws {
         let listener = try Self.bindLoopbackTCP()
@@ -78,14 +137,13 @@ final class CLISSHPTYAttachBridgeServer: @unchecked Sendable {
             throw error
         }
         port = listener.port
-        stopWriteFD = stopFDs[1]
+        lifecycle = StopPipeLifecycle(stopReadFD: stopFDs[0], stopWriteFD: stopFDs[1])
         let stopReadFD = stopFDs[0]
-        let finished = self.finished
+        let lifecycle = self.lifecycle
         let thread = Thread {
             defer {
                 Darwin.close(listener.fd)
-                Darwin.close(stopReadFD)
-                finished.signal()
+                lifecycle.finish()
             }
             guard let clientFD = CLISSHPTYAttachBridgeServer.accept(listenerFD: listener.fd, stopFD: stopReadFD) else { return }
             defer { Darwin.close(clientFD) }
@@ -100,11 +158,8 @@ final class CLISSHPTYAttachBridgeServer: @unchecked Sendable {
 
     /// Stops the server thread and reports whether it exited.
     func stop() -> Bool {
-        var byte: UInt8 = 1
-        _ = Darwin.write(stopWriteFD, &byte, 1)
-        let exited = finished.wait(timeout: .now() + 5) == .success
-        Darwin.close(stopWriteFD)
-        return exited
+        lifecycle.requestStop()
+        return lifecycle.waitForFinish()
     }
 
     private static func accept(listenerFD: Int32, stopFD: Int32) -> Int32? {
