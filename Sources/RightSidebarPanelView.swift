@@ -225,8 +225,8 @@ struct RightSidebarPanelView: View {
     var body: some View {
         // Share the content clip and focus stroke without adding layout space.
         let boundary = UnevenRoundedRectangle(
-            bottomTrailingRadius: 8,
-            topTrailingRadius: 8,
+            bottomTrailingRadius: 16,
+            topTrailingRadius: 16,
             style: .continuous
         )
         VStack(spacing: 0) {
