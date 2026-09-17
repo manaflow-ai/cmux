@@ -21,6 +21,7 @@ final class TerminalPaneMetricsFixture {
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
 
     init(backingScale: CGFloat = 1) async throws {
+        _ = NSApplication.shared
         let metricsWindow = TerminalPaneMetricsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
             styleMask: [.titled, .closable], backing: .buffered, defer: false
@@ -57,7 +58,6 @@ final class TerminalPaneMetricsFixture {
             expectedSurfaceId: surface.id,
             expectedGeneration: surface.portalBindingGeneration()
         )
-        hosted.setVisibleInUI(true)
         try await settle()
     }
 
