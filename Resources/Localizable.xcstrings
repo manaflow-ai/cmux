@@ -527281,6 +527281,301 @@
           }
         }
       }
+    },
+    "codex.restore.activeWriter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال هذه المحادثة في Codex قيد الكتابة من عملية أخرى. تابع هناك، أو أغلقها بالطريقة المعتادة وأعد محاولة 'cmux restore --surface'. لم يشغّل cmux عملية كتابة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Codex-Unterhaltung wird noch von einem anderen Prozess geschrieben. Setzen Sie sie dort fort oder schließen Sie sie regulär und versuchen Sie erneut 'cmux restore --surface'. cmux hat keinen weiteren Schreibprozess gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Codex conversation still has an active writer in another process. Continue there, or close it normally and retry 'cmux restore --surface'. cmux did not start another writer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro proceso sigue escribiendo en esta conversación de Codex. Continúa allí o ciérrala normalmente y vuelve a intentar 'cmux restore --surface'. cmux no inició otro proceso de escritura."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation Codex est encore ouverte en écriture dans un autre processus. Continuez là-bas, ou fermez-la normalement et réessayez 'cmux restore --surface'. cmux n’a pas lancé d’autre processus d’écriture."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Codex 会話には、別のプロセスで書き込み中のセッションが残っています。そちらで続けるか、通常の手順で閉じてから 'cmux restore --surface' を再実行してください。cmux は別の書き込みプロセスを起動していません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 프로세스가 아직 이 Codex 대화에 쓰고 있습니다. 해당 프로세스에서 계속하거나 정상적으로 닫은 후 'cmux restore --surface'를 다시 실행하세요. cmux는 다른 쓰기 프로세스를 시작하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Codex 对话仍有另一个进程在写入。请在该处继续，或正常关闭后重试 'cmux restore --surface'。cmux 未启动另一个写入进程。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Codex 對話仍有另一個程序在寫入。請在該處繼續，或正常關閉後重試 'cmux restore --surface'。cmux 未啟動另一個寫入程序。"
+          }
+        }
+      }
+    },
+    "codex.restore.legacyScopeUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يستطيع cmux التحقق بأمان من ملكية هذه الاستعادة القديمة لـ Codex التي تعتمد على الصدفة فقط. شغّل Codex بالحساب المطلوب واستأنف هذه المحادثة يدويًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux kann den Besitzer für diese ältere, rein shellbasierte Codex-Wiederherstellung nicht sicher prüfen. Starten Sie Codex mit dem gewünschten Konto und setzen Sie diese Unterhaltung manuell fort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux cannot safely check ownership for this older shell-only Codex restore. Start Codex with the intended account and resume this conversation manually."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no puede comprobar de forma segura la propiedad de esta restauración antigua de Codex basada solo en el shell. Inicia Codex con la cuenta deseada y reanuda esta conversación manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ne peut pas vérifier de façon sûre le propriétaire pour cette ancienne restauration Codex par shell. Lancez Codex avec le compte souhaité et reprenez cette conversation manuellement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は、この古いシェル形式の Codex 復元の所有者を安全に確認できません。使用するアカウントで Codex を起動し、この会話を手動で再開してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 이전 셸 전용 Codex 복원의 소유권을 안전하게 확인할 수 없습니다. 원하는 계정으로 Codex를 시작하고 이 대화를 수동으로 재개하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法安全确认这个旧版纯 Shell Codex 恢复的所有者。请使用所需账号启动 Codex，然后手动继续此对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法安全確認這個舊版純 Shell Codex 還原的擁有者。請使用所需帳號啟動 Codex，然後手動繼續此對話。"
+          }
+        }
+      }
+    },
+    "codex.restore.waitingForWriter": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: جارٍ انتظار عملية Codex السابقة لتحرير هذه المحادثة…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Warten, bis der bisherige Codex-Prozess diese Unterhaltung freigibt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: waiting for the previous Codex writer to release this conversation…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: esperando a que el proceso anterior de Codex libere esta conversación…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : en attente de la libération de cette conversation par le processus Codex précédent…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 前の Codex プロセスがこの会話の書き込み権限を解放するまで待機しています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 이전 Codex 쓰기 프로세스가 이 대화를 해제할 때까지 기다리는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：正在等待先前的 Codex 写入进程释放此对话…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：正在等待先前的 Codex 寫入程序釋放此對話…"
+          }
+        }
+      }
+    },
+    "codex.restore.writerCandidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العمليات التي لوحظ أنها تفتح ملف قفل هذه المحادثة: %1$@. فتح الملف وحده لا يثبت أي عملية تملك القفل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozesse, bei denen die Sperrdatei dieser Unterhaltung geöffnet ist: %1$@. Eine geöffnete Datei allein beweist nicht, welcher Prozess die Sperre hält."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processes observed with this conversation's lock file open: %1$@. An open file alone does not prove which process owns the lock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procesos observados con el archivo de bloqueo de esta conversación abierto: %1$@. Tener el archivo abierto no demuestra por sí solo qué proceso posee el bloqueo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processus observés avec le fichier de verrouillage de cette conversation ouvert : %1$@. Un fichier ouvert ne prouve pas à lui seul quel processus détient le verrou."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話のロックファイルを開いていることが確認されたプロセス: %1$@。ファイルが開かれているだけでは、どのプロセスがロックを保持しているかは断定できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 대화의 잠금 파일을 열고 있는 것으로 확인된 프로세스: %1$@. 파일이 열려 있다는 사실만으로 어느 프로세스가 잠금을 소유하는지는 알 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "观察到打开此对话锁文件的进程：%1$@。仅打开文件并不能证明哪个进程持有锁。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "觀察到開啟此對話鎖定檔的程序：%1$@。僅開啟檔案並不能證明哪個程序持有鎖定。"
+          }
+        }
+      }
+    },
+    "codex.restore.writerCheckUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على cmux التحقق من مالك جلسة Codex. لم تُشغّل عملية كتابة جديدة. تحقّق من إعدادات حساب Codex، ثم أعد محاولة 'cmux restore --surface'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux konnte den Besitzer der Codex-Sitzung nicht verifizieren. Es wurde kein neuer Schreibprozess gestartet. Prüfen Sie die Codex-Kontokonfiguration und versuchen Sie dann erneut 'cmux restore --surface'."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not verify the Codex session owner. No new writer was started. Check the Codex account configuration, then retry 'cmux restore --surface'."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no pudo verificar el propietario de la sesión de Codex. No se inició ningún proceso de escritura nuevo. Comprueba la configuración de la cuenta de Codex y vuelve a intentar 'cmux restore --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas pu vérifier le propriétaire de la session Codex. Aucun nouveau processus d’écriture n’a été lancé. Vérifiez la configuration du compte Codex, puis réessayez 'cmux restore --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は Codex セッションの所有者を確認できませんでした。新しい書き込みプロセスは起動していません。Codex のアカウント設定を確認してから、'cmux restore --surface' を再実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 Codex 세션 소유자를 확인하지 못했습니다. 새 쓰기 프로세스는 시작되지 않았습니다. Codex 계정 설정을 확인한 후 'cmux restore --surface'를 다시 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法确认 Codex 会话的所有者。尚未启动新的写入进程。请检查 Codex 账号配置，然后重试 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法確認 Codex 工作階段的擁有者。尚未啟動新的寫入程序。請檢查 Codex 帳號設定，然後重試 'cmux restore --surface'。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -108,7 +108,7 @@ extension SessionIndexStore {
             ))
         }
         guard !needle.isEmpty else {
-            return records.map(codexEntry(from:))
+            return records.map { codexEntry(from: $0, codexHome: (dbPath as NSString).deletingLastPathComponent) }
         }
 
         guard limit > 0 else { return [] }
@@ -128,7 +128,7 @@ extension SessionIndexStore {
                 )
             guard matches else { continue }
             if matchedCount >= offset {
-                entries.append(codexEntry(from: record))
+                entries.append(codexEntry(from: record, codexHome: (dbPath as NSString).deletingLastPathComponent))
                 if entries.count >= limit { break }
             }
             matchedCount += 1
@@ -159,7 +159,7 @@ extension SessionIndexStore {
     }
     #endif
 
-    nonisolated private static func codexEntry(from record: CodexThreadRecord) -> SessionEntry {
+    nonisolated private static func codexEntry(from record: CodexThreadRecord, codexHome: String) -> SessionEntry {
         let sandboxMode = record.sandboxJSON
             .flatMap { $0.data(using: .utf8) }
             .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -190,7 +190,8 @@ extension SessionIndexStore {
                 approvalPolicy: record.approvalMode?.isEmpty == false ? record.approvalMode : nil,
                 sandboxMode: sandboxMode,
                 effort: record.reasoningEffort?.isEmpty == false ? record.reasoningEffort : nil
-            )
+            ),
+            indexedCodexHome: codexHome
         )
     }
 

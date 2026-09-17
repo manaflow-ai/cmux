@@ -844,6 +844,8 @@ jobs:
           for suite in \
             SurfaceResumeAgentHookDowngradeTests \
             RestoredAgentShellActivityLivenessTests \
+            AgentQuitProcessCleanupTests \
+            SessionEntryCodexHomeTests \
             RestoreAdmissionRetryPolicyTests \
             LiveAgentIndexRelevantChurnTests
           do
@@ -1881,6 +1883,9 @@ jobs:
           if [ "$test_status" -ne 0 ]; then
             exit "$test_status"
           fi
+
+      - name: Test Codex writer ownership at the restore exec boundary
+        run: python3 tests/test_codex_writer_restore.py
 
       - name: Run Swift package unit tests
         run: |

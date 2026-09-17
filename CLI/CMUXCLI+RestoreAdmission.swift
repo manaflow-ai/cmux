@@ -2,6 +2,22 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    func requireLegacyRestoreLaunchAdmission(
+        command: String,
+        environment: [String: String],
+        record: RestoreRecord,
+        recordSessionID: String?,
+        restorePayload: [String: Any],
+        client: SocketClient
+    ) throws -> RestoreLaunchAdmissionClaim? {
+        _ = try applyRestoreWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
+        try guardLegacyCodexWriter(command: command, record: record, environment: environment)
+        return try requireRestoreLaunchAdmission(
+            record: record, recordSessionID: recordSessionID,
+            restorePayload: restorePayload, client: client
+        )
+    }
+
     struct RestoreLaunchAdmissionClaim {
         let workspaceID: String
         let surfaceID: String
