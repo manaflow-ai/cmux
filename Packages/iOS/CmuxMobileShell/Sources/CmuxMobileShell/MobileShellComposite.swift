@@ -12787,11 +12787,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             )
             return
         }
+        let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
         let inputSequence = terminalLatencyObserver.inputStarted(
             surfaceID: terminalID.rawValue,
-            byteCount: text.utf8.count
+            byteCount: text.utf8.count,
+            correlate: tracksInputSequence
         )
-        let marker = inputSequence != 0 && supportedHostCapabilities.contains(MobileTerminalInputFrame.capability) ? inputSequence : nil
+        let marker = inputSequence != 0 && tracksInputSequence ? inputSequence : nil
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
             let laneResult: MobileTerminalLaneCoordinator.InputResult

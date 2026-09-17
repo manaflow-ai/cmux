@@ -108,12 +108,14 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         }
     }
 
-    public func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 {
+    public func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64 {
         guard let surface = state(for: surfaceID) else { return 0 }
         nextSequence &+= 1
         surface.window.inputCount += 1
-        surface.inputStarts[nextSequence] = now()
-        trim(&surface.inputStarts)
+        if correlate {
+            surface.inputStarts[nextSequence] = now()
+            trim(&surface.inputStarts)
+        }
         return nextSequence
     }
 

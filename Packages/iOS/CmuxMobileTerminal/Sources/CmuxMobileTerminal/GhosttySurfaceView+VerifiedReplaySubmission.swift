@@ -79,7 +79,8 @@ extension GhosttySurfaceView {
                 kind: .verifiedReplay,
                 surface: submission.surface,
                 verifiedReplayRead: read,
-                presentationRetryCount: 0
+                presentationRetryCount: 0,
+                outputPresentation: read == nil ? nil : onOutputPresentation
             )
         )
     }

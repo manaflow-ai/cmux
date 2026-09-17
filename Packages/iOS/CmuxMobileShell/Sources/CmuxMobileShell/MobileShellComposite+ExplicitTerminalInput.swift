@@ -46,11 +46,13 @@ extension MobileShellComposite {
         }
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }
+        let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
         let inputSequence = terminalLatencyObserver.inputStarted(
             surfaceID: terminalID.rawValue,
-            byteCount: text.utf8.count
+            byteCount: text.utf8.count,
+            correlate: tracksInputSequence
         )
-        let marker = inputSequence != 0 && supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
+        let marker = inputSequence != 0 && tracksInputSequence
             ? String(inputSequence)
             : nil
 

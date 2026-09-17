@@ -8,7 +8,7 @@ import Foundation
 /// periodic aggregates through their existing telemetry queue.
 @MainActor
 public protocol MobileTerminalLatencyObserving: Sendable {
-    func inputStarted(surfaceID: String, byteCount: Int) -> UInt64
+    func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64
     func inputSent(surfaceID: String, sequence: UInt64)
     func inputFailed(surfaceID: String, sequence: UInt64)
     func outputReceived(
@@ -24,10 +24,16 @@ public protocol MobileTerminalLatencyObserving: Sendable {
     func flush() async
 }
 
+public extension MobileTerminalLatencyObserving {
+    func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 {
+        inputStarted(surfaceID: surfaceID, byteCount: byteCount, correlate: true)
+    }
+}
+
 public struct NoopMobileTerminalLatencyObserver: MobileTerminalLatencyObserving {
     public init() {}
 
-    public func inputStarted(surfaceID: String, byteCount: Int) -> UInt64 { 0 }
+    public func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64 { 0 }
     public func inputSent(surfaceID: String, sequence: UInt64) {}
     public func inputFailed(surfaceID: String, sequence: UInt64) {}
     public func outputReceived(

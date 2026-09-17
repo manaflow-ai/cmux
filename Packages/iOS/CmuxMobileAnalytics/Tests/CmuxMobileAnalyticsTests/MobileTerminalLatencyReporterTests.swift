@@ -80,6 +80,24 @@ import CMUXMobileCore
         #expect(event?.properties["input_to_visible_p95_ms"] == .int(2048))
     }
 
+    @Test @MainActor func unmarkedInputsAreNotCorrelatedByLaterWatermarks() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+
+        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1, correlate: false)
+        clock.value = 2_000_000_000
+        let marked = reporter.inputStarted(surfaceID: "s", byteCount: 1, correlate: true)
+        clock.value = 2_010_000_000
+        reporter.outputReceived(surfaceID: "s", appliedInputSequence: marked, byteCount: 1, queueDepth: 0)
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        #expect(event?.properties["input_count"] == .int(2))
+        #expect(event?.properties["correlated_output_count"] == .int(1))
+    }
+
     @Test @MainActor func backgroundTimeIsExcludedAndIncidentsAreRateLimited() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")

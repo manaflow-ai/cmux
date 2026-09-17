@@ -590,6 +590,17 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             )
                             continue
                         }
+                        let observedInput = frame.appliedInputSequence
+                        let observedReceipt = chunk.receivedAtNanos
+                        let observedStream = chunk.streamToken
+                        surfaceView.onOutputPresentation = { [weak store] in
+                            store?.terminalOutputDidPresent(
+                                surfaceID: surfaceID,
+                                streamToken: observedStream,
+                                inputSequence: observedInput,
+                                receivedAtNanos: observedReceipt
+                            )
+                        }
                         let applied = await self.applyVerifiedRenderGrid(
                             frame,
                             chunk: chunk,
@@ -597,7 +608,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             store: store
                         )
                         if applied {
-                            store.terminalOutputDidPresent(surfaceID: surfaceID, streamToken: chunk.streamToken, inputSequence: frame.appliedInputSequence, receivedAtNanos: chunk.receivedAtNanos)
                             #if DEBUG
                             MobileLatencyTrace.stampElapsed(
                                 "ap.done",
