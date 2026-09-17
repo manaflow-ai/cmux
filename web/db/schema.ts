@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -54,11 +55,26 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "dismissed",
 ]);
 
+/** Teams own pools; a VM is assigned one pool from its own team. */
+export const coderouterPools = pgTable("coderouter_pools", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: text("team_id").notNull(),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("coderouter_pools_team_id_unique").on(table.teamId, table.id),
+  uniqueIndex("coderouter_pools_default_unique").on(table.teamId).where(sql`${table.isDefault}`),
+]);
+
 export const cloudVms = pgTable(
   "cloud_vms",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
+    // The insertion trigger supports older writers; ownership never follows payer changes.
+    ownerTeamId: text("owner_team_id").notNull().default(""),
+    coderouterPoolId: uuid("coderouter_pool_id"),
     billingTeamId: text("billing_team_id"),
     billingPlanId: text("billing_plan_id"),
     provider: vmProvider("provider").notNull(),
@@ -83,6 +99,8 @@ export const cloudVms = pgTable(
     providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   },
   (table) => [
+    foreignKey({ columns: [table.ownerTeamId, table.coderouterPoolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "cloud_vms_coderouter_pool_team_fk" }),
+    index("cloud_vms_owner_team_status_idx").on(table.ownerTeamId, table.status),
     index("cloud_vms_user_status_idx").on(table.userId, table.status),
     index("cloud_vms_billing_team_status_idx").on(table.billingTeamId, table.status),
     uniqueIndex("cloud_vms_billing_team_idempotency_key_unique")
@@ -1104,6 +1122,8 @@ export const coderouterAccounts = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
+    visibility: text("visibility").$type<"private" | "team">().notNull().default("team"),
+    createdBy: text("created_by"),
     provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
     providerAccountId: text("provider_account_id").notNull(),
     label: text("label").notNull(),
@@ -1122,6 +1142,8 @@ export const coderouterAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex("coderouter_accounts_team_id_unique").on(table.teamId, table.id),
+    check("coderouter_accounts_visibility_check", sql`${table.visibility} in ('private', 'team')`),
     uniqueIndex("coderouter_accounts_team_provider_account_unique").on(
       table.teamId,
       table.provider,
@@ -1976,6 +1998,7 @@ export const coderouterClaudeAccounts = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     teamId: text("team_id").notNull(),
+    visibility: text("visibility").$type<"private" | "team">().notNull().default("team"),
     kind: text("kind")
       .$type<"anthropic_api_key" | "anthropic_oauth" | "bedrock">()
       .notNull(),
@@ -2005,6 +2028,8 @@ export const coderouterClaudeAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex("coderouter_claude_accounts_team_id_unique").on(table.teamId, table.id),
+    check("coderouter_claude_accounts_visibility_check", sql`${table.visibility} in ('private', 'team')`),
     index("coderouter_claude_accounts_team_state_idx").on(table.teamId, table.state),
     index("coderouter_claude_accounts_cooldown_idx").on(table.cooldownUntil),
     check(
@@ -2115,4 +2140,22 @@ export const cloudOperationSteps = pgTable("cloud_operation_steps", {
 }, (table) => [
   primaryKey({ columns: [table.userId, table.operationId, table.stepId] }),
   index("cloud_operation_steps_expiry_idx").on(table.expiresAt),
+]);
+
+/** Composite foreign keys make cross-team account grants impossible. */
+export const coderouterPoolAccounts = pgTable("coderouter_pool_accounts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: text("team_id").notNull(),
+  poolId: uuid("pool_id").notNull(),
+  accountId: uuid("account_id"),
+  claudeAccountId: uuid("claude_account_id"),
+  grantedByUserId: text("granted_by_user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  foreignKey({ columns: [table.teamId, table.poolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "coderouter_pool_accounts_pool_team_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.teamId, table.accountId], foreignColumns: [coderouterAccounts.teamId, coderouterAccounts.id], name: "coderouter_pool_accounts_native_team_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.teamId, table.claudeAccountId], foreignColumns: [coderouterClaudeAccounts.teamId, coderouterClaudeAccounts.id], name: "coderouter_pool_accounts_claude_team_fk" }).onDelete("cascade"),
+  uniqueIndex("coderouter_pool_accounts_native_unique").on(table.poolId, table.accountId),
+  uniqueIndex("coderouter_pool_accounts_claude_unique").on(table.poolId, table.claudeAccountId),
+  check("coderouter_pool_accounts_one_account", sql`num_nonnulls(${table.accountId}, ${table.claudeAccountId}) = 1`),
 ]);
