@@ -50,6 +50,7 @@ extension TerminalController {
         "debug.terminal.simulate_file_drop",
         "debug.sidebar.simulate_drag",
         "debug.mobile.transport.disconnect",
+        "debug.mobile.transport.reconnect_loop",
         "mobile.dev_stack_auth.configure",
     ]
 }
