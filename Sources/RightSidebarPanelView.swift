@@ -223,9 +223,7 @@ struct RightSidebarPanelView: View {
     }
 
     var body: some View {
-        // Own the sidebar shape instead of approximating the native window's
-        // corner mask, which varies with OS and window style. Use this same
-        // shape for clipping and the inset stroke so the two cannot diverge.
+        // Share the content clip and focus stroke without adding layout space.
         let boundary = UnevenRoundedRectangle(
             bottomTrailingRadius: 8,
             topTrailingRadius: 8,
@@ -250,7 +248,6 @@ struct RightSidebarPanelView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-        .padding(8)
         .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Keep every mode (including Dock and AppKit-backed file rows) on the
