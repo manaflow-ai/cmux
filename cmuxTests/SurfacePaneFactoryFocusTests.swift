@@ -270,10 +270,10 @@ import Testing
         let buttons = card.subviews
             .compactMap { $0 as? NSStackView }
             .flatMap { $0.arrangedSubviews.compactMap { $0 as? NSButton } }
-        let retry = try #require(buttons.first { $0.identifier?.rawValue == "CloudPaneCreationFailureRetry" })
+        let retry = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureRetry" })
         retry.performClick(nil)
         #expect(retriedIDs == [failure.id])
-        let dismiss = try #require(buttons.first { $0.identifier?.rawValue == "CloudPaneCreationFailureDismiss" })
+        let dismiss = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureDismiss" })
         dismiss.performClick(nil)
         #expect(dismissedIDs == [failure.id])
 
