@@ -4385,7 +4385,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 == .started(replacement.ticket) else {
             return false
         }
-        if presented { submission.outputPresentation?() }
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
@@ -4615,6 +4614,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 generation: submission.generation
             )
         guard action != .ignored else { return }
+        if presented { submission.outputPresentation?() }
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
