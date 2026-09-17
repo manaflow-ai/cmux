@@ -9,10 +9,11 @@ final class CloudTerminalReconnectOverlayView: NSView {
     private let cardView = NSVisualEffectView(frame: .zero)
     private let iconView = NSImageView(frame: .zero)
     private let spinner = NSProgressIndicator(frame: .zero)
-    private let titleLabel = NSTextField(labelWithString: "")
+    private let titleLabel = NSTextField(wrappingLabelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let reconnectButton = NSButton(frame: .zero)
     private let dismissButton = NSButton(frame: .zero)
+    private lazy var cardWidth = cardView.widthAnchor.constraint(equalToConstant: 360)
     private(set) var currentPresentation: CloudTerminalReconnectOverlayPolicy.Presentation?
 
     /// Creates a card whose controls are localized and hit-testable by AppKit.
@@ -46,6 +47,7 @@ final class CloudTerminalReconnectOverlayView: NSView {
         titleLabel.alignment = .center
         titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         titleLabel.textColor = .labelColor
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         detailLabel.translatesAutoresizingMaskIntoConstraints = false
         detailLabel.alignment = .center
@@ -86,11 +88,13 @@ final class CloudTerminalReconnectOverlayView: NSView {
         cardView.addSubview(stack)
         cardView.addSubview(dismissButton)
 
+        // A Cloud split can be narrower than the standard card. The pane owns
+        // the maximum width; labels wrap within it and controls stay reachable.
+        updateCardWidth()
         NSLayoutConstraint.activate([
             cardView.centerXAnchor.constraint(equalTo: centerXAnchor),
             cardView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
-            cardView.widthAnchor.constraint(greaterThanOrEqualToConstant: 260),
+            cardWidth,
             stack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 22),
             stack.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -22),
             stack.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24),
@@ -99,7 +103,9 @@ final class CloudTerminalReconnectOverlayView: NSView {
             iconView.heightAnchor.constraint(equalToConstant: 28),
             spinner.widthAnchor.constraint(equalToConstant: 24),
             spinner.heightAnchor.constraint(equalToConstant: 24),
-            detailLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 300),
+            titleLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            detailLabel.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            reconnectButton.widthAnchor.constraint(lessThanOrEqualTo: stack.widthAnchor),
             dismissButton.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 7),
             dismissButton.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -7),
             dismissButton.widthAnchor.constraint(equalToConstant: 22),
@@ -109,6 +115,16 @@ final class CloudTerminalReconnectOverlayView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
+    }
+
+    override func layout() {
+        updateCardWidth()
+        super.layout()
+    }
+
+    private func updateCardWidth() {
+        let width = min(360, max(1, bounds.width - 24))
+        if cardWidth.constant != width { cardWidth.constant = width }
     }
 
     /// Routes hits to the two controls while keeping the rest of the card passive.
