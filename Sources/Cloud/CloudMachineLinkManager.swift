@@ -177,6 +177,8 @@ actor CloudMachineLinkManager {
 #if DEBUG
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
+        let startedAt = Date()
+        CloudLinkTelemetry.connectStarted(machineID: machineID)
         let task = Task<CloudMachineLink.Connected, Error> { [paths, hub] in
             try Task.checkCancellation()
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
@@ -202,6 +204,10 @@ actor CloudMachineLinkManager {
                     id: machineID,
                     deviceFingerprint: nil,
                     clientCapabilities: capabilities
+                )
+                CloudLinkTelemetry.attachEndpointResolved(
+                    machineID: machineID,
+                    durationMs: Int(Date().timeIntervalSince(startedAt) * 1000)
                 )
                 session = endpoint.session
                 guard endpoint.trustedCarrier else {
@@ -257,6 +263,11 @@ actor CloudMachineLinkManager {
             let connected = try await task.value
             guard connecting[machineID] == task, !task.isCancelled, isCloudEnabled() else { throw CancellationError() }
             lastFailure[machineID] = nil
+            CloudLinkTelemetry.connected(
+                machineID: machineID,
+                socketPath: connected.socketPath,
+                durationMs: Int(Date().timeIntervalSince(startedAt) * 1000)
+            )
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
@@ -276,6 +287,11 @@ actor CloudMachineLinkManager {
             let text = CloudMachineLink.errorText(error)
             lastFailure[machineID] = (Date(), text)
             links[machineID] = nil
+            CloudLinkTelemetry.connectFailed(
+                machineID: machineID,
+                error: error,
+                durationMs: Int(Date().timeIntervalSince(startedAt) * 1000)
+            )
             #if DEBUG
             cmuxDebugLog("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
             #endif

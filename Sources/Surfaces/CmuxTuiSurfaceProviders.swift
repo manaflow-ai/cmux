@@ -239,6 +239,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let remoteWorkspaces = remoteWorkspaces(for: cloudState)
             let linkState: SurfaceLinkState = isAwake ? .unavailable : .asleep
             let linkError: String? = isAwake ? "cloud_api_unavailable" : nil
+            CloudLinkTelemetry.linkStateChanged(machineID: machineID, from: info.linkState, to: linkState)
             info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: nil)
             info.remoteWorkspaces = remoteWorkspaces
             let resources: [SurfaceResource]
@@ -354,6 +355,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
+            CloudLinkTelemetry.providerRefreshFailed(machineID: machineID, state: linkState, error: error)
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
@@ -364,6 +366,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkError = eventsFeedWarning
         }
         let remoteWorkspaces = cloudState.map(Self.remoteWorkspaces)
+        CloudLinkTelemetry.linkStateChanged(machineID: machineID, from: info.linkState, to: linkState)
         info = Self.info(
             from: summary,
             linkState: linkState,

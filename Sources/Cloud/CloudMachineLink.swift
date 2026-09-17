@@ -725,6 +725,7 @@ actor CloudMachineLink {
 
     private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
         guard process === exitedProcess else { return }
+        let wasConnected = connected != nil
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -745,6 +746,14 @@ actor CloudMachineLink {
         if state != .unavailable {
             state = status == 0 ? .unavailable : .error
             lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+            // A deliberate `disconnect` already set .unavailable; anything else is the
+            // link dying underneath the sidebar and worth a trace in release builds.
+            CloudLinkTelemetry.linkExited(
+                machineID: machineID,
+                status: status,
+                wasConnected: wasConnected,
+                stderrTail: stderrTail.suffix(5).joined(separator: " · ")
+            )
         }
         changesContinuation.yield(.streamEnded(reason: "link_exit", cursor: nil))
         changesContinuation.finish()

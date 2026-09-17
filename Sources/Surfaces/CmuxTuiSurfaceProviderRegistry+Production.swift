@@ -13,7 +13,12 @@ extension CmuxTuiSurfaceProviderRegistry {
             allowsBackgroundWork: { CloudActivationPolicy.live().allowsBackgroundCloudWork },
             listPage: {
                 guard let client = VMClient.shared else { return nil }
-                return try? await client.listPage()
+                do {
+                    return try await client.listPage()
+                } catch {
+                    CloudLinkTelemetry.machineListFailed(error: error)
+                    return nil
+                }
             }
         )
     }
