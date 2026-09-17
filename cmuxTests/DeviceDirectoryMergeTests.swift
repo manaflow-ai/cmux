@@ -117,6 +117,136 @@ struct DeviceDirectoryMergeTests {
         DevicePairedDevice(instance: instance, displayName: name, routes: routes, lastSeenAt: lastSeenAt)
     }
 
+    // MARK: - One Mac, two identities
+
+    /// The v2 team directory names an app instance by its own installation id.
+    /// Presence, the registry and the pairing store name the same instance by
+    /// its host device id. Only the iroh endpoint is published under both.
+    private let studioDirectoryID = "44444444-4444-4444-4444-444444444444"
+    private let studioEndpoint = String(repeating: "ab", count: 32)
+    private let directoryNow = Date(timeIntervalSince1970: 1001)
+
+    private var studioDirectoryInstance: SurfaceDeviceInstanceID {
+        SurfaceDeviceInstanceID(deviceID: studioDirectoryID, tag: "default")
+    }
+
+    /// The Macs a live v2 directory authorizes, through the production projection.
+    private func directoryMacs(peerDeviceID: String, endpoint: String) -> [DeviceDiscoveredMac] {
+        func record(deviceID: String, endpoint: String, hosting: Bool) -> V2DeviceRecord {
+            let identity = V2Identity(appNamespace: "com.cmuxterm.app", buildTag: "default",
+                deviceID: deviceID, environment: "development", projectID: "project",
+                teamID: "work-team", userID: "my-account")
+            let metadata = V2DeviceMetadata(appVersion: "1", capabilities: ["cmux.mac-devices.v1", "cmux.mac-host.v1"],
+                displayName: "Studio", pairingEnabled: hosting, platform: .mac, relayURLs: [])
+            return V2DeviceRecord(descriptor: V2DeviceDescriptor(endpointID: endpoint, identity: identity,
+                identityGeneration: 0, metadata: metadata), deviceRecordID: deviceID, revision: 1, revoked: false)
+        }
+        let own = record(deviceID: selfID, endpoint: String(repeating: "cd", count: 32), hosting: false)
+        var cache = V2CachedState(identity: own.descriptor.identity)
+        cache.device = own
+        cache.directory = V2Directory(devices: [record(deviceID: peerDeviceID, endpoint: endpoint, hosting: true)],
+            issuedAt: 1000, permissionExpiresAt: 1060, relayURLs: [], revision: 1, teamID: "work-team")
+        return DeviceIrxClient.displayBindings(cache: cache, now: directoryNow)
+    }
+
+    /// The iroh route a host advertises in its presence heartbeat and registry row.
+    private func hostIrohRoute(_ endpoint: String) throws -> CmxAttachRoute {
+        try CmxAttachRoute(id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: endpoint), pathHints: []), priority: 0)
+    }
+
+    private func directoryInput(
+        macs: [DeviceDiscoveredMac],
+        registry: [DeviceRegistryDirectoryClient.Device] = [],
+        presence: [(SurfaceDeviceInstanceID, DevicePresenceInstance)] = [],
+        previous: [DeviceDirectoryRecord] = []
+    ) -> DeviceDirectoryMerge.Input {
+        .init(registry: registry, authenticatedMacs: macs,
+            presence: Dictionary(uniqueKeysWithValues: presence), presenceLive: true, ownersKnown: true,
+            previous: previous, selfInstance: selfInstance, currentUserID: "my-account", resolvedTeamID: "work-team")
+    }
+
+    @Test("A Mac the directory authorizes and presence reports under its host device id is one online row")
+    func directoryAndHostIdentitiesAreOneRow() throws {
+        let route = try hostIrohRoute(studioEndpoint)
+        let records = DeviceDirectoryMerge.merge(directoryInput(
+            macs: directoryMacs(peerDeviceID: studioDirectoryID, endpoint: studioEndpoint),
+            registry: [registryDevice(studioID, name: "Studio", routes: [route])],
+            presence: [presence(studioID, online: true, name: "Studio", routes: [route])]
+        ))
+
+        let record = try #require(records.first)
+        #expect(records.count == 1)
+        // The directory identity names the row: it is the one the iroh
+        // transport authorizes and the host proves in its status reply.
+        #expect(record.instance == studioDirectoryInstance)
+        #expect(record.presenceState == .online)
+        #expect(record.bundleID == "com.cmuxterm.app")
+        #expect(record.isDialable)
+        #expect(record.routes.filter { $0.kind == .iroh }.count == 1)
+    }
+
+    @Test("A row listed before the directory arrived folds into the directory row instead of lingering")
+    func rowListedBeforeTheDirectoryFolds() throws {
+        let route = try hostIrohRoute(studioEndpoint)
+        let beforeDirectory = DeviceDirectoryMerge.merge(directoryInput(
+            macs: [], presence: [presence(studioID, online: true, name: "Studio", routes: [route])]
+        ))
+        #expect(beforeDirectory.map(\.instance) == [SurfaceDeviceInstanceID(deviceID: studioID, tag: "default")])
+
+        // Presence stops repeating the routes; the remembered row still carries the join.
+        let records = DeviceDirectoryMerge.merge(directoryInput(
+            macs: directoryMacs(peerDeviceID: studioDirectoryID, endpoint: studioEndpoint),
+            presence: [presence(studioID, online: true, name: "Studio", routes: nil)],
+            previous: beforeDirectory
+        ))
+
+        #expect(records.map(\.instance) == [studioDirectoryInstance])
+        #expect(records.first?.presenceState == .online)
+    }
+
+    @Test("A briefly stale directory does not split the Mac back into two rows")
+    func staleDirectoryKeepsOneRow() throws {
+        let route = try hostIrohRoute(studioEndpoint)
+        let online = [presence(studioID, online: true, name: "Studio", routes: [route])]
+        let live = DeviceDirectoryMerge.merge(directoryInput(
+            macs: directoryMacs(peerDeviceID: studioDirectoryID, endpoint: studioEndpoint), presence: online
+        ))
+        #expect(live.map(\.instance) == [studioDirectoryInstance])
+
+        let stale = DeviceDirectoryMerge.merge(directoryInput(macs: [], presence: online, previous: live))
+
+        #expect(stale.map(\.instance) == [studioDirectoryInstance])
+        #expect(stale.first?.presenceState == .online)
+    }
+
+    @Test("Only the endpoint the directory lists joins a host identity to its row")
+    func differentEndpointStaysSeparate() throws {
+        let otherRoute = try hostIrohRoute(String(repeating: "ef", count: 32))
+        let records = DeviceDirectoryMerge.merge(directoryInput(
+            macs: directoryMacs(peerDeviceID: studioDirectoryID, endpoint: studioEndpoint),
+            presence: [presence(laptopID, online: true, name: "Laptop", routes: [otherRoute])]
+        ))
+
+        let laptop = SurfaceDeviceInstanceID(deviceID: laptopID, tag: "default")
+        #expect(Set(records.map(\.instance)) == Set([studioDirectoryInstance, laptop]))
+    }
+
+    @Test("When two host identities advertise one endpoint, the online report describes the row")
+    func onlineReportWinsTheFold() throws {
+        let route = try hostIrohRoute(studioEndpoint)
+        let records = DeviceDirectoryMerge.merge(directoryInput(
+            macs: directoryMacs(peerDeviceID: studioDirectoryID, endpoint: studioEndpoint),
+            presence: [
+                presence(laptopID, online: false, name: "Studio", routes: [route], lastSeenAt: 1_600_000_000_000),
+                presence(studioID, online: true, name: "Studio", routes: [route]),
+            ]
+        ))
+
+        #expect(records.map(\.instance) == [studioDirectoryInstance])
+        #expect(records.first?.presenceState == .online)
+    }
+
     @Test("Unpair removes a local-only Mac and its routes without removing another build's grant")
     func unpairRemovesLocalOnlyRecord() throws {
         let studio = SurfaceDeviceInstanceID(deviceID: studioID, tag: "default")
