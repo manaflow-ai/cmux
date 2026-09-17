@@ -471,12 +471,17 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
         print(f"FAIL: Pi turn-transition harness failed: {result.stderr!r}")
         return 1
     calls = transition_log.read_text(encoding="utf-8").splitlines()
+    prompts = [json.loads(line.split('|', 1)[1]) for line in calls
+               if 'hooks pi prompt-submit ' in line]
+    if len(prompts) != 2 or prompts[0]['turn_id'] == prompts[1]['turn_id']:
+        print(f"FAIL: Pi turns did not receive distinct IDs: {calls!r}")
+        return 1
     first_stop = next(
         (
             index
             for index, line in enumerate(calls)
             if "hooks pi stop" in line
-            and '"turn_id":"pi-turn-transition-session:turn-1"' in line
+            and json.loads(line.split('|', 1)[1])['turn_id'] == prompts[0]['turn_id']
         ),
         None,
     )
@@ -485,7 +490,7 @@ await handlers.get("session_shutdown")({ reason: "test complete" }, ctx);
             index
             for index, line in enumerate(calls)
             if "hooks pi prompt-submit" in line
-            and '"turn_id":"pi-turn-transition-session:turn-2"' in line
+            and json.loads(line.split('|', 1)[1])['turn_id'] == prompts[1]['turn_id']
         ),
         None,
     )
