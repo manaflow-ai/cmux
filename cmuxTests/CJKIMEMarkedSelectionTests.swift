@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

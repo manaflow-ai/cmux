@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import * as Effect from "effect/Effect";
-import { FreestyleActionSnapshotLookupError } from "../services/actions/freestyleSnapshots";
+
 
 let vmCreateEnabledError: unknown | null = null;
 const assertVmCreateEnabled = mock(() => {
@@ -29,12 +29,9 @@ let execExitCode = 42;
 let execWorkflowThrowOnCall: number | null = null;
 let execWorkflowCalls = 0;
 let snapshotFails = false;
-const findFreestyleActionSnapshotByName = mock(() => {
+const findOwnedSnapshotByName = mock(() => {
   if (failCacheLookup) {
-    return Effect.fail(new FreestyleActionSnapshotLookupError({
-      kind: "request",
-      cause: new Error("vendor failure reason should stay hidden"),
-    }));
+    throw new Error("vendor failure reason should stay hidden");
   }
   return Effect.succeed(null);
 });
@@ -43,6 +40,7 @@ const execVm = mock((input: unknown) => ({ kind: "exec", input }));
 const snapshotVm = mock((input: unknown) => ({ kind: "snapshot", input }));
 const destroyVm = mock((input: unknown) => ({ kind: "destroy", input }));
 const runVmWorkflow = mock(async (workflow: unknown) => {
+  if (Effect.isEffect(workflow)) return Effect.runPromise(workflow as Effect.Effect<unknown, unknown>);
   const kind = typeof workflow === "object" && workflow !== null && "kind" in workflow
     ? String(workflow.kind)
     : "";
@@ -84,7 +82,7 @@ beforeEach(() => {
   resolveVmImage.mockClear();
   resolveVmEntitlementsError = null;
   resolveVmEntitlements.mockClear();
-  findFreestyleActionSnapshotByName.mockClear();
+  findOwnedSnapshotByName.mockClear();
   failCacheLookup = false;
   execExitCode = 42;
   execWorkflowThrowOnCall = null;
@@ -98,6 +96,21 @@ beforeEach(() => {
 });
 
 describe("cloud action runner", () => {
+  test("passes owned snapshot shape and owner scope into create", async () => {
+    execExitCode = 0;
+    const resourceReservation = { vcpus: 4, memoryMb: 16384, diskMb: 65536 };
+    const lookup = mock(() => Effect.succeed({ id: "owned-cache", name: "cache", createdAt: "now", resourceReservation }));
+    const result = await runAction({
+      request: { action: "hexclave/stack-auth:fresh-env" }, user: testUser(),
+      dependencies: { assertVmCreateEnabled, resolveVmImage, resolveVmEntitlements,
+        findOwnedSnapshotByName: lookup, createVm, destroyVm, execVm, runVmWorkflow, snapshotVm },
+    });
+    expect(result.cache.hit).toBe(true);
+    expect(result.setupRan).toBe(false);
+    expect(lookup).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-actions-runner", billingTeamId: "team-actions-runner" }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ image: "owned-cache", resourceReservation }));
+    expect(execVm).toHaveBeenCalledWith(expect.objectContaining({ billingTeamId: "team-actions-runner" }));
+  });
   test("keeps command stderr out of user-facing action failure details", async () => {
     try {
       await runAction({
@@ -112,16 +125,17 @@ describe("cloud action runner", () => {
           billingCustomerType: "team",
           billingTeamId: "team-actions-runner",
           selectedTeamId: "team-actions-runner",
-          teams: [{ id: "team-actions-runner", billingPlanId: "free" }],
+          teams: [{ id: "team-actions-runner", billingPlanId: "free", displayName: null, billingSeats: 1 }],
           teamIds: ["team-actions-runner"],
           userBillingPlanId: null,
+          billingSeats: 1,
           billingPlanId: "free",
         },
         dependencies: {
           assertVmCreateEnabled,
           resolveVmImage,
           resolveVmEntitlements,
-          findFreestyleActionSnapshotByName,
+          findOwnedSnapshotByName,
           createVm,
           destroyVm,
           execVm,
@@ -142,16 +156,16 @@ describe("cloud action runner", () => {
       expect(JSON.stringify(err.details)).not.toContain("SECRET_SHOULD_NOT_REACH_CLIENT");
     }
 
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-actions-runner",
       providerVmId: "vm-actions-runner-fail",
-    });
+    }));
     expect(runVmWorkflow).toHaveBeenCalledWith(expect.objectContaining({
       kind: "destroy",
-      input: {
+      input: expect.objectContaining({
         userId: "user-actions-runner",
         providerVmId: "vm-actions-runner-fail",
-      },
+      }),
     }));
   });
 
@@ -173,16 +187,17 @@ describe("cloud action runner", () => {
           billingCustomerType: "team",
           billingTeamId: "team-actions-runner",
           selectedTeamId: "team-actions-runner",
-          teams: [{ id: "team-actions-runner", billingPlanId: "free" }],
+          teams: [{ id: "team-actions-runner", billingPlanId: "free", displayName: null, billingSeats: 1 }],
           teamIds: ["team-actions-runner"],
           userBillingPlanId: null,
+          billingSeats: 1,
           billingPlanId: "free",
         },
         dependencies: {
           assertVmCreateEnabled,
           resolveVmImage,
           resolveVmEntitlements,
-          findFreestyleActionSnapshotByName,
+          findOwnedSnapshotByName,
           createVm,
           destroyVm,
           execVm,
@@ -218,7 +233,7 @@ describe("cloud action runner", () => {
           assertVmCreateEnabled,
           resolveVmImage,
           resolveVmEntitlements,
-          findFreestyleActionSnapshotByName,
+          findOwnedSnapshotByName,
           createVm,
           destroyVm,
           execVm,
@@ -236,10 +251,10 @@ describe("cloud action runner", () => {
       expect(JSON.stringify(err.details)).not.toContain("provider timeout");
     }
 
-    expect(destroyVm).toHaveBeenCalledWith({
+    expect(destroyVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-actions-runner",
       providerVmId: "vm-actions-runner-fail",
-    });
+    }));
   });
 
   test("dry-run does not require VM creation to be enabled", async () => {
@@ -255,7 +270,7 @@ describe("cloud action runner", () => {
         assertVmCreateEnabled,
         resolveVmImage,
         resolveVmEntitlements,
-        findFreestyleActionSnapshotByName,
+        findOwnedSnapshotByName,
         createVm,
         destroyVm,
         execVm,
@@ -287,7 +302,7 @@ describe("cloud action runner", () => {
           assertVmCreateEnabled,
           resolveVmImage,
           resolveVmEntitlements,
-          findFreestyleActionSnapshotByName,
+          findOwnedSnapshotByName,
           createVm,
           destroyVm,
           execVm,
@@ -316,6 +331,8 @@ describe("cloud action runner", () => {
     resolveVmImageError = new VmImageConfigError({
       provider: "freestyle",
       envVar: "CMUX_VM_FREESTYLE_IMAGE",
+      source: "default",
+      allowedImages: [],
       reason: "missing image secret",
     });
 
@@ -330,7 +347,7 @@ describe("cloud action runner", () => {
           assertVmCreateEnabled,
           resolveVmImage,
           resolveVmEntitlements,
-          findFreestyleActionSnapshotByName,
+          findOwnedSnapshotByName,
           createVm,
           destroyVm,
           execVm,
@@ -368,7 +385,7 @@ describe("cloud action runner", () => {
           assertVmCreateEnabled,
           resolveVmImage,
           resolveVmEntitlements,
-          findFreestyleActionSnapshotByName,
+          findOwnedSnapshotByName,
           createVm,
           destroyVm,
           execVm,
@@ -405,7 +422,7 @@ describe("cloud action runner", () => {
           assertVmCreateEnabled,
           resolveVmImage,
           resolveVmEntitlements,
-          findFreestyleActionSnapshotByName,
+          findOwnedSnapshotByName,
           createVm,
           destroyVm,
           execVm,
@@ -433,9 +450,10 @@ function testUser() {
     billingCustomerType: "team" as const,
     billingTeamId: "team-actions-runner",
     selectedTeamId: "team-actions-runner",
-    teams: [{ id: "team-actions-runner", billingPlanId: "free" }],
+    teams: [{ id: "team-actions-runner", billingPlanId: "free", displayName: null, billingSeats: 1 }],
     teamIds: ["team-actions-runner"],
     userBillingPlanId: null,
+          billingSeats: 1,
     billingPlanId: "free",
   };
 }

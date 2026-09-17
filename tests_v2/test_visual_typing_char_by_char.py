@@ -60,11 +60,23 @@ def main() -> int:
             # Use a real keyDown path (not NSTextInputClient.insertText) to better match
             # physical typing behavior and catch "input doesn't render until Enter/unfocus".
             c.simulate_shortcut(ch)
-            time.sleep(0.12)
 
-            snap = c.panel_snapshot(panel_id, f"typing_{i}_after_{ord(ch)}")
-            changed = int(snap.get("changed_pixels", -1))
-            if changed < min_pixels:
+            # The keystroke -> PTY echo -> Metal frame present pipeline is asynchronous and can
+            # exceed any single fixed delay under CI/GPU load, and a snapshot can land between
+            # frames. Poll the real signal (changed_pixels) until it crosses the threshold rather
+            # than sleeping a fixed interval and asserting once. snap holds the last observation so
+            # the failure message reports the actual final value.
+            snap = {}
+
+            def _frame_changed() -> bool:
+                nonlocal snap
+                snap = c.panel_snapshot(panel_id, f"typing_{i}_after_{ord(ch)}")
+                return int(snap.get("changed_pixels", -1)) >= min_pixels
+
+            try:
+                _wait_for(_frame_changed, timeout_s=5.0, step_s=0.05)
+            except cmuxError:
+                changed = int(snap.get("changed_pixels", -1))
                 raise cmuxError(
                     "Expected visible pixel changes after typing a character.\n"
                     f"char={ch!r} index={i} changed_pixels={changed} min_pixels={min_pixels}\n"
@@ -72,9 +84,18 @@ def main() -> int:
                 )
 
             # Also ensure the terminal text buffer updated before Enter. (This is weaker than the
-            # visual assertion, but helps triage whether the issue is rendering vs tick/IO.)
-            buf = c.read_terminal_text(panel_id)
-            if text[: i + 1] not in buf:
+            # visual assertion, but helps triage whether the issue is rendering vs tick/IO.) The PTY
+            # echo is likewise asynchronous, so poll for the prefix instead of reading once.
+            buf = ""
+
+            def _buffer_echoed() -> bool:
+                nonlocal buf
+                buf = c.read_terminal_text(panel_id)
+                return text[: i + 1] in buf
+
+            try:
+                _wait_for(_buffer_echoed, timeout_s=5.0, step_s=0.05)
+            except cmuxError:
                 tail = buf[-600:].replace("\r", "\\r")
                 raise cmuxError(
                     "Terminal text did not update after typing.\n"

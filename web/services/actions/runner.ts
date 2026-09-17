@@ -1,16 +1,17 @@
-import * as Effect from "effect/Effect";
 import { assertVmCreateEnabled } from "../vms/config";
 import type { AuthedUser } from "../vms/auth";
 import {
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
   type VmBillingTeamResolutionError,
+  type VmEntitlements,
 } from "../vms/entitlements";
 import type { ExecResult } from "../vms/drivers";
 import { isVmCreateDisabledError, isVmImageConfigError } from "../vms/errors";
 import { resolveVmImage } from "../vms/images/resolver";
-import { createVm, destroyVm, execVm, runVmWorkflow, snapshotVm, type VmEntry } from "../vms/workflows";
-import { findFreestyleActionSnapshotByName, type FreestyleActionSnapshot } from "./freestyleSnapshots";
+import type { VmResourceReservation } from "../vms/machineSpec";
+import { vmModelPlaneGatewayFor } from "../vms/modelPlaneGateway";
+import { createVm, destroyVm, execVm, findOwnedSnapshotByName, runVmWorkflow, snapshotVm, type VmEntry } from "../vms/workflows";
 import { actionRecipe, normalizeActionRef, normalizeActionRunMode, type ActionPort } from "./recipes";
 
 type ActionRunnerDependencies = {
@@ -18,9 +19,9 @@ type ActionRunnerDependencies = {
   readonly resolveVmImage: (
     provider: "freestyle",
     requestedImage?: string,
-  ) => { readonly image: string; readonly imageVersion?: string | null };
+  ) => { readonly image: string; readonly imageVersion?: string | null; readonly size?: ReturnType<typeof resolveVmImage>["size"] };
   readonly resolveVmEntitlements: typeof resolveVmEntitlements;
-  readonly findFreestyleActionSnapshotByName: typeof findFreestyleActionSnapshotByName;
+  readonly findOwnedSnapshotByName: typeof findOwnedSnapshotByName;
   readonly createVm: (input: Parameters<typeof createVm>[0]) => unknown;
   readonly destroyVm: (input: Parameters<typeof destroyVm>[0]) => unknown;
   readonly execVm: (input: Parameters<typeof execVm>[0]) => unknown;
@@ -32,7 +33,7 @@ const defaultActionRunnerDependencies: ActionRunnerDependencies = {
   assertVmCreateEnabled,
   resolveVmImage,
   resolveVmEntitlements,
-  findFreestyleActionSnapshotByName,
+  findOwnedSnapshotByName,
   createVm,
   destroyVm,
   execVm,
@@ -87,6 +88,8 @@ export async function runAction(input: {
   readonly request: ActionRunRequest;
   readonly user: AuthedUser;
   readonly requestedBillingTeamId?: string | null;
+  /** Resolved by the authenticated route so every provisioning path shares the same gate. */
+  readonly entitlements?: VmEntitlements;
   readonly dependencies?: Partial<ActionRunnerDependencies>;
 }): Promise<ActionRunResult> {
   const dependencies = {
@@ -144,21 +147,24 @@ export async function runAction(input: {
   const setupScript = recipe.setupScript({ ref, mode });
   const startScript = recipe.startScript({ ref, mode });
 
-  let entitlements: ReturnType<typeof resolveVmEntitlements>;
-  try {
-    entitlements = dependencies.resolveVmEntitlements(input.user, process.env, {
-      requestedBillingTeamId: input.requestedBillingTeamId ?? null,
-      requireTeam: true,
-    });
-  } catch (err) {
-    if (isVmBillingTeamResolutionError(err)) throw err;
-    throw new ActionRunError(
-      "actions_entitlements_unavailable",
-      500,
-      "Cloud VM plan limits are unavailable right now.",
-      "Retry in a moment. If this keeps happening, contact support.",
-      { phase: "entitlements" },
-    );
+  let entitlements: VmEntitlements;
+  if (input.entitlements) {
+    entitlements = input.entitlements;
+  } else {
+    try {
+      entitlements = dependencies.resolveVmEntitlements(input.user, process.env, {
+        requestedBillingTeamId: input.requestedBillingTeamId ?? null,
+      });
+    } catch (err) {
+      if (isVmBillingTeamResolutionError(err)) throw err;
+      throw new ActionRunError(
+        "actions_entitlements_unavailable",
+        500,
+        "Cloud VM plan limits are unavailable right now.",
+        "Retry in a moment. If this keeps happening, contact support.",
+        { phase: "entitlements" },
+      );
+    }
   }
 
   const idempotencyKey = typeof input.request.idempotencyKey === "string" && input.request.idempotencyKey.trim()
@@ -168,7 +174,8 @@ export async function runAction(input: {
   const noCache = input.request.noCache === true;
   const cachedSnapshot = noCache ? null : await findCachedSnapshot({
     cacheName,
-    action: recipe.id,
+    userId: input.user.id,
+    billingTeamId: entitlements.billingTeamId,
     dependencies,
   });
   const image = cachedSnapshot?.id ?? baseImage.image;
@@ -180,8 +187,11 @@ export async function runAction(input: {
     billingPlanId: entitlements.planId,
     maxActiveVms: entitlements.maxActiveVms,
     provider: "freestyle",
+    modelPlane: vmModelPlaneGatewayFor({ teamId: entitlements.billingTeamId, stackUserId: input.user.id }),
     image,
     imageVersion,
+    imageSize: cachedSnapshot ? undefined : baseImage.size ?? undefined,
+    resourceReservation: cachedSnapshot?.resourceReservation,
     idempotencyKey,
   })) as VmEntry;
 
@@ -192,6 +202,7 @@ export async function runAction(input: {
       currentPhase = "setup";
       await runCheckedExec({
         userId: input.user.id,
+        billingTeamId: entitlements.billingTeamId,
         vmId: vm.providerVmId,
         command: setupScript,
         timeoutMs: recipe.setupTimeoutMs,
@@ -203,6 +214,7 @@ export async function runAction(input: {
       try {
         await dependencies.runVmWorkflow(dependencies.snapshotVm({
           userId: input.user.id,
+          billingTeamId: entitlements.billingTeamId,
           providerVmId: vm.providerVmId,
           name: cacheName,
         }));
@@ -216,6 +228,7 @@ export async function runAction(input: {
     currentPhase = "start";
     await runCheckedExec({
       userId: input.user.id,
+      billingTeamId: entitlements.billingTeamId,
       vmId: vm.providerVmId,
       command: startScript,
       timeoutMs: recipe.startTimeoutMs,
@@ -225,7 +238,7 @@ export async function runAction(input: {
     });
   } catch (err) {
     if (!keep) {
-      await dependencies.runVmWorkflow(dependencies.destroyVm({ userId: input.user.id, providerVmId: vm.providerVmId }))
+      await dependencies.runVmWorkflow(dependencies.destroyVm({ userId: input.user.id, billingTeamId: entitlements.billingTeamId, providerVmId: vm.providerVmId, modelPlane: vmModelPlaneGatewayFor({ teamId: entitlements.billingTeamId, stackUserId: input.user.id }) }))
         .catch(() => undefined);
     }
     if (isActionRunError(err)) throw err;
@@ -291,6 +304,7 @@ function actionBaseImageError(err: unknown): ActionRunError {
 
 async function runCheckedExec(input: {
   readonly userId: string;
+  readonly billingTeamId: string;
   readonly vmId: string;
   readonly command: string;
   readonly timeoutMs: number;
@@ -302,6 +316,7 @@ async function runCheckedExec(input: {
   try {
     result = await input.dependencies.runVmWorkflow(input.dependencies.execVm({
       userId: input.userId,
+      billingTeamId: input.billingTeamId,
       providerVmId: input.vmId,
       command: input.command,
       timeoutMs: input.timeoutMs,
@@ -337,16 +352,16 @@ function actionFailureInspectionAction(vmId: string, keep: boolean): string {
 
 async function findCachedSnapshot(input: {
   readonly cacheName: string;
-  readonly action: string;
+  readonly userId: string;
+  readonly billingTeamId: string;
   readonly dependencies: ActionRunnerDependencies;
-}): Promise<FreestyleActionSnapshot | null> {
+}): Promise<{ readonly id: string; readonly name: string; readonly createdAt: string; readonly resourceReservation: VmResourceReservation } | null> {
   try {
-    return await Effect.runPromise(input.dependencies.findFreestyleActionSnapshotByName(input.cacheName));
+    return await input.dependencies.runVmWorkflow(input.dependencies.findOwnedSnapshotByName({
+      userId: input.userId, billingTeamId: input.billingTeamId, name: input.cacheName,
+    })) as { readonly id: string; readonly name: string; readonly createdAt: string; readonly resourceReservation: VmResourceReservation } | null;
   } catch (err) {
-    console.warn("Cloud action cache lookup failed; continuing without a saved setup layer.", {
-      action: input.action,
-      error: err,
-    });
+    console.warn("Cloud action owned snapshot lookup failed; continuing without cache.", { action: input.cacheName });
     return null;
   }
 }

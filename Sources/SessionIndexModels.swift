@@ -37,6 +37,7 @@ struct RegisteredSessionAgent: Hashable, Sendable {
 enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case claude
     case codex
+    case grok
     case opencode
     case rovodev
     case hermesAgent
@@ -44,13 +45,14 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
 
     var id: String { rawValue }
 
-    static let builtInCases: [SessionAgent] = [.claude, .codex, .opencode, .rovodev, .hermesAgent]
+    static let builtInCases: [SessionAgent] = [.claude, .codex, .grok, .opencode, .rovodev, .hermesAgent]
 
     init?(rawValue: String) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch value {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "grok": self = .grok
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
         case "hermes-agent": self = .hermesAgent
@@ -64,6 +66,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .grok: return "grok"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
         case .hermesAgent: return "hermes-agent"
@@ -80,8 +83,12 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
            container.contains(.id) {
             let id = try container.decode(String.self, forKey: .id)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = try container.decodeIfPresent(String.self, forKey: .name)
+            let iconAssetName = try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+            let hasRegisteredMetadata = name != nil || iconAssetName != nil
             if let builtIn = SessionAgent(rawValue: id),
-               !CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn) {
+               (!CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn)),
+               !hasRegisteredMetadata {
                 self = builtIn
                 return
             }
@@ -94,8 +101,8 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
             }
             self = .registered(RegisteredSessionAgent(
                 id: id,
-                name: try container.decodeIfPresent(String.self, forKey: .name),
-                iconAssetName: try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+                name: name,
+                iconAssetName: iconAssetName
             ))
             return
         }
@@ -181,20 +188,24 @@ enum OpenCodeDatabaseSnapshot {
 
 // MARK: - Session entry
 
-struct PullRequestLink: Hashable {
+struct PullRequestLink: Hashable, Sendable {
     let number: Int
     let url: String
     let repository: String?
 }
 
 /// Agent-specific fields used to build the resume command with appropriate flags.
-enum AgentSpecifics: Hashable {
+enum AgentSpecifics: Hashable, Sendable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
+    case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
-    case registered(CmuxVaultAgentRegistration)
+    case registered(
+        CmuxVaultAgentRegistration,
+        launchCommand: AgentLaunchCommandSnapshot? = nil
+    )
 }
 
 enum ClaudeConfigurationRoot {
@@ -244,7 +255,7 @@ enum ClaudeConfigurationRoot {
     }
 }
 
-struct SessionEntry: Identifiable, Hashable {
+struct SessionEntry: Identifiable, Hashable, Sendable {
     let id: String
     let agent: SessionAgent
     /// Native session identifier for the agent's CLI (used to build the resume command).
@@ -256,10 +267,45 @@ struct SessionEntry: Identifiable, Hashable {
     let modified: Date
     let fileURL: URL?
     let specifics: AgentSpecifics
+    /// Session creation time when the source exposes it cheaply (file birth
+    /// time, SQL column); nil otherwise.
+    let created: Date?
+    /// Exact conversation message count when it is knowable without extra
+    /// scanning (whole file inside the metadata read cap, SQL count); nil when
+    /// unknown or approximate.
+    let messageCount: Int?
+
+    init(
+        id: String,
+        agent: SessionAgent,
+        sessionId: String,
+        title: String,
+        cwd: String?,
+        gitBranch: String?,
+        pullRequest: PullRequestLink?,
+        modified: Date,
+        fileURL: URL?,
+        specifics: AgentSpecifics,
+        created: Date? = nil,
+        messageCount: Int? = nil
+    ) {
+        self.id = id
+        self.agent = agent
+        self.sessionId = sessionId
+        self.title = title
+        self.cwd = cwd
+        self.gitBranch = gitBranch
+        self.pullRequest = pullRequest
+        self.modified = modified
+        self.fileURL = fileURL
+        self.specifics = specifics
+        self.created = created
+        self.messageCount = messageCount
+    }
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
-        if case .registered(let registration) = specifics,
+        if case .registered(let registration, _) = specifics,
            registration.cwd == .ignore {
             return nil
         }
@@ -285,29 +331,33 @@ struct SessionEntry: Identifiable, Hashable {
                 model: model,
                 permissionMode: permissionMode,
                 configDirectoryForResume: configDirectory
-            )
+            ),
+            created: created,
+            messageCount: messageCount
         )
     }
 
-    /// Shell command that resumes this session in a new terminal, with the agent's
-    /// known per-session settings injected as CLI flags.
-    var resumeCommand: String? {
-        resumeCommandWithCwd
-    }
-
-    /// Shell command that resumes this session after guarding the launch directory.
-    var resumeCommandWithCwd: String? {
-        guard let command = resumeCommandWithoutWorkingDirectory else { return nil }
+    /// Shell command exposed by the Copy Resume Command menu item.
+    var copyResumeCommand: String? {
+        guard let command = copyResumeCommandWithoutWorkingDirectory else { return nil }
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
-        return "cd \(Self.shellQuote(cwd)) && \(command)"
+        return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
-    private var resumeCommandWithoutWorkingDirectory: String? {
+    private var copyResumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
-            var parts = ["claude --resume \(sessionId)"]
+            // Route through the wrapper resolver token so a manually-resumed claude session
+            // re-injects cmux hooks even when the command runs in a shell where the
+            // integration's PATH shim / `claude()` function are not active (e.g. the
+            // `$SHELL -lic` restore launcher). The token is POSIX-only and this command
+            // is typed into — and copy-pasted into — the user's own shell (fish/csh
+            // included), so the rendered command is wrapped in `/bin/sh -c '…'` to parse
+            // everywhere; the `cd` guard stays outside in `copyResumeCommand`.
+            // https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume \(sessionId)"]
             if let model, !model.isEmpty {
                 parts.append("--model \(Self.shellQuote(model))")
             }
@@ -317,22 +367,51 @@ struct SessionEntry: Identifiable, Hashable {
             let environment = configDirectoryForResume.map {
                 ["CLAUDE_CONFIG_DIR": $0, "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV": "1", "CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS": "CLAUDE_CONFIG_DIR"]
             } ?? [:]
-            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
+            return AgentResumeArgv.portableClaudeResumeShellCommand(
+                posixCommand: Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
+            )
         case let .codex(model, approval, sandbox, effort):
-            var parts = ["codex resume \(sessionId)"]
+            // Route through the codex wrapper-resolver token so a manually- or
+            // auto-resumed codex session re-injects cmux hooks even when the
+            // command runs in a shell where the integration's PATH shim is not
+            // active (e.g. the `$SHELL -lic` restore launcher). Without this the
+            // bare `codex resume <id>` resolves to the real codex binary,
+            // bypassing cmux-codex-wrapper, so no SessionStart fires and the iOS
+            // GUI stays read-only. Mirror of the claude case: the token is
+            // POSIX-only and this command is typed into / copy-pasted into the
+            // user's own shell (fish/csh included), so the rendered command is
+            // wrapped in `/bin/sh -c '…'`; the `cd` guard stays outside in
+            // `copyResumeCommand`. https://github.com/manaflow-ai/cmux/issues/5639
+            var parts = ["\(AgentResumeArgv.codexWrapperShellExecutableToken) resume \(sessionId)", AgentResumeArgv.codexUpdateCheckSuppressionOverride.joined(separator: " ")]
             if let model, !model.isEmpty {
                 parts.append("-m \(Self.shellQuote(model))")
             }
-            if let approval, !approval.isEmpty {
-                parts.append("-a \(Self.shellQuote(approval))")
-            }
-            if let sandbox, !sandbox.isEmpty {
-                parts.append("-s \(Self.shellQuote(sandbox))")
-            }
+            parts.append(contentsOf: Self.codexApprovalSandboxArgumentTokens(
+                approvalPolicy: approval,
+                sandboxMode: sandbox
+            ).map(Self.shellQuote))
             if let effort, !effort.isEmpty {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
-            return parts.joined(separator: " ")
+            return AgentResumeArgv.portableCodexResumeShellCommand(
+                posixCommand: parts.joined(separator: " ")
+            )
+        case let .grok(model, permissionMode, sandboxMode, grokHome):
+            var argv = ["grok", "-r", sessionId]
+            if let model, !model.isEmpty {
+                argv.append(contentsOf: ["-m", model])
+            }
+            if let permissionMode, !permissionMode.isEmpty {
+                argv.append(contentsOf: ["--permission-mode", permissionMode])
+            }
+            if let sandboxMode, !sandboxMode.isEmpty {
+                argv.append(contentsOf: ["--sandbox", sandboxMode])
+            }
+            let environment = grokHome.flatMap { value -> [String: String]? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : ["GROK_HOME": trimmed]
+            } ?? [:]
+            return Self.singleQuotedShellCommand(environment: environment, argv: argv)
         case let .opencode(providerModel, agentName):
             var parts = ["opencode --session \(sessionId)"]
             if let providerModel, !providerModel.isEmpty {
@@ -351,19 +430,20 @@ struct SessionEntry: Identifiable, Hashable {
                 model: model,
                 hermesHome: hermesHome
             )
-        case .registered(let registration):
+        case .registered(let registration, let launchCommand):
+            let capturedLaunch = launchCommand ?? AgentLaunchCommandSnapshot(
+                launcher: registration.id,
+                executablePath: nil,
+                arguments: [registration.defaultExecutable],
+                workingDirectory: resumeWorkingDirectory,
+                environment: nil,
+                capturedAt: nil,
+                source: "vault"
+            )
             if let command = AgentResumeCommandBuilder.resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
-                launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: registration.id,
-                    executablePath: nil,
-                    arguments: [registration.defaultExecutable],
-                    workingDirectory: resumeWorkingDirectory,
-                    environment: nil,
-                    capturedAt: nil,
-                    source: "vault"
-                ),
+                launchCommand: capturedLaunch,
                 workingDirectory: resumeWorkingDirectory,
                 registrationOverride: registration,
                 includeWorkingDirectoryPrefix: false
@@ -388,13 +468,32 @@ struct SessionEntry: Identifiable, Hashable {
         return "env \(assignments.joined(separator: " ")) \(command)"
     }
 
+    private static func singleQuotedShellCommand(
+        environment: [String: String],
+        argv: [String]
+    ) -> String {
+        var parts: [String] = []
+        let assignments = environment
+            .filter { key, _ in
+                key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil
+            }
+            .sorted { $0.key < $1.key }
+            .map { key, value in "\(key)=\(value)" }
+        if !assignments.isEmpty {
+            parts.append("env")
+            parts.append(contentsOf: assignments)
+        }
+        parts.append(contentsOf: argv)
+        return parts.map(Self.shellSingleQuote).joined(separator: " ")
+    }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        TerminalStartupShellQuoting.singleQuoted(value)
+    }
+
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        if value.range(of: "[^A-Za-z0-9_./:=+-]", options: .regularExpression) == nil {
-            return value
-        }
-        let escaped = value.replacingOccurrences(of: "'", with: #"'\''"#)
-        return "'\(escaped)'"
+        TerminalStartupShellQuoting.shellToken(value, allowingBareASCII: true)
     }
 
     var displayTitle: String {

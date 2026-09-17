@@ -3,6 +3,7 @@ import {
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   withAuthedVmApiRoute,
+  resolveVmProvisioningAccountScope,
 } from "../../../../services/vms/routeHelpers";
 import {
   actionRunTeamErrorResponseDetails,
@@ -43,6 +44,10 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       const body = rawBody as ActionRunRequest;
+      const scope = await resolveVmProvisioningAccountScope(user, request, {
+        requestedBillingTeamId: requestedVmTeamIdFromRequest(request),
+      });
+      if (!scope.ok) return scope.response;
       setSpanAttributes(span, {
         "cmux.actions.id": typeof body.action === "string" ? body.action : "",
         "cmux.actions.dry_run": body.dryRun === true,
@@ -53,6 +58,7 @@ export async function POST(request: Request): Promise<Response> {
           request: body,
           user,
           requestedBillingTeamId: requestedVmTeamIdFromRequest(request),
+          entitlements: scope.entitlements,
         });
         return jsonResponse(result);
       } catch (err) {

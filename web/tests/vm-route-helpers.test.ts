@@ -12,7 +12,7 @@ const { vmWorkflowErrorResponse } = await import("../services/vms/routeHelpers")
 
 describe("VM route helpers", () => {
   test("maps disabled VM creation to an actionable user error", async () => {
-    const response = vmWorkflowErrorResponse(new VmCreateDisabledError({
+    const response = await vmWorkflowErrorResponse(new VmCreateDisabledError({
       provider: "freestyle",
       reason: "CMUX_VM_FREESTYLE_ENABLED=false",
     }));
@@ -24,25 +24,19 @@ describe("VM route helpers", () => {
       message: "Cloud VM creation is disabled for this environment.",
     });
     expect(JSON.stringify(payload)).not.toContain("freestyle");
-    expect(JSON.stringify(payload)).not.toContain("CMUX_VM_FREESTYLE_ENABLED");
+    expect(payload.reason).toBe("CMUX_VM_FREESTYLE_ENABLED=false");
   });
 
-  test("maps VM image config failures without leaking provider details", async () => {
-    const response = vmWorkflowErrorResponse(new VmImageConfigError({
+  test("leaves image config failures for the route-specific mapper", async () => {
+    const response = await vmWorkflowErrorResponse(new VmImageConfigError({
       provider: "freestyle",
       image: "internal-snapshot",
       envVar: "CMUX_VM_FREESTYLE_IMAGE",
+      source: "default",
+      allowedImages: [],
       reason: "missing image manifest",
     }));
 
-    expect(response?.status).toBe(503);
-    const payload = await response?.json();
-    expect(payload).toMatchObject({
-      error: "vm_image_config_error",
-      message: "The requested Cloud VM image is not available in this environment.",
-    });
-    expect(JSON.stringify(payload)).not.toContain("freestyle");
-    expect(JSON.stringify(payload)).not.toContain("internal-snapshot");
-    expect(JSON.stringify(payload)).not.toContain("CMUX_VM_FREESTYLE_IMAGE");
+    expect(response).toBeNull();
   });
 });

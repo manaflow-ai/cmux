@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -100,6 +101,102 @@ final class CommandPaletteNucleoFFITests: XCTestCase {
         let resultIDs = try index.search(query: "check", limit: 5).map(\.id)
 
         XCTAssertEqual(resultIDs.first, "palette.checkForUpdates")
+    }
+
+    func testNucleoFFIPrefersVisibleTitlePrefixOverHiddenMetadataKeyword() throws {
+        // Regression: in the workspace switcher, a workspace whose visible title starts with the
+        // query must rank above one that only matched a hidden metadata token (a branch or
+        // description word produced by commandPaletteWorkspaceSearchMetadata). For short queries
+        // an exact match on such a hidden line scored 30_030 and beat the visible title prefix,
+        // which only reached nucleo(~88) + 2_000. The "ios" row shown to the user therefore had
+        // no highlighted title yet sat at the top. https://github.com/manaflow-ai/cmux/pull/5148
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "workspace.iosMobileTerminal",
+                rank: 0,
+                title: "iOS Mobile Terminal",
+                searchableTexts: ["iOS Mobile Terminal", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.forkSessionNotFound",
+                rank: 1,
+                title: "Fork Session Not Found",
+                // "ios" here stands in for a hidden branch/description token, the field that the
+                // switcher indexes but never highlights in the row.
+                searchableTexts: [
+                    "Fork Session Not Found", "Workspace", "workspace", "switch", "go",
+                    "branch", "ios",
+                ]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "ios", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.iosMobileTerminal")
+        XCTAssertTrue(resultIDs.contains("workspace.forkSessionNotFound"))
+    }
+
+    func testNucleoFFIPrefersTitleOverSummedHiddenKeywordsForMultiTokenQuery() throws {
+        // Regression: the per-token keyword path is summed, so a multi-token query like "ios app"
+        // can give a hidden row an exact line per token (~30_030 each, ~60_060 summed) that beats a
+        // flat title-literal score. The title tier is scaled by query token count so a visible
+        // title match still wins for multi-token queries.
+        // https://github.com/manaflow-ai/cmux/pull/5148
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "workspace.iosApp",
+                rank: 0,
+                title: "iOS App",
+                searchableTexts: ["iOS App", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.hiddenMetadataRow",
+                rank: 1,
+                title: "Some Unrelated Workspace",
+                // Both query tokens present only as hidden metadata tokens (branch/description).
+                searchableTexts: [
+                    "Some Unrelated Workspace", "Workspace", "workspace", "switch", "go",
+                    "branch", "ios", "app",
+                ]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "ios app", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.iosApp")
+    }
+
+    func testNucleoFFIPrefersDiacriticTitlePrefixOverHiddenKeyword() throws {
+        // Regression: the literal-title check must use the matcher's case + Smart diacritic
+        // normalization, so a localized title like "Éclair" is recognized as a prefix of "e" and
+        // still beats a row that only has a hidden exact "e" metadata token.
+        // https://github.com/manaflow-ai/cmux/pull/5148
+        let library = try NucleoLibrary()
+        let entries = [
+            FixtureEntry(
+                id: "workspace.eclair",
+                rank: 0,
+                title: "Éclair Notes",
+                searchableTexts: ["Éclair Notes", "Workspace", "workspace", "switch", "go"]
+            ),
+            FixtureEntry(
+                id: "workspace.hiddenEKeyword",
+                rank: 1,
+                title: "Some Other Workspace",
+                searchableTexts: [
+                    "Some Other Workspace", "Workspace", "workspace", "switch", "go", "branch", "e",
+                ]
+            ),
+        ]
+        let index = try NucleoIndex(library: library, entries: entries)
+
+        let resultIDs = try index.search(query: "e", limit: 5).map(\.id)
+
+        XCTAssertEqual(resultIDs.first, "workspace.eclair")
     }
 
     func testNucleoFFIDoesNotMatchSingleTokenAcrossSearchFields() throws {

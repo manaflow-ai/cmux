@@ -198,9 +198,10 @@ describe("cloud action recipes", () => {
         billingCustomerType: "team",
         billingTeamId: "team-actions-dry-run",
         selectedTeamId: "team-actions-dry-run",
-        teams: [{ id: "team-actions-dry-run", billingPlanId: "free" }],
+        teams: [{ id: "team-actions-dry-run", billingPlanId: "free", displayName: null, billingSeats: 1 }],
         teamIds: ["team-actions-dry-run"],
         userBillingPlanId: null,
+          billingSeats: 1,
         billingPlanId: "free",
       },
     });

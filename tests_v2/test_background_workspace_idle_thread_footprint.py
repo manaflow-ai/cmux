@@ -109,6 +109,24 @@ def _capture_metrics(pid: int) -> ProcessMetrics:
     )
 
 
+def _debug_terminals(client: cmux) -> list[dict]:
+    payload = client._call("debug.terminals") or {}
+    terminals = payload.get("terminals") or []
+    _must(isinstance(terminals, list), f"debug.terminals returned invalid payload: {payload!r}")
+    return terminals
+
+
+def _ready_background_terminals_for_workspaces(client: cmux, workspace_ids: list[str]) -> list[dict]:
+    workspace_id_set = set(workspace_ids)
+    return [
+        terminal
+        for terminal in _debug_terminals(client)
+        if terminal.get("workspace_id") in workspace_id_set
+        and terminal.get("runtime_surface_ready") is True
+        and terminal.get("workspace_selected") is not True
+    ]
+
+
 def _layout_payload() -> dict:
     return {
         "pane": {
@@ -153,6 +171,19 @@ def main() -> int:
                 )
 
             time.sleep(SETTLE_SECONDS)
+            ready_background_terminals = _ready_background_terminals_for_workspaces(
+                client,
+                created_workspaces,
+            )
+            _must(
+                not ready_background_terminals,
+                "Background workspace priming created runtime Ghostty surfaces without deferred startup work: "
+                + ", ".join(
+                    f"workspace={terminal.get('workspace_id')} surface={terminal.get('surface_id')}"
+                    for terminal in ready_background_terminals[:8]
+                ),
+            )
+
             after_settle = _capture_metrics(pid)
 
             time.sleep(IDLE_SECONDS)

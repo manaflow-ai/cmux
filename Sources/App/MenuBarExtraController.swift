@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxFoundation
 import Foundation
 
 @MainActor
@@ -7,16 +8,19 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
+    private let caffeineController: CaffeineController
     private let onShowGlobalSearch: (NSStatusBarButton, (() -> Void)?) -> Void
     private let onShowMainWindow: () -> Void
     private let onShowNotifications: () -> Void
     private let onOpenNotification: (TerminalNotification) -> Void
     private let onJumpToLatestUnread: () -> Void
     private let onOpenTaskManager: () -> Void
+    private let onToggleSleepyMode: () -> Void
     private let onCheckForUpdates: () -> Void
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
     private var notificationMenuSnapshotCancellable: AnyCancellable?
+    private var globalFontObserver: NSObjectProtocol?
     private let buildHintTitle: String?
 
     private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
@@ -24,6 +28,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let globalSearchItem = NSMenuItem(title: String(localized: "statusMenu.searchAllWindows", defaultValue: "Search All Windows..."), action: nil, keyEquivalent: "")
     private let showMainWindowItem = NSMenuItem(title: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux"), action: nil, keyEquivalent: "")
     private let taskManagerItem = NSMenuItem(title: String(localized: "statusMenu.taskManager", defaultValue: "Task Manager..."), action: nil, keyEquivalent: "")
+    private let sleepyModeItem = NSMenuItem(title: String(localized: "statusMenu.sleepyMode", defaultValue: "Sleepy Mode"), action: nil, keyEquivalent: "")
+    private let caffeineItem = NSMenuItem(title: String(localized: "statusMenu.keepMacAwake", defaultValue: "Keep Mac Awake"), action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
     private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
@@ -37,23 +43,27 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private var notificationItems: [NSMenuItem] = []
     init(
         notificationStore: TerminalNotificationStore,
+        caffeineController: CaffeineController,
         onShowGlobalSearch: @escaping (NSStatusBarButton, (() -> Void)?) -> Void,
         onShowMainWindow: @escaping () -> Void,
         onShowNotifications: @escaping () -> Void,
         onOpenNotification: @escaping (TerminalNotification) -> Void,
         onJumpToLatestUnread: @escaping () -> Void,
         onOpenTaskManager: @escaping () -> Void,
+        onToggleSleepyMode: @escaping () -> Void,
         onCheckForUpdates: @escaping () -> Void,
         onOpenPreferences: @escaping () -> Void,
         onQuitApp: @escaping () -> Void
     ) {
         self.notificationStore = notificationStore
+        self.caffeineController = caffeineController
         self.onShowGlobalSearch = onShowGlobalSearch
         self.onShowMainWindow = onShowMainWindow
         self.onShowNotifications = onShowNotifications
         self.onOpenNotification = onOpenNotification
         self.onJumpToLatestUnread = onJumpToLatestUnread
         self.onOpenTaskManager = onOpenTaskManager
+        self.onToggleSleepyMode = onToggleSleepyMode
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenPreferences = onOpenPreferences
         self.onQuitApp = onQuitApp
@@ -62,14 +72,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         super.init()
 
         buildMenu()
+        statusItem.menu = menu
         if let button = statusItem.button {
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
             button.image = MenuBarIconRenderer.makeImage(unreadCount: 0)
             button.toolTip = "cmux"
-            button.target = self
-            button.action = #selector(statusItemButtonAction(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         notificationMenuSnapshotCancellable = notificationStore.$notificationMenuSnapshot
@@ -77,6 +85,13 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             .sink { [weak self] snapshot in
                 self?.refreshUI(snapshot: snapshot)
             }
+        globalFontObserver = NotificationCenter.default.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshUI() }
+        }
 
         refreshUI()
     }
@@ -107,6 +122,15 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         taskManagerItem.action = #selector(taskManagerAction)
         menu.addItem(taskManagerItem)
 
+        sleepyModeItem.target = self
+        sleepyModeItem.action = #selector(sleepyModeAction)
+        menu.addItem(sleepyModeItem)
+
+        caffeineItem.target = self
+        caffeineItem.action = #selector(caffeineAction)
+        menu.addItem(caffeineItem)
+
+        menu.addItem(MenuBarProfilingMenuItem.make())
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
         menu.addItem(notificationSectionSeparator)
@@ -155,6 +179,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     func removeFromMenuBar() {
         notificationMenuSnapshotCancellable?.cancel()
         notificationMenuSnapshotCancellable = nil
+        if let globalFontObserver {
+            NotificationCenter.default.removeObserver(globalFontObserver)
+            self.globalFontObserver = nil
+        }
         statusItem.menu = nil
         NSStatusBar.system.removeStatusItem(statusItem)
     }
@@ -175,10 +203,14 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
         stateHintItem.title = snapshot.stateHintTitle
         showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
+        sleepyModeItem.state = SleepyModeController.shared.isActive ? .on : .off
+        caffeineItem.state = caffeineController.isEnabled ? .on : .off
 
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .globalSearch), to: globalSearchItem)
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .showNotifications), to: showNotificationsItem)
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .jumpToUnread), to: jumpToUnreadItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .markAllNotificationsRead), to: markAllReadItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .clearAllNotifications), to: clearAllItem)
 
         jumpToUnreadItem.isEnabled = snapshot.hasUnreadNotifications
         markAllReadItem.isEnabled = snapshot.hasUnreadNotifications
@@ -241,21 +273,6 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onOpenNotification(payload.notification)
     }
 
-    @objc private func statusItemButtonAction(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else {
-            onShowGlobalSearch(sender, nil)
-            return
-        }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.type == .rightMouseUp || flags.contains(.control) {
-            refreshUI()
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
-        } else {
-            onShowGlobalSearch(sender, nil)
-        }
-    }
-
     @discardableResult
     func toggleGlobalSearchPalette(onDismiss: (() -> Void)? = nil) -> Bool {
         guard let button = statusItem.button else { return false }
@@ -264,7 +281,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     @objc private func globalSearchAction() {
-        toggleGlobalSearchPalette()
+        AppDelegate.shared?.toggleGlobalSearchPalette()
     }
 
     @objc private func showMainWindowAction() {
@@ -281,6 +298,14 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
     @objc private func taskManagerAction() {
         onOpenTaskManager()
+    }
+
+    @objc private func sleepyModeAction() {
+        onToggleSleepyMode()
+    }
+
+    @objc private func caffeineAction() {
+        caffeineController.toggle()
     }
 
     @objc private func markAllReadAction() {
@@ -409,7 +434,7 @@ enum MenuBarNotificationLineFormatter {
         return NSAttributedString(
             string: menuTitle(notification: notification, tabTitle: tabTitle),
             attributes: [
-                .font: NSFont.menuFont(ofSize: NSFont.systemFontSize),
+                .font: GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: NSColor.labelColor,
                 .paragraphStyle: paragraph,
             ]
@@ -423,7 +448,7 @@ enum MenuBarNotificationLineFormatter {
     private static func wrappedAndTruncated(_ text: String, maxWidth: CGFloat, maxLines: Int) -> String {
         let width = max(60, maxWidth)
         let lines = max(1, maxLines)
-        let font = NSFont.menuFont(ofSize: NSFont.systemFontSize)
+        let font = GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize)
         let wrapped = wrappedLines(for: text, maxWidth: width, font: font)
         guard wrapped.count > lines else { return wrapped.joined(separator: "\n") }
 
@@ -536,13 +561,20 @@ enum MenuBarExtraSettings {
 
 enum MenuBarOnlySettings {
     static let menuBarOnlyKey = "menuBarOnly"
+    static let explicitEnableKey = "menuBarOnlyExplicitlyEnabled.v1"
     static let defaultMenuBarOnly = false
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: menuBarOnlyKey) == nil {
-            return defaultMenuBarOnly
+        guard defaults.object(forKey: menuBarOnlyKey) != nil, defaults.bool(forKey: menuBarOnlyKey) else { return defaultMenuBarOnly }
+        if defaults.object(forKey: explicitEnableKey) != nil {
+            return defaults.bool(forKey: explicitEnableKey)
         }
-        return defaults.bool(forKey: menuBarOnlyKey)
+        return !legacyCommandPaletteOneShotLikelyEnabledMenuBarOnly(defaults: defaults)
+    }
+
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: menuBarOnlyKey)
+        defaults.set(enabled, forKey: explicitEnableKey)
     }
 
     static func activationPolicy(defaults: UserDefaults = .standard) -> NSApplication.ActivationPolicy {
@@ -739,7 +771,7 @@ enum MenuBarIconRenderer {
         paragraph.alignment = .center
         let fontSize: CGFloat = text.count > 1 ? config.multiDigitFontSize : config.singleDigitFontSize
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold), // Fixed 18x18 status-item bitmap.
             .foregroundColor: NSColor.systemBlue,
             .paragraphStyle: paragraph,
         ]
