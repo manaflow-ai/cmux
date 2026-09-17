@@ -16,6 +16,7 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var queue: [[String: Any]] = []
+    private var asyncWaiters: [CheckedContinuation<[String: Any]?, Never>] = []
     private var closed = false
     private var closedReason: String?
 
@@ -52,25 +53,59 @@ final class CmuxEventSubscription: @unchecked Sendable {
         lock.lock()
         let shouldSignal: Bool
         let accepted: Bool
+        let waiter: CheckedContinuation<[String: Any]?, Never>?
         if closed {
             shouldSignal = false
             accepted = false
+            waiter = nil
+        } else if let nextWaiter = asyncWaiters.first {
+            asyncWaiters.removeFirst()
+            shouldSignal = false
+            accepted = true
+            waiter = nextWaiter
         } else if queue.count >= maxPendingEvents {
             closed = true
             closedReason = "pending event buffer exceeded \(maxPendingEvents) events"
             queue.removeAll()
             shouldSignal = true
             accepted = false
+            waiter = nil
         } else {
             queue.append(event)
             shouldSignal = true
             accepted = true
+            waiter = nil
         }
         lock.unlock()
-        if shouldSignal {
+        if let waiter {
+            waiter.resume(returning: event)
+        } else if shouldSignal {
             semaphore.signal()
         }
         return accepted
+    }
+
+    /// Awaits the next event without tying up a thread in a semaphore wait.
+    /// Cancellation closes the subscription so the waiter is always resumed.
+    func nextAsync() async -> [String: Any]? {
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if !queue.isEmpty {
+                    let event = queue.removeFirst()
+                    lock.unlock()
+                    continuation.resume(returning: event)
+                } else if closed {
+                    lock.unlock()
+                    continuation.resume(returning: nil)
+                } else {
+                    asyncWaiters.append(continuation)
+                    lock.unlock()
+                }
+            }
+        }, onCancel: {
+            close(reason: "consumer cancelled")
+        })
     }
 
     func next(timeout: TimeInterval) -> [String: Any]? {
@@ -102,8 +137,11 @@ final class CmuxEventSubscription: @unchecked Sendable {
             closedReason = reason
         }
         queue.removeAll()
+        let waiters = asyncWaiters
+        asyncWaiters.removeAll(keepingCapacity: true)
         lock.unlock()
         semaphore.signal()
+        waiters.forEach { $0.resume(returning: nil) }
     }
 }
 
@@ -195,6 +233,9 @@ final class CmuxEventBus: @unchecked Sendable {
             "window_id": windowId ?? NSNull(),
             "payload": cleanPayload
         ]
+        if let automationOrigin = CmuxAutomationInvocationContext.eventOrigin {
+            event["automation_origin"] = automationOrigin.foundationObject
+        }
 
         event = Self.eventByApplyingEncodedByteLimit(event, maxBytes: maxEventLineBytes)
         retained.append(event)

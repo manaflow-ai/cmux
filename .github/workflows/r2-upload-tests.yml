@@ -1,0 +1,24 @@
+name: R2 upload tests
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/r2-upload-tests.yml
+      - .github/workflows/nightly.yml
+      - .github/workflows/release.yml
+      - .github/workflows/cmux-tui-artifacts.yml
+      - scripts/ci/upload-r2-object.py
+      - tests/test_ci_r2_upload_python.sh
+      - tests/test_r2_upload_requests.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  r2-upload-tests:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: bash tests/test_ci_r2_upload_python.sh

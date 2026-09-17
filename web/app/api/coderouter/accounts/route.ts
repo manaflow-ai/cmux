@@ -1,17 +1,14 @@
-import { env } from "../../../env";
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import {
   addAccount,
   parseCredential,
 } from "../../../../services/coderouter/accounts";
 import {
-  CODEROUTER_FREE_ACCOUNT_LIMIT,
-  accountAdditionAllowed,
-} from "../../../../services/coderouter/entitlement";
-import {
   resolveCoderouterUsageTeam,
   resolveCodeRouterRequestContext,
 } from "../../../../services/coderouter/requestContext";
 import { accountsWithUsage } from "../../../../services/coderouter/usage";
+import { CodexSignatureError } from "../../../../services/coderouter/codexSignature";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -21,13 +18,15 @@ import {
 
 const MAX_BODY_BYTES = 128 * 1_024;
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = coderouterControlRoute("accounts", "/api/coderouter/accounts", handleGet);
+
+async function handleGet(request: Request): Promise<Response> {
   const startedAt = performance.now();
   const authStartedAt = performance.now();
   const resolved = await resolveCoderouterUsageTeam(request);
   if (!resolved.ok) return resolved.response;
   const authMs = performance.now() - authStartedAt;
-  const result = await accountsWithUsage(resolved.teamId);
+  const result = await accountsWithUsage(resolved.teamId, resolved.access);
   const serializeStartedAt = performance.now();
   const body = JSON.stringify({
     teamId: resolved.teamId,
@@ -77,25 +76,22 @@ export async function GET(request: Request): Promise<Response> {
 
 type AccountsPostDependencies = {
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly additionAllowed: typeof accountAdditionAllowed;
   readonly add: typeof addAccount;
-  readonly hostedProRequired: () => boolean;
 };
 
 const defaultAccountsPostDependencies: AccountsPostDependencies = {
   resolveContext: resolveCodeRouterRequestContext,
-  additionAllowed: accountAdditionAllowed,
   add: addAccount,
-  hostedProRequired: () => env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
 };
 
-export const POST = makeCoderouterAccountsPostHandler();
+export const POST = coderouterControlRoute("accounts", "/api/coderouter/accounts", makeCoderouterAccountsPostHandler());
 
 export function makeCoderouterAccountsPostHandler(
   dependencies: AccountsPostDependencies = defaultAccountsPostDependencies,
 ) {
   return async function POST(request: Request): Promise<Response> {
-  const resolved = await dependencies.resolveContext(request, "manage");
+  // Team membership is the only requirement; there is no account cap.
+  const resolved = await dependencies.resolveContext(request);
   if (!resolved.ok) return resolved.response;
   const length = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
@@ -111,65 +107,15 @@ export function makeCoderouterAccountsPostHandler(
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
+  const visibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
+  if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+  if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const credential = parseCredential(value);
   if (!credential) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  if (dependencies.hostedProRequired()) {
-    let decision;
-    try {
-      decision = await dependencies.additionAllowed({
-        stackUserId: resolved.value.user.id,
-        teamId: resolved.value.team.teamId,
-        provider: credential.provider,
-        providerAccountId: credential.accountId,
-      });
-    } catch (error) {
-      reportCoderouterFailure("rds", error, {
-        operation: "account_addition_gate",
-      });
-      return Response.json(
-        {
-          error: "entitlement_unavailable",
-          message:
-            "coderouter could not verify your plan. Nothing was changed; retry shortly.",
-          retryable: true,
-        },
-        {
-          status: 503,
-          headers: { "cache-control": "no-store", "retry-after": "5" },
-        },
-      );
-    }
-    if (!decision.allowed) {
-      captureCoderouterEvent({
-        event: "coderouter_account_limit_reached",
-        userId: resolved.value.user.id,
-        teamId: resolved.value.team.teamId,
-        properties: {
-          provider: credential.provider,
-          account_count: decision.accountCount,
-          free_limit: CODEROUTER_FREE_ACCOUNT_LIMIT,
-        },
-      });
-      return Response.json(
-        {
-          error: "pro_required",
-          message:
-            `Free hosted coderouter covers up to ${CODEROUTER_FREE_ACCOUNT_LIMIT} connected accounts; ` +
-            `this team already has ${decision.accountCount}. ` +
-            "Upgrade to cmux Pro or Team to connect more, or remove an account first.",
-          retryable: false,
-        },
-        {
-          status: 402,
-          headers: { "cache-control": "no-store" },
-        },
-      );
-    }
-  }
   try {
-    const result = await dependencies.add(resolved.value.team.teamId, credential);
+    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: resolved.value.user.id,
@@ -189,6 +135,9 @@ export function makeCoderouterAccountsPostHandler(
       headers: { "cache-control": "no-store" },
     });
   } catch (error) {
+    if (error instanceof CodexSignatureError) {
+      return Response.json({ error: "invalid_credential", message: "Sign in to Codex again before adding this account." }, { status: 400, headers: { "cache-control": "no-store" } });
+    }
     reportCoderouterFailure("rds", error, { operation: "add_account" });
     return Response.json(
       {

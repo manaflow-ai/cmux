@@ -5,6 +5,25 @@ import Testing
 
 @Suite("irx wire protocol")
 struct IrxProtocolTests {
+    @Test("deadline returns when the operation ignores cancellation")
+    func deadlineReturnsWhenOperationIgnoresCancellation() async throws {
+        let gate = IrxDeadlineGate()
+
+        let result = try await withIrxDeadline(.milliseconds(20), onTimeout: {
+            await gate.open()
+        }) {
+            await gate.wait()
+            await gate.markFinished()
+            return "late"
+        }
+
+        // The operation only gets past the gate once the deadline has fired, so a nil
+        // result proves the deadline returned without waiting for it; a wall-clock bound
+        // on top of that only measured runner load.
+        #expect(result == nil)
+        await gate.waitUntilFinished()
+    }
+
     @Test("control frames round-trip through the codec")
     func controlFrameRoundTrip() throws {
         let hello = IrxHello(grant: "grant.jws.value")
@@ -85,18 +104,43 @@ struct IrxRelayCredentialPolicyTests {
         #expect(eagerRefresh == eager.refreshAfter)
     }
 
-    @Test("mint-failure retry accelerates toward expiry, floor 1s")
+    @Test("mint-failure retry backs off independently of expiry")
     func retryDelay() {
         let now = Date(timeIntervalSince1970: 2_000_000)
         let far = IrxRelayCredentialPolicy.retryDelay(
             expiresAt: now.addingTimeInterval(200), now: now)
-        #expect(far == .seconds(100))
+        #expect(far == .seconds(5))
         let near = IrxRelayCredentialPolicy.retryDelay(
             expiresAt: now.addingTimeInterval(1), now: now)
-        #expect(near == .seconds(1))
+        #expect(near == .seconds(5))
         let past = IrxRelayCredentialPolicy.retryDelay(
             expiresAt: now.addingTimeInterval(-5), now: now)
-        #expect(past == .seconds(1))
+        #expect(past == .seconds(5))
+        let later = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: now.addingTimeInterval(-5), now: now, failureCount: 4)
+        #expect(later == .seconds(80))
+
+        let rateLimited = IrxRelayCredentialPolicy.retryDelay(
+            expiresAt: now.addingTimeInterval(1),
+            now: now,
+            retryAfterSeconds: 45
+        )
+        #expect(rateLimited == .seconds(45))
+    }
+
+    @Test("capped retries and server floors keep jitter without overflowing")
+    func retryJitterAndLargeFloors() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        for serverFloor in [0, 600, Int.max] {
+            let base = IrxRelayCredentialPolicy.retryDelay(
+                expiresAt: now, now: now, retryAfterSeconds: serverFloor,
+                failureCount: 20, jitterUnitInterval: 0)
+            let jittered = IrxRelayCredentialPolicy.retryDelay(
+                expiresAt: now, now: now, retryAfterSeconds: serverFloor,
+                failureCount: 20, jitterUnitInterval: 1)
+            #expect(base >= .seconds(serverFloor))
+            #expect(jittered == base + .seconds(30))
+        }
     }
 
     @Test("usability requires margin over expiry")
@@ -152,5 +196,51 @@ struct IrxIdentityTests {
         let signature = try identity.sign(message)
         #expect(signature.count == 64)
         try? FileManager.default.removeItem(at: dir)
+    }
+}
+
+@Suite("endpoint path policy")
+struct IrxEndpointPathPolicyTests {
+    @Test("automatic dials carry direct candidates and relay-only dials strip them")
+    func dialAddressPolicy() throws {
+        let identity = IrxIdentity(
+            privateKeyData: Data(repeating: 7, count: 32),
+            deviceID: "device-a",
+            appInstanceID: "instance-a"
+        )
+        let directAddresses = ["127.0.0.1:58470", "[::1]:58470"]
+        let automatic = IrxEndpointSupervisor(
+            configuration: IrxEndpointConfiguration(
+                identity: identity,
+                pathMode: .automatic,
+                initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0
+            ),
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "irx-paths")
+        )
+        let relayOnly = IrxEndpointSupervisor(
+            configuration: IrxEndpointConfiguration(
+                identity: identity,
+                pathMode: .relayOnly,
+                initialRemoteBiStreams: 0,
+                initialRemoteUniStreams: 0
+            ),
+            journal: IrxJournal(subsystem: "dev.cmux.tests", category: "irx-paths")
+        )
+
+        #expect(
+            try automatic.dialAddress(
+                peerEndpointIDHex: identity.endpointIDHex,
+                relayURL: "https://relay.example.com/",
+                directAddresses: directAddresses
+            ).directAddresses() == directAddresses
+        )
+        #expect(
+            try relayOnly.dialAddress(
+                peerEndpointIDHex: identity.endpointIDHex,
+                relayURL: "https://relay.example.com/",
+                directAddresses: directAddresses
+            ).directAddresses().isEmpty
+        )
     }
 }

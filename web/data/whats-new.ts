@@ -80,13 +80,9 @@ export interface WhatsNewList {
 }
 
 export const whatsNewList: WhatsNewList = {
-  // Binary catalog ids the app may show. "connections.v1" ships in the iOS
-  // binary catalog, so only binaries that carry the page can render it; the
-  // list needs no extra version gating for binary pages. Remove an id here
-  // to hide its page remotely. With no `entryChannels` override, every id
-  // keeps its compiled-in audience — team lanes only — so none of this
-  // renders on the official App Store app. To show connections.v1 there:
-  // entryChannels: { "connections.v1": ["dev", "beta", "internal", "prod"] }.
-  visibleEntryIds: ["connections.v1"],
+  // One bespoke page now carries the Mac-side opt-in, the screenshot, the
+  // compatibility floors, and the connection notes. The earlier standalone
+  // pairing page is intentionally absent and can never be shown again.
+  visibleEntryIds: ["connections.v2", "connections.v1"],
   announcements: [],
 };
