@@ -733,7 +733,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         "s=\(surfaceID.prefix(8).lowercased()) seq=\(latencySequence) " +
                             "path=legacy us=\($0)"
                     }
-                    MobileReleaseGateUIProbe.record(.terminalFramePresented)
                     #endif
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
