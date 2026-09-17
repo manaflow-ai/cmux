@@ -48,9 +48,10 @@ enum CloudTuiRequests {
         if let name, !name.isEmpty { fields["name"] = name }
         return CloudTuiRequest("workspace.create", fields, mutation: true)
     }
-    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> CloudTuiRequest {
+    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, cwd: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> CloudTuiRequest {
         var fields: [String: Any] = ["workspace": workspaceID, "argv": command]
         if let onExit { fields["on_exit"] = onExit }
+        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty { fields["cwd"] = cwd }
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest("workspace.run", fields, mutation: true, key: idempotencyKey)
     }

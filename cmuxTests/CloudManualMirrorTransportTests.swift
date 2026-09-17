@@ -268,6 +268,12 @@ struct CloudManualMirrorTransportTests {
         #expect(error == nil)
     }
 
+    @Test func nativeCreationCwdAvoidsAnExtraLoginShell() {
+        let request = CloudTuiRequests.runArguments(socketPath: "/unused", workspaceID: "ws_target", command: ["bash", "-l"], cwd: "/a directory/'quoted'", idempotencyKey: "one")
+        #expect(request.params["argv"] as? [String] == ["bash", "-l"])
+        #expect(request.params["cwd"] as? String == "/a directory/'quoted'")
+    }
+
     @Test func resourceRequestsPreserveExactCommandArgumentsAndSelectors() throws {
         let argv = ["bash", "--name", "--", "literal payload", "--expected-revision"]
         let request = CloudTuiRequests.runArguments(socketPath: "/unused", workspaceID: "ws_target", command: argv, idempotencyKey: "stable-key")
