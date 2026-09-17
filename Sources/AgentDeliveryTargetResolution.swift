@@ -157,11 +157,31 @@ extension Workspace {
     }
 
     func restoreTransferredSurfaceTTYRuntimeProofIfNeeded(from transfer: DetachedSurfaceTransfer) {
-        guard transfer.ttyNameWasReportedByCurrentRuntime,
-              !surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(transfer.panelId) else {
+        guard transfer.ttyNameWasReportedByCurrentRuntime else { return }
+        if !surfaceRegistry.runtimeReportedTTYSurfaceIDs.contains(transfer.panelId) {
+            adoptTransferredSurfaceTTYName(from: transfer)
+        }
+        // Detaching retires the source PortScanner key. Re-register the
+        // preserved current-generation report under the destination key so
+        // strict caller-TTY resolution keeps its freshness check after a
+        // local surface move.
+        guard !transfer.isRemoteTerminal,
+              !isRemoteWorkspace,
+              !isRemoteTmuxMirror,
+              let terminal = panels[transfer.panelId] as? TerminalPanel,
+              hasCurrentRuntimeReportedTTY(panelId: transfer.panelId, terminal: terminal),
+              let ttyName = surfaceTTYNames[transfer.panelId] else {
             return
         }
-        adoptTransferredSurfaceTTYName(from: transfer)
+        PortScanner.shared.registerTTY(
+            workspaceId: id,
+            panelId: transfer.panelId,
+            ttyName: ttyName
+        )
+        PortScanner.shared.kick(
+            workspaceId: id,
+            panelId: transfer.panelId
+        )
     }
 
     /// Host-local TTY bindings eligible to identify a process running on this
@@ -258,7 +278,7 @@ extension AppDelegate {
         }
         var envTarget: AgentDeliveryTargetCandidate?
         if let envSurfaceId = processScope?.surfaceID,
-           let owner = notificationSurfaceOwner(
+           let owner = liveSurfaceOwner(
                surfaceID: envSurfaceId,
                preferredTabID: processScope?.workspaceID
            ) {
@@ -442,7 +462,7 @@ extension TerminalController {
             )
         }
         if let claimedSurfaceId,
-           let owner = appDelegate.notificationSurfaceOwner(
+           let owner = appDelegate.liveSurfaceOwner(
                surfaceID: claimedSurfaceId,
                preferredTabID: claimedWorkspaceId
            ) {

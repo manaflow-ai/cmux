@@ -98,9 +98,11 @@ public actor CmxIrohHostRuntime {
     var registrationRefreshTask: Task<Void, Never>?
     var registrationRenewalTask: Task<Void, Never>?
     var registrationRefreshPending = false
+    var registrationRefreshPendingForcesPublication = false
     var registrationRefreshEnabled = false
     var registrationRefreshFailureCount = 0
     var localBinding: CmxIrohBrokerBindingMetadata?
+    var lastRegistrationRefreshState: CmxIrohRegistrationPublicationState?
     var managedRelayURLs: Set<String>
     var currentEndpointRelayProfile: CmxIrohEndpointRelayProfile?
     var endpointAttestation: CmxIrohEndpointAttestationResponse?
@@ -168,6 +170,7 @@ public actor CmxIrohHostRuntime {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         registrationRefreshPending = false
+        registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
         currentSnapshot = CmxIrohHostRuntimeSnapshot(

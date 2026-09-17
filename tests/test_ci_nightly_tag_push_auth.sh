@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Guards the nightly tag update against regressions to the auth approach.
+# Guards the channel release tag update (nightly, rc) against regressions to the auth approach.
 #
 # History:
 # - Originally relied on actions/checkout-persisted credentials, which
@@ -17,11 +17,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
-  /^      - name: Move nightly tag to built commit/ { in_step=1; next }
+  /^      - name: Move channel release tag to built commit/ { in_step=1; next }
   in_step && /^      - name:/ { in_step=0 }
   in_step && /GITHUB_TOKEN: \$\{\{ github\.token \}\}/ { saw_token_env=1 }
   in_step && /x-access-token:\$\{GITHUB_TOKEN\}@github\.com\/\$\{GITHUB_REPOSITORY\}\.git/ { saw_token_url=1 }
-  in_step && /refs\/tags\/nightly --force/ { saw_push=1 }
+  in_step && /"refs\/tags\/\$\{CHANNEL_RELEASE_TAG\}" --force/ { saw_push=1 }
   in_step && /\.extraheader=AUTHORIZATION/ { saw_extraheader=1 }
   END {
     if (saw_extraheader) exit 1

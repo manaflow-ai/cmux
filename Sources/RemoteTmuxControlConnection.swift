@@ -61,6 +61,10 @@ final class RemoteTmuxControlConnection {
     /// Aggregate bytes retained by every in-flight pane seed on this connection.
     var pendingPaneSeedByteCount = 0
     let pendingPaneSeedByteLimit: Int
+    /// Panes whose budget overflow recovery is waiting to start an authoritative seed.
+    var deferredPaneSeedBudgetRecoveryPaneIDs: Set<Int> = []
+    /// Coalesces pane budget recovery onto one future main-actor turn.
+    var paneSeedBudgetRecoveryTaskScheduled = false
     /// The one queued or in-flight visible repaint seed allowed per pane.
     var pendingPaneVisibleRepaintSeedIDs: [Int: UUID] = [:]
     /// Panes that grew while a visible repaint seed was already in flight. One
@@ -190,6 +194,25 @@ final class RemoteTmuxControlConnection {
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?
     var pendingPostAttachAction: PostAttachAction?
+
+    /// Session-scoped environment pairs identifying the local mirror, pushed to
+    /// the remote tmux session on every attach AND reconnect (issue #833).
+    /// Session scope (`set-environment -t`) is deliberate: the shell-integration
+    /// pull path runs a session-scoped `show-environment`, which does not see
+    /// global (`-g`) values. Set by the controller when the mirror workspace is
+    /// created; empty until then (and for non-mirror consumers).
+    private(set) var mirrorEnvironment: [String: String] = [:]
+
+    /// Replaces the identity pairs pushed by ``pushMirrorSessionEnvironment()``.
+    /// A connection that already passed its post-attach point (a reused,
+    /// still-connected connection) pushes the fresh pairs immediately;
+    /// otherwise the pending post-attach drain pushes them.
+    func setMirrorEnvironment(_ pairs: [String: String]) {
+        mirrorEnvironment = pairs
+        if connectionState == .connected, attachBlockDrained, pendingPostAttachAction == nil {
+            pushMirrorSessionEnvironment()
+        }
+    }
 
     /// Trailing-edge debounce for `refresh-client -C`. SwiftUI layout settle makes the
     /// rendered grid oscillate (e.g. cols 154→155→156→161→…, ~15 distinct grids in
@@ -830,6 +853,9 @@ final class RemoteTmuxControlConnection {
             applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
+        case .clientDetached:
+            record("client-detached")
+            replayRecordedSizeClaims()
         case let .windowAdd(id):
             record("window-add @\(id)")
             requestWindows()

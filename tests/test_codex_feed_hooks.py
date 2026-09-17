@@ -86,6 +86,7 @@ class FakeCmuxSocket:
         surface_delivery_target: tuple[str, str] | None = None,
         method_errors: dict[str, tuple[str, str]] | None = None,
         single_batch_item_id: bool = False,
+        method_delays: dict[str, float] | None = None,
     ):
         self.path = path
         self.decision = decision
@@ -99,6 +100,7 @@ class FakeCmuxSocket:
         self.surface_delivery_target = surface_delivery_target
         self.method_errors = method_errors or {}
         self.single_batch_item_id = single_batch_item_id
+        self.method_delays = method_delays or {}
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
@@ -140,6 +142,21 @@ class FakeCmuxSocket:
                 threading.Thread(target=self._handle_conn, args=(conn, connection_id), daemon=True).start()
 
     def _handle_conn(self, conn: socket.socket, connection_id: int) -> None:
+        # A closed peer must not stop the drain: like the real app's
+        # per-connection worker, buffered request lines that were written
+        # before the peer hung up are still read and recorded — only the
+        # replies are skipped.
+        can_reply = True
+
+        def reply(payload: bytes) -> None:
+            nonlocal can_reply
+            if not can_reply:
+                return
+            try:
+                conn.sendall(payload)
+            except OSError:
+                can_reply = False
+
         with conn:
             data = b""
             while not self._stop.is_set():
@@ -158,13 +175,12 @@ class FakeCmuxSocket:
                         self.frames.append({"raw": raw_line})
                         if self.raw_response_delay > 0:
                             time.sleep(self.raw_response_delay)
-                        try:
-                            conn.sendall(b"OK\n")
-                        except OSError:
-                            return
+                        reply(b"OK\n")
                         continue
                     self.frames.append(frame)
                     self.frames_with_connection.append((connection_id, frame))
+                    if delay := self.method_delays.get(frame.get("method")):
+                        time.sleep(delay)
                     if method_error := self.method_errors.get(frame.get("method")):
                         code, message = method_error
                         response = {
@@ -175,10 +191,7 @@ class FakeCmuxSocket:
                                 "message": message,
                             },
                         }
-                        try:
-                            conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
-                        except BrokenPipeError:
-                            return
+                        reply(json.dumps(response).encode("utf-8") + b"\n")
                         continue
                     if frame.get("method") == "feed.push":
                         self.feed_frame_received.set()
@@ -236,11 +249,7 @@ class FakeCmuxSocket:
                             "code": "feed_rejected",
                             "message": "Feed rejected the event",
                         }
-                    encoded_response = json.dumps(response).encode("utf-8") + b"\n"
-                    try:
-                        conn.sendall(encoded_response)
-                    except BrokenPipeError:
-                        return
+                    reply(json.dumps(response).encode("utf-8") + b"\n")
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:

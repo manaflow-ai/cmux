@@ -2,7 +2,7 @@
 
 Production code uses `cmux::Client`, opaque resource IDs, resource handles,
 typed creation paths, typed terminal results, typed attachment items, and
-`cmux::Result`. It does not use numeric mux IDs, generated protocol-v10 models,
+`cmux::Result`. It does not use numeric mux IDs, generated protocol-v12 models,
 raw commands, or JSON documents.
 
 Tests implement the public `cmux::Transport` interface and use public

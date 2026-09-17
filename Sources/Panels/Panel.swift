@@ -3,7 +3,7 @@ import Combine
 import AppKit
 
 /// Type of panel content
-public enum PanelType: String, Codable, Sendable {
+public enum PanelType: String, Codable, CaseIterable, Sendable {
     case terminal
     case browser
     case markdown
@@ -15,6 +15,7 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case notifications
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
@@ -44,6 +45,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
             self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
+            self = .notifications
             return
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
@@ -114,6 +119,7 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
 
@@ -324,6 +330,9 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
     /// Unfocus the panel
     func unfocus()
 
+    /// Read the panel's live user selection without changing focus or UI state.
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult
+
     /// Trigger a focus flash animation for this panel.
     func triggerFlash(reason: WorkspaceAttentionFlashReason)
 
@@ -352,6 +361,11 @@ public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUI
 extension Panel {
     public var displayIcon: String? { nil }
     public var isDirty: Bool { false }
+
+    /// Captures the panel's current selection without changing focus or state.
+    public func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        .unsupported
+    }
 
     func captureFocusIntent(in window: NSWindow?) -> PanelFocusIntent {
         _ = window

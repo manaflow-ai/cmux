@@ -110,11 +110,114 @@ cd "$REPO_ROOT"
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/iroh-release-gate-targets.sh
+source "$SCRIPT_DIR/lib/iroh-release-gate-targets.sh"
 cmux_attach_validate_dev_tag "$TAG"
+
+ACTIVE_BUILD_WRAPPER_PID=""
+
+# Hosted logs are bounded, while a cold optimized iOS build can emit several
+# megabytes before it links. Keep the full build output on the runner, expose a
+# heartbeat to the job log, and print a bounded diagnostic tail only on failure.
+# Python owns the child process group so cancellation is forwarded and reaped.
+run_build_with_heartbeat() {
+  local label="$1"
+  shift
+  local status build_log
+
+  build_log="${RUNNER_TEMP:-/tmp}/cmux-iroh-${TAG}-${label}.log"
+
+  /usr/bin/python3 - "$label" "$build_log" "$@" <<'PY' &
+import os
+import signal
+import subprocess
+import sys
+import time
+
+label, build_log, *command = sys.argv[1:]
+interrupted_by = None
+termination_deadline = None
+process = None
+
+def forward_signal(signum, _frame):
+    global interrupted_by, termination_deadline
+    if interrupted_by is None:
+        interrupted_by = signum
+        termination_deadline = time.monotonic() + 10
+    if process is None:
+        return
+    try:
+        os.killpg(process.pid, signum)
+    except ProcessLookupError:
+        pass
+
+signal.signal(signal.SIGINT, forward_signal)
+signal.signal(signal.SIGTERM, forward_signal)
+
+with open(build_log, "wb") as output:
+    process = subprocess.Popen(
+        command,
+        stdout=output,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    if interrupted_by is not None:
+        try:
+            os.killpg(process.pid, interrupted_by)
+        except ProcessLookupError:
+            pass
+
+    while True:
+        timeout = 60
+        if termination_deadline is not None:
+            timeout = max(0.1, termination_deadline - time.monotonic())
+        try:
+            return_code = process.wait(timeout=timeout)
+            break
+        except subprocess.TimeoutExpired:
+            if termination_deadline is None:
+                print(f"==> {label} build still running", flush=True)
+                continue
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            return_code = process.wait()
+            break
+
+if interrupted_by is not None:
+    raise SystemExit(128 + interrupted_by)
+if return_code < 0:
+    raise SystemExit(128 - return_code)
+raise SystemExit(return_code)
+PY
+  ACTIVE_BUILD_WRAPPER_PID=$!
+  if wait "$ACTIVE_BUILD_WRAPPER_PID"
+  then
+    status=0
+  else
+    status=$?
+  fi
+  ACTIVE_BUILD_WRAPPER_PID=""
+  if [[ "$status" -ne 0 ]]; then
+    printf 'error: %s build failed with status %s; tail of %s follows\n' \
+      "$label" "$status" "$build_log" >&2
+    tail -n 240 "$build_log" >&2 || true
+  else
+    printf '==> %s build succeeded; full log: %s\n' "$label" "$build_log"
+  fi
+  return "$status"
+}
 
 if [[ "$PRINT_PLAN" -eq 1 ]]; then
   printf '%s\n' "$GATE_PLAN"
   exit 0
+fi
+
+# Hosted runners can reuse RUNNER_TEMP between jobs. Never let a build or
+# launch failure upload a verdict from an earlier run at the same output path.
+if [[ -n "$REPORT_OUTPUT" ]]; then
+  rm -f "$REPORT_OUTPUT"
 fi
 
 if [[ "$GATE_PLAN" == "simulator-direct-transport" ]]; then
@@ -237,11 +340,22 @@ cleanup() {
   exit "$exit_code"
 }
 
+stop_active_build() {
+  local signal_name="$1"
+  local wrapper_pid="$ACTIVE_BUILD_WRAPPER_PID"
+  [[ -n "$wrapper_pid" ]] || return
+  kill -s "$signal_name" "$wrapper_pid" >/dev/null 2>&1 || true
+  wait "$wrapper_pid" >/dev/null 2>&1 || true
+  ACTIVE_BUILD_WRAPPER_PID=""
+}
+
 handle_interrupt() {
+  stop_active_build INT
   exit 130
 }
 
 handle_termination() {
+  stop_active_build TERM
   exit 143
 }
 
@@ -341,36 +455,35 @@ xcrun simctl boot "$SIMULATOR_ID"
 xcrun simctl bootstatus "$SIMULATOR_ID" -b
 
 if [[ "$SKIP_BUILD" -ne 1 ]]; then
+  iroh_release_gate_set_ios_reload_args \
+    "$TAG" "$SIMULATOR_NAME" "$SIMULATOR_ID" "$PRODUCTION"
   if [[ "$PRODUCTION" -eq 1 ]]; then
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+    run_build_with_heartbeat Mac env \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./scripts/reload.sh \
         --tag "$TAG" \
         --prod-auth \
         --credentials-file "$PROD_CREDENTIALS_FILE"
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
-      ./ios/scripts/reload.sh \
-        --tag "$TAG" \
-        --simulator "$SIMULATOR_NAME" \
-        --simulator-id "$SIMULATOR_ID" \
-        --prod-auth \
-        --no-launch
+    run_build_with_heartbeat iOS env \
+      CMUX_XCODEBUILD_JOBS="${CMUX_IROH_RELEASE_GATE_XCODEBUILD_JOBS:-2}" \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   else
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+    run_build_with_heartbeat Mac env \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
       ./scripts/reload.sh --tag "$TAG"
-    CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
-    CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
-    CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
-      ./ios/scripts/reload.sh \
-        --tag "$TAG" \
-        --simulator "$SIMULATOR_NAME" \
-        --simulator-id "$SIMULATOR_ID" \
-        --no-launch
+    run_build_with_heartbeat iOS env \
+      CMUX_XCODEBUILD_JOBS="${CMUX_IROH_RELEASE_GATE_XCODEBUILD_JOBS:-2}" \
+      CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
+      CMUX_DEV_API_BASE_URL="$STAGING_BASE_URL" \
+      CMUX_IROH_BROKER_BASE_URL="$STAGING_BASE_URL" \
+      ./ios/scripts/reload.sh "${IROH_RELEASE_GATE_IOS_RELOAD_ARGS[@]}"
   fi
 else
   [[ -d "$IOS_APP" ]] || { echo "error: tagged iOS app is missing: $IOS_APP" >&2; exit 1; }
@@ -540,6 +653,7 @@ REPORT_WAITER_PID=$!
 MOBILE_LAUNCH_ARGS=(
   --tag "$TAG"
   --simulator-id "$SIMULATOR_ID"
+  --auth-profile agent
   --ensure-mac
   --detach
   --iroh-release-gate "$RAW_MODE"
@@ -548,6 +662,7 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
 fi
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
+CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
@@ -570,6 +685,18 @@ REPORT_WAITER_PID=""
 if [[ -n "$REPORT_OUTPUT" ]]; then
   mkdir -p "$(dirname "$REPORT_OUTPUT")"
   cp "$REPORT_PATH" "$REPORT_OUTPUT"
+
+  # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.
+  # The host owns admission and stream lifetime, so an iOS-only report cannot
+  # distinguish a control-session exit from a client-side RPC failure.
+  # Diagnostic capture is best-effort and must never replace the gate verdict.
+  HOST_DIAGNOSTIC_OUTPUT="${REPORT_OUTPUT%.json}-mac.cmuxdiag"
+  if ! CMUX_TAG="$TAG" "$SCRIPT_DIR/cmux-debug-cli.sh" iroh-diag \
+    > "$HOST_DIAGNOSTIC_OUTPUT"
+  then
+    rm -f "$HOST_DIAGNOSTIC_OUTPUT"
+    echo "warning: Mac Iroh diagnostic capture failed" >&2
+  fi
 fi
 
 REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" /usr/bin/python3 <<'PY'
@@ -587,6 +714,7 @@ allowed_keys = {
     "scenario",
     "passed",
     "hostStatusVerified",
+    "rpcMethodInventoryVerified",
     "terminalRoundTripVerified",
     "workspaceMutationVerified",
     "independentEventsVerified",
@@ -604,6 +732,8 @@ allowed_keys = {
     "routeKind",
     "selectedPath",
     "failure",
+    "lastDiagnosticEventCode",
+    "lastDiagnosticFailureKind",
 }
 allowed_paths = {
     "automatic": {"direct", "private_network", "managed_relay", "custom_relay"},
@@ -613,6 +743,7 @@ allowed_paths = {
 required_true = (
     "passed",
     "hostStatusVerified",
+    "rpcMethodInventoryVerified",
     "terminalRoundTripVerified",
     "workspaceMutationVerified",
     "independentEventsVerified",
@@ -624,7 +755,7 @@ problems = []
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
-if report.get("schemaVersion") != 3:
+if report.get("schemaVersion") != 4:
     problems.append("unexpected schemaVersion")
 if report.get("mode") != expected_mode:
     problems.append("mode mismatch")

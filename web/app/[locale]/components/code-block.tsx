@@ -11,6 +11,8 @@ export async function CodeBlock({
   lang?: string;
   variant?: "code" | "ascii";
 }) {
+  "use cache";
+
   const plainLineHeightClass =
     variant === "ascii" ? "leading-[1.15]" : "leading-[1.45]";
   const shikiLineHeightClass =

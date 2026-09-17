@@ -5,8 +5,12 @@
 //! portable-pty's native backend.
 
 use std::collections::BTreeMap;
+use std::fmt;
 #[cfg(unix)]
 use std::fs::File;
+use std::io;
+#[cfg(unix)]
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::sync::Arc;
@@ -15,6 +19,75 @@ pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
 #[cfg(unix)]
 mod macos;
+
+/// Stable classification for failures at the PTY allocation boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyOpenErrorKind {
+    /// The operating system cannot allocate another PTY or required file
+    /// descriptor until existing resources are released.
+    CapacityExhausted,
+    /// The operating system rejected PTY allocation for another reason.
+    Other,
+}
+
+/// A PTY allocation failure that preserves both its machine-readable class
+/// and the original operating-system error.
+#[derive(Debug)]
+pub struct PtyOpenError {
+    kind: PtyOpenErrorKind,
+    source: io::Error,
+}
+
+impl PtyOpenError {
+    pub fn from_io(source: io::Error) -> Self {
+        let kind = if is_capacity_exhaustion(&source) {
+            PtyOpenErrorKind::CapacityExhausted
+        } else {
+            PtyOpenErrorKind::Other
+        };
+        Self { kind, source }
+    }
+
+    pub fn kind(&self) -> PtyOpenErrorKind {
+        self.kind
+    }
+
+    pub fn is_capacity_exhausted(&self) -> bool {
+        self.kind == PtyOpenErrorKind::CapacityExhausted
+    }
+}
+
+impl fmt::Display for PtyOpenError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind {
+            PtyOpenErrorKind::CapacityExhausted => write!(
+                f,
+                "PTY capacity exhausted; close unused terminals or tmux sessions and retry: {}",
+                self.source
+            ),
+            PtyOpenErrorKind::Other => write!(f, "failed to open PTY: {}", self.source),
+        }
+    }
+}
+
+impl std::error::Error for PtyOpenError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+#[cfg(unix)]
+fn is_capacity_exhaustion(error: &io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(libc::ENXIO | libc::ENOSPC | libc::EMFILE | libc::ENFILE | libc::EAGAIN)
+    )
+}
+
+#[cfg(not(unix))]
+fn is_capacity_exhaustion(error: &io::Error) -> bool {
+    matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::OutOfMemory)
+}
 
 /// The subset of process configuration needed by both cmux PTY runtimes.
 #[derive(Debug, Clone)]
@@ -80,9 +153,40 @@ pub struct PtyPair {
 }
 
 impl PtyPair {
+    /// Duplicate the master descriptor before spawning so a reader can poll
+    /// its own owned descriptor without borrowing a handle that another
+    /// thread may close. `F_DUPFD_CLOEXEC` keeps the duplicate out of child
+    /// exec environments without a descriptor-inheritance race.
+    #[cfg(unix)]
+    pub fn try_clone_reader_descriptor(&self) -> anyhow::Result<OwnedFd> {
+        let source = self
+            .master
+            .as_raw_fd()
+            .ok_or_else(|| anyhow::anyhow!("PTY master does not expose a reader descriptor"))?;
+        loop {
+            // SAFETY: `source` is owned by this still-live PTY pair. The
+            // successful fcntl call returns a new descriptor we immediately
+            // wrap in OwnedFd.
+            let descriptor = unsafe { libc::fcntl(source, libc::F_DUPFD_CLOEXEC, 0) };
+            if descriptor >= 0 {
+                // SAFETY: ownership transfers from fcntl to OwnedFd exactly
+                // once on a successful call.
+                return Ok(unsafe { OwnedFd::from_raw_fd(descriptor) });
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(anyhow::anyhow!("failed to duplicate PTY reader: {error}"));
+        }
+    }
+
     /// Spawn the command, close the parent's slave descriptor, and return the
     /// master and child as one ownership-safe unit.
     pub fn spawn(self, command: PtyCommand) -> anyhow::Result<SpawnedPty> {
+        if command.program.trim().is_empty() {
+            anyhow::bail!("PTY command program must not be empty");
+        }
         let Self { master, slave } = self;
         let child = platform::spawn(&slave, command)?;
         drop(slave);
@@ -139,12 +243,31 @@ mod platform {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use std::error::Error as _;
     use std::fs::File;
-    #[cfg(target_os = "linux")]
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd};
 
     use super::*;
+
+    #[test]
+    fn pty_capacity_errors_preserve_an_actionable_classification() {
+        for errno in [libc::ENXIO, libc::ENOSPC, libc::EMFILE, libc::ENFILE, libc::EAGAIN] {
+            let error = PtyOpenError::from_io(io::Error::from_raw_os_error(errno));
+            assert_eq!(error.kind(), PtyOpenErrorKind::CapacityExhausted);
+            assert!(error.is_capacity_exhausted());
+            assert!(error.to_string().contains("PTY capacity exhausted"));
+            assert!(error.source().is_some());
+        }
+    }
+
+    #[test]
+    fn unrelated_pty_open_errors_remain_distinguishable() {
+        let error = PtyOpenError::from_io(io::Error::from_raw_os_error(libc::EBADF));
+        assert_eq!(error.kind(), PtyOpenErrorKind::Other);
+        assert!(!error.is_capacity_exhausted());
+        assert!(error.to_string().contains("failed to open PTY"));
+    }
 
     #[test]
     fn missing_program_fails_before_the_child_is_published() {
@@ -155,6 +278,26 @@ mod tests {
             let status = spawned.child.wait().unwrap();
             panic!("missing PTY program was published as child status {status:?}");
         }
+    }
+
+    #[test]
+    fn empty_program_is_rejected_before_platform_spawn() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let error = match pair.spawn(PtyCommand::new("")) {
+            Ok(_) => panic!("empty PTY program was spawned"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("program must not be empty"));
+    }
+
+    #[test]
+    fn whitespace_only_program_is_rejected_before_platform_spawn() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let error = match pair.spawn(PtyCommand::new(" \t\n")) {
+            Ok(_) => panic!("whitespace-only PTY program was spawned"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("program must not be empty"));
     }
 
     #[test]
