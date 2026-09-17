@@ -23,6 +23,9 @@ extension TabManager {
         if workspace.isRemoteTmuxMirror {
             appDelegate.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
         }
+        if workspace.isRemoteHerdrMirror {
+            appDelegate.remoteHerdrController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: workspace.id)
+        }
         guard appDelegate.closeMainWindow(windowId: windowId, recordHistory: recordHistory) else {
             return false
         }

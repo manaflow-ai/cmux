@@ -2,6 +2,7 @@ import CmuxAppKitSupportUI
 import CmuxFoundation
 import Foundation
 import CmuxCore
+import CmuxNestedTopology
 import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
@@ -840,6 +841,11 @@ extension Workspace {
         case .accountSignIn:
             return nil
         }
+        let nestedAttachmentIntent: NestedAttachmentIntentDescriptor? = {
+            guard panel.panelType == .terminal, NestedTopologyController.isEnabled else { return nil }
+            return AppDelegate.shared?.nestedTopologyController
+                .attachmentIntent(for: panel.stableSurfaceId)
+        }()
         return SessionPanelSnapshot(
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
@@ -869,7 +875,8 @@ extension Workspace {
             agentSession: agentSessionSnapshot,
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
-            notificationsPanel: notificationsPanelSnapshot
+            notificationsPanel: notificationsPanelSnapshot,
+            nestedAttachmentIntent: nestedAttachmentIntent
         )
     }
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
@@ -2346,6 +2353,7 @@ extension Workspace {
     }
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
+        scheduleNestedAttachmentRestoreIfNeeded(from: snapshot, panelId: panelId)
 
         if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
@@ -3126,6 +3134,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     // Retains each detached controller until cleanup finishes or ownership transfers.
     var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
     var remoteSessionTransitionTask: Task<Void, Never>?
+    /// In-flight nested-topology host-surface close tasks (cancelled on repeat close).
+    var nestedHostSurfaceCloseTasks: [UUID: Task<Void, Never>] = [:]
     var remoteSessionTransitionID: UUID?
     enum RemoteForegroundAuthenticationPhase: Equatable {
         case readyBeforeConfiguration(
@@ -6658,12 +6668,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Bound action for this mirror's outbound window-order mutation boundary.
     var remoteTmuxWindowOrderSync: (([UUID], ((Bool) -> Void)?) -> Bool)?
 
+    /// Ephemeral native Herdr mirror; excluded from cmux session restore.
+    var isRemoteHerdrMirror: Bool = false
+    weak var remoteHerdrSessionHost: RemoteHerdrSessionHost?
+
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
+
+    /// Per-tab Herdr multi-pane renderers, keyed by mirrored tab panel id.
+    private(set) var remoteHerdrWindowMirrors: [UUID: RemoteHerdrWindowMirrorHost] = [:]
 
     /// Multi-pane renderer for a window-tab panel.
     func remoteTmuxWindowMirror(forPanelId panelId: UUID) -> RemoteTmuxWindowMirror? {
         remoteTmuxWindowMirrors[panelId]
+    }
+
+    /// Herdr multi-pane renderer for a tab panel.
+    func remoteHerdrWindowMirror(forPanelId panelId: UUID) -> RemoteHerdrWindowMirrorHost? {
+        remoteHerdrWindowMirrors[panelId]
     }
 
     func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
@@ -6698,8 +6720,51 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
     }
 
+    func setRemoteHerdrWindowMirror(_ mirror: RemoteHerdrWindowMirrorHost?, forPanelId panelId: UUID) {
+        objectWillChange.send()
+        if let mirror {
+            remoteHerdrWindowMirrors[panelId] = mirror
+            mirror.onTerminalPanelAdded = { [weak self] panel in
+                guard let self else { return }
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidEnterWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
+            mirror.onTerminalPanelRemoved = { [weak self] panel in
+                guard let self else { return }
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidLeaveWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
+            for panel in mirror.panelsByPaneId.values {
+                terminalFontSizeChangeCoordinator?
+                    .terminalDidEnterWorkspace(
+                        panel,
+                        workspace: self
+                    )
+            }
+        } else {
+            if let existing = remoteHerdrWindowMirrors.removeValue(forKey: panelId) {
+                existing.onTerminalPanelAdded = nil
+                existing.onTerminalPanelRemoved = nil
+                for panel in existing.panelsByPaneId.values {
+                    terminalFontSizeChangeCoordinator?
+                        .terminalDidLeaveWorkspace(
+                            panel,
+                            workspace: self
+                        )
+                }
+            }
+        }
+    }
+
     var isRestorableInSessionSnapshot: Bool {
         if isRemoteTmuxMirror { return false }
+        if isRemoteHerdrMirror { return false }
         if panels.values.contains(where: {
             switch $0.panelType {
             case .cloudVMLoading, .mobilePairing, .accountSignIn:
@@ -14102,6 +14167,7 @@ extension Workspace: BonsplitDelegate {
         guard !isRetiredFromOwningTabManager else { return false }
         // In a remote tmux mirror, split means tmux `split-window`; always veto
         // local splits so the mirror never gains an orphan pane.
+        if isRemoteHerdrMirror { return false }
         guard isRemoteTmuxMirror else { return true }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {

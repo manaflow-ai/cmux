@@ -348,6 +348,8 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(section: .betaFeatures, id: "nestedTopology", title: String(localized: "settings.betaFeatures.nestedTopology", defaultValue: "Nested Topology"), synonyms: "nested topology herdr virtual descendants host surface sidebar focus beta unstable"),
+            .init(section: .betaFeatures, id: "remoteHerdrMirror", title: String(localized: "settings.betaFeatures.remoteHerdrMirror", defaultValue: "Remote Herdr Mirror"), synonyms: "remote herdr mirror unix socket ssh tmux parity tabs panes bonsplit sidebar workspace beta unstable"),
             .init(
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
