@@ -5,7 +5,7 @@ import { E2BProvider, ENVD_CONTROL_PORT, INBOUND_FIREWALL_COMMAND } from "../ser
 import { ProviderError } from "../services/vms/drivers/types";
 
 // E2B machines attach exclusively through the cmux-tui remote daemon
-// (transport cmux-remote), same as Blaxel. The legacy websocket PTY and SSH
+// (transport cmux-remote), same as every other driver. The legacy websocket PTY and SSH
 // surfaces must refuse loudly so callers migrate instead of hanging.
 
 describe("E2BProvider session transports", () => {
@@ -44,7 +44,7 @@ describe("E2BProvider cmux-remote route", () => {
     // which the cmux-tui dialer cannot send (it dials the route verbatim).
     // Sandboxes are therefore created with public port traffic and the
     // daemon's Noise device enrollment gates sessions — the same trust model
-    // as Blaxel's raw preview route.
+    // as a raw provider preview route.
     const driver = readFileSync(
       path.join(import.meta.dirname, "../services/vms/drivers/e2b.ts"),
       "utf8",

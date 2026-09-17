@@ -1,24 +1,22 @@
 # cmux Cloud devbox image (e2b / daytona / freestyle)
 
-One devbox definition for the three non-Blaxel Cloud VM providers. The
+One devbox definition for every Cloud VM provider. The
 Dockerfile here is the source of truth for E2B and Daytona;
 `web/scripts/build-devbox-freestyle.ts` replays the same steps over
 Freestyle exec (its build API has no COPY). Parity targets are the chatmux
-devbox (`chatmux:infra/sandbox-images/Dockerfile`) and the Blaxel
-`cmux-devbox` template (`../blaxel/`): same devtools, mise node/python/bun,
+devbox (`chatmux:infra/sandbox-images/Dockerfile`): same devtools, mise node/python/bun,
 uv, gh, Chrome + cua-driver, pinned coding agents, ble.sh ghost text,
 half-life prompt, seeded history, and the coderouter agent-config generator.
-Blaxel keeps its own template; nothing here changes it.
 
 `vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`,
 `agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
-Blaxel counterparts, so edit both copies together.
+chatmux counterparts, so edit both copies together.
 
 ## Session daemon: cmux-tui
 
 Every provider attaches through the cmux-tui remote daemon on port 1337
 (transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md) — the same model as
-Blaxel. The binary is NOT baked: each driver installs the pinned
+every provider. The binary is NOT baked: each driver installs the pinned
 files.cmux.com build (sha256-verified) at create time and heals pin drift on
 attach (`web/services/vms/drivers/cmuxTuiDaemon.ts`). The image ships only
 `cmux-devbox-boot`, the supervisor that waits for the binary and restarts
@@ -35,7 +33,7 @@ the daemon:
   persists; start re-runs the entrypoint. The route is the preview proxy
   with its token as the `DAYTONA_SANDBOX_AUTH_KEY` query parameter, minted
   fresh per attach.
-- freestyle (beta platform, `freestyle-beta` npm alias): the baked
+- freestyle (public platform, `freestyle` npm package): the baked
   `cmux-tui-daemon` systemd unit runs the supervisor with
   `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` — the beta API has no HTTP ingress to
   arbitrary ports, so the route is the VM's stable public IPv6 straight to
@@ -48,7 +46,7 @@ the daemon:
 
 Shells spawned by the daemon run as root with HOME=/root and get the bash
 devshell (ble.sh ghost text, half-life prompt, seeded history) through the
-`/etc/bash.bashrc` chain, exactly like Blaxel machines.
+`/etc/bash.bashrc` chain.
 
 ## Bake
 
@@ -67,7 +65,7 @@ Freestyle (beta) auth is `FREESTYLE_API_KEY`, or
 `FREESTYLE_STACK_ACCESS_TOKEN` + `FREESTYLE_TEAM_ID`; the argument is the
 snapshot slug (falls back to slugless on a collision) and the printed
 `sh-…` id is the pointer to pin. Agent pins live only in the Dockerfile ARG
-defaults; bump them together with `CMUX_IMAGE_EPOCH` and the Blaxel
+defaults; bump them together with `CMUX_IMAGE_EPOCH` and the chatmux
 template. The cmux-tui pin comes from the artifacts manifest at deploy time
 (`CMUX_VM_CMUX_TUI_MANIFEST_URL`), never from the image.
 

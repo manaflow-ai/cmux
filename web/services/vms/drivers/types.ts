@@ -2,9 +2,9 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
-export type ProviderId = "e2b" | "freestyle" | "daytona" | "blaxel";
+export type ProviderId = "e2b" | "freestyle" | "daytona";
 
-const PROVIDER_IDS: readonly ProviderId[] = ["e2b", "freestyle", "daytona", "blaxel"];
+const PROVIDER_IDS: readonly ProviderId[] = ["e2b", "freestyle", "daytona"];
 
 export function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);
@@ -69,7 +69,6 @@ export type VMHandle = {
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
   providerMetadata?: Record<string, unknown>;
-  bakedFreestyleSignedAdmin?: boolean;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
    * support it create the volume if missing and record it in providerMetadata so attach can
@@ -294,18 +293,19 @@ export interface VMProvider {
   fork?(vmId: string): Promise<VMHandle>;
 
   // Session transports this driver supports. Undefined means the legacy set (`websocket`
-  // and/or `ssh` via openAttach/openSSH). A driver that lists only `cmux-remote` (Blaxel)
+  // and/or `ssh` via openAttach/openSSH). A driver that lists only `cmux-remote`
   // never serves openAttach: workflows fail such requests with
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
   // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
-  // with a short-lived one-use lease (E2B/Daytona/Freestyle), or SSH.
+  // with a short-lived one-use lease, or SSH. Every current driver is cmux-remote only
+  // and throws here; the seam stays for a provider that serves a raw PTY again.
   openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).
-  // Blaxel machines run only this daemon; providers that have not been migrated leave
-  // this undefined.
+  // Every cmux Cloud machine runs this daemon; providers that have not been migrated
+  // leave this undefined.
   openCmuxRemote?(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint>;
   // Optional: approve the pending enrollment a previous openCmuxRemote invited.
   approveCmuxRemoteEnrollment?(

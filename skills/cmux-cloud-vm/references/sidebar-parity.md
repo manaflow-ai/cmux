@@ -15,8 +15,8 @@ Machine row › **Open Full cmux-tui Client** | `cmux vm tui <m>` | (pane comman
 Machine row › **Refresh**, any group › Refresh | `cmux vm tree --refresh` / `cmux surface ls --refresh` | `vm.tree {refresh}` | ✅
 Machine row › **Rename…** | `cmux vm rename <m> <label>` | `vm.rename` | ✅
 Machine row › **Status** | `cmux vm status <m>` (+ `vm stats`) | `vm.status` / `vm.stats` | ✅
-Machine row › **Checkpoint** (only when `capabilities.snapshot`) | `cmux vm snapshot <m> [--name n]` | `vm.snapshot` | ✅ hidden on providers that cannot (Blaxel); `vm ls --json` → `capabilities`
-Machine row › **Fork** (only when `capabilities.fork`) | `cmux vm fork <m> [--name n]` | `vm.fork` | ✅ hidden on providers that cannot (Blaxel)
+Machine row › **Checkpoint** (only when `capabilities.snapshot`) | `cmux vm snapshot <m> [--name n]` | `vm.snapshot` | ✅ hidden on providers that cannot; `vm ls --json` → `capabilities`
+Machine row › **Fork** (only when `capabilities.fork`) | `cmux vm fork <m> [--name n]` | `vm.fork` | ✅ hidden on providers that cannot
 Machine row › **Delete…** | `cmux vm rm <m>` | `vm.destroy` | ✅
 Terminals / Workspaces group › **New Terminal** | `cmux surface new-terminal --machine <m> [-- <cmd>]` | `vm.terminal_new` | ✅
 Workspace row › **New Terminal Here** | `cmux surface new-terminal --machine <m> --remote-workspace <ws>` | `vm.terminal_new {workspace_id}` | ✅

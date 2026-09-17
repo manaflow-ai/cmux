@@ -16,29 +16,17 @@ import { DEVBOX_TEMPLATE_FILES, devboxAgentPins } from "../scripts/devbox-image-
 // (services/vms/images/devbox), consumed by build-devbox-e2b.ts,
 // build-devbox-daytona.ts, and build-devbox-freestyle.ts. These pin the
 // pieces other code depends on: the cmux-tui daemon contract each driver
-// expects, Blaxel-template parity for the shared shell/agent files, and the
-// E2B Dockerfile-parser restrictions. Same rationale as
-// vm-blaxel-image.test.ts: the template IS the artifact.
+// expects and the E2B Dockerfile-parser restrictions. The template IS the
+// artifact, so it is pinned here rather than only exercised by a live bake.
 
 const templateDir = path.join(import.meta.dirname, "../services/vms/images/devbox");
-const blaxelDir = path.join(import.meta.dirname, "../services/vms/images/blaxel");
 const scriptsDir = path.join(import.meta.dirname, "../scripts");
 const read = (name: string) => readFileSync(path.join(templateDir, name), "utf8");
-const readBlaxel = (name: string) => readFileSync(path.join(blaxelDir, name), "utf8");
 const readScript = (name: string) => readFileSync(path.join(scriptsDir, name), "utf8");
 
 const dockerfile = read("Dockerfile");
 const bashrc = read("cmux-bashrc");
-const agentConfig = read("agent-config.sh");
 const devboxBoot = read("cmux-devbox-boot");
-
-// Comment/blank stripping: the devbox copies of the Blaxel-shared files may
-// differ only in their header comments (each names its parity source).
-const body = (text: string): string =>
-  text
-    .split("\n")
-    .filter((line) => line.trim() !== "" && !line.trimStart().startsWith("#"))
-    .join("\n");
 
 // A throwaway local HTTP server standing in for the coderouter opencode
 // config endpoint, and a shell run sourcing the generator against it.
@@ -108,51 +96,6 @@ describe("devbox image template", () => {
     }
     const result = spawnSync("sh", ["-n", path.join(templateDir, "cmux-devbox-boot")]);
     expect(result.status).toBe(0);
-  });
-
-  test("shared files stay in lockstep with the Blaxel template", () => {
-    // Byte-identical data files; comment-normalized shell files (headers
-    // name their own parity source).
-    expect(read("seed-history")).toBe(readBlaxel("seed-history"));
-    expect(read("chrome-managed-policy.json")).toBe(readBlaxel("chrome-managed-policy.json"));
-    expect(body(bashrc)).toBe(body(readBlaxel("cmux-bashrc")));
-    expect(body(agentConfig)).toBe(body(readBlaxel("agent-config.sh")));
-  });
-
-  test("agent and CUA driver pins match the Blaxel template", () => {
-    const blaxelDockerfile = readBlaxel("Dockerfile");
-    const args = [
-      "CMUX_IMAGE_CLAUDE_CODE_VERSION",
-      "CMUX_IMAGE_CODEX_VERSION",
-      "CMUX_IMAGE_OPENCODE_VERSION",
-      "CMUX_IMAGE_PI_VERSION",
-      "CMUX_IMAGE_AGENT_BROWSER_VERSION",
-    ];
-    for (const arg of args) {
-      const devboxPin = new RegExp(`^ARG ${arg}=(\\S+)$`, "m").exec(dockerfile)?.[1];
-      const blaxelPin = new RegExp(`^ARG ${arg}=(\\S+)$`, "m").exec(blaxelDockerfile)?.[1];
-      expect({ arg, pin: devboxPin }).toEqual({ arg, pin: blaxelPin });
-      expect(devboxPin).toMatch(/^\d+\.\d+\.\d+$/);
-    }
-    // The build scripts derive their pins from the same ARGs.
-    expect(devboxAgentPins(dockerfile).map((pin) => pin.pkg)).toEqual([
-      "@anthropic-ai/claude-code",
-      "@openai/codex",
-      "opencode-ai",
-      "@earendil-works/pi-coding-agent",
-      "agent-browser",
-    ]);
-
-    const cuaVersion = (source: string): string | undefined =>
-      /CUA_DRIVER_RS_VERSION=(\S+)/.exec(source)?.[1];
-    const devboxCuaVersion = cuaVersion(dockerfile);
-    expect({ tool: "cua-driver", pin: devboxCuaVersion }).toEqual({
-      tool: "cua-driver",
-      pin: cuaVersion(blaxelDockerfile),
-    });
-    expect(readScript("build-devbox-freestyle.ts")).toContain(
-      `CUA_DRIVER_RS_VERSION=${devboxCuaVersion}`,
-    );
   });
 
   test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
@@ -259,33 +202,62 @@ describe("devbox image template", () => {
     );
   });
 
-  test("the beta SDK serves the bake, verify, and beta driver arm; the legacy arm stays on 0.1.51", () => {
-    expect(readScript("build-devbox-freestyle.ts")).toContain('from "freestyle-beta"');
-    expect(readScript("verify-devbox-image.ts")).toContain('from "freestyle-beta"');
-    // The freestyle bake's systemd unit binds the daemon dual-stack: the beta
+  test("agent and CUA driver pins are exact and reach the build scripts", () => {
+    for (const arg of [
+      "CMUX_IMAGE_CLAUDE_CODE_VERSION",
+      "CMUX_IMAGE_CODEX_VERSION",
+      "CMUX_IMAGE_OPENCODE_VERSION",
+      "CMUX_IMAGE_PI_VERSION",
+      "CMUX_IMAGE_AGENT_BROWSER_VERSION",
+    ]) {
+      const devboxPin = new RegExp(`^ARG ${arg}=(\\S+)$`, "m").exec(dockerfile)?.[1];
+      // Ranges and floating tags would make a bake unreproducible.
+      expect({ arg, exact: /^\d+\.\d+\.\d+$/.test(devboxPin ?? "") }).toEqual({ arg, exact: true });
+    }
+    // The build scripts derive their pins from the same ARGs.
+    expect(devboxAgentPins(dockerfile).map((pin) => pin.pkg)).toEqual([
+      "@anthropic-ai/claude-code",
+      "@openai/codex",
+      "opencode-ai",
+      "@earendil-works/pi-coding-agent",
+      "agent-browser",
+    ]);
+
+    const devboxCuaVersion = /CUA_DRIVER_RS_VERSION=(\S+)/.exec(dockerfile)?.[1];
+    expect(devboxCuaVersion).toBeTruthy();
+    expect(readScript("build-devbox-freestyle.ts")).toContain(
+      `CUA_DRIVER_RS_VERSION=${devboxCuaVersion}`,
+    );
+  });
+
+  test("one public-platform SDK serves the bake, the verifier, and the driver", () => {
+    // There is a single Freestyle arm now: the public platform on freestyle@0.2.x.
+    // A stray `freestyle-beta` alias would silently send one of these three at
+    // the retired beta-api endpoint.
+    expect(readScript("build-devbox-freestyle.ts")).toContain('from "freestyle"');
+    expect(readScript("build-devbox-freestyle.ts")).not.toContain("freestyle-beta");
+    expect(readScript("verify-devbox-image.ts")).toContain('from "freestyle"');
+    expect(readScript("verify-devbox-image.ts")).not.toContain("freestyle-beta");
+    // The freestyle bake's systemd unit binds the daemon dual-stack: the
     // driver's route is the VM's public IPv6 straight to port 1337.
     expect(readScript("build-devbox-freestyle.ts")).toContain(
       "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
     );
-    // The freestyle driver spans both platforms: the legacy arm (existing
-    // production machines) keeps the 0.1.51 SDK, the beta arm rides the alias.
+    // Both the bake and the verifier must pin root: the 0.2 API's default guest
+    // user is uid 1000, which the devbox image ships.
+    expect(readScript("build-devbox-freestyle.ts")).toContain('linuxUser: "root"');
+    expect(readScript("verify-devbox-image.ts")).toContain('linuxUser: "root"');
     const driver = readFileSync(
       path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
       "utf8",
     );
     expect(driver).toContain('from "freestyle"');
-    expect(driver).toContain('from "./freestyleBeta"');
-    const betaArm = readFileSync(
-      path.join(import.meta.dirname, "../services/vms/drivers/freestyleBeta.ts"),
-      "utf8",
-    );
-    expect(betaArm).toContain('from "freestyle-beta"');
-    expect(betaArm).not.toContain('from "freestyle";');
+    expect(driver).not.toContain("freestyle-beta");
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
-    expect(packageJson.dependencies.freestyle).toBe("0.1.51");
-    expect(packageJson.dependencies["freestyle-beta"]).toBe("npm:freestyle@0.2.0-beta.7");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.9");
+    expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
   });
 
   test("agent config generator is sourced for every shell family", () => {

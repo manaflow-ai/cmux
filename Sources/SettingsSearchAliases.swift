@@ -16,7 +16,7 @@ enum SettingsSearchAliasIndex {
         case .mobile:
             return localized("settings.search.alias.section.mobile", defaultValue: "ios iphone ipad mobile pairing local network permission sync")
         case .cloudMachines:
-            return localized("settings.search.alias.section.cloudMachines", defaultValue: "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet blaxel")
+            return localized("settings.search.alias.section.cloudMachines", defaultValue: "cloud machines vm virtual machine persistent computer sandbox plan upgrade fleet freestyle")
         case .networking:
             return localized("settings.search.alias.section.networking", defaultValue: "iroh relay relays server fleet provider region custom self hosted private network tailscale vpn direct peer")
         case .sidebarAppearance:

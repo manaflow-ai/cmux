@@ -155,7 +155,7 @@ export function manifestEntrySkeleton(
     envVar,
     defaultForLocalDev: false,
     // The session daemon is cmux-tui, installed at create time from the pinned
-    // artifacts manifest; no cmuxd-remote build is baked (same as Blaxel).
+    // artifacts manifest; no cmuxd-remote build is baked.
     cmuxdRemoteCommit: "none-cmux-tui",
     builtAt: metadata.builtAt,
     builderScriptVersion: metadata.builderScriptVersion,

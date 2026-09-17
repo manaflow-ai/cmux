@@ -20,10 +20,9 @@
  */
 import { Daytona } from "@daytonaio/sdk";
 import { Sandbox } from "e2b";
-// The devbox freestyle bake targets the BETA platform (see
-// build-devbox-freestyle.ts), so its snapshots are verified with the beta
-// SDK too. The shipped freestyle driver still speaks the legacy platform.
-import { Freestyle } from "freestyle-beta";
+// The devbox freestyle bake targets the public platform (see
+// build-devbox-freestyle.ts), the same platform the shipped driver speaks.
+import { Freestyle } from "freestyle";
 import path from "node:path";
 import {
   CMUX_TUI_SESSION,
@@ -264,10 +263,11 @@ if (provider === "e2b") {
   const apiKey = process.env.FREESTYLE_API_KEY;
   const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
   const teamId = process.env.FREESTYLE_TEAM_ID;
+  const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const fs = apiKey
-    ? new Freestyle({ apiKey })
+    ? new Freestyle({ apiKey, baseUrl })
     : stackToken && teamId
-      ? new Freestyle({ stackAccessToken: stackToken, teamId })
+      ? new Freestyle({ stackAccessToken: stackToken, teamId, baseUrl })
       : (() => {
           throw new Error("set FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN + FREESTYLE_TEAM_ID");
         })();
@@ -275,7 +275,7 @@ if (provider === "e2b") {
   const { vm, vmId } = await fs.vms.create({
     snapshotId: image,
     displayName: "cmux-devbox-verify",
-    // Beta creates require an explicit firewall; the daemon install below
+    // Creates require an explicit firewall; the daemon install below
     // needs outbound (files.cmux.com).
     firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
   });
@@ -284,7 +284,8 @@ if (provider === "e2b") {
     const exec: Exec = async (cmd, timeoutMs = 120_000) => {
       // Login bash for the mise shims; Freestyle guest exec has an empty HOME.
       const wrapped = `bash -lc 'export HOME="$\{HOME:-$(getent passwd $(id -u) | cut -d: -f6)\}"; export PATH="/opt/mise/shims:$\{PATH\}"; ${cmd.replace(/'/g, `'\\''`)}'`;
-      const r = await vm.exec({ command: wrapped, timeoutMs: Math.min(timeoutMs, 300_000) });
+      // The 0.2 API defaults to uid 1000; the driver runs everything as root.
+      const r = await vm.exec({ command: wrapped, timeoutMs: Math.min(timeoutMs, 300_000), linuxUser: "root" });
       return {
         exitCode: r.statusCode ?? 124,
         output: `${r.stdout ?? ""}${r.stderr ?? ""}`,

@@ -36,7 +36,7 @@ import {
 
 // Daytona sandboxes attach through the cmux-tui remote daemon (transport
 // `cmux-remote`, docs/cloud-cmux-tui-daemon.md), the machine's only session daemon —
-// same model as Blaxel. `create` installs the pinned files.cmux.com build
+// same model as the other cmux Cloud drivers. `create` installs the pinned files.cmux.com build
 // (sha256-verified, fetched by the sandbox itself); the devbox image's registered
 // entrypoint (/usr/local/bin/cmux-devbox-boot) supervises the daemon and Daytona
 // re-runs it on every sandbox start, which matters because Daytona stop kills
@@ -446,7 +446,7 @@ export class DaytonaProvider implements VMProvider {
   }
 
   /**
-   * Attach-time heal, mirroring the Blaxel driver: a running daemon is left alone;
+   * Attach-time heal, mirroring the other cmux-tui drivers: a running daemon is left alone;
    * a dead one is restarted, reinstalling first when the binary is missing or a
    * manifest pin change supersedes it. Daytona stop kills processes, so this runs
    * for real after every stop/start cycle that beat the image entrypoint.

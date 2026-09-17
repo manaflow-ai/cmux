@@ -5,7 +5,7 @@ import { DaytonaProvider } from "../services/vms/drivers/daytona";
 import { ProviderError } from "../services/vms/drivers/types";
 
 // Daytona machines attach exclusively through the cmux-tui remote daemon
-// (transport cmux-remote), same as Blaxel. The legacy websocket PTY and SSH
+// (transport cmux-remote), same as every other driver. The legacy websocket PTY and SSH
 // surfaces must refuse loudly so callers migrate instead of hanging.
 
 describe("DaytonaProvider session transports", () => {

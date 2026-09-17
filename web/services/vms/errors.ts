@@ -93,8 +93,8 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
 
 /**
  * The caller asked for a session transport the machine's provider does not serve
- * (e.g. the legacy websocket/SSH attach on a Blaxel machine, which only runs the
- * cmux-tui remote daemon). Not retryable: the client must switch transports.
+ * (e.g. the legacy websocket/SSH attach on a machine that only runs the cmux-tui
+ * remote daemon). Not retryable: the client must switch transports.
  */
 export class VmAttachTransportUnsupportedError extends Data.TaggedError("VmAttachTransportUnsupportedError")<{
   readonly provider: ProviderId;

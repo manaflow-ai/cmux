@@ -312,9 +312,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.list":
                 return self.v2Response(id: id, ok: true, result: [
                     "vms": [
-                        ["id": "impostor", "displayName": "agent-pool", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
-                        ["id": "pool-1", "displayName": "agent-pool", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
-                        ["id": "user-vm", "displayName": "my precious", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
+                        ["id": "impostor", "displayName": "agent-pool", "status": "running", "provider": "freestyle", "image": "cmuxd-ws:tooling-20260509f"],
+                        ["id": "pool-1", "displayName": "agent-pool", "status": "running", "provider": "freestyle", "image": "cmuxd-ws:tooling-20260509f"],
+                        ["id": "user-vm", "displayName": "my precious", "status": "running", "provider": "freestyle", "image": "cmuxd-ws:tooling-20260509f"],
                     ],
                 ])
             case "vm.stats":
@@ -385,11 +385,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.list":
                 return self.v2Response(id: id, ok: true, result: ["vms": []])
             case "vm.create":
-                return self.v2Response(id: id, ok: true, result: ["id": "fresh-1", "provider": "blaxel", "status": "creating", "image": "blaxel/base-image:latest"])
+                return self.v2Response(id: id, ok: true, result: ["id": "fresh-1", "provider": "freestyle", "status": "creating", "image": "cmuxd-ws:tooling-20260509f"])
             case "vm.rename":
                 return self.v2Response(id: id, ok: true, result: ["id": "fresh-1", "displayName": "agent-pool"])
             case "vm.status":
-                return self.v2Response(id: id, ok: true, result: ["id": "fresh-1", "provider": "blaxel", "status": "running"])
+                return self.v2Response(id: id, ok: true, result: ["id": "fresh-1", "provider": "freestyle", "status": "running"])
             case "vm.exec":
                 let params = request["params"] as? [String: Any]
                 let vmID = (params?["id"] as? String) ?? "?"
@@ -462,11 +462,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 case "vm.create":
                     // Hold the create open so both processes are provisioning at once.
                     Thread.sleep(forTimeInterval: 1.0)
-                    return self.v2Response(id: id, ok: true, result: ["id": machine, "provider": "blaxel", "status": "running", "image": "blaxel/base-image:latest"])
+                    return self.v2Response(id: id, ok: true, result: ["id": machine, "provider": "freestyle", "status": "running", "image": "cmuxd-ws:tooling-20260509f"])
                 case "vm.rename":
                     return self.v2Response(id: id, ok: true, result: ["id": machine, "displayName": "agent-pool"])
                 case "vm.status":
-                    return self.v2Response(id: id, ok: true, result: ["id": machine, "provider": "blaxel", "status": "running"])
+                    return self.v2Response(id: id, ok: true, result: ["id": machine, "provider": "freestyle", "status": "running"])
                 case "vm.exec":
                     return self.vmExecOKResponse(id: id, stdout: "\(machine)\n")
                 default:
@@ -550,8 +550,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "vm.list":
                 return self.v2Response(id: id, ok: true, result: [
                     "vms": [
-                        ["id": "pool-1", "displayName": "agent-pool", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
-                        ["id": "pool-2", "displayName": "agent-pool", "status": "standby", "provider": "blaxel", "image": "blaxel/base-image:latest"],
+                        ["id": "pool-1", "displayName": "agent-pool", "status": "running", "provider": "freestyle", "image": "cmuxd-ws:tooling-20260509f"],
+                        ["id": "pool-2", "displayName": "agent-pool", "status": "standby", "provider": "freestyle", "image": "cmuxd-ws:tooling-20260509f"],
                     ],
                 ])
             case "vm.exec":
@@ -614,7 +614,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let status = call < 2 ? "creating" : "running"
             return self.v2Response(id: id, ok: true, result: [
                 "id": "brave-otter",
-                "provider": "blaxel",
+                "provider": "freestyle",
                 "status": status,
             ])
         }

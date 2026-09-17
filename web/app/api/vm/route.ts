@@ -31,7 +31,6 @@ import {
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
@@ -451,7 +450,6 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
-            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,

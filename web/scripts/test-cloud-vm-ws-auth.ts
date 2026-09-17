@@ -2,21 +2,12 @@
 import { createHash, randomBytes } from "node:crypto";
 import WebSocket from "ws";
 import { Sandbox } from "e2b";
-import { Freestyle } from "freestyle";
 import { Daytona, type Sandbox as DaytonaSandbox } from "@daytonaio/sdk";
 
-type Provider = "e2b" | "freestyle" | "daytona";
-type FreestyleVmRef = {
-  exec(args: { command: string; timeoutMs?: number }): Promise<{
-    stdout?: string | null;
-    stderr?: string | null;
-    statusCode?: number | null;
-  }>;
-};
-
+type Provider = "e2b" | "daytona";
 const provider = argValue("--provider") as Provider | undefined;
-if (provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
-  throw new Error("--provider must be e2b, freestyle, or daytona");
+if (provider !== "e2b" && provider !== "daytona") {
+  throw new Error("--provider must be e2b or daytona");
 }
 
 const image = argValue("--image") ?? argValue("--template") ?? argValue("--snapshot");
@@ -27,13 +18,10 @@ if (!image) {
 const keep = hasFlag("--keep");
 const ptyLeasePath = "/tmp/cmux/attach-pty-lease.json";
 const legacyPtyLeasePath = "/tmp/cmux/attach-lease.json";
-const freestyleTimeoutMs = 15 * 60 * 1000;
 
 const result = provider === "e2b"
   ? await testE2B(image, keep)
-  : provider === "freestyle"
-    ? await testFreestyle(image, keep)
-    : await testDaytona(image, keep);
+  : await testDaytona(image, keep);
 console.log(JSON.stringify(result, null, 2));
 
 function argValue(name: string): string | undefined {
@@ -119,78 +107,6 @@ async function testE2B(template: string, keep: boolean): Promise<Record<string, 
   }
 }
 
-async function testFreestyle(snapshotId: string, keep: boolean): Promise<Record<string, unknown>> {
-  if (!process.env.FREESTYLE_API_KEY) {
-    throw new Error("FREESTYLE_API_KEY is required");
-  }
-  const fs = freestyleClient();
-  const created = await fs.vms.create({
-    snapshotId,
-    ports: [{ port: 443, targetPort: 7777 }],
-    readySignalTimeoutSeconds: 600,
-  });
-  const vmId = created.vmId;
-  const vm = fs.vms.ref({ vmId });
-
-  try {
-    const domain = (created as { domains?: string[] }).domains?.[0] ?? `${vmId}.vm.freestyle.sh`;
-    const httpURL = `https://${domain}`;
-    const wsURL = `wss://${domain}/terminal`;
-    const rpcURL = `wss://${domain}/rpc`;
-
-    const health = await fetch(`${httpURL}/healthz`);
-    if (health.status !== 200) {
-      throw new Error(`expected Freestyle healthz 200, got ${health.status}`);
-    }
-    const service = await readFreestyleWebSocketService(vm);
-    if (!service.rpcLeasePath) {
-      throw new Error("Freestyle cmuxd-ws service is missing --rpc-auth-lease-file; browser proxy cannot work");
-    }
-
-    await installLeaseFreestyle(vm, service.ptyLeasePath, "wrong-freestyle", "sess-fs", true);
-    const wrongCmuxToken = await websocketAuthShouldFail(wsURL, {}, "wrong-token", "sess-fs");
-    const leaseStillThere = await freestyleFileExists(vm, service.ptyLeasePath);
-    if (!leaseStillThere) throw new Error("wrong cmux token consumed Freestyle lease");
-
-    const token = await installLeaseFreestyle(vm, service.ptyLeasePath, "right-freestyle", "sess-fs", true);
-    const terminalOutput = await websocketShellRoundTrip(wsURL, {}, token, "sess-fs");
-    const replay = await websocketAuthShouldFail(wsURL, {}, token, "sess-fs");
-
-    const rpcToken = await installLeaseFreestyle(vm, service.rpcLeasePath, "rpc-freestyle", "sess-rpc-fs", false);
-    const rpcHello = await websocketRPCHello(rpcURL, {}, rpcToken, "sess-rpc-fs");
-    const rpcHelloReplay = await websocketRPCHello(rpcURL, {}, rpcToken, "sess-rpc-fs");
-    const rpcProxyHealthz = await websocketRPCProxyHTTPRoundTrip(
-      rpcURL,
-      {},
-      rpcToken,
-      "sess-rpc-fs",
-      "127.0.0.1",
-      7777,
-      "/healthz",
-    );
-
-    return {
-      provider: "freestyle",
-      vmId,
-      domain,
-      ptyLeasePath: service.ptyLeasePath,
-      rpcLeasePath: service.rpcLeasePath,
-      health: health.status,
-      wrongCmuxToken,
-      terminalOutput,
-      replay,
-      rpcHello,
-      rpcHelloReplay,
-      rpcProxyHealthz,
-      kept: keep,
-    };
-  } finally {
-    if (!keep) {
-      await fs.vms.delete({ vmId }).catch(() => undefined);
-    }
-  }
-}
-
 async function testDaytona(snapshot: string, keep: boolean): Promise<Record<string, unknown>> {
   if (!process.env.DAYTONA_API_KEY) {
     throw new Error("DAYTONA_API_KEY is required");
@@ -270,12 +186,6 @@ async function testDaytona(snapshot: string, keep: boolean): Promise<Record<stri
   }
 }
 
-function freestyleClient(timeoutMs = freestyleTimeoutMs): Freestyle {
-  const longFetch: typeof fetch = (input, init) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
-  return new Freestyle({ fetch: longFetch });
-}
-
 async function installLeaseE2B(
   sandbox: Sandbox,
   path: string,
@@ -307,22 +217,6 @@ async function readE2BWebSocketService(sandbox: Sandbox): Promise<{
       ?? (stdout.includes(legacyPtyLeasePath) ? legacyPtyLeasePath : ptyLeasePath),
     rpcLeasePath: shellArgValue(stdout, "--rpc-auth-lease-file"),
   };
-}
-
-async function installLeaseFreestyle(
-  vm: FreestyleVmRef,
-  path: string,
-  label: string,
-  sessionId: string,
-  singleUse: boolean,
-): Promise<string> {
-  const { token, lease } = makeLease(label, sessionId, singleUse);
-  const encoded = Buffer.from(JSON.stringify(lease)).toString("base64");
-  await vm.exec({
-    command: `${ensurePrivateDirectoryCommand(path)} && printf '%s' '${encoded}' | base64 -d > ${shellQuote(path)} && chmod 600 ${shellQuote(path)}`,
-    timeoutMs: 30_000,
-  });
-  return token;
 }
 
 async function installLeaseDaytona(
@@ -382,31 +276,6 @@ function makeLease(label: string, sessionId: string, singleUse: boolean): { toke
 async function e2bFileExists(sandbox: Sandbox, path: string): Promise<boolean> {
   const result = await sandbox.commands.run(`test -f ${shellQuote(path)} && echo yes || echo no`, { timeoutMs: 30_000 });
   return result.stdout.trim() === "yes";
-}
-
-async function freestyleFileExists(vm: FreestyleVmRef, path: string): Promise<boolean> {
-  const result = await vm.exec({
-    command: `test -f ${shellQuote(path)} && echo yes || echo no`,
-    timeoutMs: 30_000,
-  });
-  return (result.stdout ?? "").trim() === "yes";
-}
-
-async function readFreestyleWebSocketService(vm: FreestyleVmRef): Promise<{
-  ptyLeasePath: string;
-  rpcLeasePath: string | null;
-}> {
-  const result = await vm.exec({
-    command: "systemctl cat cmuxd-ws 2>/dev/null || true; ps auxww | grep cmuxd-remote | grep -v grep || true",
-    timeoutMs: 30_000,
-  });
-  const stdout = result.stdout ?? "";
-  return {
-    ptyLeasePath:
-      shellArgValue(stdout, "--auth-lease-file")
-      ?? (stdout.includes(legacyPtyLeasePath) ? legacyPtyLeasePath : ptyLeasePath),
-    rpcLeasePath: shellArgValue(stdout, "--rpc-auth-lease-file"),
-  };
 }
 
 async function websocketAuthShouldFail(

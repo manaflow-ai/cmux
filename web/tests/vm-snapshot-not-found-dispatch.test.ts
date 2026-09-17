@@ -33,7 +33,7 @@ async function restoreUnknownSnapshot(): Promise<unknown> {
         billingTeamId: "user-snapshot-dispatch",
         billingPlanId: "pro",
         maxActiveVms: 5,
-        provider: "blaxel",
+        provider: "freestyle",
         snapshotId: "snap-missing",
       }).pipe(Effect.provide(layer)),
     );

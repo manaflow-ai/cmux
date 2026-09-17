@@ -300,7 +300,6 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   /**
    * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
    * the sandbox is disposable compute around durable data. The volume name is derived from
@@ -357,7 +356,6 @@ export function createVm(input: {
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
@@ -441,7 +439,6 @@ export function openBaseVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly baseName?: string;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -468,7 +465,6 @@ export function resetBaseVm(input: {
   readonly imageVersion?: string | null;
   readonly baseName?: string;
   readonly reason?: string | null;
-  readonly bakedFreestyleSignedAdmin?: boolean;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<BaseVmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -498,8 +494,7 @@ function finishBaseCreate(
     readonly image: string;
     readonly imageVersion?: string | null;
     readonly baseName?: string;
-    readonly bakedFreestyleSignedAdmin?: boolean;
-    readonly timing?: VmTimingSink;
+      readonly timing?: VmTimingSink;
   },
   create: BeginBaseCreateResult,
 ): Effect.Effect<BaseVmEntry, VmWorkflowError, never> {
@@ -550,7 +545,6 @@ function finishBaseCreate(
       providers.create(input.provider, {
         image: input.image,
         providerMetadata: create.vm.providerMetadata,
-        bakedFreestyleSignedAdmin: input.bakedFreestyleSignedAdmin,
       }),
     ).pipe(
       Effect.tapError((err) =>
@@ -758,7 +752,6 @@ export function restoreVm(input: {
       image: input.snapshotId,
       imageVersion: null,
       idempotencyKey: input.idempotencyKey,
-      bakedFreestyleSignedAdmin: false,
       timing: input.timing,
     });
   });
@@ -1023,7 +1016,7 @@ function refreshActiveLimitProviderStatuses(
       if (!providerVmId) return Effect.void;
       // Provider-agnostic on purpose: the cron reconcile path already refreshes
       // every provider, and this lazy refresh used to skip everything except
-      // Freestyle, so a stale `running` row blocked Blaxel creates for up to a
+      // Freestyle, so a stale `running` row blocked creates for up to a
       // full cron interval. Candidates are `running` rows only, so the
       // gateway's "running" fallback for a driver without getStatus is a
       // harmless no-op rather than a wrong transition.
@@ -1736,7 +1729,7 @@ export function openVmPort(input: {
 }
 
 /**
- * Attach through the cmux-tui remote daemon — the only session transport on Blaxel
+ * Attach through the cmux-tui remote daemon — the only session transport on
  * machines (other providers still serve the legacy websocket/SSH attach). The ingress
  * token lands in the same lease ledger as previews so sign-out revokes it; session
  * auth is the daemon's device enrollment, which the client completes with
@@ -1952,7 +1945,7 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    // A provider that only runs the cmux-tui daemon (Blaxel) cannot serve the legacy
+    // A provider that only runs the cmux-tui daemon cannot serve the legacy
     // websocket/SSH attach at all; say so before waking or mutating anything.
     const supportedTransports = providers.attachTransports?.(vm.provider);
     if (supportedTransports && !supportedTransports.some((t) => t === "websocket" || t === "ssh")) {
@@ -2019,49 +2012,6 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       })
       : undefined;
     return { endpoint, session };
-  });
-}
-
-export function openSshEndpoint(input: {
-  readonly userId: string;
-  readonly billingTeamId?: string | null;
-  readonly teamIds?: readonly string[];
-  readonly providerVmId: string;
-  /** Caller's CURRENT billing plan; used for the free access window. */
-  readonly callerPlanId?: string | null;
-}) {
-  return Effect.gen(function* () {
-    const repo = yield* VmRepository;
-    const providers = yield* VmProviderGateway;
-    const vm = yield* requireAccessibleUserVm(input);
-    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "ssh");
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "ssh",
-      providers.openSSH(vm.provider, input.providerVmId),
-    );
-    yield* storeEndpointLeases(vm, endpoint).pipe(
-      Effect.catchAll((err) =>
-        revokeEndpointIdentity(vm.provider, endpoint).pipe(
-          Effect.andThen(Effect.fail(err)),
-        ),
-      ),
-    );
-    yield* repo.recordUsageEvent({
-      userId: input.userId,
-      billingTeamId: vm.billingTeamId,
-      billingPlanId: vm.billingPlanId,
-      vmId: vm.id,
-      eventType: "vm.ssh_endpoint",
-      provider: vm.provider,
-      imageId: vm.imageId,
-      metadata: { credentialKind: endpoint.credential.kind },
-    }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
   });
 }
 

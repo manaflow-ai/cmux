@@ -114,7 +114,7 @@ function resolveBillingContext(
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. Blaxel scales vCPUs with
+ * Machine sizes a person can pick, as memory in MB. Providers scale vCPUs with
  * memory (a 4 GB machine reports 2 cpus), so memory is the whole size story.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [2048, 4096, 8192, 16384, 24576, 32768];

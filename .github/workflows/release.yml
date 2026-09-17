@@ -227,13 +227,6 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
-      - name: Setup Go
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: daemon/remote/go.mod
-          cache-dependency-path: daemon/remote/go.sum
-
       - name: Derive Sparkle public key from private key
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -335,21 +328,6 @@ jobs:
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
-
-      - name: Build remote daemon release assets and inject manifest
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          APP_PLIST="build-universal/Build/Products/Release/cmux.app/Contents/Info.plist"
-          APP_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PLIST")
-          ./scripts/build_remote_daemon_release_assets.sh \
-            --version "$APP_VERSION" \
-            --release-tag "$GITHUB_REF_NAME" \
-            --repo "manaflow-ai/cmux" \
-            --output-dir "remote-daemon-assets"
-          MANIFEST_JSON="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1], encoding="utf-8")), separators=(",",":")))' remote-daemon-assets/cmuxd-remote-manifest.json)"
-          plutil -remove CMUXRemoteDaemonManifestJSON "$APP_PLIST" >/dev/null 2>&1 || true
-          plutil -insert CMUXRemoteDaemonManifestJSON -string "$MANIFEST_JSON" "$APP_PLIST"
 
       - name: Run CLI version memory guard regression
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -516,32 +494,6 @@ jobs:
           fi
           ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
 
-      - name: Attest remote daemon release assets
-        id: attest-remote-daemon-release-assets
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        continue-on-error: true
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
-
-      - name: Retry remote daemon release asset attestation
-        if: steps.guard_release_assets.outputs.skip_all != 'true' && steps.attest-remote-daemon-release-assets.outcome == 'failure'
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
-
       - name: Upload build artifacts (dry-run)
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -550,7 +502,6 @@ jobs:
           path: |
             cmux-macos.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
 
       - name: Upload release asset
@@ -560,12 +511,6 @@ jobs:
           files: |
             cmux-macos.dmg
             appcast.xml
-            remote-daemon-assets/cmuxd-remote-darwin-arm64
-            remote-daemon-assets/cmuxd-remote-darwin-amd64
-            remote-daemon-assets/cmuxd-remote-linux-arm64
-            remote-daemon-assets/cmuxd-remote-linux-amd64
-            remote-daemon-assets/cmuxd-remote-checksums.txt
-            remote-daemon-assets/cmuxd-remote-manifest.json
           generate_release_notes: true
           overwrite_files: false
 
