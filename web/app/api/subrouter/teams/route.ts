@@ -1,9 +1,11 @@
+import { authenticateRequestRouteToken, ROUTE_TOKEN_HEADER, VM_ID_HEADER } from "../../../../services/coderouter/routeTokenAuth";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 import {
   isSubrouterAuthorizationError,
   unauthorized,
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
+  type AuthedUser,
 } from "../../../../services/vms/auth";
 import {
   authorizedSubrouterTeams,
@@ -16,6 +18,20 @@ import { captureCoderouterEvent } from "../../../../services/coderouter/analytic
 
 
 export async function GET(request: Request): Promise<Response> {
+  return organizationsGet(request, authorizedSubrouterTeams);
+}
+
+export async function organizationsGet(request: Request,
+  listTeams: (user: AuthedUser) => ReturnType<typeof authorizedSubrouterTeams> | Promise<ReturnType<typeof authorizedSubrouterTeams>>,
+): Promise<Response> {
+  if (request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
+    const auth = await authenticateRequestRouteToken(request);
+    if (!auth.ok) return jsonResponse({ error: auth.reason }, 401);
+    if (!auth.identity.vmId) return jsonResponse({ error: "vm_bound_token_required" }, 403);
+    return jsonResponse({ selectedTeamId: auth.identity.teamId, fixed: true,
+      teams: [{ id: auth.identity.teamId, name: auth.identity.teamId, personal: auth.identity.teamId === auth.identity.stackUserId,
+        permissions: { use: true, manageAccounts: false } }] });
+  }
   try {
     return await withSubrouterAuthorizationDeadline(async (signal) => {
       const user = await verifySubrouterRequest(request, signal, {
@@ -24,7 +40,7 @@ export async function GET(request: Request): Promise<Response> {
       });
       if (!user) return unauthorized();
 
-      const authorized = await authorizedSubrouterTeams(user);
+      const authorized = await listTeams(user);
       const scopedTeamId = coderouterOrganizationFromCookieHeader(
         request.headers.get("cookie"),
         user.id,

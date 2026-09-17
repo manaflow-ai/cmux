@@ -11,7 +11,7 @@ import PackageDescription
 let package = Package(
     name: "cmuxFeature",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -29,6 +29,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
         .package(path: "../../Packages/Shared/CmuxClientConfig"),
         .package(path: "../../Packages/Shared/CmuxIrohTransport"),
+        .package(path: "../../Packages/Shared/CmuxIrxTransport"),
         .package(path: "../../Packages/Shared/CMUXMobileCore"),
         .package(path: "../../Packages/iOS/CmuxMobileAnalytics"),
         .package(path: "../../Packages/iOS/CmuxMobileBrowser"),
@@ -57,6 +58,7 @@ let package = Package(
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
+                "CmuxIrxTransport",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
@@ -109,6 +111,7 @@ let package = Package(
                 "CmuxAuthRuntime",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
+                "CmuxIrxTransport",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",

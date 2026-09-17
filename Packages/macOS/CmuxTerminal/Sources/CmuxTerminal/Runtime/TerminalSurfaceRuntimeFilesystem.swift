@@ -14,6 +14,11 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     public let isExecutableFile: @Sendable (_ path: String) -> Bool
 
     /// Creates the runtime filesystem seam.
+    ///
+    /// - Parameters:
+    ///   - agentCommandShimTemporaryDirectory: The root directory for per-surface shim directories.
+    ///   - installAgentCommandShims: The injected asynchronous shim installer.
+    ///   - isExecutableFile: The injected executable-file lookup.
     public init(
         agentCommandShimTemporaryDirectory: URL,
         installAgentCommandShims:

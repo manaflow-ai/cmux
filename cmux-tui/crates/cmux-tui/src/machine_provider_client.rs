@@ -1,12 +1,11 @@
 //! Synchronous client for the versioned machine-provider protocol.
 //!
-//! This module intentionally has no `App` or CLI integration yet. It owns the
-//! security and framing boundary between a provider daemon and cmux's existing
-//! `RemoteTransport` abstraction, so later runtime wiring does not need to know
-//! how provider requests, events, authentication, or one-use stream tickets are
-//! represented on the wire.
-
-#![allow(dead_code)]
+//! `machine_provider_runtime` uses this client to back the machine controller,
+//! while startup's provider CLI and configuration paths select the transport
+//! connector. This module owns the security and framing boundary between a
+//! provider daemon and cmux's existing `RemoteTransport` abstraction, keeping
+//! provider requests, events, authentication, and one-use stream tickets out
+//! of the runtime and UI layers.
 
 #[cfg(unix)]
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -15,11 +14,9 @@ use std::fmt;
 #[cfg(unix)]
 use std::io::{self, BufRead, BufReader, Write};
 #[cfg(unix)]
-use std::path::Path;
-#[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(unix)]
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{self, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
 use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
@@ -62,7 +59,6 @@ use crate::session::{
 #[path = "machine_provider_transport.rs"]
 mod machine_provider_transport;
 #[cfg(unix)]
-#[allow(unused_imports)] // Consumed by the upcoming runtime/CLI migration.
 pub(crate) use machine_provider_transport::{
     CommandProviderConnector, MachineProviderConnector, SshProviderConnector, UnixProviderConnector,
 };
@@ -362,7 +358,7 @@ struct ProviderClientInner {
     writer: Mutex<Box<dyn Write + Send>>,
     control_guard: ProviderIoGuard,
     streams: Arc<dyn MachineStreamConnector>,
-    pending: Mutex<HashMap<String, Sender<PendingResponse>>>,
+    pending: Mutex<HashMap<String, SyncSender<PendingResponse>>>,
     events: Mutex<ProviderEventHubState>,
     snapshot_subscribers: Mutex<Vec<SyncSender<u64>>>,
     next_request_id: AtomicU64,
@@ -381,7 +377,7 @@ impl ProviderClientInner {
             return;
         };
         for (_, response) in pending.drain() {
-            let _ = response.send(Err(failure.clone()));
+            let _ = response.try_send(Err(failure.clone()));
         }
     }
 
@@ -553,7 +549,8 @@ impl ProviderClientInner {
         }
         events.acknowledged_sequence = sequence;
         events.durable_subscription = DurableSubscriptionState::Active;
-        for event in events.retained_durable.iter().cloned().collect::<Vec<_>>() {
+        for index in 0..events.retained_durable.len() {
+            let event = events.retained_durable[index].clone();
             Self::publish_to_event_subscribers(&mut events, event)?;
         }
         Ok(())
@@ -606,7 +603,10 @@ pub(crate) struct ProviderClient {
 
 #[cfg(unix)]
 impl ProviderClient {
-    pub(crate) fn connect(socket_path: impl AsRef<Path>) -> ProviderResult<Self> {
+    /// Test-only unauthenticated connection. Runtime callers go through
+    /// `connect_authenticated_with` so every generation performs `hello`.
+    #[cfg(test)]
+    pub(crate) fn connect(socket_path: impl AsRef<std::path::Path>) -> ProviderResult<Self> {
         let (control, streams) =
             UnixProviderConnector::open_unauthenticated(socket_path.as_ref().to_path_buf())?;
         Self::from_transport(control, streams)
@@ -639,8 +639,10 @@ impl ProviderClient {
         Ok(Self { inner })
     }
 
+    /// Test-only Unix-socket convenience over `connect_authenticated_with`.
+    #[cfg(test)]
     pub(crate) fn connect_authenticated(
-        socket_path: impl AsRef<Path>,
+        socket_path: impl AsRef<std::path::Path>,
         token: BearerToken,
         client: ClientDescriptor,
     ) -> ProviderResult<(Self, HelloResult)> {
@@ -925,7 +927,9 @@ impl ProviderClient {
     }
 
     /// Subscribe to revision invalidations. Receivers are removed after drop.
-    pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<Receiver<u64>> {
+    /// The runtime fetches snapshots on demand and does not subscribe yet.
+    #[cfg(test)]
+    pub(crate) fn subscribe_snapshot_changes(&self) -> ProviderResult<mpsc::Receiver<u64>> {
         self.ensure_live()?;
         let (sender, receiver) = mpsc::sync_channel(1);
         self.inner
@@ -1021,7 +1025,7 @@ impl ProviderClient {
 
         drop(deadline);
         Ok(RemoteTransport::new(
-            Box::new(BoundedRemoteReader { inner: reader, guard: guard.clone() }),
+            Box::new(BoundedRemoteReader { inner: reader, _guard: guard.clone() }),
             Box::new(BoundedRemoteWriter { inner: writer, guard: guard.clone() }),
             Arc::new(ProviderRemoteAbort { guard }),
         ))
@@ -1117,7 +1121,9 @@ impl ProviderClient {
             .map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         let id_key = id.as_str().to_string();
         let envelope = RequestEnvelope::new(id.clone(), request);
-        let (sender, receiver) = mpsc::channel();
+        // A request has exactly one response. Keep one slot so a late or
+        // duplicated response cannot accumulate memory after cancellation.
+        let (sender, receiver) = mpsc::sync_channel(1);
         {
             let mut pending = self
                 .inner
@@ -1303,10 +1309,11 @@ fn dispatch_control_frame(
                 .remove(&id);
             zeroize_json_strings(&mut value);
             if let Some(response) = response {
-                if let Err(error) = response.send(Ok(frame))
-                    && let Ok(mut frame) = error.0
-                {
-                    frame.zeroize();
+                match response.try_send(Ok(frame)) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(Ok(mut frame)))
+                    | Err(TrySendError::Disconnected(Ok(mut frame))) => frame.zeroize(),
+                    Err(TrySendError::Full(Err(_))) | Err(TrySendError::Disconnected(Err(_))) => {}
                 }
             } else {
                 frame.zeroize();
@@ -1425,7 +1432,8 @@ fn write_json_frame<W: Write, T: Serialize>(
 #[cfg(unix)]
 struct BoundedRemoteReader {
     inner: BufReader<Box<dyn io::Read + Send>>,
-    guard: ProviderIoGuard,
+    /// Keeps the endpoint cleanup alive for as long as the reader exists.
+    _guard: ProviderIoGuard,
 }
 
 #[cfg(unix)]
@@ -1875,16 +1883,18 @@ mod tests {
                     ref consumer_id
                 }) if consumer_id == &id("cmux-process-1")
             ));
-            write_test_frame(
-                &mut stream,
-                &EventEnvelope::with_delivery(
-                    ProviderEvent::Notice(ProviderNotice {
-                        level: NoticeLevel::Warning,
-                        message: "trial has ten minutes remaining".into(),
-                    }),
-                    NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 },
-                ),
-            );
+            for (notice_id, sequence) in [("usage-warning-90", 42), ("usage-warning-91", 43)] {
+                write_test_frame(
+                    &mut stream,
+                    &EventEnvelope::with_delivery(
+                        ProviderEvent::Notice(ProviderNotice {
+                            level: NoticeLevel::Warning,
+                            message: format!("trial warning {sequence}"),
+                        }),
+                        NoticeDelivery { notice_id: id(notice_id), sequence },
+                    ),
+                );
+            }
             write_test_frame(
                 &mut stream,
                 &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 41 }),
@@ -1898,19 +1908,36 @@ mod tests {
             client_descriptor(),
         )
         .expect("authenticate provider");
+        // Install the receiver before the cursor response so this assertion
+        // exercises complete_notice_subscription's ordered replay path.
+        let events = provider.subscribe_events().expect("subscribe to replay events");
         assert_eq!(
             provider.subscribe_notices(id("cmux-process-1")).expect("resume durable subscription"),
             SubscribeNoticesResult { sequence: 41 }
         );
         assert!(provider.is_live(), "valid replay closed the provider connection");
-        let events = provider.subscribe_events().expect("subscribe to retained events");
+        let first = events
+            .recv_timeout(Duration::from_secs(2))
+            .expect("receive first replay after cursor initialization");
         assert_eq!(
-            events
-                .recv_timeout(Duration::from_secs(2))
-                .expect("receive replay after cursor initialization")
-                .delivery,
+            first.delivery,
             Some(NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 })
         );
+        assert!(matches!(
+            first.event,
+            ProviderEvent::Notice(ProviderNotice { ref message, .. }) if message == "trial warning 42"
+        ));
+        let second = events
+            .recv_timeout(Duration::from_secs(2))
+            .expect("receive second replay after cursor initialization");
+        assert_eq!(
+            second.delivery,
+            Some(NoticeDelivery { notice_id: id("usage-warning-91"), sequence: 43 })
+        );
+        assert!(matches!(
+            second.event,
+            ProviderEvent::Notice(ProviderNotice { ref message, .. }) if message == "trial warning 43"
+        ));
 
         finish.send(()).expect("finish provider server");
         drop(provider);

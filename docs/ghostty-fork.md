@@ -12,13 +12,113 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3da10da73`, the head of
-https://github.com/manaflow-ai/ghostty/pull/200. It reports a terminal outcome
-for every accepted tokened iOS render, rejects renderer-thread requests that
-iOS external-drain mode cannot consume, and exposes a nonblocking prompt reveal
-operation. The pin includes the prior fork changes below, including VT
-formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
-`9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
+The submodule pinned by this branch is `abd40f6e4`, reachable from fork `main`
+after Ghostty PR #211 was merged. It includes the incremental embedded
+configuration propagation and Fish SSH feature-gating fixes described below,
+plus the renderer/API compatibility pin and the repeated word-selection drag
+anchor fix. Its tree includes the prior fork changes below, including tokened
+iOS render dispositions, VT formatter cursor restoration, VT stream-boundary
+visibility, and Hangul canonical font resolution.
+
+### Current main-aligned feature pin
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/main
+- Commit:
+  - `abd40f6e4` (current fork main after Ghostty PR #211)
+- Summary:
+  - Preserves incremental embedded configuration propagation and Fish SSH
+    feature gating, with the renderer/API compatibility pin and current
+    repeated word-selection drag-anchor behavior.
+- Verification:
+  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
+  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Fish SSH feature gating
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `fd13a3fc2` (shell-integration: fix Fish SSH feature condition)
+- File:
+  - `src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish`
+- Summary:
+  - Groups the `ssh-env` and `ssh-terminfo` alternatives beneath the shared
+    `GHOSTTY_BIN` guard instead of chaining `and`/`or` commands whose final
+    `and` made the `ssh-env`-only case depend on `ssh-terminfo`.
+  - Preserves the existing per-feature forwarding flags and installs the Fish
+    `ssh` wrapper when either feature is enabled.
+- Conflict note:
+  - If upstream rewrites Fish SSH integration, retain behavior coverage for
+    `ssh-env`, `ssh-terminfo`, and the combined feature set.
+- Verification:
+  - `tests/test_issue_8093_ghostty_ssh_binary_path.py` with Fish 4.6.0.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fd13a3fc20f8aab4136437b5693e2e447b86eafc-crashsubdir-cmux-crash-sentry-off-v1
+  - Historical artifact SHA-256: `4b0ad8668eb50b57a36868c693ab80d5a75e9b0c4900e97f8f95150e0c7d9a35`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
+
+### Incremental embedded configuration propagation
+
+- Branch:
+  - https://github.com/manaflow-ai/ghostty/tree/issue-10557-reload-config-stall
+- Commit:
+  - `64b5767a6` (embedded: allow app-only config updates)
+- Files:
+  - `include/ghostty.h`
+  - `src/App.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_app_update_config_without_surface_propagation`, which applies
+    conditional app state and emits the app-scoped config-change action without
+    walking the native surface registry.
+  - Keeps `ghostty_app_update_config` behavior unchanged by factoring its
+    existing surface and app phases into separate internal methods.
+  - Lets cmux prioritize visible surfaces and spread offscreen derivation across
+    main-actor turns while sharing one finalized configuration pointer.
+- Conflict note:
+  - If upstream splits app configuration from surface propagation, replace this
+    fork API with the upstream seam. Until then, keep the legacy full-update API
+    propagating to surfaces and keep the app-only API explicitly host-managed.
+- Verification:
+  - Universal ReleaseFast GhosttyKit build with native Sentry disabled.
+  - Exported symbol verified in macOS universal, iOS device, and iOS simulator
+    archives.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-64b5767a64acac59dad75d9de606e2e06d118e3e-crashsubdir-cmux-crash-sentry-off-v1
+  - Historical artifact SHA-256: `88d0c1af6eaed2db05f327c935ad9c4da4d5cf46b8404f8fd2e14b939a258359`
+    (not retained in the current `scripts/ghosttykit-checksums.txt` manifest).
+
+### Repeated word-selection drag anchor
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/211
+- Commits:
+  - `aa2fb7d9e` (test: anchor repeated selection at second click)
+  - `fb90d3515` (fix: anchor repeated word selection at latest click)
+  - `3f33233aa` (docs: describe repeated selection anchor)
+- File:
+  - `src/terminal/SelectionGesture.zig`
+- Summary:
+  - Moves the tracked pin and surface coordinates to every accepted repeated
+    press, so a double-click drag starts at the word under the second click.
+  - Measures the next repeat distance from the preceding press, matching the
+    moving anchor and preserving chained double/triple clicks.
+  - Adds behavior tests for the moved double-click anchor and chained repeat
+    distance.
+- Conflict note:
+  - Preserve the latest-press anchor when integrating upstream selection
+    changes. A repeat that selects the new word but drags from an older pin
+    regresses the visible selection and the next repeat's distance check.
+
+The corresponding universal ReleaseFast GhosttyKit archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
+pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
@@ -1651,7 +1751,8 @@ tend to conflict together during rebases.
     `mouseLinkRefreshAllowedState`) that also allows local link handling when the
     ctrl/super modifier is held, using the effective mouse-reporting state
     (`isMouseReporting()`), matching iTerm2 and macOS Terminal. Fixes
-    https://github.com/manaflow-ai/cmux/issues/5128.
+    https://github.com/manaflow-ai/cmux/issues/5128 and the original tmux
+    reproduction in https://github.com/manaflow-ai/cmux/issues/2896.
   - Follow-up (#74): `mouseButtonCallback` ran the link-open path only on
     release, while the mouse-report path ran for both press and release and only
     broke out for the shift-release case — so a Cmd-click over a link still
