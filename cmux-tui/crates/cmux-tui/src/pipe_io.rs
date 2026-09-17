@@ -723,8 +723,9 @@ mod tests {
 
     #[test]
     fn stdin_pump_reports_line_read_errors_as_stdin_errors() {
-        let inputs =
-            vec![b"{\"input\":\"aGk=\"}\n\xff".to_vec(), vec![b'a'; MAX_PIPE_IO_LINE_BYTES + 1]];
+        // An ignored command lets the pump reach malformed UTF-8 without
+        // requiring a live remote session for an earlier input frame.
+        let inputs = vec![b"{}\n\xff".to_vec(), vec![b'a'; MAX_PIPE_IO_LINE_BYTES + 1]];
         for input in inputs {
             let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
             let mut input = Cursor::new(input.to_vec());
