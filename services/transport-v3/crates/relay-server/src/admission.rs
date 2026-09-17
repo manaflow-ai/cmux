@@ -393,6 +393,58 @@ mod tests {
     }
 
     #[test]
+    fn drain_allows_only_live_cached_permission_renewal() {
+        let (mut gate, signer) = fixture();
+        let target = peer();
+        let source = peer();
+        let reserve = || Request::Reserve {
+            team: "a".into(),
+            grant: token(&signer, "a", target, gate.relay, "relay_reserve", false),
+        };
+        let connect = |source| Request::Connect {
+            team: "a".into(),
+            destination: target.to_string(),
+            grant: token(&signer, "a", source, target, "connect", false),
+        };
+        assert_eq!(gate.authorize(target, reserve()), Response::Accepted);
+        assert_eq!(gate.authorize(source, connect(source)), Response::Accepted);
+        gate.drain();
+        assert_eq!(gate.authorize(target, reserve()), Response::Accepted);
+        assert_eq!(gate.authorize(source, connect(source)), Response::Accepted);
+        assert_eq!(gate.authorize(peer(), connect(peer())), Response::Denied);
+        assert!(!gate.allow_circuit(source, target));
+        assert!(!gate.allow_reservation(target));
+
+        // A new valid grant cannot resurrect a circuit after its old grant expired.
+        gate.epoch = unix_now() + 301;
+        let grant = Grant::new(
+            Scope {
+                team: "a",
+                source,
+                destination: target,
+                action: "connect",
+            },
+            1,
+            LeasePolicy::default(),
+            gate.now(),
+            gate.now(),
+        )
+        .unwrap();
+        assert_eq!(
+            gate.authorize(
+                source,
+                Request::Connect {
+                    team: "a".into(),
+                    destination: target.to_string(),
+                    grant: signer.sign(&grant, gate.now()).unwrap()
+                }
+            ),
+            Response::Denied
+        );
+        assert!(gate.sweep().contains(&source));
+    }
+
+    #[test]
     fn cached_permission_limit_cannot_be_bypassed_by_new_peer_id() {
         let (mut gate, signer) = fixture();
         gate.per_team = 1;
