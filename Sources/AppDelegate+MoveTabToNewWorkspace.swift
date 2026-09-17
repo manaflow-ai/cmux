@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 struct SurfaceNewWorkspaceMoveResult {
     let sourceWindowId: UUID
@@ -26,14 +27,9 @@ extension AppDelegate {
     }
 
     func canMoveBonsplitTab(tabId: UUID, toWorkspace targetWorkspaceId: UUID) -> Bool {
-        guard let located = locateBonsplitSurface(tabId: tabId),
-              let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
-              sourceWorkspace.panels[located.panelId] != nil,
-              let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
-              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
-            return false
-        }
-        return true
+        guard locateContainerSurface(tabId: tabId) != nil,
+              let destination = workspaceFor(tabId: targetWorkspaceId) else { return false }
+        return destination.surfaceOwnershipPolicy.rejection(for: machineOwningBonsplitTab(tabId)) == nil
     }
 
     func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
@@ -59,7 +55,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let located = locateBonsplitSurface(tabId: tabId) else { return nil }
@@ -81,7 +77,7 @@ extension AppDelegate {
         title: String? = nil,
         focus: Bool = true,
         focusWindow: Bool = true,
-        placementOverride: NewWorkspacePlacement? = nil,
+        placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil
     ) -> SurfaceNewWorkspaceMoveResult? {
         guard let source = locateSurface(surfaceId: panelId),
@@ -92,6 +88,10 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
+        let hasExplicitTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        if !hasExplicitTitle {
+            source.tabManager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        }
         let destinationTitle = titleForDetachedWorkspace(
             explicitTitle: title,
             workspace: sourceWorkspace,
@@ -106,6 +106,7 @@ extension AppDelegate {
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
             title: destinationTitle,
+            titleSource: hasExplicitTitle ? .user : .auto,
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,

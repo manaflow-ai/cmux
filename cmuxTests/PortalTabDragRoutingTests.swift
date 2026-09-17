@@ -1,6 +1,9 @@
 import XCTest
 import AppKit
-import Bonsplit
+import SwiftUI
+import Testing
+@testable import Bonsplit
+import CmuxSidebar
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -20,6 +23,152 @@ final class PortalTabDragRoutingTests: XCTestCase {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
         }
+    }
+
+    private final class CountingTabBarBackgroundNSView: NSView {
+        private(set) var pointConversionCount = 0
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+
+        override func convert(_ point: NSPoint, from view: NSView?) -> NSPoint {
+            pointConversionCount += 1
+            return super.convert(point, from: view)
+        }
+    }
+
+    func testCompactPaneTabChromeStaysBelowDragHitMinimum() throws {
+        let appearance = BonsplitConfiguration.Appearance(
+            tabMinWidth: 140,
+            tabMaxWidth: 220,
+            splitButtons: []
+        )
+        let measuredWidth = try XCTUnwrap(
+            renderedSelectedPaneTabIndicatorWidth(
+                title: "~",
+                icon: "terminal.fill",
+                appearance: appearance
+            )
+        )
+
+        XCTAssertGreaterThan(
+            measuredWidth,
+            40,
+            "The regression measurement must prove the selected tab indicator actually rendered"
+        )
+        XCTAssertLessThanOrEqual(
+            measuredWidth,
+            80,
+            "Short pane-tab visible chrome should stay compact; drag affordance must come from hit testing, not a wider rendered tab"
+        )
+    }
+
+    private func makeHostedTerminalView(frame: NSRect) -> GhosttySurfaceScrollView {
+        let surfaceView = GhosttyNSView(frame: frame)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = frame
+        hostedView.autoresizingMask = [.width, .height]
+        return hostedView
+    }
+
+    private func renderedSelectedPaneTabIndicatorWidth(
+        title: String,
+        icon: String?,
+        appearance: BonsplitConfiguration.Appearance
+    ) -> CGFloat? {
+        let controller = BonsplitController(configuration: BonsplitConfiguration(appearance: appearance))
+        guard let pane = controller.internalController.rootNode.allPanes.first else { return nil }
+        let tab = TabItem(title: title, icon: icon)
+        pane.tabs = [tab]
+        pane.selectedTabId = tab.id
+
+        let size = NSSize(width: 180, height: appearance.tabBarHeight)
+        let hostingView = NSHostingView(
+            rootView: TabBarView(pane: pane, isFocused: true, showSplitButtons: false)
+                .environment(controller)
+                .environment(controller.internalController)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else { return nil }
+
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+
+        window.makeKeyAndOrderFront(nil)
+        let sampleRect = NSRect(x: 0, y: 0, width: size.width, height: 4)
+        return waitForHighSaturationWidth(
+            in: hostingView,
+            sampleRect: sampleRect
+        )
+    }
+
+    private func waitForHighSaturationWidth(
+        in view: NSView,
+        sampleRect: NSRect,
+        timeout: TimeInterval = 10.0
+    ) -> CGFloat? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            if let width = highSaturationWidth(in: view, sampleRect: sampleRect) {
+                return width
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+        return highSaturationWidth(in: view, sampleRect: sampleRect)
+    }
+
+    private func highSaturationWidth(in view: NSView, sampleRect: NSRect) -> CGFloat? {
+        let integralBounds = view.bounds.integral
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: integralBounds) else { return nil }
+        bitmap.size = integralBounds.size
+        view.cacheDisplay(in: integralBounds, to: bitmap)
+
+        let scaleX = CGFloat(bitmap.pixelsWide) / max(1, integralBounds.width)
+        let scaleY = CGFloat(bitmap.pixelsHigh) / max(1, integralBounds.height)
+        let minX = max(0, Int(floor(sampleRect.minX * scaleX)))
+        let maxX = min(bitmap.pixelsWide, Int(ceil(sampleRect.maxX * scaleX)))
+        let minY = max(0, Int(floor(sampleRect.minY * scaleY)))
+        let maxY = min(bitmap.pixelsHigh, Int(ceil(sampleRect.maxY * scaleY)))
+
+        var activeColumnCount = 0
+        for x in minX..<maxX {
+            var hasIndicatorPixel = false
+            for y in minY..<maxY {
+                guard let color = bitmap.colorAt(x: x, y: y),
+                      let rgb = color.usingColorSpace(.sRGB),
+                      rgb.alphaComponent > 0.05 else { continue }
+                let alpha = min(max(rgb.alphaComponent, 0), 1)
+                let red = rgb.redComponent * alpha
+                let green = rgb.greenComponent * alpha
+                let blue = rgb.blueComponent * alpha
+                let high = max(red, green, blue)
+                guard high > 0.01 else { continue }
+                let low = min(red, green, blue)
+                if (high - low) / high > 0.4 {
+                    hasIndicatorPixel = true
+                    break
+                }
+            }
+            if hasIndicatorPixel {
+                activeColumnCount += 1
+            }
+        }
+        guard activeColumnCount > 0 else { return nil }
+        return CGFloat(activeColumnCount) / scaleX
     }
 
     private struct TabStripPassThroughFixture {
@@ -111,6 +260,56 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
+    func testHostViewTrustsRegisteredTabStripRegionAboveHostedTerminal() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let tabStripHeight: CGFloat = 44
+        let tabStrip = NSView(
+            frame: NSRect(
+                x: 0,
+                y: contentView.bounds.maxY - tabStripHeight,
+                width: contentView.bounds.width,
+                height: tabStripHeight
+            )
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+        BonsplitTabBarHitRegionRegistry.register(tabStrip)
+        defer { BonsplitTabBarHitRegionRegistry.unregister(tabStrip) }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowTerminalHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        let hostedTerminal = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedTerminal)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let titlebarBandHeight = max(28, min(72, window.frame.height - window.contentLayoutRect.height))
+        let pointInContent = NSPoint(
+            x: contentView.bounds.midX,
+            y: contentView.bounds.maxY - titlebarBandHeight - 8
+        )
+        let pointInWindow = contentView.convert(pointInContent, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, at: pointInWindow, window: window)
+
+        XCTAssertNil(
+            host.performHitTest(at: pointInHost, currentEvent: event),
+            "Terminal portal should defer to the registered minimal tab strip even when a hosted terminal view overlaps it"
+        )
+    }
+
     func testHostViewPassesThroughUnderlyingTabStripWithoutCurrentEvent() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
@@ -135,6 +334,281 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.applicationDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.systemDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.periodic))
+        XCTAssertFalse(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.scrollWheel))
+    }
+
+    func testBrowserPortalDragRoutingKeepsAppKitEventsOutOfPassThrough() {
+        let context = WindowInputRoutingContext(eventType: .appKitDefined)
+
+        XCTAssertTrue(context.allowsTabBarPassThroughHitTesting)
+        XCTAssertTrue(context.allowsPaneDropHitTesting)
+        XCTAssertFalse(context.allowsBrowserPortalDragRouting)
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .appKitDefined
+            )
+        )
+    }
+
+    func testStaleTabTransferTypeCannotEnablePortalHitTesting() {
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseDragged,
+                hasLiveTabTransfer: false
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseDragged,
+                hasLiveTabTransfer: true
+            )
+        )
+    }
+
+    func testStaleFilePreviewPayloadCannotEnablePaneOrPortalHitTesting() {
+        let staleTypes: [NSPasteboard.PasteboardType] = [
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+            .fileURL,
+        ]
+
+        XCTAssertFalse(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged,
+                hasLiveFileDropPayload: true
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: staleTypes,
+                eventType: .leftMouseDragged,
+                hasLiveFileDropPayload: true
+            )
+        )
+    }
+
+    func testLiveTabDragCapabilityResolverCachesOneLookupPerPasteboardGeneration() {
+        let registry = TabDragTransferRegistry()
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("live-tab-resolver-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        var lookupCount = 0
+        let resolver = LiveTabDragCapabilityResolver(
+            registryProvider: { registry },
+            transferResolver: { _, _ in
+                lookupCount += 1
+                return nil
+            }
+        )
+
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 1)
+
+        // AppKit's pasteboard daemon does not advance `changeCount` for a
+        // same-generation value write on every supported macOS release. A
+        // clear is the deterministic generation boundary the resolver keys
+        // on; the subsequent write keeps the board representative of a new
+        // drag payload without relying on an implementation detail.
+        pasteboard.clearContents()
+        pasteboard.setString("changed", forType: .string)
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 2)
+
+        resolver.invalidate()
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 3)
+    }
+
+    func testLiveTabDragCapabilityResolverRejectsRevokedCachedTransfer() throws {
+        let registry = TabDragTransferRegistry()
+        let registration = try XCTUnwrap(
+            registry.register(
+                TabDragTransfer(
+                    tab: Tab(title: "revoked", kind: "terminal"),
+                    sourcePaneId: PaneID()
+                )
+            )
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("live-tab-resolver-revocation-(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        XCTAssertTrue(registration.write(to: pasteboard))
+        var lookupCount = 0
+        let resolver = LiveTabDragCapabilityResolver(
+            registryProvider: { registry },
+            transferResolver: { registry, pasteboard in
+                lookupCount += 1
+                return registry.resolve(from: pasteboard)
+            }
+        )
+
+        XCTAssertNotNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 1)
+
+        // Ending the source does not necessarily advance AppKit's pasteboard
+        // generation. A cached positive result must still become inert.
+        registry.end(registration)
+        XCTAssertNil(resolver.resolve(from: pasteboard))
+        XCTAssertEqual(lookupCount, 1)
+        pasteboard.clearContents()
+    }
+
+    func testDragPasteboardCapabilityCleanerPreservesUnrelatedRepresentations() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("drag-capability-cleaner-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let capabilityType = NSPasteboard.PasteboardType("com.cmux.test.capability")
+        let capability = "capability-\(UUID().uuidString)"
+        let previewType = NSPasteboard.PasteboardType("com.cmux.filepreview.transfer")
+        let previewData = Data("preview".utf8)
+        XCTAssertTrue(pasteboard.setString(capability, forType: capabilityType))
+        XCTAssertTrue(pasteboard.setString("file:///tmp/preview.txt", forType: .fileURL))
+        XCTAssertTrue(pasteboard.setData(previewData, forType: previewType))
+        let fileURLData = pasteboard.data(forType: .fileURL)
+
+        DragPasteboardCapabilityCleaner().remove(
+            type: capabilityType,
+            capabilityValue: capability,
+            from: pasteboard
+        )
+
+        XCTAssertNil(pasteboard.string(forType: capabilityType))
+        XCTAssertEqual(pasteboard.data(forType: .fileURL), fileURLData)
+        XCTAssertEqual(pasteboard.data(forType: previewType), previewData)
+
+        let capabilityData = Data(capability.utf8)
+        XCTAssertTrue(pasteboard.setData(capabilityData, forType: capabilityType))
+        DragPasteboardCapabilityCleaner().remove(
+            type: capabilityType,
+            capabilityData: capabilityData,
+            from: pasteboard
+        )
+        XCTAssertNil(pasteboard.data(forType: capabilityType))
+    }
+
+    func testInterruptedSidebarSessionCannotBlockTheNextPaneOrWorkspaceDrag() throws {
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("portal-drag-session-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer { pasteboard.clearContents() }
+        let sidebarRegistry = SidebarWorkspaceDragRegistry(
+            dragPasteboardProvider: { pasteboard }
+        )
+        let sourcePresentation = SidebarDragState(workspaceDragRegistry: sidebarRegistry)
+        let firstWorkspaceId = UUID()
+        let interruptedSession = sourcePresentation.beginDragging(tabId: firstWorkspaceId)
+        #expect(pasteboard.setString(
+            interruptedSession.pasteboardValue,
+            forType: DragOverlayRoutingPolicy.sidebarTabReorderType
+        ))
+
+        // Fullscreen/display reconstruction can dismiss the old presentation
+        // while AppKit still owns the source. The rebuilt sidebar mirrors the
+        // live token and its terminal completion clears every presentation.
+        sourcePresentation.dismissPresentation()
+        let rebuiltPresentation = SidebarDragState(workspaceDragRegistry: sidebarRegistry)
+        #expect(rebuiltPresentation.mirrorDragging(tabId: firstWorkspaceId))
+        sidebarRegistry.nativeDraggingSessionDidEnd(
+            sessionId: interruptedSession.id,
+            capabilityValue: interruptedSession.pasteboardValue
+        )
+        #expect(sidebarRegistry.currentSessionId == nil)
+        #expect(rebuiltPresentation.draggedTabId == nil)
+
+        // Reproduce the system's residual UTI after completion. It must be
+        // inert for both the portal and the sidebar overlay.
+        #expect(pasteboard.setString(
+            interruptedSession.pasteboardValue,
+            forType: DragOverlayRoutingPolicy.sidebarTabReorderType
+        ))
+        #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+            pasteboardTypes: pasteboard.types,
+            eventType: .leftMouseDragged
+        ))
+        #expect(!SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDragged,
+            pasteboardTypes: pasteboard.types,
+            hasLiveWorkspaceDrag: false
+        ))
+
+        let tabRegistry = TabDragTransferRegistry()
+        let tabRegistration = try #require(tabRegistry.register(
+            TabDragTransfer(
+                tab: Tab(title: "Next pane", kind: "terminal"),
+                sourcePaneId: PaneID()
+            )
+        ))
+        pasteboard.clearContents()
+        #expect(tabRegistration.write(to: pasteboard))
+        #expect(DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+            pasteboardTypes: pasteboard.types,
+            eventType: .leftMouseDragged,
+            hasLiveTabTransfer: tabRegistry.resolve(from: pasteboard) != nil
+        ))
+        tabRegistry.end(tabRegistration)
+
+        let nextWorkspaceSession = sidebarRegistry.beginSession(workspaceId: UUID())
+        pasteboard.clearContents()
+        #expect(pasteboard.setString(
+            nextWorkspaceSession.pasteboardValue,
+            forType: DragOverlayRoutingPolicy.sidebarTabReorderType
+        ))
+        #expect(SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDragged,
+            pasteboardTypes: pasteboard.types,
+            hasLiveWorkspaceDrag: SidebarTabDragPayload.sessionId(from: pasteboard)
+                == sidebarRegistry.currentSessionId
+        ))
+        sidebarRegistry.nativeDraggingSessionDidEnd(
+            sessionId: nextWorkspaceSession.id,
+            capabilityValue: nextWorkspaceSession.pasteboardValue
+        )
+    }
+
+    func testWindowInputRoutingContextRejectsKeyboardForPointerOnlyRoutes() {
+        let context = WindowInputRoutingContext(eventType: .keyDown)
+
+        XCTAssertFalse(context.allowsFirstResponderHitTesting)
+        XCTAssertFalse(context.allowsPortalPointerHitTesting)
+        XCTAssertFalse(context.allowsPaneDropHitTesting)
+        XCTAssertFalse(context.allowsFileDropOverlayHitTesting)
+        XCTAssertFalse(context.allowsWorkspaceDropOverlayHitTesting)
+        XCTAssertFalse(context.allowsBrowserPortalDragRouting)
+        XCTAssertFalse(context.allowsTerminalPortalDragRouting)
+    }
+
+    func testWindowInputRoutingContextKeepsScrollOutOfTabBarPassThrough() {
+        let context = WindowInputRoutingContext(eventType: .scrollWheel)
+
+        XCTAssertTrue(context.allowsPortalPointerHitTesting)
+        XCTAssertFalse(context.allowsTabBarPassThroughHitTesting)
+    }
+
+    func testWindowInputRoutingContextPreservesNoEventWorkspaceDropHitTesting() {
+        let context = WindowInputRoutingContext(eventType: nil)
+
+        XCTAssertTrue(context.allowsWorkspaceDropOverlayHitTesting)
+        XCTAssertFalse(context.allowsPaneDropHitTesting)
     }
 
     func testTerminalPaneDropTargetDefersToUnderlyingTabStrip() {
@@ -168,7 +642,69 @@ final class PortalTabDragRoutingTests: XCTestCase {
         )
     }
 
+    func testTerminalPaneDropTargetKeyDownSkipsOverlayRoutingPaths() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        dragPasteboard.declareTypes([.fileURL], owner: nil)
+        defer { dragPasteboard.clearContents() }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let tabStrip = CountingTabBarBackgroundNSView(
+            frame: NSRect(x: 0, y: contentView.bounds.maxY - 44, width: contentView.bounds.width, height: 44)
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+
+        let dropTarget = TerminalPaneDropTargetView(frame: contentView.bounds)
+        dropTarget.autoresizingMask = [.width, .height]
+        dropTarget.dropContext = PaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID())
+        )
+        contentView.addSubview(dropTarget, positioned: .above, relativeTo: tabStrip)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: NSPoint(x: contentView.bounds.midX, y: tabStrip.frame.midY),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "a",
+            charactersIgnoringModifiers: "a",
+            isARepeat: false,
+            keyCode: 0
+        ))
+
+        let hit = dropTarget.performHitTest(
+            at: NSPoint(x: contentView.bounds.midX, y: tabStrip.frame.midY),
+            currentEvent: event
+        )
+        XCTAssertNil(hit)
+        XCTAssertEqual(
+            tabStrip.pointConversionCount,
+            0,
+            "Keyboard events should not scan tab-strip or drag-overlay hit-test paths."
+        )
+    }
+
     func testTerminalPaneDropTargetCapturesFinderFilesButIgnoresBrowserPayloads() {
+        XCTAssertFalse(
+            TerminalPaneDropTargetView.shouldCaptureHitTesting(
+                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
+                eventType: .leftMouseDragged
+            ),
+            "A residual tab-transfer UTI must not capture terminal pane drags without a live registration."
+        )
         XCTAssertTrue(
             TerminalPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [.fileURL],
@@ -190,7 +726,9 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(
             TerminalPaneDropTargetView.shouldCaptureHitTesting(
                 pasteboardTypes: [DragOverlayRoutingPolicy.filePreviewTransferType, DragOverlayRoutingPolicy.bonsplitTabTransferType, .fileURL],
-                eventType: .leftMouseUp
+                eventType: .leftMouseUp,
+                hasLiveTabTransfer: true,
+                hasLiveFileDropPayload: true
             )
         )
 
@@ -216,7 +754,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
     func testPaneDropRoutingMapsFileDropsToSharedBonsplitDestinations() {
         let paneId = PaneID()
 
-        if case let .insert(targetPane, targetIndex) = PaneDropRouting.filePreviewDestination(
+        if case let .insert(targetPane, targetIndex) = PaneDropRouting.destination(
             targetPane: paneId,
             zone: .center
         ) {
@@ -226,7 +764,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
             XCTFail("Center drops should insert into the hovered pane")
         }
 
-        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.filePreviewDestination(
+        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.destination(
             targetPane: paneId,
             zone: .left
         ) {
@@ -237,7 +775,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
             XCTFail("Left drops should use Bonsplit horizontal split routing")
         }
 
-        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.filePreviewDestination(
+        if case let .split(targetPane, orientation, insertFirst) = PaneDropRouting.destination(
             targetPane: paneId,
             zone: .bottom
         ) {

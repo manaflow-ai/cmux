@@ -818,7 +818,12 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        await fulfillment(of: [loaded], timeout: 3)
+        // The store uses a DispatchSource vnode watcher (plus a fallback directory
+        // watcher) to observe the .cmux directory creation, re-arm onto the new
+        // cmux.json, reload, and republish loadedActions. vnode notification +
+        // re-arm + reload latency is nondeterministic under CI I/O load, so use a
+        // generous deadline; the sink still fulfills as soon as the watcher fires.
+        await fulfillment(of: [loaded], timeout: 15)
         cancellable?.cancel()
     }
 
@@ -860,7 +865,11 @@ final class CmuxConfigDecodingTests: XCTestCase {
         }
         """.write(to: legacyConfigURL, atomically: true, encoding: .utf8)
 
-        await fulfillment(of: [loaded], timeout: 3)
+        // The store observes the legacy cmux.json write via a DispatchSource vnode
+        // watcher, then reloads and republishes loadedActions. Filesystem
+        // notification + reload latency is nondeterministic under CI I/O load, so
+        // use a generous deadline; the sink still fulfills the moment the watcher fires.
+        await fulfillment(of: [loaded], timeout: 15)
         cancellable?.cancel()
     }
 

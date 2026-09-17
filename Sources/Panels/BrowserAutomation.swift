@@ -1,4 +1,5 @@
 import Foundation
+import CmuxBrowser
 
 enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
     case noBrowsers
@@ -69,8 +70,13 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
 enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     case missingName
     case missingProfile
+    case browserDisabled
+    case invalidProfileSelector
+    case multipleProfileSelectors
+    case profileRequiresBrowserPane
+    case profileUnavailableInRemoteWorkspace
     case profileNotFound(String)
-    case ambiguousProfile(String)
+    case ambiguousProfile(String, [BrowserProfileDefinition])
     case profileCreationFailed(String)
     case profileRenameFailed(String)
     case cannotDeleteDefaultProfile
@@ -90,21 +96,50 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
                 localized: "browser.profile.automation.error.missingProfile",
                 defaultValue: "Missing browser profile"
             )
+        case .browserDisabled:
+            return String(
+                localized: "browser.profile.automation.error.browserDisabled",
+                defaultValue: "Browser profiles cannot be used while the cmux browser is disabled"
+            )
+        case .invalidProfileSelector:
+            return String(
+                localized: "browser.profile.automation.error.invalidProfileSelector",
+                defaultValue: "Browser profile must be a non-empty name or UUID"
+            )
+        case .multipleProfileSelectors:
+            return String(
+                localized: "browser.profile.automation.error.multipleProfileSelectors",
+                defaultValue: "Specify only one browser profile selector"
+            )
+        case .profileRequiresBrowserPane:
+            return String(
+                localized: "browser.profile.automation.error.profileRequiresBrowserPane",
+                defaultValue: "Browser profiles can only be used when creating a browser pane"
+            )
+        case .profileUnavailableInRemoteWorkspace:
+            return String(
+                localized: "browser.profile.automation.error.profileUnavailableInRemoteWorkspace",
+                defaultValue: "Browser profiles cannot be selected when creating a browser pane in a remote workspace"
+            )
         case .profileNotFound(let query):
             return String.localizedStringWithFormat(
                 String(
                     localized: "browser.profile.automation.error.profileNotFound",
-                    defaultValue: "No cmux browser profile matches '%@'"
+                    defaultValue: "No cmux browser profile matches '%@'. Run 'cmux browser profiles' to list available profiles."
                 ),
                 query
             )
-        case .ambiguousProfile(let query):
+        case .ambiguousProfile(let query, let candidates):
+            let candidateList = candidates
+                .map { "\($0.displayName) (\($0.id.uuidString))" }
+                .joined(separator: ", ")
             return String.localizedStringWithFormat(
                 String(
                     localized: "browser.profile.automation.error.ambiguousProfile",
-                    defaultValue: "Multiple cmux browser profiles match '%@'. Use the profile ID instead."
+                    defaultValue: "Multiple cmux browser profiles match '%@': %@. Use a profile UUID."
                 ),
-                query
+                query,
+                candidateList
             )
         case .profileCreationFailed(let name):
             return String.localizedStringWithFormat(
@@ -328,7 +363,7 @@ enum BrowserProfileAutomation {
                 $0.displayName.localizedCaseInsensitiveCompare(normalized) == .orderedSame
         }
         if matches.count > 1 {
-            throw BrowserProfileAutomationError.ambiguousProfile(query)
+            throw BrowserProfileAutomationError.ambiguousProfile(query, matches)
         }
         return matches.first
     }
@@ -347,9 +382,9 @@ enum BrowserProfileAutomation {
     }
 
     @MainActor
-    private static func liveBrowserPanelCount(profileID: UUID) -> Int {
+    static func liveBrowserPanelCount(profileID: UUID) -> Int {
         guard let app = AppDelegate.shared else { return 0 }
-        return app.mainWindowContexts.values.reduce(0) { contextCount, context in
+        let workspaceCount = app.mainWindowContexts.values.reduce(0) { contextCount, context in
             contextCount + context.tabManager.tabs.reduce(0) { workspaceCount, workspace in
                 workspaceCount + workspace.panels.values.reduce(0) { panelCount, panel in
                     guard let browserPanel = panel as? BrowserPanel,
@@ -360,12 +395,22 @@ enum BrowserProfileAutomation {
                 }
             }
         }
+        let dockCount = DockSplitStore.liveStores.reduce(0) { count, dock in
+            count + dock.panels.values.reduce(0) { panelCount, panel in
+                guard let browserPanel = panel as? BrowserPanel,
+                      browserPanel.profileID == profileID else {
+                    return panelCount
+                }
+                return panelCount + 1
+            }
+        }
+        return workspaceCount + dockCount
     }
 }
 
 enum BrowserImportAutomation {
     static func importCookies(params: [String: Any]) async throws -> BrowserImportOutcome {
-        let browsers = InstalledBrowserDetector.detectInstalledBrowsers()
+        let browsers = BrowserInstalledBrowserDetector().detectInstalledBrowsers()
         guard !browsers.isEmpty else {
             throw BrowserImportAutomationError.noBrowsers
         }
@@ -499,13 +544,7 @@ enum BrowserImportAutomation {
     }
 
     private static func matchesBrowser(_ browser: InstalledBrowserCandidate, query: String) -> Bool {
-        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return false }
-        if browser.id.lowercased() == normalized { return true }
-        if browser.displayName.lowercased() == normalized { return true }
-        return browser.descriptor.appNames.contains {
-            $0.replacingOccurrences(of: ".app", with: "").lowercased() == normalized
-        }
+        browser.matchesLookupQuery(query)
     }
 
     private static func matchesProfile(_ profile: InstalledBrowserProfile, query: String) -> Bool {

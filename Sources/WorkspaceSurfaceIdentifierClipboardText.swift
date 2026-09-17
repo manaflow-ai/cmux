@@ -3,14 +3,43 @@ import Foundation
 
 enum WorkspaceSurfaceIdentifierClipboardText {
     @MainActor
-    static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+    static func copy(_ text: String, to pasteboard: NSPasteboard? = nil) {
+        guard let pasteboard else {
+            GhosttyApp.terminalPasteboard.writeString(
+                text,
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return
+        }
+        _ = GhosttyApp.terminalPasteboard.writeString(
+            text,
+            to: pasteboard
+        )
     }
 
     @MainActor
     static func copyWorkspaceIds(_ ids: [UUID], includeRefs: Bool) {
         copy(makeWorkspaceIds(ids, includeRefs: includeRefs))
+    }
+
+    @MainActor
+    static func copyWorkspaceLinks(_ ids: [UUID]) {
+        copy(makeWorkspaceLinks(ids))
+    }
+
+    /// Copies durable workspace links, mapping runtime workspace ids to stable ids.
+    @MainActor
+    static func copyWorkspaceLinks(_ ids: [UUID], resolvingStableIdsFrom workspaces: [Workspace]) {
+        let stableIdByRuntimeId = Dictionary(
+            workspaces.map { ($0.id, $0.stableId) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let stableIds = ids.compactMap { stableIdByRuntimeId[$0] }
+        guard !stableIds.isEmpty, stableIds.count == ids.count else {
+            NSSound.beep()
+            return
+        }
+        copyWorkspaceLinks(stableIds)
     }
 
     @MainActor
@@ -35,6 +64,49 @@ enum WorkspaceSurfaceIdentifierClipboardText {
         }
         lines.append("surface_id=\(surfaceId.uuidString)")
         return lines.joined(separator: "\n")
+    }
+
+    static func makeWorkspaceLink(workspaceId: UUID) -> String {
+        CmuxNavigationURLRequest.workspaceLink(workspaceId: workspaceId)
+    }
+
+    static func makeWorkspaceLinks(_ ids: [UUID]) -> String {
+        ids.map { makeWorkspaceLink(workspaceId: $0) }.joined(separator: "\n")
+    }
+
+    static func makePaneLink(workspaceId: UUID, paneId: UUID) -> String {
+        CmuxNavigationURLRequest.paneLink(workspaceId: workspaceId, paneId: paneId)
+    }
+
+    static func makeSurfaceLink(workspaceId: UUID, surfaceId: UUID) -> String {
+        CmuxNavigationURLRequest.surfaceLink(workspaceId: workspaceId, surfaceId: surfaceId)
+    }
+
+    static func makeSurfaceLink(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        stableWorkspaceId: UUID?,
+        stableSurfaceId: UUID?
+    ) -> String {
+        CmuxNavigationURLRequest.surfaceLink(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            stableWorkspaceId: stableWorkspaceId,
+            stableSurfaceId: stableSurfaceId
+        )
+    }
+
+    @MainActor
+    static func makeSurfaceLink(workspace: Workspace, panelId: UUID) -> String? {
+        guard let target = workspace.surfaceOwnershipTarget(for: panelId) else { return nil }
+        let stableSurfaceId = workspace.panels[target.containerPanelID]?.stableSurfaceId
+            ?? target.panel.stableSurfaceId
+        return makeSurfaceLink(
+            workspaceId: workspace.id,
+            surfaceId: target.surfaceID,
+            stableWorkspaceId: workspace.stableId,
+            stableSurfaceId: stableSurfaceId
+        )
     }
 
     @MainActor

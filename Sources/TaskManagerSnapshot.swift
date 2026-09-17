@@ -5,21 +5,27 @@ struct CmuxTaskManagerSnapshot {
         rows: [],
         agentRows: [],
         aggregateRows: [],
+        childMemoryRows: [],
         total: .zero,
-        sampledAt: nil
+        sampledAt: nil,
+        memoryDiagnostic: nil
     )
 
     let rows: [CmuxTaskManagerRow]
     let agentRows: [CmuxTaskManagerRow]
     let aggregateRows: [CmuxTaskManagerRow]
+    let childMemoryRows: [CmuxTaskManagerRow]
     let total: CmuxTaskManagerResources
     let sampledAt: Date?
+    let memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic?
 
     var hasLoadedResourceUsage: Bool {
         sampledAt != nil
             || !rows.isEmpty
             || !agentRows.isEmpty
             || !aggregateRows.isEmpty
+            || !childMemoryRows.isEmpty
+            || memoryDiagnostic != nil
     }
 
     var updatedText: String {
@@ -33,28 +39,35 @@ struct CmuxTaskManagerSnapshot {
         rows: [CmuxTaskManagerRow],
         agentRows: [CmuxTaskManagerRow] = [],
         aggregateRows: [CmuxTaskManagerRow],
+        childMemoryRows: [CmuxTaskManagerRow] = [],
         total: CmuxTaskManagerResources,
-        sampledAt: Date?
+        sampledAt: Date?,
+        memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic? = nil
     ) {
         self.rows = rows
         self.agentRows = agentRows
         self.aggregateRows = aggregateRows
+        self.childMemoryRows = childMemoryRows
         self.total = total
         self.sampledAt = sampledAt
+        self.memoryDiagnostic = memoryDiagnostic
     }
 
     init(
         rows: [CmuxTaskManagerRow],
         agentRows: [CmuxTaskManagerRow] = [],
         total: CmuxTaskManagerResources,
-        sampledAt: Date?
+        sampledAt: Date?,
+        memoryDiagnostic: CmuxTaskManagerMemoryDiagnostic? = nil
     ) {
         self.init(
             rows: rows,
             agentRows: agentRows,
             aggregateRows: Self.programAggregateRows(from: rows),
+            childMemoryRows: Self.childMemoryRows(from: memoryDiagnostic),
             total: total,
-            sampledAt: sampledAt
+            sampledAt: sampledAt,
+            memoryDiagnostic: memoryDiagnostic
         )
     }
 
@@ -78,6 +91,45 @@ struct CmuxTaskManagerSnapshot {
         self.aggregateRows = programTotalPayloads.isEmpty
             ? Self.programAggregateRows(from: self.rows)
             : Self.programAggregateRows(fromPayloads: programTotalPayloads)
+        let memoryDiagnostic = CmuxTaskManagerMemoryDiagnostic(payload["memory_diagnostic"] as? [String: Any])
+        self.memoryDiagnostic = memoryDiagnostic
+        self.childMemoryRows = Self.childMemoryRows(from: memoryDiagnostic)
+    }
+
+    private static func childMemoryRows(from diagnostic: CmuxTaskManagerMemoryDiagnostic?) -> [CmuxTaskManagerRow] {
+        guard let diagnostic else { return [] }
+        return diagnostic.groups.map { group in
+            let attribution = group.attribution.commonOwner
+            let workspaceId = attribution?.workspaceId
+            let surfaceId = attribution?.surfaceId
+            let surfaceType = attribution?.surfaceType?.lowercased()
+            let detailParts = [
+                processCountDetail(group.processCount),
+                group.attribution.localizedDescription
+            ].compactMap { $0 }
+            return CmuxTaskManagerRow(
+                id: "childMemoryAggregate:\(group.id)",
+                kind: .childMemoryAggregate,
+                level: 0,
+                title: group.name,
+                detail: detailParts.joined(separator: " / "),
+                resources: CmuxTaskManagerResources(
+                    cpuPercent: 0,
+                    residentBytes: group.rssBytes,
+                    memoryBytes: group.rssBytes,
+                    processCount: group.processCount,
+                    processIds: group.processIds
+                ),
+                isDimmed: false,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                terminalSurfaceId: surfaceType == "terminal" ? surfaceId : nil,
+                processId: nil,
+                rootProcessIds: group.processIds,
+                foregroundProcessGroupIds: [],
+                agentAssetName: agentAssetName(for: [group.name])
+            )
+        }
     }
 
     private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {
