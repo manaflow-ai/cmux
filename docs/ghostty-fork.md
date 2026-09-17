@@ -12,8 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `6f2701078`, on fork branch
-`issue-12753-hangul-filename-shaping` pending Ghostty PR #221. It includes the
+The submodule pinned by this branch is `370f08cf1`, on fork branch
+`issue-12753-hangul-filename-shaping` pending Ghostty PR #221. It is cmux
+`main`'s pin `4a0e9e185` (termio `MemoryPool` write pool and the
+`GHOSTTY_BIN_DIR` use-after-free fix, from cmux #12842) merged with the NFD
+Hangul shaping fix, and nothing else: fork `main`'s `clear_screen` changes are
+not included because cmux `main` does not consume them yet. It includes the
 incremental embedded configuration propagation and Fish SSH feature-gating fixes described below,
 plus the renderer/API compatibility pin and the repeated word-selection drag
 anchor fix. Its tree includes the prior fork changes below, including tokened
@@ -25,23 +29,25 @@ visibility, and Hangul canonical font resolution.
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/issue-12753-hangul-filename-shaping
 - Commit:
-  - `6f2701078` (issue-12753 Hangul shaping fix and coverage; pending PR #221)
+  - `370f08cf1` (merge of cmux `main`'s pin `4a0e9e185` into the issue-12753
+    Hangul shaping fix and coverage; pending PR #221)
 - Summary:
   - Adds the NFD Hangul shaping fix and jamo/style coverage on top of cmux's prior pin, preserving
     incremental embedded configuration propagation and Fish SSH feature gating,
     with the renderer/API compatibility pin and repeated word-selection drag
     anchor behavior.
 - Verification:
-  - Zig 0.16.0 on macOS 26.4, `-Dtest-filter=Hangul`: 78/78 with the CoreText
-    shaper and 77/77 with `-Dfont-backend=coretext_harfbuzz`. 73 of those run
-    regardless of the filter (a filter matching nothing still reports 73), so
-    the filter itself selects 5 tests; `-Dtest-filter=composedSyllable` adds
+  - Zig 0.16.0 on macOS 26.4, at `370f08cf1`, `-Dtest-filter=Hangul`: 78/78
+    with the CoreText shaper and 77/77 with `-Dfont-backend=coretext_harfbuzz`.
+    73 of those run regardless of the filter under either backend (a filter
+    matching nothing still reports 73), so the filter itself selects 5 tests
+    with CoreText and 4 with HarfBuzz; `-Dtest-filter=composedSyllable` adds
     the 3 `hangul.zig` unit tests.
-  - Reverting only `src/font/shaper/run.zig` to the test-first commit turns 3
-    of them red under both shapers: CoreText `expected 218, found 1942` (the
-    Apple SD Gothic Neo glyph ID from the report), HarfBuzz `expected 218,
-    found 0` (`.notdef`). The inherited fork CI skips tests outside
-    ghostty-org, so these were run by hand on a leased fleet Mac.
+  - At `6f2701078`, reverting only `src/font/shaper/run.zig` to the test-first
+    commit turns 3 of them red under both shapers: CoreText `expected 218,
+    found 1942` (the Apple SD Gothic Neo glyph ID from the report), HarfBuzz
+    `expected 218, found 0` (`.notdef`). The inherited fork CI skips tests
+    outside ghostty-org, so these were run by hand on a leased fleet Mac.
 - Previous pin artifact (does not include the Hangul shaping fix):
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
   - SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
@@ -196,6 +202,8 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - `3a7fc9230` (fix: shape NFD Hangul with the resolved syllable)
   - `e5a6849dc` (test: cover Hangul jamo fonts and style fallback)
   - `6f2701078` (test: cover Hangul selection bounds, copy path, and uncomposable jamo)
+  - `370f08cf1` (merge of cmux `main`'s pin `4a0e9e185`; touches only
+    `src/termio` and `src/datastruct`, no overlap with `src/font`)
 - `RunIterator.resolveFontInfo` carries the canonical syllable together with
   its resolved font index. Both CoreText and HarfBuzz receive that spelling,
   preventing CoreText from returning jamo fallback glyph IDs that would be

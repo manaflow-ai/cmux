@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Compartir con el equipo",
+      "makePrivate": "Hacer privado",
+      "privateImportHint": "Las cuentas nuevas son privadas. Comparte una cuenta para que esté disponible en las VM Cloud de este equipo.",
+      "description": "Las cuentas compartidas están disponibles para las VM Cloud de este equipo. Las cuentas privadas solo están disponibles para quien las añadió.",
+      "cancelAction": "Cancelar"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Ventana incorrecta o clic bloqueado",
       "targetBody": "Inspecciona de nuevo la app y selecciona un elemento de su estado actual. Si otra ventana tapa el destino, muestra la ventana deseada e inspecciónala antes de reintentar. No reutilices coordenadas ni índices obsoletos.",
       "productLink": "Vista general de cmux Computer Use",
-    "copyTitle": "Copiar un prompt de Computer Use",
-    "copyPrompt": "Copiar prompt",
-    "copiedPrompt": "Copiado",
-    "installPrompt": "Usa la habilidad $cmux-cua para esta tarea. Si falta, instálala con tu instalador habitual. Si faltan permisos, pídeme abrir Ajustes de cmux → Computer Use. Inspecciona antes de actuar y verifica cada cambio.\n\nTarea: [describe aquí la tarea]"
+      "copyTitle": "Copiar un prompt de Computer Use",
+      "copyPrompt": "Copiar prompt",
+      "copiedPrompt": "Copiado",
+      "installPrompt": "Usa la habilidad $cmux-cua para esta tarea. Si falta, instálala con tu instalador habitual. Si faltan permisos, pídeme abrir Ajustes de cmux → Computer Use. Inspecciona antes de actuar y verifica cada cambio.\n\nTarea: [describe aquí la tarea]"
     },
     "remoteTmux": {
       "moshContrast": "Para cambiar de red sin perder la sesión, usa cmux mosh-tmux. Abre un terminal Mosh plenamente integrado y conectado a una sesión tmux con nombre; no sustituye el espejo nativo de espacios, pestañas y divisiones que ofrece el modo de control tmux por SSH."
