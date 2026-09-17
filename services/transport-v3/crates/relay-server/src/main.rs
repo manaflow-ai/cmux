@@ -555,3 +555,66 @@ fn validate(args: &Args) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod feed_tests {
+    use super::*;
+    use cmux_v3_grants::{GrantSigner, RevocationUpdate};
+    use ed25519_dalek::SigningKey;
+    use libp2p::identity::Keypair;
+
+    #[tokio::test]
+    async fn revocation_feed_applies_signed_ordered_events_and_reports_health() {
+        let signing = SigningKey::from_bytes(&[101; 32]);
+        let signer = GrantSigner::new("feed-test".into(), &signing).unwrap();
+        let update = RevocationUpdate {
+            key_id: String::new(),
+            team_id: "team".into(),
+            sequence: 1,
+            policy_revision: 2,
+            revoked_peers: vec![Keypair::generate_ed25519()
+                .public()
+                .to_peer_id()
+                .to_string()],
+            issued_at: unix_now(),
+        };
+        let token = signer.sign_revocation(update, unix_now()).unwrap();
+        let response = serde_json::json!({
+            "events": [{"sequence": 1, "update": token}]
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().route(
+            "/v3/relay-events",
+            post(move || {
+                let response = response.clone();
+                async move { Json(response) }
+            }),
+        );
+        let server = tokio::spawn(axum::serve(listener, app).into_future());
+        let relay = Keypair::generate_ed25519().public().to_peer_id();
+        let mut keys = AuthorityKeys::default();
+        keys.insert("feed-test".into(), signing.verifying_key());
+        let gate = Arc::new(Gate::new(keys, relay, 16, 8));
+        let mut registry = Registry::default();
+        let metrics = Metrics::new(&mut registry);
+        let feed = spawn_revocation_feed(
+            format!("http://{address}"),
+            b"feed-token".to_vec(),
+            relay,
+            gate,
+            metrics.clone(),
+        );
+        for _ in 0..30 {
+            if metrics.feed_healthy.get() == 1 && metrics.feed_sequence.get() == 1 {
+                feed.abort();
+                server.abort();
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        feed.abort();
+        server.abort();
+        panic!("signed revocation feed did not become healthy");
+    }
+}
