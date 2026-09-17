@@ -191,7 +191,10 @@ extension RemoteSessionCoordinator {
             "remote.relay.inheritedMaster.reapObserved " +
                 debugConfigSummary()
         )
-        guard !isStopping else { return }
+        // A parked session has no retry scheduled, so `.reconnecting` would
+        // strand it without its verdict. Whatever ends the park (Reconnect,
+        // wake) resets the transport itself.
+        guard !isStopping, parkedState == nil else { return }
         resetTransportForReconnectLocked(
             preservePersistentRelayMetadata: true
         )
