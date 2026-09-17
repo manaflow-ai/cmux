@@ -57,6 +57,9 @@ def main():
         for library in libraries:
             command += ['-library', str(library), '-headers', str(headers)]
         run(*command, '-output', str(output), env=env)
+        manifest = output/'Info.plist'
+        if not manifest.is_file():
+            raise RuntimeError('XCFramework did not contain Info.plist')
         # Source and binary come from this same build; generated checksum guards
         # reject accidental binding/library version mismatches at runtime.
         native = package/'Native'

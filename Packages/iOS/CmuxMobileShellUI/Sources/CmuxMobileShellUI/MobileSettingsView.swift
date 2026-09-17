@@ -664,6 +664,8 @@ struct MobileSettingsView: View {
 
     private func transportName(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
+        case .v3:
+            L10n.string("mobile.transport.v3", defaultValue: "libp2p v3")
         case .tailscale:
             L10n.string(
                 "mobile.settings.activeTransport.tailscale",

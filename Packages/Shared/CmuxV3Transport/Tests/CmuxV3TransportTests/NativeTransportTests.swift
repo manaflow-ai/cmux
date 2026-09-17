@@ -24,6 +24,42 @@ private actor Count {
     func increment() { value += 1 }
 }
 
+private struct TestGrants: CmxV3GrantProviding {
+    let key: Curve25519.Signing.PrivateKey
+    let deviceID: String
+    let peerID: String
+    func authorization(for request: CmxByteTransportRequest, source: String) async throws -> CmxV3Authorization {
+        CmxV3Authorization(deviceID: deviceID, peerID: peerID,
+            grant: try grant(source: source, destination: peerID, key: key))
+    }
+}
+
+@Test(.timeLimit(.minutes(1)))
+func factoryChecksEnrollmentBindingAndUsesRealNativeStream() async throws {
+    let key = Curve25519.Signing.PrivateKey()
+    let keys = ["test": key.publicKey.rawRepresentation]
+    let a = try await NativeEndpoint.create(seed: Data(repeating: 81, count: 32), team: "a", authorityKeys: keys)
+    let b = try await NativeEndpoint.create(seed: Data(repeating: 82, count: 32), team: "a", authorityKeys: keys)
+    defer { a.close(); b.close() }
+    let address = try await b.listen(address: "/ip4/127.0.0.1/udp/0/quic-v1", operation: CmuxV3Native.Operation())
+    let route = try CmxAttachRoute(id: "v3", kind: .v3, endpoint: .v3Peer(CmxV3PeerIdentity(
+        peerID: b.peerId(), addresses: ["\(address)/p2p/\(b.peerId())"])))
+    let request = CmxByteTransportRequest(route: route, expectedPeerDeviceID: "device-uuid", authorizationMode: .transportAdmission)
+    let factory = CmxV3ByteTransportFactory(endpoint: a, grants: TestGrants(key: key, deviceID: "device-uuid", peerID: b.peerId()))
+    let transport = try factory.makeTransport(for: request)
+    async let accepting = b.accept(operation: CmuxV3Native.Operation())
+    try await transport.connect()
+    let server = try await accepting.stream
+    try await transport.send(Data("factory".utf8))
+    #expect(try await server.receive(operation: CmuxV3Native.Operation()) == Data("factory".utf8))
+    await transport.close()
+    server.close()
+    let invalid = CmxV3ByteTransportFactory(endpoint: a, grants: TestGrants(key: key, deviceID: "other-device", peerID: b.peerId()))
+    let denied = try invalid.makeTransport(for: request)
+    await #expect(throws: CmxV3TransportError.peerIntentRequired) { try await denied.connect() }
+    #expect(throws: CmxV3TransportError.peerIntentRequired) { try factory.makeTransport(for: route) }
+}
+
 @Test(.timeLimit(.minutes(1)))
 func generatedSwiftCallsRealRustTransportThroughByteSeam() async throws {
     let key = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 61, count: 32))

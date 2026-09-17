@@ -14,6 +14,7 @@ public struct CmxMobileDefaults {
 public enum CmxAttachTransportKind: String, Codable, Sendable {
     case tailscale
     case iroh
+    case v3 = "libp2p_v3"
     case websocket
     case debugLoopback = "debug_loopback"
 }

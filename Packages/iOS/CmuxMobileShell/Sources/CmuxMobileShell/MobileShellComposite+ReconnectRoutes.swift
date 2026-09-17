@@ -825,6 +825,8 @@ extension MobileShellComposite {
                 key = "url:\(url)"
             case .peer:
                 return
+            case let .v3Peer(identity):
+                key = "v3:\(identity.peerID)"
             }
             guard seenEndpoints.insert(key).inserted else { return }
             merged.append(route)

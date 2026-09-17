@@ -61,6 +61,8 @@ actor MobileTerminalLaneCoordinator {
             switch configuration.request.route.endpoint {
             case .peer(let identity, _):
                 peerIdentity = identity.endpointID
+            case .v3Peer(let identity):
+                peerIdentity = "v3:\(identity.peerID)"
             case .hostPort, .url:
                 // LaneKey routes terminal input. Without a peer identity, two
                 // peers sharing one route id would collapse into one lane and
