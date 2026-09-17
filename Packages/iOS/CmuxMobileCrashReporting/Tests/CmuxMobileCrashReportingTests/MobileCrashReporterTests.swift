@@ -93,7 +93,7 @@ private final class ReplayMaskProbeView: UIView {}
         // Replay needs Sentry's session lifecycle to create its rolling error
         // buffer and apply the configured session sample rate.
         #expect(options.enableAutoSessionTracking == true)
-        #expect(options.enableLogs == true)
+        #expect(options.enableLogs == false)
         #expect(options.beforeBreadcrumb != nil)
         #if os(iOS)
         #expect(options.sessionReplay.onErrorSampleRate == 1.0)

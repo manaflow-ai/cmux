@@ -27,6 +27,60 @@ extension DockSplitStore {
     // observers stay alive separately if the real host event arrives later.
     private static let maxDockPortalLayoutWakeAttempts = 8
 
+    /// Reasserts the native input target immediately after an explicit Dock
+    /// focus mutation. The portal may still be mounting; in that case the
+    /// panel's lifecycle callbacks retain desired focus for a later pass.
+    @discardableResult
+    func reassertDockPanelInputFocus(_ panelId: UUID) -> Bool {
+        guard let panel = panels[panelId] else { return false }
+        switch panel {
+        case let terminal as TerminalPanel:
+            terminal.hostedView.ensureFocus(
+                for: workspaceId,
+                surfaceId: terminal.id,
+                respectForeignFirstResponder: false
+            )
+            return terminal.hostedView.isSurfaceViewFirstResponder()
+        case let browser as BrowserPanel:
+            return browser.restoreFocusIntent(
+                browser.preferredFocusIntentForActivation()
+            )
+        default:
+            panel.focus()
+            return true
+        }
+    }
+
+    /// Records Dock ownership against the panel's owning window before a
+    /// selection mutation. Windowless control paths resolve the registered
+    /// owner directly instead of relying on an ambient key window.
+    func noteKeyboardFocusIntent(window: NSWindow?) {
+        guard let appDelegate = AppDelegate.shared else { return }
+        let ownerManager = appDelegate.dockReferenceTabManager(for: self)
+        let resolvedOwnerManager = ownerManager
+            ?? appDelegate.tabManagerFor(tabId: workspaceId)
+        if let window,
+           let matchingContext = appDelegate.mainWindowContexts.values.first(where: {
+               $0.window === window &&
+                   (resolvedOwnerManager == nil || $0.tabManager === resolvedOwnerManager)
+           }) {
+            matchingContext.keyboardFocusCoordinator.noteRightSidebarInteraction(mode: .dock)
+            return
+        }
+        if let resolvedOwnerManager,
+           let ownerContext = appDelegate.mainWindowContexts.values.first(where: {
+               $0.tabManager === resolvedOwnerManager
+        }) {
+            ownerContext.keyboardFocusCoordinator.noteRightSidebarInteraction(mode: .dock)
+            return
+        }
+        let ownerWindow = resolvedOwnerManager
+            .flatMap { appDelegate.windowId(for: $0) }
+            .flatMap { appDelegate.mainWindow(for: $0) }
+        guard let ownerWindow else { return }
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: ownerWindow)
+    }
+
     func scheduleDockPortalReconcile(reason: String) {
         guard !isRetired else { return }
         let state = dockPortalReconcileState

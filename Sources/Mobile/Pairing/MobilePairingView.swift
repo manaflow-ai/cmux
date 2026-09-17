@@ -2,13 +2,13 @@ import CmuxFoundation
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
+import Foundation
 import SwiftUI
 
 /// The macOS window for pairing an iPhone with this Mac.
 ///
-/// The page presents one pairing artifact: a Tailscale QR for signed-in
-/// iPhones that use the explicit Tailscale connection method. Iroh remains an
-/// automatic, no-QR discovery path and is shown only as status information.
+/// The page activates the v2 IROH pairing host for signed-in iPhones. It does
+/// not publish QR codes, direct addresses, or Tailscale pairing artifacts.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     @State private var signInModel = AccountSignInModel(
@@ -62,6 +62,14 @@ struct MobilePairingView: View {
         }
         .task { await model.refresh() }
         .onDisappear { model.stopObserving() }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard
+            )
+        ) { _ in
+            Task { await model.refresh() }
+        }
         .onChange(of: coordinator?.isAuthenticated ?? false) { _, _ in
             Task { await model.refresh() }
         }
@@ -130,10 +138,12 @@ struct MobilePairingView: View {
             loadingContent
         case .signedOut:
             AccountSignInView(model: signInModel, automaticallyStartsSignIn: false)
+        case .pairingDisabled:
+            pairingDisabledContent
         case .preparing:
             centered {
                 ProgressView().controlSize(.small)
-                Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
+                Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing secure pairing…"))
                     .foregroundStyle(.secondary)
             }
         case let .needsReachableTransport(reachableViaIroh):
@@ -160,6 +170,36 @@ struct MobilePairingView: View {
         }
     }
 
+    private var pairingDisabledContent: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "iphone.slash")
+                .cmuxFont(size: 28)
+                .foregroundStyle(.secondary)
+            Text(String(
+                localized: "mobile.pairing.disabled.title",
+                defaultValue: "Enable iOS pairing"
+            ))
+                .cmuxFont(.headline)
+            Text(String(
+                localized: "mobile.pairing.disabled.body",
+                defaultValue: "iOS pairing is off on this Mac. Open Settings and enable iOS pairing to discover this Mac from cmux on your iPhone."
+            ))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(String(
+                localized: "mobile.pairing.disabled.openSettings",
+                defaultValue: "Open Settings"
+            )) {
+                AppDelegate.shared?.openPreferencesWindow(
+                    debugSource: "mobilePairingDisabled"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, minHeight: 200)
+    }
+
     private func failure(message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
@@ -180,20 +220,47 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+        if ready.v2Only {
+            irohReadyContent
+        } else {
+            VStack(alignment: .center, spacing: 14) {
+                getIPhoneAppBadge
+                tailscaleReadyBody(ready)
+            }
+            .frame(maxWidth: .infinity)
+
+            Divider()
+
+            tailscaleRow(ready)
+            if ready.reachableViaIroh {
+                irohRow(reachableViaIroh: ready.reachableViaIroh)
+            }
+            manualEntry(ready)
+
+            footer
+        }
+    }
+
+    @ViewBuilder
+    private var irohReadyContent: some View {
         VStack(alignment: .center, spacing: 14) {
             getIPhoneAppBadge
-            tailscaleReadyBody(ready)
+            Image(systemName: "checkmark.shield")
+                .cmuxFont(size: 34)
+                .foregroundStyle(.green)
+            Text(String(
+                localized: "mobile.pairing.irohInstruction",
+                defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically, with no code needed."
+            ))
+                .cmuxFont(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
 
         Divider()
-
-        tailscaleRow(ready)
-        if ready.reachableViaIroh {
-            irohRow(reachableViaIroh: ready.reachableViaIroh)
-        }
-        manualEntry(ready)
-
+        irohRow(reachableViaIroh: true)
         footer
     }
 

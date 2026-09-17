@@ -49,8 +49,7 @@ final class SidebarDividerTrackingView: NSView {
         NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
             if let contentView = event.window?.contentView {
                 let location = event.locationInWindow
-                let point = contentView.convert(location, from: nil)
-                let hit = contentView.hitTest(point)
+                let hit = contentView.cmuxHitTest(windowPoint: location)
                 // macOS 26 can deliver events whose window location is
                 // non-finite; `Int(_:)` traps on NaN/infinity and takes the
                 // whole app down from this log line. `%.0f` formats any

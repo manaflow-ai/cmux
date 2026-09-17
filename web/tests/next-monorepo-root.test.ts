@@ -11,6 +11,10 @@ import {
 } from "../services/iroh/publicationPolicy";
 
 describe("Next monorepo module boundary", () => {
+  test("allows generated cmux development publication origins for HMR", () => {
+    expect(nextConfig.allowedDevOrigins).toContain("*.cmux.sh");
+  });
+
   test("keeps runtime imports inside web while generated consumers remain identical", () => {
     const webRoot = path.dirname(fileURLToPath(new URL("../next.config.ts", import.meta.url)));
     const webCatalogPath = fileURLToPath(
