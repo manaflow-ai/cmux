@@ -9,6 +9,8 @@ import concurrent.futures
 import getpass
 import json
 import os
+import pty
+import select
 from pathlib import Path
 import shlex
 import socket
@@ -260,6 +262,39 @@ LogLevel ERROR
             assert cleanup_reports[0]["failure"] == "network", cleanup_reports
             assert "error_number" not in cleanup_reports[0]
             print("PASS cleanup grant transport failure keeps network classification and transfer success", flush=True)
+
+            # SCP has no exec chunks. Verify human output over both a pipe and
+            # a real terminal, with actual transfers and host-key rejection.
+            for tty in (False, True):
+                for fails in (False, True):
+                    wrong_host_key = fails
+                    destination = f"human-{tty}-{fails}"
+                    master, slave = pty.openpty() if tty else (None, None)
+                    try:
+                        result = subprocess.run(
+                            [cli, "vm", "push", "test-vm", str(payload), destination],
+                            env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=slave if tty else subprocess.PIPE, timeout=30,
+                        )
+                        stderr = result.stderr or b""
+                        if master is not None:
+                            while select.select([master], [], [], 0)[0]:
+                                stderr += os.read(master, 65536)
+                    finally:
+                        if slave is not None: os.close(slave)
+                        if master is not None: os.close(master)
+                        wrong_host_key = False
+                    assert result.returncode == (1 if fails else 0), stderr
+                    if fails:
+                        assert b"Host key verification failed" in stderr, stderr
+                        assert b"Cloud diagnostic reference:" in stderr, stderr
+                        assert b"Pushed" not in result.stdout, result.stdout
+                        assert not (guest / destination).exists()
+                    else:
+                        assert b"Pushed" in result.stdout and destination.encode() in result.stdout, result.stdout
+                        assert stderr == b"", stderr
+                        assert (guest / destination).read_bytes() == payload.read_bytes()
+            print("PASS SCP human output and errors over pipes and terminals", flush=True)
         finally:
             stop.set()
             thread.join(timeout=2)
