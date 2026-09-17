@@ -375,6 +375,8 @@ public struct CMUXMobileRootScene: View {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
+        } else if UITestConfig.whatsNewPreviewEnabled {
+            MobileWhatsNewPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {

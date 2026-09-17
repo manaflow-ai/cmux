@@ -48,7 +48,8 @@ import Testing
         // Menu and palette callers use this fallback when the shared action says it failed.
         if !accepted { _ = manager.createSplit(direction: direction) }
         await provider.creationAttemptSignal.wait()
-        try await waitForPaneFailure(workspace)
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
+        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
 
         #expect(accepted)
         #expect(provider.creationRequestCount == 1)
@@ -161,27 +162,137 @@ import Testing
         ))
 
         #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
         await provider.creationAttemptSignal.wait()
-        try await waitForPaneFailure(workspace)
+        let failure = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
 
         #expect(NSApp.modalWindow == nil)
-        let reservation = try #require(workspace.cloudPendingCreations.values.first)
-        let failure = try #require(workspace.cloudMaterializationFailures[reservation.panelID])
-        #expect(reservation.machine == machine)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        #expect(workspace.cloudPendingCreations[pendingPanelID]?.machine == machine)
         #expect(!failure.detail.isEmpty)
         #expect(!failure.detail.contains("connection refused"))
-        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        #expect(failure.showsReconnectButton)
         var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
         let firstRequest = await requestIterator.next()
-        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: reservation.panelID))
+        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: pendingPanelID))
         let retryRequest = await requestIterator.next()
-        try await waitForPaneFailure(workspace)
+        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
         #expect(firstRequest != nil)
         #expect(retryRequest == firstRequest)
+        #expect(workspace.cloudPendingCreations.count == 1)
 
-        #expect(workspace.closePanel(reservation.panelID, force: true))
-        #expect(workspace.cloudPendingCreations[reservation.panelID] == nil)
-        #expect(!workspace.cloudPaneCreationFailureStore.hasActiveRequests)
+        #expect(workspace.closePanel(pendingPanelID, force: true))
+        #expect(workspace.cloudPendingCreations[pendingPanelID] == nil)
+        #expect(workspace.panels[pendingPanelID] == nil)
+    }
+
+    @Test("A retained Cloud projection never falls back to a local terminal", arguments: ["split", "tab", "splitButton"])
+    func failedCloudRouteDoesNotCreateLocalPanel(action: String) throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("missing-provider-\(UUID().uuidString)")
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-missing-provider", name: "missing", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-missing-provider"),
+            title: "shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-missing-provider", workspace: remoteWorkspace)],
+            port: nil, url: nil
+        )
+        let catalog = SurfaceCatalog.shared
+        // A restored projection keeps its Cloud identity before the provider
+        // reconnects and publishes its resource graph.
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-missing-provider"
+        ))
+        defer {
+            catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
+        }
+        #expect(catalog.hasCloudProjection(panelID: sourcePanelID, workspaceID: workspace.id))
+        #expect(workspace.cloudProjectedResource(forPanel: sourcePanelID) == nil)
+
+        let panelCount = workspace.panels.count
+        switch action {
+        case "tab":
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: false).isAccepted)
+        case "splitButton":
+            workspace.bonsplitController.splitPane(paneID, orientation: .horizontal)
+        default:
+            #expect(!workspace.newTerminalSplitOutcome(
+                from: sourcePanelID, orientation: .horizontal, focus: false
+            ).isAccepted)
+        }
+        #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
+    }
+
+    @Test("Cloud placement errors have a specific diagnostic")
+    func cloudPlacementErrorHasSpecificDiagnostic() {
+        let error = CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("vm-placement")
+        #expect(CloudDiagnosticFailure.classify(error) == .placement)
+        #expect(CloudDiagnosticFailure.classify(error).label.contains("placement"))
+    }
+
+    @Test("Creation failure belongs to its visible workspace and stays above native content")
+    func failureCardTracksWorkspaceVisibilityAndWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 720, height: 480),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let root = try #require(content.superview)
+        let host = CloudPaneCreationFailureOverlayHostView(frame: content.bounds)
+        host.translatesAutoresizingMaskIntoConstraints = true
+        host.autoresizingMask = [.width, .height]
+        content.addSubview(host)
+        defer { host.detach() }
+        // Like WindowTerminalHostView, this sibling is above SwiftUI content.
+        let terminal = NSView(frame: content.frame)
+        root.addSubview(terminal, positioned: .above, relativeTo: content)
+        let failure = CloudPaneCreationFailure(machine: .cloud("fixture"), error: URLError(.timedOut))
+        var retriedIDs: [UUID] = []
+        var dismissedIDs: [UUID] = []
+        host.update(
+            failure: failure,
+            onRetry: { retriedIDs.append($0) },
+            onDismiss: { dismissedIDs.append($0) }
+        )
+        root.layoutSubtreeIfNeeded()
+        let card = try #require(root.subviews.compactMap { $0 as? CloudPaneCreationFailureOverlayView }.first)
+        #expect(!card.isDescendant(of: content))
+        let cardIndex = try #require(root.subviews.firstIndex(of: card))
+        let terminalIndex = try #require(root.subviews.firstIndex(of: terminal))
+        #expect(cardIndex > terminalIndex)
+        #expect(card.frame.width > 0 && card.frame.height > 0)
+        #expect(content.convert(card.bounds, from: card).minX >= 0)
+        #expect(content.convert(card.bounds, from: card).maxX <= content.bounds.maxX)
+        #expect(host.hitTest(NSPoint(x: 5, y: 5)) == nil, "The bridge must not intercept terminal input")
+        let buttons = card.subviews
+            .compactMap { $0 as? NSStackView }
+            .flatMap { $0.arrangedSubviews.compactMap { $0 as? NSButton } }
+        let retry = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureRetry" })
+        retry.performClick(nil)
+        #expect(retriedIDs == [failure.id])
+        let dismiss = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureDismiss" })
+        dismiss.performClick(nil)
+        #expect(dismissedIDs == [failure.id])
+
+        host.isHidden = true
+        host.layoutSubtreeIfNeeded()
+        #expect(card.superview == nil, "Switching workspaces must remove its window-level error")
+        host.isHidden = false
+        host.layoutSubtreeIfNeeded()
+        #expect(card.superview === root)
+        host.removeFromSuperview()
+        #expect(card.superview == nil, "An unmounted workspace must not leave an orphan card")
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
@@ -458,12 +569,10 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
     }
 
-    private func waitForPaneFailure(_ workspace: Workspace) async throws {
+    private func waitForPaneFailure(_ workspace: Workspace, panelID: UUID) async throws -> CloudTerminalReconnectOverlayPolicy.Presentation {
         let deadline = ContinuousClock.now + .seconds(5)
-        while workspace.cloudMaterializationFailures.isEmpty, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        try #require(!workspace.cloudMaterializationFailures.isEmpty)
+        while workspace.cloudMaterializationFailures[panelID] == nil, ContinuousClock.now < deadline { await Task.yield() }
+        return try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
     }
 
     @MainActor

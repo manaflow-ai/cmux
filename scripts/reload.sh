@@ -395,7 +395,7 @@ derive_socket_marker_names() {
   # Keep this table in lockstep with SocketPathMarkerFiles.variant. In
   # particular, an identifier that is not one of the known cmux flavors is
   # stable (rather than an implicitly-tagged dev build), and an empty suffix
-  # uses the unscoped nightly/staging/dev marker name.
+  # uses the unscoped nightly/rc/staging/dev marker name.
   bundle_id="$(printf '%s' "$bundle_id" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   CMUX_RELOAD_MARKER_NAME="last-socket-path"
   CMUX_RELOAD_TMP_MARKER="/tmp/cmux-last-socket-path"
@@ -412,6 +412,20 @@ derive_socket_marker_names() {
       else
         CMUX_RELOAD_MARKER_NAME="nightly-last-socket-path"
         CMUX_RELOAD_TMP_MARKER="/tmp/cmux-nightly-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.rc)
+      CMUX_RELOAD_MARKER_NAME="rc-last-socket-path"
+      CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-last-socket-path"
+      ;;
+    com.cmuxterm.app.rc.*)
+      variant_slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.rc.}")"
+      if [[ -n "$variant_slug" ]]; then
+        CMUX_RELOAD_MARKER_NAME="rc-${variant_slug}-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-${variant_slug}-last-socket-path"
+      else
+        CMUX_RELOAD_MARKER_NAME="rc-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-last-socket-path"
       fi
       ;;
     com.cmuxterm.app.staging)

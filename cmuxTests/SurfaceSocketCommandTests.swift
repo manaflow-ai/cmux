@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -36,7 +37,8 @@ struct SurfaceSocketCommandTests {
             }
         }.value
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
-        #expect(try Self.error(object)["code"] as? String == "not_ready")
+        let error = try Self.error(object)
+        #expect(error["code"] as? String == "not_ready")
     }
 
     @Test func vmFailureDoesNotExposeBackendCredentialsOrResponseBodies() async throws {
@@ -49,6 +51,8 @@ struct SurfaceSocketCommandTests {
         let error = try Self.error(object)
         #expect(error["code"] as? String == "vm_error")
         #expect((error["data"] as? [String: Any])?["http_status"] as? Int == 502)
+        #expect(response.contains("HTTP 502"))
+        #expect(response.contains("unreadable response omitted"))
         #expect(!response.contains("secret"))
         #expect(!response.contains("private.invalid"))
         #expect(!response.contains("response-body-private"))
@@ -57,13 +61,15 @@ struct SurfaceSocketCommandTests {
     @Test func tunnelFailureKeepsTheSafeReasonAndDiagnosticReference() async throws {
         let response = await Task.detached {
             TerminalController.shared.v2VmCall(id: "tunnel-error", timeoutSeconds: 5) {
-                throw VMClientError.httpStatus(502, #"{"error":"vm_cloud_service_unavailable","ui":{"message":"Could not start the private connection. Try again shortly."},"traceId":"75b1fc0ad4068687505292b9a4a65f7d","retryable":true,"details":{"private":"credential=must-not-leak"}}"#)
+                throw VMClientError.httpStatus(502, #"{"error":"vm_cloud_service_unavailable","ui":{"message":"Could not start the private connection. Try again shortly."},"traceId":"75b1fc0ad4068687505292b9a4a65f7d","retryable":true,"action":"Retry the machine open shortly.","details":{"private":"credential=must-not-leak","providerMessage":"must-not-leak"}}"#)
             }
         }.value
         let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
         let error = try Self.error(object)
         let message = try #require(error["message"] as? String)
         #expect(message.contains("Could not start the private connection"))
+        #expect(message.contains("vm_cloud_service_unavailable"))
+        #expect(message.contains("Retry the machine open shortly."))
         #expect(message.contains("75b1fc0ad4068687505292b9a4a65f7d"))
         #expect((error["data"] as? [String: Any])?["retryable"] as? Bool == true)
         #expect(!response.contains("must-not-leak"))
@@ -197,6 +203,7 @@ struct SurfaceSocketCommandTests {
             TerminalController.shared.setActiveTabManager(nil)
             SurfaceCatalog.shared.unregister(machine: machine)
             manager.tabs.forEach { $0.teardownAllPanels() }
+
         }
     }
 
@@ -268,6 +275,8 @@ struct SurfaceSocketCommandTests {
             let ownMachine = try #require(machines.first { ($0["id"] as? String) == fixture.machineID })
             #expect((ownMachine["remote_workspaces"] as? [[String: Any]])?.compactMap { $0["id"] as? String } == ["ws_a", "ws_b", "ws_empty"])
             #expect(Self.resourceIDs(all).isSuperset(of: [fixture.termA1.rawValue, fixture.termA2.rawValue, fixture.termB.rawValue, fixture.browserA.rawValue]))
+            #expect(all["workspaces"] == nil)
+            #expect((all["cloud_states"] as? [[String: Any]])?.isEmpty == true)
             // A machine filter narrows every section of the catalog.
             let one = try Self.ok(try await Self.call("surface.catalog", ["machine": fixture.machineID]))
             #expect((one["machines"] as? [[String: Any]])?.count == 1)
@@ -346,6 +355,36 @@ struct SurfaceSocketCommandTests {
 
             let malformed = try Self.error(try await Self.call("surface.project", ["resource": "not-a-resource"]))
             #expect(malformed["code"] as? String == "invalid_params")
+        }
+    }
+
+    @Test func projectResolvesAnExplicitSurfaceInAnotherWindow() async throws {
+        try await Self.withFixture { fixture in
+            let app = try #require(AppDelegate.shared)
+            let windowID = app.createMainWindow(shouldActivate: false)
+            defer {
+                app.mainWindow(for: windowID)?.performClose(nil)
+            }
+            let manager = try #require(app.tabManagerFor(windowId: windowID))
+            let workspace = try #require(manager.selectedWorkspace)
+            let surfaceID = try #require(workspace.focusedPanelId)
+            let paneID = try #require(workspace.paneId(forPanelId: surfaceID))
+            TerminalController.shared.setActiveTabManager(fixture.manager)
+
+            let result = try Self.ok(try await Self.call("surface.project", [
+                "resource": fixture.termA1.rawValue,
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "direction": "left",
+                "focus": false,
+            ]))
+
+            #expect(result["workspace_id"] as? String == workspace.id.uuidString)
+            #expect(fixture.provider.materialized.count == 1)
+            #expect(fixture.provider.materialized[0].destination == .split(
+                workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .left
+            ))
+            #expect(fixture.provider.materialized[0].focus == false)
         }
     }
 
