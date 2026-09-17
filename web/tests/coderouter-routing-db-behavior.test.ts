@@ -25,6 +25,7 @@ const dbTest = runDbTests ? test : test.skip;
 
 const TEAM = "team-routing-test";
 let sql: Sql | null = null;
+let vm1PoolId: string | null = null;
 
 beforeAll(() => {
   if (!runDbTests) return;
@@ -277,6 +278,16 @@ describe("coderouter routing db behavior", () => {
 });
 
 describe("coderouter route token VM binding db behavior", () => {
+  const vm1 = "00000000-0000-4000-8000-000000000091";
+  const vm2 = "00000000-0000-4000-8000-000000000092";
+  beforeEach(async () => {
+    if (!sql) return;
+    await sql`delete from cloud_vms where id in (${vm1}, ${vm2})`;
+    const inserted = await sql`insert into cloud_vms (id, user_id, billing_team_id, provider, image_id, status)
+      values (${vm1}, 'user-1', ${TEAM}, 'freestyle', 'test', 'running'),
+             (${vm2}, 'user-1', ${TEAM}, 'freestyle', 'test', 'running') returning id, coderouter_pool_id`;
+    vm1PoolId = inserted.find(row => row.id === vm1)?.coderouter_pool_id ?? null;
+  });
   dbTest("API keys authenticate, update last-used metadata, and revoke", async () => {
     const issued = await createApiKey(TEAM, "user-1", "e2e");
     expect(issued.key).toMatch(/^crk_[A-Za-z0-9_-]{40,}$/);
@@ -336,30 +347,32 @@ describe("coderouter route token VM binding db behavior", () => {
   });
 
   dbTest("a token issued for a VM authenticates with that binding", async () => {
-    const { token } = await issueRouteToken(TEAM, "user-1", "vm", { vmId: "vm-1" });
+    const { token } = await issueRouteToken(TEAM, "user-1", "vm", { vmId: vm1 });
+    expect(vm1PoolId).not.toBeNull();
     await expect(authenticateRouteToken(token)).resolves.toEqual({
       teamId: TEAM,
       stackUserId: "user-1",
-      vmId: "vm-1",
+      vmId: vm1,
+      poolId: vm1PoolId,
     });
   });
 
   dbTest("an unbound token binds once and never moves", async () => {
     const { token } = await issueRouteToken(TEAM, "user-1");
     await expect(authenticateRouteToken(token)).resolves.toMatchObject({ vmId: null });
-    await expect(bindRouteTokenToVm("other-team", token, "vm-1")).resolves.toBe(false);
-    await expect(bindRouteTokenToVm(TEAM, token, "vm-1")).resolves.toBe(true);
-    await expect(bindRouteTokenToVm(TEAM, token, "vm-2")).resolves.toBe(false);
-    await expect(authenticateRouteToken(token)).resolves.toMatchObject({ vmId: "vm-1" });
+    await expect(bindRouteTokenToVm("other-team", token, vm1)).resolves.toBe(false);
+    await expect(bindRouteTokenToVm(TEAM, token, vm1)).resolves.toBe(true);
+    await expect(bindRouteTokenToVm(TEAM, token, vm2)).resolves.toBe(false);
+    await expect(authenticateRouteToken(token)).resolves.toMatchObject({ vmId: vm1 });
   });
 
   dbTest("revoking a VM's tokens leaves other tokens live", async () => {
-    const bound = await issueRouteToken(TEAM, "user-1", "vm", { vmId: "vm-1" });
-    const other = await issueRouteToken(TEAM, "user-1", "vm", { vmId: "vm-2" });
+    const bound = await issueRouteToken(TEAM, "user-1", "vm", { vmId: vm1 });
+    const other = await issueRouteToken(TEAM, "user-1", "vm", { vmId: vm2 });
     const cli = await issueRouteToken(TEAM, "user-1");
-    await revokeRouteTokensForVm("vm-1");
+    await revokeRouteTokensForVm(vm1);
     await expect(authenticateRouteToken(bound.token)).resolves.toBeNull();
-    await expect(authenticateRouteToken(other.token)).resolves.toMatchObject({ vmId: "vm-2" });
+    await expect(authenticateRouteToken(other.token)).resolves.toMatchObject({ vmId: vm2 });
     await expect(authenticateRouteToken(cli.token)).resolves.toMatchObject({ vmId: null });
     await expect(bindRouteTokenToVm(TEAM, bound.token, "vm-3")).resolves.toBe(false);
   });

@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Del med teamet",
+      "makePrivate": "Gør privat",
+      "privateImportHint": "Nye konti er private. Del en konto for at gøre den tilgængelig for teamets Cloud-VM’er.",
+      "description": "Delte konti er tilgængelige for dette teams Cloud VM’er. Private konti kan kun bruges af den person, der tilføjede dem.",
+      "cancelAction": "Annuller"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Forkert vindue eller blokeret klik",
       "targetBody": "Undersøg appen igen, og vælg et aktuelt element. Dækker et andet vindue målet, skal du vise det ønskede vindue og undersøge det før et nyt forsøg. Genbrug ikke gamle koordinater eller indekser.",
       "productLink": "Oversigt over cmux Computer Use",
-    "copyTitle": "Kopiér en Computer Use-prompt",
-    "copyPrompt": "Kopiér prompt",
-    "copiedPrompt": "Kopieret",
-    "installPrompt": "Brug færdigheden $cmux-cua. Hvis den mangler, installér den med den normale færdighedsinstaller. Ved manglende tilladelser skal du bede mig åbne cmux Indstillinger → Computer Use. Undersøg først og kontrollér hver ændring.\n\nOpgave: [beskriv opgaven her]"
+      "copyTitle": "Kopiér en Computer Use-prompt",
+      "copyPrompt": "Kopiér prompt",
+      "copiedPrompt": "Kopieret",
+      "installPrompt": "Brug færdigheden $cmux-cua. Hvis den mangler, installér den med den normale færdighedsinstaller. Ved manglende tilladelser skal du bede mig åbne cmux Indstillinger → Computer Use. Undersøg først og kontrollér hver ændring.\n\nOpgave: [beskriv opgaven her]"
     },
     "remoteTmux": {
       "moshContrast": "Brug cmux mosh-tmux til roaming mellem netværk. Den åbner en fuldt integreret Mosh-terminal, der er tilsluttet en navngivet tmux-session; den erstatter ikke den native spejling af arbejdsområder, faner og opdelinger fra SSH tmux-kontroltilstand."
@@ -1213,6 +1220,7 @@
           "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Når true (standard), bruger cmux en standardpalet, der følger udseendet, medmindre et Ghostty-tema eller terminalfarver er konfigureret. Skrifttype og andre indstillinger bevares. Når false, bruger Ghostty sin faste indbyggede palet. Eksplicitte temaer og farver har altid forrang, herunder theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalindhold og den indbyggede agentchat. Angiv false for at bruge hele rudens bredde.",
           "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
