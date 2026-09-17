@@ -25,7 +25,7 @@ struct SidebarFooterPresentationTests {
                 isUpdateActive: true
             )
         }
-        #expect(activeUpdateControls == [.upgrade, .update])
+        #expect(activeUpdateControls == [.update])
         #expect(
             !SidebarFooterPresentationPolicy.isVisible(
                 .update,

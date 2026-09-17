@@ -465,7 +465,7 @@ final class WorkspaceContentViewVisibilityTests {
             SidebarFooterPresentationPolicy.isVisible($0, presentationMode: .standard)
         }
 
-        #expect(minimalControls == [.upgrade])
+        #expect(minimalControls.isEmpty)
         #expect(standardControls == SidebarFooterControl.allCases)
     }
 
