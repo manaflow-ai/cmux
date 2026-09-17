@@ -16,6 +16,9 @@ extension CLISSHPTYAttachReplayBoundaryTests {
         daemonVersion: String? = BundledCLITestSupport.appVersion,
         beforeBridgeResponse: (@Sendable () -> Void)? = nil,
         outputIsBroken: Bool = false,
+        outputIsBackpressured: Bool = false,
+        bridgeError: Bool = false,
+        onRequest: (@Sendable (String, [String: Any]) -> Void)? = nil,
         bridgeScript: @escaping @Sendable (CLISSHPTYAttachBridgeConnection) -> Void,
         body: (AttachedCLI) throws -> Void
     ) throws {
@@ -44,7 +47,10 @@ extension CLISSHPTYAttachReplayBoundaryTests {
         defer { #expect(output.stop(), "pty output reader did not stop") }
 
         let bridge = try CLISSHPTYAttachBridgeServer(script: bridgeScript)
-        defer { #expect(bridge.stop(), "bridge server did not stop") }
+        defer {
+            #expect(bridge.stop(), "bridge server did not stop")
+            #expect(bridge.stop(), "repeated bridge stop was not idempotent")
+        }
 
         let socketPath = makeSocketPath()
         let controlListener = try bindUnixSocket(at: socketPath)
@@ -53,7 +59,9 @@ extension CLISSHPTYAttachReplayBoundaryTests {
             sessionID: sessionID,
             surfaceID: surfaceID,
             daemonVersion: daemonVersion,
-            beforeBridgeResponse: beforeBridgeResponse
+            beforeBridgeResponse: beforeBridgeResponse,
+            bridgeError: bridgeError,
+            onRequest: onRequest
         )
         CLIMockAcceptLoopRegistry.shared.start(
             listenerFD: controlListener,
@@ -96,6 +104,9 @@ extension CLISSHPTYAttachReplayBoundaryTests {
         process.environment = environment
         process.standardInput = FileHandle(fileDescriptor: stdinFD, closeOnDealloc: true)
         process.standardOutput = FileHandle(fileDescriptor: stdoutFD, closeOnDealloc: true)
+        let blockedOutput = outputIsBackpressured ? Pipe() : nil
+        defer { withExtendedLifetime(blockedOutput) {} }
+        if let blockedOutput { process.standardOutput = blockedOutput.fileHandleForWriting }
         if outputIsBroken {
             let brokenOutput = Pipe()
             try brokenOutput.fileHandleForReading.close()
@@ -199,8 +210,7 @@ extension CLISSHPTYAttachReplayBoundaryTests {
     /// stop pipe and closes both itself, so a reader that outlives `stop()`
     /// never touches a descriptor number the test has released.
     final class PTYOutputDrain: @unchecked Sendable {
-        let stopWriteFD: Int32
-        let finished = DispatchSemaphore(value: 0)
+        let lifecycle: CLISSHPTYStopPipe
         let condition = NSCondition()
         var received = Data()
 
@@ -215,7 +225,7 @@ extension CLISSHPTYAttachReplayBoundaryTests {
                 Darwin.close(readerFD)
                 throw error
             }
-            stopWriteFD = stopFDs[1]
+            lifecycle = CLISSHPTYStopPipe(stopReadFD: stopFDs[0], stopWriteFD: stopFDs[1])
             let stopReadFD = stopFDs[0]
             let thread = Thread { self.read(from: readerFD, stopFD: stopReadFD) }
             thread.qualityOfService = QualityOfService.userInitiated
@@ -244,18 +254,14 @@ extension CLISSHPTYAttachReplayBoundaryTests {
 
         /// Stops the reader and reports whether it exited.
         func stop() -> Bool {
-            var byte: UInt8 = 1
-            _ = Darwin.write(stopWriteFD, &byte, 1)
-            let exited = finished.wait(timeout: .now() + 5) == .success
-            Darwin.close(stopWriteFD)
-            return exited
+            lifecycle.requestStop()
+            return lifecycle.waitForFinish()
         }
 
         func read(from readerFD: Int32, stopFD: Int32) {
             defer {
                 Darwin.close(readerFD)
-                Darwin.close(stopFD)
-                finished.signal()
+                lifecycle.finish()
             }
             var buffer = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -286,6 +292,8 @@ extension CLISSHPTYAttachReplayBoundaryTests {
         let surfaceID: String
         let daemonVersion: String?
         let beforeBridgeResponse: (@Sendable () -> Void)?
+        let bridgeError: Bool
+        let onRequest: (@Sendable (String, [String: Any]) -> Void)?
 
         func response(for line: String) -> String {
             guard let data = line.data(using: .utf8),
@@ -294,9 +302,11 @@ extension CLISSHPTYAttachReplayBoundaryTests {
                   let method = payload["method"] as? String else {
                 return "{}"
             }
+            onRequest?(method, payload["params"] as? [String: Any] ?? [:])
             switch method {
             case "workspace.remote.pty_bridge":
                 beforeBridgeResponse?()
+                if bridgeError { return v2Response(id: id, ok: false, error: ["code": "not_ready", "message": "disconnected"]) }
                 return v2Response(id: id, result: [
                     "host": "127.0.0.1", "daemon_version": daemonVersion ?? NSNull(),
                     "port": bridgePort,

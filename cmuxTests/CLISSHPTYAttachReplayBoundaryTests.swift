@@ -203,13 +203,56 @@ struct CLISSHPTYAttachReplayBoundaryTests {
     func brokenOutputRestoresCallerMode() throws {
         let finish = DispatchSemaphore(value: 0)
         defer { finish.signal() }
-        try withSSHPTYAttach(requireExisting: false, outputIsBroken: true) { bridge in
+        let requests = ForwardedInput()
+        try withSSHPTYAttach(requireExisting: false, outputIsBroken: true, onRequest: { method, params in
+            if method == "workspace.remote.pty_attach_end" { requests.append(Data("ended".utf8)) }
+            if params["acknowledge_lifecycle"] as? Bool == true { requests.append(Data("retired".utf8)) }
+        }) { bridge in
             guard bridge.sendReady(replayBytes: 0), bridge.send("output-consumer-closed") else { return }
             _ = bridge.wait(for: finish)
         } body: { attach in
             try #require(attach.waitForExit())
             #expect(attach.process.terminationStatus == 0)
             #expect(TerminalFlags(fd: attach.slaveFD) == attach.initialFlags)
+            #expect(!requests.text.contains("retired"))
+        }
+    }
+
+    @Test(arguments: [SIGHUP, SIGINT, SIGTERM])
+    func signalRestoresCallerModeWithBlockedOutput(number: Int32) throws {
+        try withSSHPTYAttach(requireExisting: false, outputIsBackpressured: true) { bridge in
+            guard bridge.sendReady(replayBytes: 0) else { return }
+            // More than the pipe and bridge buffers; the consumer stays open.
+            _ = bridge.send(String(repeating: "x", count: 4 * 1024 * 1024))
+        } body: { attach in
+            try #require(waitUntil { isRawForwardingMode(fd: attach.slaveFD) })
+            try #require(kill(attach.process.processIdentifier, number) == 0)
+            try #require(attach.waitForExit())
+            #expect(attach.process.terminationStatus == 128 + number)
+            #expect(TerminalFlags(fd: attach.slaveFD) == attach.initialFlags)
+        }
+    }
+
+    @Test
+    func disconnectedControlFailureDiscardsQueuedInput() throws {
+        let requestSeen = DispatchSemaphore(value: 0)
+        let releaseResponse = DispatchSemaphore(value: 0)
+        defer { releaseResponse.signal() }
+        try withSSHPTYAttach(requireExisting: true, beforeBridgeResponse: {
+            requestSeen.signal()
+            _ = releaseResponse.wait(timeout: .now() + 5)
+        }, bridgeError: true) { _ in
+            Issue.record("Control failure must not connect to the bridge")
+        } body: { attach in
+            try #require(requestSeen.wait(timeout: .now() + 5) == .success)
+            try #require(attach.write("unwanted-local-command\n"))
+            releaseResponse.signal()
+            try #require(attach.waitForExit())
+            #expect(TerminalFlags(fd: attach.slaveFD) == attach.initialFlags)
+            _ = fcntl(attach.slaveFD, F_SETFL, O_NONBLOCK)
+            var buffer = [UInt8](repeating: 0, count: 128)
+            #expect(Darwin.read(attach.slaveFD, &buffer, buffer.count) == -1)
+            #expect(errno == EAGAIN)
         }
     }
 }
