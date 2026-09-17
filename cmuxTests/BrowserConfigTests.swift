@@ -1822,36 +1822,6 @@ final class BrowserThemeSettingsTests: XCTestCase {
     }
 }
 
-@MainActor
-final class BrowserEngineDefaultsMigrationTests: XCTestCase {
-    func testNormalizationMigratesLegacyEngineBeforeRegisteringAutoDefault() {
-        let suiteName = "BrowserEngineDefaultsMigrationTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        defaults.set("chromium", forKey: "browser.engine")
-
-        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
-
-        XCTAssertEqual(
-            defaults.string(forKey: BrowserEngineSettingsStore.defaultEngineKey),
-            BrowserEngineDefaultChoice.chromium.rawValue
-        )
-    }
-
-    func testActiveURLAllowlistFailsChromiumClosedToWebKit() {
-        XCTAssertEqual(
-            BrowserPanel.effectiveBrowserEngine(
-                requested: .chromium,
-                isRemoteWorkspace: false,
-                isURLAllowlistActive: true
-            ),
-            .webkit
-        )
-    }
-
-}
-
 final class BrowserDefaultZoomRegressionTests: XCTestCase {
     private let key = "browserDefaultZoomLevel"
 
@@ -2970,29 +2940,16 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
     }
 
-    func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "https://example.com")
-        )
-        defer { panel.close() }
-        let oldWebView = panel.webView
-        let oldInstanceID = panel.webViewInstanceID
-
-        panel.debugSimulateWebContentProcessTermination()
-
-        XCTAssertFalse(panel.webView === oldWebView)
-        XCTAssertNotEqual(panel.webViewInstanceID, oldInstanceID)
-        XCTAssertNotNil(panel.webView.navigationDelegate)
-        XCTAssertNotNil(panel.webView.uiDelegate)
-    }
-
     func testWebViewReplacementPreservesEmptyNewTabRenderState() {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         XCTAssertFalse(panel.shouldRenderWebView)
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            XCTFail("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         XCTAssertFalse(panel.shouldRenderWebView)
     }
@@ -6021,40 +5978,6 @@ final class BrowserHostWhitelistTests: XCTestCase {
     func testUnicodeWhitelistEntryMatchesPunycodeHost() {
         defaults.set("b\u{00FC}cher.example", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
         XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("xn--bcher-kva.example", defaults: defaults))
-    }
-
-    func testChromiumCookieDomainMatchingOnlyAllowsRequestedHostOrChildren() {
-        XCTAssertTrue(
-            BrowserDataImporter.cookieDomainMatches(
-                cookieDomain: ".example.com",
-                host: "app.example.com"
-            )
-        )
-        XCTAssertTrue(
-            BrowserDataImporter.cookieDomainMatches(
-                cookieDomain: "example.com",
-                host: "example.com"
-            )
-        )
-        XCTAssertFalse(
-            BrowserDataImporter.cookieDomainMatches(
-                cookieDomain: "sub.example.com",
-                host: "example.com"
-            )
-        )
-        XCTAssertFalse(
-            BrowserDataImporter.cookieDomainMatches(
-                cookieDomain: "example.com",
-                host: "badexample.com"
-            )
-        )
-    }
-
-    func testChromiumCookiePathMatchingHonorsPathBoundaries() {
-        XCTAssertTrue(BrowserDataImporter.cookiePathMatches(cookiePath: "/account", urlPath: "/account"))
-        XCTAssertTrue(BrowserDataImporter.cookiePathMatches(cookiePath: "/account", urlPath: "/account/settings"))
-        XCTAssertFalse(BrowserDataImporter.cookiePathMatches(cookiePath: "/account", urlPath: "/accounting"))
-        XCTAssertTrue(BrowserDataImporter.cookiePathMatches(cookiePath: "/", urlPath: "/anything"))
     }
 }
 

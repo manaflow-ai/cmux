@@ -1595,13 +1595,6 @@ struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
     var profileID: UUID?
-    /// The renderer selected when this pane was created. Missing in legacy
-    /// snapshots, which intentionally restore as WebKit through the normal
-    /// fail-closed default.
-    var engine: BrowserEngineKind?
-    /// Stable storage identity for a Chromium pane. Older snapshots omit it;
-    /// restoration then creates a fresh isolated child directory.
-    var chromiumStorageID: UUID?
     var shouldRenderWebView: Bool
     var pageZoom: Double
     var developerToolsVisible: Bool
@@ -1622,8 +1615,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     init(
         urlString: String?,
         profileID: UUID?,
-        engine: BrowserEngineKind? = nil,
-        chromiumStorageID: UUID? = nil,
         shouldRenderWebView: Bool,
         pageZoom: Double,
         developerToolsVisible: Bool,
@@ -1638,8 +1629,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     ) {
         self.urlString = urlString
         self.profileID = profileID
-        self.engine = engine
-        self.chromiumStorageID = chromiumStorageID
         self.shouldRenderWebView = shouldRenderWebView
         self.pageZoom = pageZoom
         self.developerToolsVisible = developerToolsVisible
@@ -1656,8 +1645,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case urlString
         case profileID
-        case engine
-        case chromiumStorageID
         case shouldRenderWebView
         case pageZoom
         case developerToolsVisible
@@ -1675,8 +1662,6 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         urlString = try container.decodeIfPresent(String.self, forKey: .urlString)
         profileID = try container.decodeIfPresent(UUID.self, forKey: .profileID)
-        engine = try container.decodeIfPresent(BrowserEngineKind.self, forKey: .engine)
-        chromiumStorageID = try container.decodeIfPresent(UUID.self, forKey: .chromiumStorageID)
         shouldRenderWebView = try container.decode(Bool.self, forKey: .shouldRenderWebView)
         pageZoom = try container.decode(Double.self, forKey: .pageZoom)
         developerToolsVisible = try container.decode(Bool.self, forKey: .developerToolsVisible)
@@ -1731,6 +1716,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil
@@ -1851,6 +1840,9 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
 struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
     var vmID: String
     var isBase: Bool
+    /// The machine's cmux-tui workspace this local workspace stands for; absent in
+    /// legacy snapshots and for machine-only bindings (`vm shell`).
+    var remoteWorkspaceID: String? = nil
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {
@@ -1864,6 +1856,10 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil
+    /// Compatibility marker for builds that do not know the `.remote` enum
+    /// case. Older builds ignore this field and read the encoded source as
+    /// `.user`; newer builds restore the remote provenance from the marker.
+    var customTitleWasRemote: Bool? = nil
     var customDescription: String?
     var customColor: String?
     var customizationDirectory: String? = nil
@@ -1910,6 +1906,24 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}
+
+extension SessionPanelSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
+}
+
+extension SessionWorkspaceSnapshot {
+    /// The source after applying the forward-compatible remote marker.
+    var effectiveCustomTitleSource: Workspace.CustomTitleSource? {
+        guard customTitle != nil else { return nil }
+        if customTitleWasRemote == true { return .remote }
+        return customTitleSource ?? .user
+    }
+}
 
 struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID

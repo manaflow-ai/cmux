@@ -74,7 +74,7 @@ jobs:
   plan-build:
     name: select binary targets
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
       linux_package_matrix: ${{ steps.targets.outputs.linux_package_matrix }}
@@ -478,6 +478,17 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Test Windows long-path state handling
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          cargo test --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib normalize_long_windows
+          cargo test --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib registry_opens_and_persists_under_a_long_windows_state_root
+          cargo test --release --locked --target x86_64-pc-windows-gnu \
+            -p cmux-tui-core --lib socket_start_lock_acquires_a_new_lock_file
+
       - name: Verify long Windows state path
         shell: bash
         run: |
@@ -729,6 +740,22 @@ jobs:
           /tmp/cmux-tui-wheel-smoke/bin/python -m pip install --no-index --find-links dist/pypi-wheels cmux=="$PYPI_VERSION"
           /tmp/cmux-tui-wheel-smoke/bin/cmux --help >/tmp/cmux-help.txt
           grep -i usage /tmp/cmux-help.txt
+          CMUX_TUI_WHEEL_PROBE="$(/tmp/cmux-tui-wheel-smoke/bin/cmux remote-probe --json)"
+          CMUX_TUI_EXPECTED_BUILD_IDENTITY="$(git rev-parse HEAD)"
+          export CMUX_TUI_WHEEL_PROBE CMUX_TUI_EXPECTED_BUILD_IDENTITY
+          python3 - <<'PY'
+          import json
+          import os
+
+          probe = json.loads(os.environ["CMUX_TUI_WHEEL_PROBE"])
+          expected = {
+              "build_identity": os.environ["CMUX_TUI_EXPECTED_BUILD_IDENTITY"],
+              "distribution_version": os.environ["NPM_VERSION"],
+          }
+          for key, value in expected.items():
+              if probe.get(key) != value:
+                  raise SystemExit(f"installed wheel {key} {probe.get(key)!r} != {value!r}")
+          PY
 
       - name: Upload npm package directories
         if: inputs.package_npm

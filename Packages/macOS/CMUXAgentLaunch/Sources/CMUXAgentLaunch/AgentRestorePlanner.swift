@@ -1,6 +1,6 @@
 import Foundation
 
-/// Builds shell-free restore invocations from structured persisted records.
+/// Builds shell-free restore and fork invocations from structured persisted records.
 public struct AgentRestorePlanner: Sendable {
     private static let claudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
@@ -29,10 +29,10 @@ public struct AgentRestorePlanner: Sendable {
         self.init(isExecutableFile: executableFileResolver.isExecutableFile(atPath:))
     }
 
-    /// Produces the final direct process invocation for a persisted restore request.
+    /// Produces the final direct process invocation for a persisted restore or fork request.
     ///
     /// - Parameters:
-    ///   - request: Structured restore data.
+    ///   - request: Structured restore or fork data.
     ///   - ambientEnvironment: The current CLI environment inherited by the child.
     /// - Returns: A direct invocation, or `nil` when the record cannot be restored safely.
     public func invocation(
@@ -159,6 +159,29 @@ public struct AgentRestorePlanner: Sendable {
                 }
                 return preparedArguments.map { ($0, false) }
             }
+        case .forkAgent:
+            if let preparedArguments {
+                return (preparedArguments, false)
+            }
+            guard let checkpointID = normalized(request.checkpointID) else { return nil }
+            let launch = request.launchCommand
+            switch AgentForkArgv().launcherResolution(
+                launcher: launch?.launcher,
+                sessionId: checkpointID,
+                executablePath: launch?.executablePath,
+                arguments: launch?.arguments ?? []
+            ) {
+            case .resolved(let arguments):
+                return arguments.map { ($0, true) }
+            case .passthrough:
+                return AgentForkArgv().builtInKind(
+                    kind: kind,
+                    sessionId: checkpointID,
+                    executablePath: launch?.executablePath,
+                    arguments: launch?.arguments ?? [],
+                    observedPermissionMode: request.observedPermissionMode
+                ).map { ($0, true) }
+            }
         }
     }
 
@@ -243,7 +266,13 @@ public struct AgentRestorePlanner: Sendable {
             return arguments
         }
 
-        if first != restoreLaunch.executableName {
+        environment.merge(AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+            kind: kind,
+            executablePath: request.launchCommand?.executablePath,
+            arguments: request.launchCommand?.arguments ?? []
+        )) { _, captured in captured }
+        if first != restoreLaunch.executableName,
+           (first as NSString).lastPathComponent == restoreLaunch.executableName {
             environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
         }
         environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue

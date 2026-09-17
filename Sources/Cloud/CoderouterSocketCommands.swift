@@ -14,6 +14,11 @@ extension TerminalController {
         id: Any?,
         params: [String: Any]
     ) -> String {
+        // `DisableCloud` (MDM): coderouter verbs read and mutate the Cloud
+        // control plane (team upstream accounts, per-machine spend).
+        guard ManagedCloudPolicy.isEnabled else {
+            return v2Error(id: id, code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage)
+        }
         let teamID = Self.coderouterString(params["teamId"]) ?? Self.coderouterString(params["team_id"])
         switch method {
         case "coderouter.claude_upstream.get":
@@ -22,6 +27,11 @@ extension TerminalController {
                 return (result.foundationObject as? [String: Any]) ?? [:]
             }
         case "coderouter.claude_upstream.add", "coderouter.claude_upstream.set":
+            // `DisableAICredentialUpload` (MDM): an upstream account carries an
+            // OAuth token, API key, or Bedrock credential to the tenant.
+            guard ManagedAICredentialUploadPolicy.isEnabled else {
+                return v2Error(id: id, code: ManagedAICredentialUploadPolicy.socketErrorCode, message: ManagedAICredentialUploadPolicy.disabledMessage)
+            }
             let input: ClaudeUpstreamInput
             switch Self.claudeUpstreamInput(from: params) {
             case .success(let parsed):

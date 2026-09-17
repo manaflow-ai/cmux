@@ -78,7 +78,7 @@ describe("promoteImageManifestEntry with sizes", () => {
     schemaVersion: 1,
     images: [
       // A pre-ladder, size-less default: the sized promotion replaces it.
-      entry({ version: "freestyle-old", imageId: "sh-old", kind: "base", defaultForKind: true }),
+      entry({ version: "freestyle-old", imageId: "sh-old", kind: "base", defaultForKind: true, defaultForLocalDev: true }),
       // An old desktop default: not this promotion's kind, untouched.
       entry({ version: "freestyle-old-desktop", imageId: "sh-old-d", kind: "desktop", defaultForKind: true }),
     ],
@@ -87,7 +87,7 @@ describe("promoteImageManifestEntry with sizes", () => {
   test("writes one entry per kind and size, ladder order, and demotes the size-less default", () => {
     const next = promoteImageManifestEntry(base, entry(), { kinds: ["base"], sizes, validationNotes: "ok" });
     expect(imageManifestProblems(next)).toEqual([]);
-    expect(next.images[0]).toMatchObject({ version: "freestyle-old", defaultForKind: false });
+    expect(next.images[0]).toMatchObject({ version: "freestyle-old", defaultForKind: false, defaultForLocalDev: false });
     expect(next.images[1]).toMatchObject({ version: "freestyle-old-desktop", defaultForKind: true });
     expect(next.images.slice(2).map((e) => [e.version, e.imageId, e.kind, e.size?.name, e.defaultForKind])).toEqual([
       ["freestyle-cmux-devbox-test-sm", "sh-sm", "base", "sm", true],
@@ -95,6 +95,7 @@ describe("promoteImageManifestEntry with sizes", () => {
       ["freestyle-cmux-devbox-test-xl", "sh-xl", "base", "xl", true],
     ]);
     expect(next.images[2].size).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384, freestyleBase: "freestyle/ubuntu-sm" });
+    expect(next.images[2].defaultForLocalDev).toBe(true);
     expect(next.images[2].notes).toBe("epoch test ok");
   });
 

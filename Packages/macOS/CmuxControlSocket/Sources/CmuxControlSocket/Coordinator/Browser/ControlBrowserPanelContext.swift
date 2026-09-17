@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxBrowser
 
 /// The browser-panel slice of the control-command seam (a constituent of the
 /// ``ControlCommandContext`` umbrella): live app reach for the v1 line-protocol
@@ -13,9 +12,6 @@ public import CmuxBrowser
 /// coordinator runs there too.
 @MainActor
 public protocol ControlBrowserPanelContext: AnyObject {
-    /// Returns browser-engine validation text resolved by the app bundle.
-    func controlBrowserEngineStrings() -> ControlBrowserEngineStrings
-
     /// Whether the active `TabManager` is wired (the legacy
     /// `guard let tabManager` head of every browser v1 body).
     func controlBrowserPanelTabManagerAvailable() -> Bool
@@ -31,7 +27,7 @@ public protocol ControlBrowserPanelContext: AnyObject {
     /// Creates a browser split off the selected workspace's focused panel for
     /// `open_browser` (focus allowance read app-side from the active
     /// socket-command policy). Returns the new panel id, or `nil` on failure.
-    func controlBrowserPanelOpen(url: URL?, engine: BrowserEngineKind?) -> UUID?
+    func controlBrowserPanelOpen(url: URL?) -> UUID?
 
     /// Smart-navigates a browser panel (`navigate`); `false` when the panel
     /// does not resolve to a browser of the selected workspace.

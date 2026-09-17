@@ -4,7 +4,7 @@ Status: v1 shipped in the CLI (`cmux vm run`); this doc records the design and
 the path to the control-plane version that pairs with the CodeRouter model
 plane.
 
-The router is a policy primitive used by the Rust Cloud client. Its work-key,
+The planned router is a policy primitive used by the Rust Cloud client. Its work-key,
 pool, health, lease, and failover rules must return the stable machine,
 operation, and verification records defined in
 [the Cloud Rust system design](../cloud-rust-system-design.md). The existing
@@ -25,15 +25,15 @@ credentials behind a VM-local endpoint bound to machine identity.
 `cmux vm run [--sync] [--pull <remote>] -- <command...>` routes over the existing `vm.*` socket methods:
 
 1. **Sticky first.** A local binding store (`~/.cmuxterm/vm-run-bindings.json`) maps a work key (the SHA-256 hash of the caller's directory) to the machine that last ran that work. A bound, ready pool machine wins outright because it holds the synced checkout, installed dependencies, and build caches. This mirrors coderouter's sticky `conversationKey → credential` assignment, which exists for the same reason (warm state is throughput).
-2. **Then load-aware scoring.** Pool machines (persisted pool id list (`~/.cmuxterm/vm-run-pool.json`; the `agent-pool` label is only for display)) are tiered: awake and under 60% CPU (least-loaded first), asleep (exec wakes them), provision fresh, then at the plan cap share the least-loaded busy machine in the same project trust domain. Stats reads never wake a sleeping machine.
+2. **Then load-aware scoring.** Pool machines (persisted pool id list (`~/.cmuxterm/vm-run-pool.json`; the `agent-pool` label is only for display)) are tiered: awake and under 60% CPU (least-loaded first), asleep (exec wakes them), provision fresh, then at the plan cap share the least-loaded busy machine. The Rust target must additionally restrict sharing to the same project trust domain. Stats reads never wake a sleeping machine.
 3. **Pool isolation.** The router only touches machines it provisioned itself: membership is the persisted id list, written solely by the create path, never the display label (which is user-editable). A machine the user made and named by hand is never drafted into agent work, even if it is renamed `agent-pool`; `--machine <id>` is the explicit opt-in.
 4. **Deterministic contract.** `--machine <id>` pins, `--new` forces a fresh machine, the remote exit code passes through, `--json` returns `{machine, created, exit_code, stdout, stderr, ...}`.
 
-Supporting primitives shipped alongside: `vm push` / `vm pull` (chunked,
-digest-verified file transfer over exec, works on any managed machine with a
-shell, no SSH), and `vm wait` (readiness gate).
+Supporting primitives shipped alongside: `vm push` (SCP over private userspace WireGuard) / `vm pull` (digest-verified chunks over exec), and `vm wait` (readiness gate).
 
-Machine creation is a warm claim, not a slow provisioning ceremony. The route
+## Proposed warm creation
+
+The Rust target makes machine creation a warm claim. The route
 request claims a scrubbed machine for the requested image family and persistence
 profile, attaches a clean home volume when needed, and returns after one
 daemon-ready probe. Target p50 is under 3 seconds and p95 is under 10 seconds.

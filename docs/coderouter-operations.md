@@ -6,7 +6,11 @@ OAuth credentials, request bodies, email addresses, model credentials, or
 account labels into tickets, logs, Sentry, PostHog, or ClickHouse. Bounded,
 server-minted account IDs may appear only in closed telemetry fields.
 
-## Rust Cloud client boundary
+## Rust Cloud client boundary (proposed)
+
+The client and package sections specify the Rust migration target. Current
+CLI passthrough and installation behavior remain documented in
+[the CLI contract](cli-contract.md) until the shared engine is implemented.
 
 CodeRouter is the model plane. The machine, workspace, and agent adapter are
 the compute plane. Rust must expose both through stable IDs and receipts, but
@@ -300,9 +304,9 @@ add, enable/disable, and remove. Rows migrated from the single-upstream table ke
 
 ## Verifying the edge model plane locally
 
-`web/scripts/coderouter/local-edge.mjs` stands in for the managed TLS egress edge: a
-private CA, TLS termination on `127.0.0.1:8443`, the two edge headers overwritten on every
-request (the real edge does the same), and re-origination to any coderouter origin. Real
+`web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a
+private CA, TLS termination on `127.0.0.1:8443`, the bearer plus the two edge headers
+overwritten on every request (the real edge does the same), and re-origination to any coderouter origin. Real
 agent CLIs then run with placeholder keys exactly as a Cloud machine does, against a local
 `bun dev` with a scratch Postgres and the `coderouter_dev` ClickHouse database:
 

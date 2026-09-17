@@ -5,7 +5,7 @@ import Foundation
 /// The chain is carried in the event envelope rather than in a user payload,
 /// so ordinary event consumers can ignore it while the automation engine can
 /// stop direct and indirect cycles deterministically.
-nonisolated struct CmuxAutomationEventOrigin: Codable, Equatable, Sendable {
+struct CmuxAutomationEventOrigin: Codable, Equatable, Sendable {
     let ruleID: String
     let chain: [String]
 
@@ -30,9 +30,10 @@ nonisolated struct CmuxAutomationEventOrigin: Codable, Equatable, Sendable {
 /// allowance stack across main-actor hops; the values here complement that
 /// stack for actions originating in the in-process engine.
 // TaskLocal storage is necessarily type-scoped; this value type only binds the
-// keys and carries no process-global mutable state. Mark it nonisolated because
-// socket/event-bus callers read the task-local values from worker executors.
-nonisolated struct CmuxAutomationInvocationContext {
+// keys and carries no process-global mutable state. It must stay free of actor
+// isolation because socket/event-bus callers read the task-local values from
+// worker executors.
+struct CmuxAutomationInvocationContext {
     @TaskLocal static var focusAllowed: Bool?
     @TaskLocal static var eventOrigin: CmuxAutomationEventOrigin?
 }
