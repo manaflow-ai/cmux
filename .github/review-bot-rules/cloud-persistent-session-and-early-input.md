@@ -2,6 +2,8 @@
 
 Apply this rule to Cloud terminal creation, persistent cmux-tui transport, manual mirror panes, and terminal runtime admission.
 
+Review behavior introduced or materially worsened by the diff. Existing debt outside the change is not a new finding.
+
 ## Fail
 
 - Spawn a new `cmux-tui` client, CLI process, authenticated carrier, or event socket for each control request, split/tab, snapshot, or event subscription when the machine-owned persistent session can multiplex it.
@@ -15,6 +17,7 @@ Apply this rule to Cloud terminal creation, persistent cmux-tui transport, manua
 
 - One authenticated machine-owned carrier and one persistent control connection multiplex control replies and ordered events. Logical per-terminal streams remain scoped when the protocol needs independent leases or cancellation.
 - A user-created focused reservation requests the local empty manual Ghostty runtime immediately, then remote creation and attachment populate it. The remote operation still uses the existing auth, durable mutation key, revision, and attachment checks.
+- Recreating a connection after transport failure or an auth-identity change is allowed; never reuse another account's connection or transparently replay an uncertain mutation.
 - Hidden panes and background restoration retain their bounded admission policy. Creating an empty cursor must not eagerly allocate every hidden renderer.
 - Snapshot refresh is limited to cold, stale, missing, or revision-conflict state. Current validated event state is reused.
 - Tests and latency evidence identify local runtime admission, remote creation, attachment, shell startup, and visible command output separately. Do not claim a theoretical minimum from one path or add fixed sleeps to make a race disappear.

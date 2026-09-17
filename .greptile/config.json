@@ -271,7 +271,9 @@
         "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
         "Sources/AppDelegate*.swift",
         "Sources/Ghostty*.swift",
-        "cmux-tui/crates/**/src/**/*.rs"
+        "cmux-tui/crates/**/src/**/*.rs",
+        "Sources/Workspace*.swift",
+        "Sources/TerminalSurfaceRuntimeWiring.swift"
       ],
       "severity": "high"
     }
