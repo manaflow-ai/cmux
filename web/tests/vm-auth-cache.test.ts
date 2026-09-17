@@ -105,7 +105,6 @@ describe("native auth verification cache", () => {
 
   test("entries expire after the TTL", async () => {
     process.env.CMUX_VM_AUTH_CACHE_TTL_MS = "20";
-
     setSystemTime(0);
     await verifyRequest(nativeRequest("access-1"));
     setSystemTime(21);

@@ -249,6 +249,7 @@ pub(crate) struct ShortcutMessages {
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
     control_failed: &'static str,
+    control_unavailable: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -267,6 +268,10 @@ pub(crate) struct BrowserMessages {
 impl BrowserMessages {
     pub(crate) fn control_failed(&self, error: &str) -> String {
         self.control_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn control_unavailable(&self) -> String {
+        self.control_failed.replace("{error}", self.control_unavailable)
     }
 
     pub(crate) fn loading(&self, url: &str) -> String {
@@ -1337,6 +1342,7 @@ edits shell files. Authenticate with the configured host before retrying.
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
         control_failed: "browser command failed: {error}",
+        control_unavailable: "browser connection unavailable; retry the command",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1983,6 +1989,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
         control_failed: "ブラウザ操作に失敗しました: {error}",
+        control_unavailable: "ブラウザ接続を利用できません。コマンドを再試行してください",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",

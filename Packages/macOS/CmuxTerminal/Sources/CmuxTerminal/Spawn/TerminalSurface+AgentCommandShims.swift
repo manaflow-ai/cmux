@@ -20,6 +20,7 @@ extension TerminalSurface {
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         hermesProfileAliasDirectoryURL: URL? = nil,
+        computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
     ) -> TerminalSurfaceAgentCommandShimSet? {
         guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else { return nil }
@@ -34,6 +35,7 @@ extension TerminalSurface {
             surfaceId: surfaceId,
             temporaryDirectory: temporaryDirectory,
             hermesProfileAliases: aliases,
+            computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
         )
     }
@@ -55,6 +57,7 @@ extension TerminalSurface {
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
         hermesProfileAliasCatalog: HermesProfileAliasCatalog,
+        computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
     ) async -> TerminalSurfaceAgentCommandShimSet? {
         guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else { return nil }
@@ -66,6 +69,7 @@ extension TerminalSurface {
             surfaceId: surfaceId,
             temporaryDirectory: temporaryDirectory,
             hermesProfileAliases: aliases,
+            computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
         )
     }
@@ -79,6 +83,7 @@ extension TerminalSurface {
         surfaceId: UUID,
         temporaryDirectory: URL,
         hermesProfileAliases: [HermesProfileAliasResolver.Alias],
+        computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShimSet? {
         var availableDefinitions: [(
@@ -109,6 +114,9 @@ extension TerminalSurface {
             return nil
         }
 
+        let computerUseSettingURL = computerUseSettingFileURL ?? computerUseLiveSettingFileURL(
+            homeDirectory: fileManager.homeDirectoryForCurrentUser
+        )
         var shims: [TerminalSurfaceAgentCommandShim] = []
         if let hermesDefinition = availableDefinitions.first(where: {
             $0.definition.commandName == "hermes"
@@ -123,6 +131,7 @@ extension TerminalSurface {
                     ),
                     wrapperURL: hermesDefinition.wrapperURL,
                     shimDirectory: shimDirectory,
+                    computerUseSettingFileURL: computerUseSettingURL,
                     fileManager: fileManager
                 ) else { continue }
                 shims.append(shim)
@@ -133,6 +142,7 @@ extension TerminalSurface {
                 definition: definition,
                 wrapperURL: wrapperURL,
                 shimDirectory: shimDirectory,
+                computerUseSettingFileURL: computerUseSettingURL,
                 fileManager: fileManager
             ) else { continue }
             shims.append(shim)
@@ -150,6 +160,7 @@ extension TerminalSurface {
         hermesProfileAliasURL: URL? = nil,
         wrapperURL: URL,
         shimDirectory: URL,
+        computerUseSettingFileURL: URL,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShim? {
         let commandName = commandName ?? definition.commandName
@@ -205,6 +216,17 @@ extension TerminalSurface {
         #!/bin/bash
         cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
         cmux_shim_root=\(shellSingleQuoted(shimDirectory.path))
+        cmux_computer_use_setting=\(shellSingleQuoted(computerUseSettingFileURL.path))
+        cmux_computer_use_enabled="${CMUX_COMPUTER_USE_APP_ENABLED:-1}"
+        if [[ -r "$cmux_computer_use_setting" ]]; then
+            IFS= read -r cmux_computer_use_enabled < "$cmux_computer_use_setting" || true
+        fi
+        # App authority and the user's documented kill switch are separate:
+        # app state may disable attachment, but enabling it never clears a
+        # user-exported CMUX_COMPUTER_USE_MCP_DISABLED=1.
+        case "$cmux_computer_use_enabled" in
+            0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
+        esac
         if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
             cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/\(definition.wrapperName)"
             if [[ -x "$cmux_candidate" ]]; then

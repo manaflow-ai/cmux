@@ -1380,6 +1380,10 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# The helper is assembled before Xcode emits the host's processed Info.plist.
+# Pass the final tagged display name explicitly so its TCC entry matches the
+# app the user is dogfooding instead of falling back to the untagged product.
+XCODEBUILD_ARGS+=(CMUX_CUA_HELPER_DISPLAY_NAME="cmux Computer Use")
 if [[ "$PROD_AUTH" -eq 1 ]]; then
   XCODEBUILD_ARGS+=(-xcconfig "$SCRIPT_DIR/../config/IrohRelayPolicyProduction.xcconfig")
 fi
@@ -1709,6 +1713,14 @@ if [[ -d "$PWD/ghostty" ]]; then
     "$PWD/scripts/build-ghostty-cli-helper.sh" --output "$GHOSTTY_HELPER_DEST"
   fi
 fi
+BIN_DIR="$APP_PATH/Contents/Resources/bin"
+CMUX_CUA_DEST="$BIN_DIR/cmux-cua"
+if [[ -x "$CMUX_CUA_DEST" ]]; then
+  echo "Preserving Xcode-built cmux Computer Use client at $CMUX_CUA_DEST"
+else
+  mkdir -p "$BIN_DIR"
+  "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
+fi
 if [[ -x "$CMUXD_SRC" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
   mkdir -p "$BIN_DIR"
@@ -1742,6 +1754,13 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 
+TAG_LAUNCHD_LABEL=""
+TAG_LAUNCHD_DOMAIN=""
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  TAG_LAUNCHD_LABEL="${BUNDLE_ID}.reload"
+  TAG_LAUNCHD_DOMAIN="gui/$(id -u)"
+fi
+
 # Tag mode: always terminate the existing same-tag instance after a successful build,
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
@@ -1751,6 +1770,11 @@ if [[ -n "$TAG" ]]; then
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
   sleep 0.3
+  # Tagged --launch runs are handed off to launchd so they survive the terminal or
+  # automation process that invoked reload.sh. Remove a still-registered prior job
+  # after giving the app a chance to quit gracefully.
+  /bin/launchctl bootout "$TAG_LAUNCHD_DOMAIN/$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
+  /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
 fi
 
 if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
@@ -1886,22 +1910,64 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
   if [[ -n "${TAG_SLUG:-}" ]]; then
-    # Launch tagged apps directly so LaunchServices cannot reuse a stale
-    # LSEnvironment for the tag's bundle id.
+    # Launch tagged apps through an explicit one-shot launchd job. `launchctl
+    # submit` infers KeepAlive for app executables, which relaunches the app after
+    # the user chooses Quit. A loaded plist with KeepAlive=false still survives
+    # the invoking terminal/automation process, while a normal exit stays exited.
+    # It also avoids LaunchServices reusing stale LSEnvironment values.
     APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
     if [[ ! -x "$APP_EXECUTABLE" ]]; then
       echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
       exit 1
     fi
-    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
+    CMUX_TAG_LAUNCH_LOG_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/cmux-launch-${TAG_SLUG}.XXXXXX")"
+    chmod 0700 "$CMUX_TAG_LAUNCH_LOG_DIRECTORY"
+    TAG_LAUNCH_LOG="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/launch.out"
+    (umask 077 && : > "$TAG_LAUNCH_LOG")
+    chmod 0600 "$TAG_LAUNCH_LOG"
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      # 3>&- 4>&-: close the script's saved-stdout/stderr dups (exec 3>&1 4>&2
-      # above) so the long-lived app can't inherit a caller's pipe write end —
-      # an `ssh host reload.sh --launch | …` pipeline would otherwise never see
-      # EOF and hang until the app dies.
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
-    else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 3>&- 4>&- &
+      TAG_LAUNCH_ENV+=(
+        CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE"
+        CMUXD_UNIX_PATH="$CMUXD_SOCKET"
+      )
+    fi
+    TAG_LAUNCH_PLIST="$CMUX_TAG_LAUNCH_LOG_DIRECTORY/$TAG_LAUNCHD_LABEL.plist"
+    /usr/bin/plutil -create xml1 "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert Label -string "$TAG_LAUNCHD_LABEL" "$TAG_LAUNCH_PLIST"
+    # A launchd job inherits the GUI domain environment even when the plist has
+    # its own EnvironmentVariables dictionary. That domain can contain stale
+    # test/socket overrides from another dev session. Run through `env -i` so
+    # the app receives only the ordinary user context and this tag's explicit
+    # values; `env` execs the app in place, so launchd still tracks its lifetime.
+    TAG_LAUNCH_PROGRAM_ARGUMENTS=(
+      /usr/bin/env
+      -i
+      HOME="${HOME:-/Users/$(id -un)}"
+      USER="$(id -un)"
+      LOGNAME="$(id -un)"
+      SHELL="${SHELL:-/bin/zsh}"
+      PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+      TMPDIR="${TMPDIR:-/tmp}"
+    )
+    if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
+      TAG_LAUNCH_PROGRAM_ARGUMENTS+=(SSH_AUTH_SOCK="$SSH_AUTH_SOCK")
+    fi
+    TAG_LAUNCH_PROGRAM_ARGUMENTS+=("${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE")
+    /usr/bin/plutil -insert ProgramArguments -array "$TAG_LAUNCH_PLIST"
+    for TAG_LAUNCH_ARGUMENT_INDEX in "${!TAG_LAUNCH_PROGRAM_ARGUMENTS[@]}"; do
+      /usr/bin/plutil -insert "ProgramArguments.$TAG_LAUNCH_ARGUMENT_INDEX" \
+        -string "${TAG_LAUNCH_PROGRAM_ARGUMENTS[$TAG_LAUNCH_ARGUMENT_INDEX]}" \
+        "$TAG_LAUNCH_PLIST"
+    done
+    /usr/bin/plutil -insert RunAtLoad -bool true "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert KeepAlive -bool false "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert ProcessType -string Interactive "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert StandardOutPath -string "$TAG_LAUNCH_LOG" "$TAG_LAUNCH_PLIST"
+    /usr/bin/plutil -insert StandardErrorPath -string "$TAG_LAUNCH_LOG" "$TAG_LAUNCH_PLIST"
+    chmod 0600 "$TAG_LAUNCH_PLIST"
+    if ! /bin/launchctl bootstrap "$TAG_LAUNCHD_DOMAIN" "$TAG_LAUNCH_PLIST"; then
+      echo "error: failed to bootstrap one-shot tagged launch job: $TAG_LAUNCHD_LABEL" >&2
+      exit 1
     fi
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true

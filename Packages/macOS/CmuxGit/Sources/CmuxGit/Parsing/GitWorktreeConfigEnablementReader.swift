@@ -183,7 +183,7 @@ nonisolated struct GitWorktreeConfigEnablementReader: Sendable {
         case .oversized, .unavailable:
             failed = true
             return
-        case .contents(let contents, consumedByteCount: let consumedByteCount):
+        case let .contents(contents, consumedByteCount: consumedByteCount):
             remainingByteCount = max(0, remainingByteCount - consumedByteCount)
             var inExtensionsSection = false
             var includeSection = false

@@ -1167,6 +1167,70 @@ pub struct AgentRecord {
     pub updated_at_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HookFence {
+    session_id: String,
+    sequence: u64,
+    ended: bool,
+}
+
+/// Session-less adapters get a local generation token. The journal sequence
+/// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
+/// the previous fence identity after restart.
+pub(super) fn legacy_hook_session_id(terminal_id: &TerminalPublicId, sequence: u64) -> String {
+    format!("legacy:{terminal_id}:{sequence}")
+}
+
+const AGENT_HOOK_RETRY_ERROR: &str = "agent hook projection retry deferred";
+
+#[derive(Debug)]
+struct AgentHookTerminalUnavailable;
+
+impl fmt::Display for AgentHookTerminalUnavailable {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("terminal is not available for agent hook projection")
+    }
+}
+
+impl std::error::Error for AgentHookTerminalUnavailable {}
+
+#[derive(Debug)]
+struct AgentHookTerminalGone;
+
+impl fmt::Display for AgentHookTerminalGone {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("terminal no longer exists for agent hook projection")
+    }
+}
+
+impl std::error::Error for AgentHookTerminalGone {}
+
+fn agent_hook_terminal_gone(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<AgentHookTerminalGone>().is_some()
+}
+
+fn agent_hook_retry_class(error: &anyhow::Error) -> crate::workspace_registry::AgentHookRetryClass {
+    if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
+        || error.chain().any(|cause| {
+            matches!(
+                cause.downcast_ref::<rusqlite::Error>(),
+                Some(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error {
+                        code: rusqlite::ErrorCode::DatabaseBusy
+                            | rusqlite::ErrorCode::DatabaseLocked,
+                        ..
+                    },
+                    _
+                ))
+            )
+        })
+    {
+        crate::workspace_registry::AgentHookRetryClass::Transient
+    } else {
+        crate::workspace_registry::AgentHookRetryClass::Permanent
+    }
+}
+
 #[derive(Debug, Clone)]
 struct TerminalAgentRecord {
     state: AgentState,
@@ -2531,9 +2595,107 @@ impl Mux {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         crate::screen_detect::scanner::start(&mux);
         Ok(mux)
+    }
+
+    fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
+        let mut cursor = None;
+        // Keep startup work bounded. Remaining rows stay durable for a later
+        // availability signal or restart.
+        for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
+            let (pending, next_cursor) = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_page(cursor.clone())?;
+            let Some(next_cursor) = next_cursor else { break };
+            cursor = Some(next_cursor);
+            self.retry_pending_agent_hooks_rows(pending)?;
+        }
+        Ok(())
+    }
+
+    fn retry_pending_agent_hooks_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        // Drain in fixed-size pages, with a hard per-signal cap. Rows beyond
+        // the cap remain durable for the next terminal availability signal.
+        for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
+            let pending = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_for_terminal(terminal_id)?;
+            if pending.is_empty() {
+                break;
+            }
+            let applied = self.retry_pending_agent_hooks_rows(pending)?;
+            if applied == 0 {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn retry_pending_agent_hooks_rows(
+        &self,
+        pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
+    ) -> anyhow::Result<usize> {
+        let mut applied = 0;
+        for (producer_id, origin, key, sequence, ingress) in pending {
+            match self.apply_agent_hook_record(&ingress, sequence) {
+                Ok(()) => {
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .clear_agent_hook_pending(&producer_id, &origin, &key)
+                        .is_ok()
+                    {
+                        applied += 1;
+                    } else {
+                        self.report_internal_diagnostic("agent hook retry cleanup deferred");
+                    }
+                }
+                Err(error) if agent_hook_terminal_gone(&error) => {
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .clear_agent_hook_pending(&producer_id, &origin, &key)
+                        .is_ok()
+                    {
+                        applied += 1;
+                    } else {
+                        self.report_internal_diagnostic("agent hook retry cleanup deferred");
+                    }
+                }
+                Err(error) => {
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .enqueue_agent_hook_pending(
+                            &producer_id,
+                            &origin,
+                            &key,
+                            sequence,
+                            &ingress,
+                            AGENT_HOOK_RETRY_ERROR,
+                            agent_hook_retry_class(&error),
+                        )
+                        .is_err()
+                    {
+                        self.report_internal_diagnostic("agent hook retry bookkeeping deferred");
+                    }
+                }
+            }
+        }
+        Ok(applied)
     }
 
     /// Rehydrate workspace rows that belong to an interrupted correlated
@@ -3118,6 +3280,12 @@ impl Mux {
         };
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
+        drop(registry);
+        // Adoption makes the terminal's resource surface available. Retry
+        // only hooks scoped to this terminal, not the entire pending table.
+        if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
+            let _ = self.retry_pending_agent_hooks_for_terminal(&terminal_id);
+        }
         Ok(())
     }
 
@@ -3742,6 +3910,8 @@ impl Mux {
         self.surface(surface).context("created surface disappeared")
     }
 
+    /// Report an agent state for a selected terminal resource and reconcile
+    /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
     fn commit_resource_mutation_plan(
         &self,
@@ -4466,6 +4636,8 @@ impl Mux {
         )
     }
 
+    /// Commit an agent report and its resource projection under the sequence
+    /// fence used to preserve hook ordering across retries and restarts.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_resource_effect(
         &self,
@@ -5725,6 +5897,25 @@ impl Mux {
         } else {
             *pending = Some(message);
         }
+    }
+
+    /// Logs a skipped terminal-host reconnect checkpoint at most once
+    /// until a later reconnect checkpoint succeeds. A checkpoint is a
+    /// journal-replay optimization: skipping one only moves the next replay
+    /// boundary back, so repeated skips are daemon-log noise, not per-toast
+    /// news.
+    pub(crate) fn report_skipped_reconnect_checkpoint(
+        &self,
+        terminal_id: impl fmt::Display,
+        error: &anyhow::Error,
+    ) {
+        let message = format!(
+            "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
+        );
+        if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.report_internal_diagnostic(message);
     }
 
     /// Installs the frontend-owned sink for diagnostics emitted by the mux.
@@ -8949,6 +9140,29 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
+        self.report_agent_with_sequence_lock(
+            surface,
+            state,
+            source,
+            session,
+            false,
+            None,
+            None,
+            AgentReportOrigin::Direct,
+        )
+    }
+
+    fn report_agent_with_sequence_lock(
+        &self,
+        surface: SurfaceId,
+        state: AgentState,
+        source: AgentSource,
+        session: Option<String>,
+        sequence_lock_held: bool,
+        hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
+        origin: AgentReportOrigin,
+    ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
             "raw-control",
@@ -8971,7 +9185,13 @@ impl Mux {
             AgentReportOrigin::Direct,
             None,
         )?;
-        record.context("fresh raw agent report unexpectedly replayed")
+        let record = record.context("fresh raw agent report unexpectedly replayed")?;
+        if source != AgentSource::Hook {
+            // A successful report means this terminal is available. Retry only
+            // durable hooks for that terminal, never the entire pending table.
+            let _ = self.retry_pending_agent_hooks_for_terminal(&record.terminal_id);
+        }
+        Ok(record)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -8993,7 +9213,7 @@ impl Mux {
             "source":source.as_str(),
             "source_session":source_session,
         });
-        self.commit_agent_report(
+        let result = self.commit_agent_report(
             AgentReportTarget::Resource { selectors: &selectors, terminal_id },
             agent_state,
             source,
@@ -9020,10 +9240,20 @@ impl Mux {
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
+        // Hook replay already owns this guard to serialize sequence checks and
+        // projection commits. Other report sources acquire it before the
+        // registry/state locks, so all paths use one lock order.
+        let mut sequence_guard =
+            (!sequence_lock_held).then(|| self.agent_hook_fences.lock().unwrap());
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
         {
+            if let Some(sequence) = journal_sequence {
+                // The projection transaction committed before this replay was
+                // observed. Repair the durable apply watermark separately.
+                registry.advance_agent_hook_apply_cursor(sequence)?;
+            }
             return Ok((replay, None));
         }
         let mut state = self.state.lock().unwrap();
@@ -9059,6 +9289,78 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
+        let mut direct_hook_state = None;
+        if source != AgentSource::Hook {
+            let ended_fence = sequence_guard
+                .as_ref()
+                .and_then(|guard| guard.get(&terminal_id))
+                .filter(|fence| fence.ended);
+            let fresh_session = source_session.as_deref().filter(|session| {
+                !session.starts_with("cmux-hook-sequence:")
+                    && !session.starts_with("cmux-hook-ended:")
+            });
+            if ended_fence.is_some_and(|fence| {
+                fresh_session.is_none_or(|session| session == fence.session_id)
+            }) {
+                anyhow::bail!("agent_session_ended");
+            }
+        } else if let Some(fence) = sequence_guard
+            .as_ref()
+            .and_then(|guard| guard.get(&terminal_id))
+            .filter(|fence| fence.ended)
+        {
+            let supplied_session = source_session.as_deref().filter(|session| {
+                !session.is_empty()
+                    && !session.starts_with("cmux-hook-sequence:")
+                    && !session.starts_with("cmux-hook-ended:")
+            });
+            let journal_hook_session = hook_state.is_some_and(|state| {
+                !state.ended
+                    && state.applied_sequence > fence.sequence
+                    && state.agent_session_id != fence.session_id
+                    && source_session
+                        .as_deref()
+                        .is_some_and(|session| session.starts_with("cmux-hook-sequence:"))
+            });
+            let direct_hook_session = hook_state.is_none()
+                && supplied_session.is_some_and(|session| session != fence.session_id);
+            if direct_hook_session {
+                direct_hook_state = Some(crate::workspace_registry::AgentHookProjectionState {
+                    agent_session_id: supplied_session
+                        .expect("direct hook session was checked above")
+                        .to_owned(),
+                    applied_sequence: fence.sequence,
+                    ended: false,
+                });
+            }
+            if !journal_hook_session && !direct_hook_session {
+                anyhow::bail!("agent_session_ended");
+            }
+        }
+        let effective_hook_state = direct_hook_state.as_ref().or(hook_state);
+        let persisted_source_session = if source == AgentSource::Hook {
+            source_session.clone().filter(|value| {
+                !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
+            })
+        } else {
+            if source_session.as_deref().is_some_and(|value| {
+                value.starts_with("cmux-hook-sequence:") || value.starts_with("cmux-hook-ended:")
+            }) {
+                anyhow::bail!("reserved hook marker is invalid for non-hook agent source");
+            }
+            // Preserve a valid fresh socket identity. The internal hook
+            // marker is only a compatibility fallback when no identity was
+            // supplied, while durable hook state carries the fence itself.
+            source_session.clone().or_else(|| {
+                sequence_guard
+                    .as_ref()
+                    .and_then(|guard| guard.get(&terminal_id))
+                    .map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
+            })
+        };
+        let source_session = source_session.filter(|value| {
+            !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
+        });
         let now = now_ms();
         // Hook and screen-detected state are stronger agent truth than a
         // direct socket report, so the commit re-asserts the existing
@@ -9091,6 +9393,11 @@ impl Mux {
                 updated_at_ms: now,
             },
         };
+        // A socket report that is intentionally ignored by the hook-owned
+        // record must persist that effective record, not the discarded socket
+        // identity. Otherwise durable and in-memory projections diverge.
+        let persisted_source_session =
+            if socket_report_ignored { record.session.clone() } else { persisted_source_session };
         let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
         let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         let agent_id =
@@ -9103,7 +9410,7 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":record.session,
+            "source_session":persisted_source_session.clone().or(record.session.clone()),
         });
         let deltas = serde_json::json!([{
             "kind":"upsert",

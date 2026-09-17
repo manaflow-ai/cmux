@@ -31,7 +31,12 @@ for test_file in "${test_files[@]}"; do
   printf '\n==> bun test %s\n' "$test_file"
   output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX)"
   set +e
-  bun test "$test_file" 2>&1 | tee "$output_file"
+  # DB behavior files share one database and may also mutate process-wide
+  # environment controls (for example VM plan limits). Bun's default
+  # intra-file concurrency runs those tests in parallel, allowing one test's
+  # truncate or env override to change another test's outcome. Keep each DB
+  # file deterministic while retaining the file-level loop above.
+  bun test --max-concurrency=1 "$test_file" 2>&1 | tee "$output_file"
   test_status=${PIPESTATUS[0]}
   set -e
 
