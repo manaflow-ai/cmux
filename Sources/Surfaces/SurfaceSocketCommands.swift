@@ -45,7 +45,12 @@ extension TerminalController {
             let remoteTabID = Self.surfaceString(params["remote_tab_id"])
             let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
             guard let workspaceID = surfaceTargetWorkspaceID(params) else {
-                return v2Error(id: id, code: "invalid_params", message: "surface.project: no target workspace (pass `workspace_id`, or select one).")
+                let requested = ["workspace_id", "pane_id", "surface_id"]
+                    .compactMap { Self.surfaceString(params[$0]) }.joined(separator: ", ")
+                let message = requested.isEmpty
+                    ? "surface.project: no target workspace (pass `workspace_id`, or select one)."
+                    : SurfaceCatalogError.destinationNotFound(requested).localizedDescription
+                return v2Error(id: id, code: "invalid_params", message: message)
             }
             let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
             return v2VmCall(id: id, timeoutSeconds: 180) {
@@ -245,7 +250,7 @@ extension TerminalController {
         }
         let hasExplicitTarget = explicitTargetKey != nil
         let explicitWorkspaceID = hasExplicitTarget
-            ? surfaceTargetWorkspaceID(params, strictExplicit: true)
+            ? surfaceTargetWorkspaceID(params)
             : nil
         if hasExplicitTarget, explicitWorkspaceID == nil {
             return v2Error(
@@ -955,49 +960,34 @@ extension TerminalController {
         }
     }
 
-    /// Creates a terminal on `machine` through its provider and, when a destination is given,
-    /// projects it there. Payload: `resource`, `terminal_id` (the provider key), `machine`,
-    /// `remote_workspace_id`, and — when opened — `workspace_id` (local) + `surface_id`.
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
-    /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace. When
-    /// `strictExplicit` is true, an explicit but stale/malformed pane or surface is rejected
-    /// instead of silently falling through to the selected workspace (used by `vm.port_open`).
-    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any], strictExplicit: Bool = false) -> UUID? {
-        if strictExplicit {
+    /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace.
+    /// Explicit targets must exist and agree before any remote resource is created.
+    /// Only an omitted target may fall back to the selected workspace.
+    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any]) -> UUID? {
+        v2MainSync {
+            var target: UUID?
             if v2HasNonNullParam(params, "workspace_id") {
-                guard let explicit = v2UUID(params, "workspace_id") else { return nil }
-                return explicit
+                guard let workspaceID = v2UUID(params, "workspace_id"),
+                      AppDelegate.shared?.tabManagerFor(tabId: workspaceID) != nil
+                        || tabManager?.tabs.contains(where: { $0.id == workspaceID }) == true else { return nil }
+                target = workspaceID
             }
             if v2HasNonNullParam(params, "pane_id") {
                 guard let paneID = v2UUID(params, "pane_id"),
-                      let located = v2MainSync({ self.v2LocatePane(paneID) }) else {
-                    return nil
-                }
-                return located.workspace.id
+                      let located = v2LocatePane(paneID),
+                      target == nil || target == located.workspace.id else { return nil }
+                target = located.workspace.id
             }
             if v2HasNonNullParam(params, "surface_id") {
                 guard let surfaceID = v2UUID(params, "surface_id") else { return nil }
-                let owner = v2MainSync { () -> UUID? in
-                    guard let tabManager = self.tabManager else { return nil }
-                    return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
-                }
-                return owner
+                let workspace = AppDelegate.shared?.workspace(containingSurfaceID: surfaceID)
+                    ?? tabManager?.tabs.first(where: { $0.panels[surfaceID] != nil })
+                guard let workspace, target == nil || target == workspace.id else { return nil }
+                target = workspace.id
             }
+            return target ?? tabManager?.selectedTabId
         }
-        if let explicit = v2UUID(params, "workspace_id") {
-            return explicit
-        }
-        if let paneID = v2UUID(params, "pane_id"), let located = v2MainSync({ self.v2LocatePane(paneID) }) {
-            return located.workspace.id
-        }
-        if let surfaceID = v2UUID(params, "surface_id") {
-            let owner = v2MainSync { () -> UUID? in
-                guard let tabManager = self.tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
-            }
-            if let owner { return owner }
-        }
-        return v2MainSync { self.tabManager?.selectedTabId }
     }
 
     /// `pane_id` / `surface_id` may be UUIDs or handle refs (`pane:3`, `surface:7`); the pure
