@@ -1,6 +1,15 @@
 {
   "files": [
     {
+      "path": ".github/review-bot-rules/cloud-persistent-session-and-early-input.md",
+      "description": "Source-of-truth cmux review rule for one persistent Cloud session, immediate empty Ghostty runtime, and ordered early input.",
+      "scope": [
+        "Sources/Cloud/**/*.swift",
+        "Sources/Surfaces/**/*.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/swift-actor-isolation.md",
       "description": "Source-of-truth cmux lint rule for Swift actor isolation review.",
       "scope": [
