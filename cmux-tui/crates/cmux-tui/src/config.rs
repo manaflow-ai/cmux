@@ -9038,8 +9038,8 @@ mod tests {
         collision.apply(&raw);
         assert_eq!(
             collision.shortcut_labels(Action::NewPaneSmart),
-            Vec::<String>::new(),
-            "the prefix chord must not remain advertised as a modeless action"
+            ["Alt-n N"],
+            "the surviving uppercase prefix fallback must remain advertised"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
     }
