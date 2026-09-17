@@ -1,3 +1,6 @@
+import { requirePersonalPlanIdForSubscription } from "./subscriptionPlan";
+export { personalPlanIdForSubscription } from "./subscriptionPlan";
+import { findIdentitySnapshotUserIdsByEmail } from "../auth/identitySnapshot";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
@@ -25,14 +28,20 @@ import {
   withFreshAccountMetadataUser,
 } from "../account/metadataMutation";
 import {
+  MAX_PLAN_ID,
+  GO_PLAN_ID,
+  PERSONAL_PLAN_IDS,
   PRO_PLAN_ID,
+  type PersonalPlanId,
   type ProMetadataJson,
   TEAM_PLAN_ID,
   hasEffectiveFounderEntitlement,
   normalizePersonalPlan,
+  isPersonalPlanId,
   syncProPlanMetadata,
   syncTeamPlanMetadata,
 } from "./pro";
+import { MAX_PRICING_USD } from "./plans";
 import { stripe } from "./stripe";
 import { isAscConfigured } from "../asc/client";
 import {
@@ -66,7 +75,6 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
 ]);
 const DELETED_ACCOUNT_ACTOR_ID = "deleted-account";
 const PURCHASE_MAGIC_LINK_CALLBACK = "https://cmux.com/handler/after-sign-in";
-const STACK_USER_LOOKUP_PAGE_SIZE = 100;
 const MAX_STACK_USER_LOOKUP_PAGES = 100;
 
 type BillingDb = ReturnType<typeof cloudDb>;
@@ -130,6 +138,17 @@ export type StackBillingUser = ProBillingClaimUser & {
     primaryEmailVerified?: boolean;
     clientReadOnlyMetadata?: unknown;
   }): Promise<unknown>;
+  listContactChannels?(): Promise<readonly StackBillingContactChannel[]>;
+};
+
+/** The slice of a Stack contact channel the purchase email path uses. */
+export type StackBillingContactChannel = {
+  readonly id: string;
+  readonly type: string;
+  readonly value: string;
+  readonly isPrimary: boolean;
+  readonly isVerified: boolean;
+  sendVerificationEmail(options?: { callbackUrl?: string }): Promise<unknown>;
 };
 
 type StackBillingUserLookup = {
@@ -248,6 +267,8 @@ type UserCheckoutPostCommitSync = {
   stackApp: StackBillingApp | null | undefined;
   deferProMetadataUntilVerification?: boolean;
   sendRecoveryMagicLink?: boolean;
+  /** The personal plan the checkout bought (pro or max), from its Price. */
+  plan: PersonalPlanId;
 };
 
 type CheckoutCompletionLockedResult = {
@@ -526,6 +547,7 @@ export async function recordCheckoutCompletion(
           deferProMetadataUntilVerification:
             input.deferProMetadataUntilVerification,
           sendRecoveryMagicLink: input.sendRecoveryMagicLink,
+          plan: requirePersonalPlanIdForSubscription(subscription, input.session.metadata),
         },
         result: { scope: "user", stackUserId, subscriptionId: subscription.id },
       };
@@ -1006,13 +1028,14 @@ export async function recordProCheckoutCompletionByEmail(
     }
   }
 
+  const personalPlan = requirePersonalPlanIdForSubscription(subscription, session.metadata);
   const rewrittenSession = {
     ...session,
     client_reference_id: existingUser.id,
     metadata: {
       ...(session.metadata ?? {}),
       app: "cmux",
-      plan: "pro",
+      plan: personalPlan,
       stackUserId: existingUser.id,
     },
   } as Stripe.Checkout.Session;
@@ -1026,7 +1049,7 @@ export async function recordProCheckoutCompletionByEmail(
         metadata: {
           ...subscription.metadata,
           app: "cmux",
-          plan: "pro",
+          plan: personalPlan,
           stackUserId: existingUser.id,
         },
       },
@@ -1245,6 +1268,7 @@ export async function findOrCreateBillingUser(
 export async function findBillingUserByEmail(
   stackApp: StackBillingApp,
   email: string,
+  options: BillingUserLookupOptions = {},
 ): Promise<StackBillingUser | null> {
   const listUsers = stackApp.listUsers;
   if (!listUsers) {
@@ -1267,16 +1291,11 @@ export async function findBillingUserByEmail(
     );
   }
   if (candidateByID.size === 0 && isGmailAddress(literalEmail)) {
-    // Stack's free-text query is literal and does not understand Gmail's
-    // dot-insensitive namespace. Scan the provider's paginated user list as a
-    // bounded fallback, then apply the canonical comparison locally. An
-    // incomplete scan fails closed instead of creating the wrong account.
-    await collectBillingUserLookupCandidates(
-      boundListUsers,
-      undefined,
+    await collectSnapshotLookupCandidates(
+      stackApp,
       matchingEmail,
       candidateByID,
-      STACK_USER_LOOKUP_PAGE_SIZE,
+      options.snapshotUserIds ?? findIdentitySnapshotUserIdsByEmail,
     );
   }
   const candidates = [...candidateByID.values()].sort(compareStackUserLookup);
@@ -1578,7 +1597,7 @@ async function transferBillingOwnershipClaim(
           eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
           eq(stripeSubscriptions.stackUserId, sourceStackUserId),
           eq(stripeSubscriptions.scope, "user"),
-          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
           isNull(stripeSubscriptions.stackTeamId),
         ),
       )
@@ -1599,7 +1618,7 @@ async function transferBillingOwnershipClaim(
         and(
           eq(stripeSubscriptions.stackUserId, targetStackUserId),
           eq(stripeSubscriptions.scope, "user"),
-          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
           isNull(stripeSubscriptions.stackTeamId),
         ),
       )
@@ -1638,7 +1657,7 @@ async function transferBillingOwnershipClaim(
           eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
           eq(stripeSubscriptions.stackUserId, sourceStackUserId),
           eq(stripeSubscriptions.scope, "user"),
-          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
           isNull(stripeSubscriptions.stackTeamId),
         ),
       );
@@ -1877,7 +1896,7 @@ async function syncUserCheckoutAfterCommit(
         }
         return;
       }
-      await syncProPlanMetadata(user, true, mutationLease);
+      await syncProPlanMetadata(user, true, mutationLease, input.plan);
       if (input.sendRecoveryMagicLink && input.email) {
         await requestPurchaseMagicLink(
           db,
@@ -1915,6 +1934,7 @@ async function retryMappedCheckoutPostCommit(input: {
     input.db,
     {
       user: input.targetUser,
+      plan: requirePersonalPlanIdForSubscription(input.subscription, input.checkout.session.metadata),
       email: input.email,
       checkoutSessionId: input.checkout.session.id,
       stripeCustomerId: input.customerId,
@@ -2154,7 +2174,8 @@ export async function applySubscriptionUpdate(
       // A recurring Pro cancellation must not clear the shared metadata marker
       // while a separate paid Founder row still backs it. An operator grant
       // protects effective access independently, not this billing mirror.
-      const founderSubscriptionActive = !isActive &&
+      const subscriptionPlan = requirePersonalPlanIdForSubscription(subscription);
+      const founderSubscriptionActive = (!isActive || subscriptionPlan === GO_PLAN_ID) &&
         await hasActiveFounderSubscription(db, lockedResult.stackUserId);
       const founderEntitlementActive = !isActive &&
         hasEffectiveFounderEntitlement(
@@ -2162,10 +2183,14 @@ export async function applySubscriptionUpdate(
           founderSubscriptionActive,
         );
       effectiveIsActive = isActive || founderEntitlementActive;
+      // Label the mirror with the plan this subscription's Price sells, so a
+      // Billing Portal switch between Pro and Max lands as `cmuxPlan` change.
       const currentMetadata = await syncProPlanMetadata(
         freshUser,
         isActive || founderSubscriptionActive,
         mutationLease,
+        isActive && !(subscriptionPlan === GO_PLAN_ID && founderSubscriptionActive)
+          ? subscriptionPlan : PRO_PLAN_ID,
       );
       // An independent paid operator grant keeps TestFlight access, but must
       // not keep the lapsed Stripe mirror alive after that grant is removed.
@@ -2319,7 +2344,7 @@ export async function latestStripeSubscriptionForSession(
     .where(
       and(
         eq(stripeSubscriptions.customerId, customerId),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         eq(stripeSubscriptions.scope, "user"),
         isNull(stripeSubscriptions.stackTeamId),
         sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'`,
@@ -2386,7 +2411,7 @@ export function isCmuxCheckoutSession(
   ) {
     return true;
   }
-  return Boolean(session.client_reference_id && sessionMetadata?.plan === "pro");
+  return Boolean(session.client_reference_id && isPersonalPlanId(sessionMetadata?.plan));
 }
 
 function isFounderCheckoutMetadata(
@@ -2422,7 +2447,7 @@ export function hasConflictingFounderMetadata(
   if (!isFounder) return false;
   return metadataSources.some(
     (metadata) =>
-      metadata?.plan === PRO_PLAN_ID ||
+      isPersonalPlanId(metadata?.plan) ||
       metadata?.plan === TEAM_PLAN_ID ||
       Boolean(metadata?.stackTeamId),
   );
@@ -2773,9 +2798,16 @@ async function updateExistingUserStripeSubscription(
     );
 }
 
+/**
+ * The personal plan a user-scoped subscription sells, read from its Price so
+ * a Billing Portal switch between Pro and Max re-labels the row on the next
+ * `customer.subscription.updated`. Checkout metadata is the fallback for a
+ * payload without a lookup key; unrecognized plans are rejected before persistence or entitlement sync.
+ */
+
 function stripeSubscriptionValues(input: StripeSubscriptionValuesInput) {
   const { subscription } = input;
-  const plan = input.scope === "team" ? TEAM_PLAN_ID : PRO_PLAN_ID;
+  const plan = input.scope === "team" ? TEAM_PLAN_ID : requirePersonalPlanIdForSubscription(subscription);
   return {
     id: subscription.id,
     customerId: input.customerId,
@@ -2853,7 +2885,7 @@ async function hasActiveUserProSubscription(
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, [...ACTIVE_STRIPE_SUBSCRIPTION_STATUSES]),
         isNull(stripeSubscriptions.stackTeamId),
       ),
@@ -2873,7 +2905,7 @@ async function hasActiveFounderSubscription(
       and(
         eq(stripeSubscriptions.stackUserId, stackUserId),
         eq(stripeSubscriptions.scope, "user"),
-        eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+        inArray(stripeSubscriptions.plan, PERSONAL_PLAN_IDS),
         inArray(stripeSubscriptions.status, [...ACTIVE_STRIPE_SUBSCRIPTION_STATUSES]),
         isNull(stripeSubscriptions.stackTeamId),
         sql`${stripeSubscriptions.raw}->'metadata'->>'founders_edition' = 'true'`,
@@ -2994,6 +3026,7 @@ async function attachPurchaseEmailOrRecordClaim(
 export async function findUserIdByEmail(
   stackApp: StackBillingApp | null | undefined,
   email: string,
+  options: BillingUserLookupOptions = {},
 ): Promise<string | null> {
   const listUsers = stackApp?.listUsers;
   if (!listUsers) {
@@ -3013,13 +3046,12 @@ export async function findUserIdByEmail(
       20,
     );
   }
-  if (ownersByID.size === 0 && isGmailAddress(literalEmail)) {
-    await collectBillingUserLookupCandidates(
-      boundListUsers,
-      undefined,
+  if (ownersByID.size === 0 && isGmailAddress(literalEmail) && stackApp) {
+    await collectSnapshotLookupCandidates(
+      stackApp,
       normalizedEmail,
       ownersByID,
-      STACK_USER_LOOKUP_PAGE_SIZE,
+      options.snapshotUserIds ?? findIdentitySnapshotUserIdsByEmail,
     );
   }
   return [...ownersByID.values()].sort(compareStackUserLookup)[0]?.id ?? null;
@@ -3060,7 +3092,39 @@ async function collectBillingUserLookupCandidates(
     seenCursors.add(nextCursor);
     cursor = nextCursor;
   }
-  throw new Error("Stack Auth user lookup exceeded its bounded page budget");
+  // The budget bounds latency inside a webhook. Exact canonical matches found
+  // so far are kept; a match beyond the budget would only ever be a dotted
+  // Gmail alias, which the identity-snapshot lookup covers and the purchase
+  // claim path can remap later. Failing the purchase here lost the sale.
+  console.warn("billing.user_lookup.page_budget_exhausted", { query: query ? "email" : "list" });
+  return foundCanonicalMatch;
+}
+
+export type BillingUserLookupOptions = {
+  /** Snapshot user ids for a canonical email; defaults to the identity snapshot table. */
+  readonly snapshotUserIds?: (canonicalEmail: string) => Promise<readonly string[]>;
+};
+
+async function collectSnapshotLookupCandidates(
+  stackApp: Pick<StackBillingApp, "getUser">,
+  matchingEmail: string,
+  candidates: Map<string, StackBillingUserLookup>,
+  snapshotUserIds: NonNullable<BillingUserLookupOptions["snapshotUserIds"]>,
+): Promise<void> {
+  // Stack's query is a literal substring match and cannot express Gmail's
+  // dot-insensitive namespace; scanning the whole user list no longer fits a
+  // webhook (80k users, including anonymous ones). Our identity snapshot holds
+  // every user who has signed in, so it answers the dotted-alias case exactly.
+  for (const id of await snapshotUserIds(matchingEmail)) {
+    if (candidates.has(id)) continue;
+    const user = await stackApp.getUser(id);
+    if (
+      user?.primaryEmail &&
+      canonicalizeEmailForMatching(user.primaryEmail) === matchingEmail
+    ) {
+      candidates.set(id, user as StackBillingUserLookup);
+    }
+  }
 }
 
 function compareStackUserLookup(
@@ -3202,23 +3266,82 @@ async function requestPurchaseMagicLink(
       },
       async () => {
         await mutationLease.refresh();
-        const result = await input.stackApp!.sendMagicLinkEmail!(input.email, {
-          callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+        await deliverPurchaseSignInEmail(input.stackApp!, {
+          email: input.email,
+          stackUserId: input.stackUserId,
         });
-        if (isFailedStackResult(result)) {
-          throw new PurchaseMagicLinkProviderRejectedError(
-            "Stack sign-in link request failed",
-          );
-        }
       },
     );
-  } catch {
+  } catch (error) {
     // The billing rows are already durable. A failed message can be retried by
     // the recovery endpoint, so email delivery must not roll back a purchase.
     console.warn("billing.purchase.magic_link_failed", {
-      failure: "provider_unavailable",
+      failure: error instanceof PurchaseMagicLinkProviderRejectedError
+        ? "provider_rejected"
+        : "provider_unavailable",
+      message: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+const PURCHASE_VERIFICATION_CALLBACK = "https://cmux.com/handler/email-verification";
+
+/**
+ * Send the purchaser the one email that lets them reach their entitlement.
+ *
+ * Stack refuses a sign-in (magic) link for an address that belongs to an
+ * existing unverified user, and the checkout shell is created exactly that
+ * way, so the sign-in link alone never reached a new purchaser. When Stack
+ * refuses it, send the mailbox verification link for that contact channel
+ * instead: verifying the address is what lets the purchaser sign in, and the
+ * after-sign-in handler then transfers the parked claim.
+ */
+/** Stack refused a sign-in link because the address belongs to an unverified user. */
+function isUnverifiedMailboxRefusal(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  if (code === "USER_EMAIL_ALREADY_EXISTS") return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === "string" && /already exists/i.test(message);
+}
+
+export async function deliverPurchaseSignInEmail(
+  stackApp: Pick<StackBillingApp, "sendMagicLinkEmail" | "getUser">,
+  input: { readonly email: string; readonly stackUserId: string },
+): Promise<"magic_link" | "verification"> {
+  if (!stackApp.sendMagicLinkEmail) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack cannot send sign-in links");
+  }
+  try {
+    const result = await stackApp.sendMagicLinkEmail(input.email, {
+      callbackUrl: PURCHASE_MAGIC_LINK_CALLBACK,
+    });
+    if (!isFailedStackResult(result)) return "magic_link";
+  } catch (error) {
+    // The SDK throws the refusal as a KnownError rather than returning a
+    // failed result. Anything else (transport, timeout) may have sent the
+    // message, so it stays ambiguous and keeps its delivery marker.
+    if (!isUnverifiedMailboxRefusal(error)) throw error;
+  }
+  const matching = canonicalizeEmailForMatching(input.email);
+  const user = await stackApp.getUser(input.stackUserId);
+  const channels = (await user?.listContactChannels?.()) ?? [];
+  const channel = channels.find(
+    (candidate) =>
+      candidate.type === "email" &&
+      !candidate.isVerified &&
+      canonicalizeEmailForMatching(candidate.value) === matching,
+  );
+  if (!channel) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack sign-in link request failed");
+  }
+  const verification = await channel.sendVerificationEmail({
+    callbackUrl: PURCHASE_VERIFICATION_CALLBACK,
+  });
+  if (isFailedStackResult(verification)) {
+    throw new PurchaseMagicLinkProviderRejectedError("Stack verification email request failed");
+  }
+  return "verification";
 }
 
 async function stackUserIdForStripeCustomer(

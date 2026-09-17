@@ -22,8 +22,31 @@
       "title": "cmux Pro påkrævet",
       "message": "Cloud VM'er kræver en cmux Pro-plan.",
       "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Maskiner med {memory} GiB kræver cmux {plan}. Din plan understøtter op til {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Kildemaskinens RAM-størrelse kunne ikke bekræftes.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Denne maskinstørrelse er ikke tilgængelig. Vælg op til {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go omfatter to gemte VM’er, inklusive den kørende VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go omfatter én kørende VM ad gangen.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go har brugt sine 40 VM-timer denne måned. Gemte VM’er kan bruges igen i næste faktureringsperiode.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go understøtter 2 vCPU, 4 GiB RAM og 16 GiB disk.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Hvis vi fandt en konto, så tjek din e-mail for næste trin"
   },
@@ -152,6 +175,42 @@
     "applyAriaLabel": "Søg stillingen som Founding Engineer via e-mail",
     "applyEmailSubject": "Ansøgning som Founding Engineer hos cmux",
     "applyCta": "Send e-mail",
+    "foundingChromiumEngineer": {
+      "metaTitle": "Founding Chromium Engineer hos cmux",
+      "metaDescription": "Bliv founding Chromium engineer hos cmux: ej vores Chromium-fork og bring cmux til Windows og Linux med C++ og Rust.",
+      "section": "Ledige stillinger",
+      "eyebrow": "Om rollen",
+      "title": "Founding Chromium Engineer",
+      "tagline": "Bring cmux til Windows og Linux.",
+      "intro": "cmux er en indbygget macOS-terminal bygget på Ghostty, designet til at køre flere AI-kodeagenter parallelt. Hundrede tusinder af udviklere bruger cmux til deres agentbaserede kodearbejdsgange.",
+      "hiring": "Vi ansætter en founding engineer til at eje cmux på Windows (og Linux), bygget på vores egen fork af Chromium.",
+      "whatYoullDo": "Det skal du lave",
+      "whatYoullDoItems": [
+        "Ej vores Chromium-fork: følg upstream, rebase rent og bær cmux-patches (vindue-/input-/render-integration, terminalflade, agent-UI).",
+        "Ej cmux på Windows og Linux fra ende til anden: C++, installer, auto-update, crash-rapportering.",
+        "Port den Ghostty-baserede terminalkerne og agent-orkestreringsfunktionerne (vertikale faner, notifikationsringe, splits, CLI) til Windows.",
+        "Få ydeevnen til at føles native: opstartstid, GPU-rendering, input-latens.",
+        "Dogfood, test og verificér konstant."
+      ],
+      "excitedLead": "Vi bliver ekstra begejstrede, hvis du:",
+      "excitedItems": [
+        "Dybe C++-kompetencer og reel Chromium-erfaring - ideelt har du vedligeholdt en fork: båret patches, rebaset på upstream-milepæle, debugget i content/ eller blink.",
+        "Rust er et stort plus (vores TUI og netværksdaemon er skrevet i Rust).",
+        "Du har leveret eller vedligeholdt en rigtig Windows-desktopapp.",
+        "Bonus: upstream Chromium-bidrag, nysgerrighed omkring Swift/AppKit, open source-maintainer, tidligere grundlægger."
+      ],
+      "details": "Detaljer",
+      "roleTitle": "Founding Chromium Engineer",
+      "compensationLabel": "Kompensation",
+      "compensation": "$130k–$170k + 0,5 %–1,5 % ejerandel",
+      "benefitsLabel": "Fordele",
+      "benefits": "Sundheds-, tand- og synsforsikring",
+      "locationLabel": "Placering",
+      "location": "San Francisco",
+      "applyAriaLabel": "Søg stillingen som Founding Chromium Engineer via e-mail",
+      "applyEmailSubject": "Ansøgning som Founding Chromium Engineer hos cmux",
+      "applyCta": "Send e-mail"
+    },
     "foundingDesigner": {
       "metaTitle": "Founding Designer hos cmux",
       "metaDescription": "Bliv Founding Designer hos cmux, og design fremtidens kodning med AI på macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com og chatmux.",
@@ -258,7 +317,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversigt",
-      "team": "team"
+      "team": "team",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -305,6 +365,31 @@
       "pro": {
         "entitledBody": "Din cmux Pro-adgang er aktiv."
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Del med teamet",
+      "makePrivate": "Gør privat",
+      "privateImportHint": "Nye konti er private. Del en konto for at gøre den tilgængelig for teamets Cloud-VM’er.",
+      "description": "Delte konti er tilgængelige for dette teams Cloud VM’er. Private konti kan kun bruges af den person, der tilføjede dem.",
+      "cancelAction": "Annuller"
     }
   },
   "community": {
@@ -879,6 +964,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: Mac-automatisering med AI-agenter",
+      "metaDescription": "Lad Claude Code og Codex styre din Mac med cmux Computer Use. Automatiser native apps med skærmbilleder, tilgængelighed, klik, tekst og tastatur.",
+      "docsMetaTitle": "Opsætning og agentværktøjer til Computer Use",
+      "docsMetaDescription": "Opsæt cmux Computer Use på macOS: tilladelser, Claude Code- og Codex-værktøjer, appvalg, sessioner, færdigheder og fejlfinding.",
+      "tagline": "Lad Claude Code og Codex styre din Mac.",
+      "intro": "Giv AI-kodeagenter adgang til native Mac-apps. Med cmux Computer Use kan de læse grænseflader, tage skærmbilleder, klikke på kontroller og skrive tekst.",
+      "imageAlt": "cmux Computer Use-opsætning med tilladelser til tilgængelighed og skærmbilleder",
+      "caption": "Computer Use-tilladelser styres af en separat hjælper, så dine terminalsessioner forbliver åbne under opsætningen.",
+      "featuresTitle": "Styr native Mac-apps",
+      "featureInspect": "Undersøg appgrænseflader med tilgængelighedstræer og skærmbilleder.",
+      "featureAct": "Klik, skriv, rul, træk og brug tastaturgenveje i macOS-apps.",
+      "featureReview": "Følg agentens synlige markør, kontrollér resultatet og vend tilbage til den kaldende terminal.",
+      "agentsTitle": "Dine kodeagenter i cmux",
+      "agentsBody": "Kør {agents} og andre kommandolinjeagenter i cmux.",
+      "supportTitle": "Understøttede agenter",
+      "supportBody": "Native Computer Use-værktøjer tilsluttes automatisk Claude Code- og Codex-sessioner startet i cmux. Andre agenter kan køre i terminalen, men får endnu ikke denne automatiske integration til Mac-styring.",
+      "setupTitle": "Kom i gang",
+      "step1": "Installer og åbn cmux til Mac. Aktivér Computer Use under Indstillinger → Computer Use.",
+      "step2": "Giv cmux Computer Use adgang til Tilgængelighed og Skærmoptagelse via tilladelsesknapperne i Systemindstillinger. Mangler hjælperen på listen, skal du tilføje eller trække dens appflise ind i tilladelsespanelet.",
+      "step3": "Start en ny Claude Code- eller Codex-session i cmux. Bed den bruge Computer Use, og angiv app og opgave. Værktøjerne tilsluttes automatisk uden manuel MCP-opsætning.",
+      "permissionsTitle": "Tilladelser og opsætning",
+      "permissionsBody": "Tilgængelighed giver adgang til at læse og betjene appgrænseflader; Skærmoptagelse muliggør skærmbilleder. Giv begge tilladelser til cmux Computer Use. At åbne cmux eller starte en agent giver ikke adgang eller åbner automatisk opsætningen.",
+      "tahoeBody": "Godkend også den ekstra bekræftelse af skærmoptagelse på macOS Tahoe. Prøv først opgaven igen, når cmux viser begge tilladelser som givet.",
+      "promptTitle": "Prøv med Lommeregner",
+      "prompt": "Brug cmux Computer Use til at åbne Lommeregner, klikke 100 + 105 og vise mig resultatet.",
+      "workflowBody": "Undersøg målet, betjen kontroller fra det aktuelle øjebliksbillede, og undersøg derefter resultatet igen. Elementindekser gælder kun for det aktuelle øjebliksbillede; opdatér efter navigation eller layoutændringer. En klikbekræftelse beviser ikke alene, at opgaven er færdig.",
+      "toolsTitle": "Agentværktøjer",
+      "toolsBody": "cmux-cua er den medfølgende MCP-server med strukturerede værktøjer til native apps. Dette er værktøjsnavne, ikke shellkommandoer. Argumenterne afhænger af agentprofilen; brug skemaerne i sessionen.",
+      "codexBody": "Codex bruger get_app_state med et appnavn eller bundle-id og modtager skærmbillede og tilgængelighedstræ. Handl via et aktuelt element_index eller billedkoordinater, og kald get_app_state igen. Værktøjer:",
+      "claudeBody": "Claude Code finder mål med list_apps og list_windows og bruger get_window_state med pid og window_id. Foretræk elementtokens eller friske indekser. Den native profil har også perform_actions til grupper af handlinger, som ikke ugyldiggør senere mål.",
+      "controlTitle": "Følg og stop Computer Use",
+      "controlBody": "Computer Use i menulinjen viser den aktive agent. Focus Computer Use følger den styrede app; Focus Calling Terminal vender tilbage til den kaldende terminal uden at stoppe automatiseringen. Brug menuens stophandling til at afslutte styringssessionen.",
+      "disableBody": "Slå Computer Use fra i Indstillinger. Sæt CMUX_COMPUTER_USE_MCP_DISABLED=1 før agentstart for at udelade værktøjerne fra en ny session.",
+      "skillTitle": "Færdigheder",
+      "skillBody": "Færdigheden cmux-cua forklarer arbejdsgangen for inspektion og handling. Den er valgfri og giver ikke macOS-tilladelser. Brug agentens færdighedsinstaller til permanent installation; cmux installerer som standard ikke globale færdigheder.",
+      "skillLink": "Læs cmux-cua-færdigheden",
+      "browserTitle": "Native apps og browserautomatisering",
+      "browserBody": "Computer Use styrer native Mac-vinduer via skærmbilleder og tilgængelighed. Brug cmux browser til DOM-øjebliksbilleder, selektorer, formularer og JavaScript i cmux-browserpaneler. Browserfladereferencer er forskellige fra native elementindekser.",
+      "browserLink": "Reference til browserautomatisering",
+      "troubleTitle": "Fejlfinding",
+      "missingTitle": "Agenten mangler Computer Use-værktøjer",
+      "missingBody": "Aktivér Computer Use, og start en ny Claude Code- eller Codex-session i cmux. Eksisterende sessioner kan beholde deres oprindelige værktøjer. Kontrollér, at miljøvariabler eller administrerede politikker ikke deaktiverer funktionen.",
+      "blockedTitle": "Ufuldstændig opsætning, mislykkede klik eller tomme billeder",
+      "blockedBody": "Åbn Indstillinger → Computer Use igen, og fuldfør begge tilladelser samt ekstra optagelsesbekræftelser. Prøv derefter igen. Terminalerne kan forblive åbne, hvis hjælperen skal genstartes.",
+      "targetTitle": "Forkert vindue eller blokeret klik",
+      "targetBody": "Undersøg appen igen, og vælg et aktuelt element. Dækker et andet vindue målet, skal du vise det ønskede vindue og undersøge det før et nyt forsøg. Genbrug ikke gamle koordinater eller indekser.",
+      "productLink": "Oversigt over cmux Computer Use",
+      "copyTitle": "Kopiér en Computer Use-prompt",
+      "copyPrompt": "Kopiér prompt",
+      "copiedPrompt": "Kopieret",
+      "installPrompt": "Brug færdigheden $cmux-cua. Hvis den mangler, installér den med den normale færdighedsinstaller. Ved manglende tilladelser skal du bede mig åbne cmux Indstillinger → Computer Use. Undersøg først og kontrollér hver ændring.\n\nOpgave: [beskriv opgaven her]"
+    },
     "remoteTmux": {
       "moshContrast": "Brug cmux mosh-tmux til roaming mellem netværk. Den åbner en fuldt integreret Mosh-terminal, der er tilsluttet en navngivet tmux-session; den erstatter ikke den native spejling af arbejdsområder, faner og opdelinger fra SSH tmux-kontroltilstand."
     },
@@ -1084,6 +1223,7 @@
           "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Når true (standard), bruger cmux en standardpalet, der følger udseendet, medmindre et Ghostty-tema eller terminalfarver er konfigureret. Skrifttype og andre indstillinger bevares. Når false, bruger Ghostty sin faste indbyggede palet. Eksplicitte temaer og farver har altid forrang, herunder theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Valgfri maksimal bredde i punkter for terminalindhold og den indbyggede agentchat. Angiv false for at bruge hele rudens bredde.",
           "sessionContentAlignment": "Vandret placering af terminalindhold og den indbyggede agentchat, når sessionContentMaxWidth er aktiveret.",
           "copyOnSelect": "Når værdien er true, kopieres markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes. Når værdien er false, udsender cmux ikke en Ghostty copy-on-select-tilsidesættelse; Ghostty-konfiguration og standarder styrer markeringsudklipsholderens adfærd.",
@@ -1198,7 +1338,7 @@
       "plusButtonScreenshotAlt": "Plusknappens højreklikmenu viser Worktree Agents, New Terminal og New Browser",
       "plusButtonScreenshotCaption": "Højreklikmenuen følger rækkefølgen fra ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Tilpassede handlinger for plusknappen",
-      "newWorkspaceButtonDesc": "Brug <action>ui.newWorkspace.action</action> til at tilsidesætte, hvad plusknappen gør. Brug <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) til at definere den ordnede højreklikmenu. Menupunkter kan være handlings-ID’er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>.",
+      "newWorkspaceButtonDesc": "Brug <action>ui.newWorkspace.action</action> til at tilsidesætte, hvad plusknappen gør. Brug <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (eller aliaset <rightClick>rightClick</rightClick>) til at definere den ordnede højreklikmenu. Menupunkter kan være handlings-ID’er, handlingsobjekter eller <separator>{ \"type\": \"separator\" }</separator>. Når den ikke er angivet, viser menuen cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) med deres aktuelle genveje. Cloud-punkter vises kun, når Cloud Machines er aktiveret.",
       "newWorkspaceWorktreeNote": "Dette eksempel får et almindeligt plusklik til at køre handlingen <action>worktree-agents</action>. Arbejdsområdekommandoen fra <commands>commands</commands> bruger en synlig opsætningsterminal til først at oprette Git-<worktree>worktree</worktree>. Codex og Claude starter samtidig, venter på den arbejdsområdespecifikke tilstandsfil og skifter derefter til den oprettede mappe før exec.",
       "simpleCommands": "Simple kommandoer",
       "simpleCommandsDesc": "En simpel kommando kører en shell-kommando i den aktuelt fokuserede terminal:",
@@ -1558,6 +1698,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Computerstyring",
       "gettingStarted": "Kom i gang",
       "concepts": "Koncepter",
       "workspaceGroups": "Workspace-grupper",
@@ -3832,5 +3973,12 @@
         "action": "Administrer abonnement"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "E-mail",
+    "emailUnavailable": "e-mail ikke tilgængelig",
+    "organization": "Organisation",
+    "personalAccount": "personlig konto",
+    "switchAccountButton": "Brug en anden konto"
   }
 }

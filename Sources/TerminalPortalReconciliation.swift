@@ -217,6 +217,13 @@ extension GhosttyTerminalView {
             case .deferred:
                 break
             }
+            if portalBindingLive {
+                hostedView.cloudTerminalOverlay.updateAnchor(
+                    host, visible: coordinator.desiredIsVisibleInUI,
+                    ownershipGeneration: snapshot.ownershipGeneration
+                )
+                hostedView.synchronizeCloudTerminalReconnectOverlay()
+            }
             if hostOwnsPortal, reasons.contains(.flushPendingManualSizeReport) {
                 terminalSurface.flushPendingManualSizeReportIfAttached()
             }

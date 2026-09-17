@@ -34,11 +34,7 @@ let stripeConfigured = true;
 let returnNullUser: unknown = signedInUser;
 let anonymousIfExistsUser: unknown = null;
 let customerRows: { id: string }[] = [{ id: "cus_123" }];
-let stripeSubscriptionRows: Array<{
-  id: string;
-  status?: string;
-  raw?: Record<string, unknown> | null;
-}> = [];
+let stripeSubscriptionRows: Array<Record<string, unknown>> = [];
 
 const getUser = mock(async (options?: unknown) => {
   const or =
@@ -68,32 +64,22 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: (fields: Record<string, unknown> = {}) => ({
       from: (table: unknown) => ({
-        where: () => ({
-          limit: mock(async () => {
-            if (table === stripeCustomers) return customerRows;
-            if (table === stripeSubscriptions) {
-              if ("regular" in fields) {
-                const active = stripeSubscriptionRows.filter((row) =>
-                  ["active", "trialing", "past_due"].includes(row.status ?? "active"));
-                const isFounder = (row: typeof stripeSubscriptionRows[number]) =>
-                  (row.raw?.metadata as Record<string, unknown> | undefined)?.founders_edition === "true";
-                return [{
-                  regular: active.some((row) => !isFounder(row)),
-                  founder: active.some(isFounder),
-                }];
-              }
-              return stripeSubscriptionRows;
-            }
-            return [];
-          }),
-        }),
+        where: () => {
+          const rows = table === stripeCustomers ? customerRows : table === stripeSubscriptions ? stripeSubscriptionRows : [];
+          return Object.assign(Promise.resolve(rows), {
+            limit: async () => rows,
+            orderBy: () => ({ limit: async () => rows }),
+          });
+        },
       }),
     }),
   }),
 }));
 
+const resolvePersonalPlanSwitchPortalConfiguration = mock(async () => "bpc_switch");
 mock.module("../services/billing/stripe", () => ({
   ...stripeModule,
+  resolvePersonalPlanSwitchPortalConfiguration,
   isStripeBillingConfigured: () => stripeConfigured,
   stripe: () => ({
     billingPortal: {
@@ -121,6 +107,8 @@ describe("billing portal route", () => {
     customerRows = [{ id: "cus_123" }];
     stripeSubscriptionRows = [{
       id: "sub_123",
+      plan: "pro",
+      status: "active",
       raw: { metadata: { app: "cmux", plan: "pro" } },
     }];
     signedInUser.selectedTeam = null;
@@ -139,6 +127,43 @@ describe("billing portal route", () => {
       url: "https://billing.stripe.com/session/test",
     });
     captureBillingError.mockClear();
+  });
+
+  test("opens Stripe's plan switch flow on the active Pro subscription for flow=switch_plan", async () => {
+    stripeSubscriptionRows = [{ id: "sub_pro", status: "active", cancelAtPeriodEnd: false, plan: "pro" }];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(createPortalSession).toHaveBeenCalledWith({
+      customer: "cus_123",
+      return_url: "https://cmux.test/dashboard/billing",
+      configuration: "bpc_switch",
+      flow_data: {
+        type: "subscription_update",
+        subscription_update: { subscription: "sub_pro" },
+      },
+    });
+  });
+
+  test("declines the portal when there is no personal subscription to switch", async () => {
+    stripeSubscriptionRows = [];
+
+    const response = await GET(
+      new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(createPortalSession).not.toHaveBeenCalled();
+    expect(response.headers.get("location")).toBe("https://cmux.test/pricing?billing=unavailable");
+  });
+
+  test("never puts a lifetime Founder purchase in the plan switch flow", async () => {
+    stripeSubscriptionRows = [{ id: "sub_founder", status: "active", plan: "pro", raw: { metadata: { founders_edition: "true" } } }];
+    await GET(new NextRequest("https://cmux.test/api/billing/portal?flow=switch_plan&plan=max"));
+    expect(createPortalSession.mock.calls[0]?.[0]).not.toHaveProperty("flow_data");
   });
 
   test("redirects signed-in users with a Stripe customer row to the portal session", async () => {
@@ -219,7 +244,7 @@ describe("billing portal route", () => {
 
   test("keeps the portal available when a Founder also has a real Stripe subscription", async () => {
     signedInUser.clientReadOnlyMetadata = { cmuxVmPlan: "founders" };
-    stripeSubscriptionRows = [{ id: "sub_founder_pro" }];
+    stripeSubscriptionRows = [{ id: "sub_founder_pro", plan: "pro", status: "active" }];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),
@@ -380,7 +405,7 @@ describe("billing portal route", () => {
 
   test("captures missing customer rows for Stripe-managed users and redirects unavailable", async () => {
     customerRows = [];
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", status: "active", plan: "pro", scope: "user" }];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),

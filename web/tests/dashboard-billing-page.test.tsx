@@ -129,7 +129,12 @@ describe("dashboard billing page", () => {
       'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
     );
     expect(html).toContain("Get Pro");
+    expect(html).toContain("Get Max");
     expect(html).toContain("Get Teams");
+    expect(html).toContain(
+      'href="/api/billing/checkout?plan=max&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;cmux_placement=dashboard_billing"',
+    );
+    expect(html).not.toMatch(/plan=max[^"]*interval=/);
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
     expect(html).not.toContain("/mo.");
@@ -141,23 +146,23 @@ describe("dashboard billing page", () => {
     expect(html).not.toContain("/api/billing/subscription");
   });
 
-  test("renders annual Pro and Team pricing from the billing upsell", async () => {
+  test("keeps billing upsells monthly for old annual links", async () => {
     const html = await renderBillingPage({ interval: "year" });
 
-    expect(html).toContain("$40");
-    expect(html).toContain("$48");
+    expect(html).toContain("$50");
+    expect(html).toContain("$60");
     expect(html).toContain("/mo");
     expect(html).toContain("/user/mo");
-    expect(html).toContain("/mo, billed yearly");
-    expect(html).toContain("/user/mo, billed yearly");
+    expect(html).not.toContain("/mo, billed yearly");
+    expect(html).not.toContain("/user/mo, billed yearly");
     expect(html).not.toContain("/mo.");
     expect(html).not.toContain("$24");
     expect(html).not.toContain("$28");
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=year&amp;cmux_placement=dashboard_billing"',
+      'href="/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
     );
     expect(html).toContain(
-      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=year&amp;cmux_placement=dashboard_billing"',
+      'href="/api/billing/checkout?plan=team&amp;cmux_external_browser=1&amp;cmux_source=dashboard_billing&amp;interval=month&amp;cmux_placement=dashboard_billing"',
     );
   });
 
@@ -211,6 +216,8 @@ describe("dashboard billing page", () => {
       customerRows = [{ id: "cus_unpaid_personal" }];
       stripeBillingStatusOverride = {
         customerId: "cus_unpaid_personal",
+        subscriptionId: "sub_unpaid",
+        activePlanId: null,
         subscriptionStatus: "unpaid",
         cancelAtPeriodEnd: false,
         hasCustomer: true,
@@ -234,6 +241,8 @@ describe("dashboard billing page", () => {
     customerRows = [{ id: "cus_canceled_personal" }];
     stripeBillingStatusOverride = {
       customerId: "cus_canceled_personal",
+      subscriptionId: "sub_canceled",
+      activePlanId: null,
       subscriptionStatus: "canceled",
       cancelAtPeriodEnd: false,
       hasCustomer: true,
@@ -520,17 +529,15 @@ describe("dashboard billing page", () => {
 });
 
 function selectableResult(table: unknown) {
+  const rows = () => {
+    if (table === stripeSubscriptions) return subscriptionResults.length ? subscriptionResults.shift()! : subscriptionRows;
+    if (table === stripeCustomers) return customerRows;
+    return [];
+  };
   return {
+    then: (resolve: (value: Array<Record<string, unknown>>) => unknown, reject?: (error: unknown) => unknown) => Promise.resolve(rows()).then(resolve, reject),
     orderBy: () => selectableResult(table),
-    limit: async () => {
-      if (table === stripeSubscriptions) {
-        return subscriptionResults.length > 0
-          ? subscriptionResults.shift()!
-          : subscriptionRows;
-      }
-      if (table === stripeCustomers) return customerRows;
-      return [];
-    },
+    limit: async () => rows(),
   };
 }
 

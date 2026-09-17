@@ -4,6 +4,7 @@ import Testing
 
 @testable import CmuxFoundation
 
+@Suite(.serialized)
 struct SSHPTYAttachRetryScriptBuilderTests {
     @Test func defaultReconnectPolicyIsFinite() {
         let script = SSHPTYAttachRetryScriptBuilder()
@@ -184,7 +185,6 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         let markerURL = root.appendingPathComponent("shell-pid")
         let backoffPIDURL = root.appendingPathComponent("backoff-pid")
         let backoffReadyURL = root.appendingPathComponent("backoff-ready")
-        let transcriptURL = root.appendingPathComponent("transcript")
         let sleepURL = root.appendingPathComponent("sleep")
         try """
         #!/bin/sh
@@ -193,11 +193,6 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         exec /bin/sleep "$1"
         """.write(to: sleepURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sleepURL.path)
-        try Data().write(to: transcriptURL)
-        let transcriptHandle = try FileHandle(forWritingTo: transcriptURL)
-        defer {
-            try? transcriptHandle.close()
-        }
 
         let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
             command: "cmux_test_attach",
@@ -209,7 +204,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "  cmux_ssh_attach_signal_status=\"$1\"",
             "  cmux_ssh_attach_signal_name=\"$2\"",
             "  if [ -n \"${cmux_ssh_attach_backoff_pid:-}\" ]; then",
-            "    /bin/kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true",
+            "    kill -TERM \"$cmux_ssh_attach_backoff_pid\" >/dev/null 2>&1 || true",
             "    wait \"$cmux_ssh_attach_backoff_pid\" 2>/dev/null || true",
             "    cmux_ssh_attach_backoff_pid=",
             "  elif [ \"${cmux_ssh_attach_backoff_launching:-0}\" = 1 ]; then",
@@ -228,8 +223,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         ] + retryLines).joined(separator: "\n")
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
-        process.arguments = ["-q", "/dev/null", "/bin/sh", "-c", script]
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "PATH": "\(root.path):/usr/bin:/bin",
             "CMUX_TEST_BACKOFF_MARKER": markerURL.path,
@@ -239,7 +234,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "30",
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
-        process.standardOutput = transcriptHandle
+        process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         var shellPID: Int32?
         var backoffPID: Int32?

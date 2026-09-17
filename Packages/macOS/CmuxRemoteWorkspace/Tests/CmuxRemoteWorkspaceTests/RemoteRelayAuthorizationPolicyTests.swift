@@ -50,6 +50,69 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
+    @Test("authorization requires handler-owned selector keys and rejects local shell options")
+    func rejectsFallbackAndLocalExecutionInputs() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+
+        #expect(policy.validate(
+            method: "surface.read_text",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "panel_id": surfaceID.uuidString,
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_surface_denied",
+            message: "Relay method requires an explicit surface selector"
+        ))
+
+        #expect(policy.validate(
+            method: "surface.split",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "remote_context": "local",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_method_denied",
+            message: "Relay parameter 'remote_context' is not permitted"
+        ))
+
+        #expect(policy.validate(
+            method: "surface.split",
+            parameters: [
+                "workspace_id": workspaceID.uuidString,
+                "surface_id": surfaceID.uuidString,
+                "initial_input": "touch /tmp/pwned",
+            ],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_method_denied",
+            message: "Relay parameter 'initial_input' is not permitted"
+        ))
+    }
+
+    @Test("workspace.current returns an exact owner selector requirement")
+    func currentRequiresWorkspaceID() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let owner = UUID()
+        #expect(policy.validate(
+            method: "workspace.current",
+            parameters: ["preferred_workspace_id": owner.uuidString],
+            ownerWorkspaceID: owner,
+            surfaceIDs: []
+        ) == .denied(
+            code: "remote_relay_workspace_denied",
+            message: "Relay method requires an explicit workspace selector"
+        ))
+    }
+
     @Test("respawn planner quotes remote directories and classifies transports")
     func planner() {
         let planner = RemotePTYRespawnPlanner()

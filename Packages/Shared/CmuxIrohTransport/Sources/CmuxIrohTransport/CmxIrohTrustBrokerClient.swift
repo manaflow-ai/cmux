@@ -952,6 +952,16 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                     retryAfterSeconds: retryAfterSeconds
                 )
             }
+            if (500 ... 599).contains(http.statusCode),
+               let retryAfterSeconds = Self.retryAfterSeconds(
+                   http.value(forHTTPHeaderField: "Retry-After")
+               ) {
+                throw CmxIrohTrustBrokerClientError.rejectedWithRetryAfter(
+                    statusCode: http.statusCode,
+                    code: code,
+                    retryAfterSeconds: retryAfterSeconds
+                )
+            }
             throw CmxIrohTrustBrokerClientError.rejected(
                 statusCode: http.statusCode,
                 code: code

@@ -51,6 +51,16 @@ class JavaEmitterTests(unittest.TestCase):
         self.assertIn("implements WireValue", agent_record)
         self.assertNotIn("import com.cmux.WireValue;", agent_record)
 
+    def test_sensitive_paste_request_to_string_is_metadata_only(self) -> None:
+        generated = emit(load_ir(LIVE_SCHEMA))
+        request = generated["PasteImageRequest.java"]
+        self.assertIn('"data=[redacted]"', request)
+        self.assertIn('"lease=[redacted]"', request)
+        self.assertNotIn(
+            'String toString() { return "PasteImageRequest" + toWire()',
+            request,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

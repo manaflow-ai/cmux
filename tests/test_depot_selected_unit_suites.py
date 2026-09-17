@@ -57,6 +57,7 @@ class DepotSelectedUnitSuitesTests(unittest.TestCase):
                 env={
                     **os.environ,
                     "UNIT_TEST_SUITES": suites,
+                    "TEST_RESULTS_ROOT": str(root / "results"),
                     "SUITE_CALLS": str(calls),
                     "SUITE_OUTPUTS": str(fixture),
                     "SUITE_CLEANUPS": str(cleanups),
@@ -101,7 +102,7 @@ class DepotSelectedUnitSuitesTests(unittest.TestCase):
             with self.subTest(output=output):
                 result, calls, _ = self.run_step([{"text": output + LARGE_TAIL}])
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("No tests executed for FirstSuite", result.stderr)
+                self.assertIn("No tests executed for FirstSuite", result.stdout + result.stderr)
                 self.assertEqual(len(calls), 1)
 
     def test_singular_success_summary_runs_every_selected_suite(self):
@@ -122,12 +123,13 @@ class DepotSelectedUnitSuitesTests(unittest.TestCase):
                 self.assertIn("-only-testing:cmuxTests/SecondSuite", calls[1])
                 self.assertEqual(cleanups, 0)
 
-    def test_failed_suite_preserves_exit_status_and_stops_later_suites(self):
+    def test_failed_suite_reports_failure_and_runs_later_suites(self):
         result, calls, _ = self.run_step(
-            [{"text": "Executed 2 tests, with 1 failure.\n", "status": 65}]
+            [{"text": "Executed 2 tests, with 1 failure.\n", "status": 65},
+             {"text": "Executed 1 test, with 0 failures.\n"}]
         )
-        self.assertEqual(result.returncode, 65)
-        self.assertEqual(len(calls), 1)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(calls), 2)
 
     def test_large_package_resolution_error_retries_once(self):
         result, calls, cleanups = self.run_step(
@@ -144,7 +146,7 @@ class DepotSelectedUnitSuitesTests(unittest.TestCase):
     def test_invalid_suite_is_rejected_without_invoking_xcode(self):
         result, calls, _ = self.run_step([], suites="InvalidSuite;exit 0")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Invalid unit suite identifier", result.stderr)
+        self.assertIn("Invalid unit suite identifier", result.stdout + result.stderr)
         self.assertEqual(calls, [])
 
 
