@@ -15386,6 +15386,9 @@ struct CMUXCLI {
                 exitCode: exitCode
             )
         }
+        // An established endpoint may belong to a recoverable remote PTY.
+        // Only authoritative reconciliation can retire its lifecycle from here.
+        preserveLifecycleForRecovery = true
         do {
             try validateSSHPTYDaemonVersion(
                 bridge["daemon_version"] as? String,
