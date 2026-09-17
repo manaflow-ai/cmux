@@ -45,6 +45,31 @@ public struct RemoteRelayCommandPolicy: Sendable {
         .union(surfaceIDArrayKeys)
         .union(ambiguousIDArrayKeys)
 
+    private static let remoteHookMethods: Set<String> = [
+        "hooks.invoke",
+        "hooks.invoke.begin",
+        "hooks.invoke.append",
+        "hooks.invoke.cancel",
+        "hooks.invoke.execute",
+    ]
+
+    private static let remoteHookRoutingEnvironmentKeys: Set<String> = [
+        "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID",
+        "CMUX_AGENT_LAUNCH_KIND", "CMUX_AGENT_LAUNCH_EXECUTABLE",
+        "CMUX_AGENT_LAUNCH_ARGV_B64", "CMUX_AGENT_LAUNCH_CWD",
+        "CMUX_REMOTE_PTY_SESSION_ID", "CMUX_SSH_PTY_SESSION_ID", "PWD",
+        "CMUX_CLI_TTY_NAME", "CMUX_TTY_NAME", "TTY", "SSH_TTY",
+    ]
+
+    private static let remoteHookFilesystemEnvironmentKeys: Set<String> =
+        remoteHookRoutingEnvironmentKeys.union([
+            "HOME", "CMUX_BUNDLED_CLI_PATH", "CODEX_HOME", "GROK_HOME",
+            "OPENCODE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "PI_CONFIG_DIR",
+            "CAMPFIRE_CODING_AGENT_DIR", "KIRO_HOME", "HERMES_HOME",
+            "COPILOT_HOME", "CODEBUDDY_CONFIG_DIR", "QODER_CONFIG_DIR",
+            "KIMI_SHARE_DIR", "KIMI_CODE_HOME",
+        ])
+
     /// Creates the stateless relay command policy.
     public init() {}
 
@@ -70,9 +95,13 @@ public struct RemoteRelayCommandPolicy: Sendable {
         }
 
         let params = request["params"] as? [String: Any] ?? [:]
-        if method != "surface.resume.set",
+        if method != "surface.resume.set", !Self.remoteHookMethods.contains(method),
            let key = firstKey(in: params, matching: Self.commandKeys) {
             return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
+        }
+        if Self.remoteHookMethods.contains(method),
+           let reason = remoteHookDenialReason(method: method, params: params) {
+            return .deny(reason: reason)
         }
         if method == "surface.split" {
             if let rawType = params["type"] as? String,
@@ -100,6 +129,122 @@ public struct RemoteRelayCommandPolicy: Sendable {
             return .deny(reason: "parameter '\(key)' is not permitted through a remote relay")
         }
         return .allow
+    }
+
+    private func remoteHookDenialReason(
+        method: String,
+        params: [String: Any]
+    ) -> String? {
+        guard let workspaceID = params["workspace_id"] as? String,
+              UUID(uuidString: workspaceID) != nil,
+              let surfaceID = params["surface_id"] as? String,
+              UUID(uuidString: surfaceID) != nil else {
+            return "remote hook requests require explicit workspace_id and surface_id selectors"
+        }
+
+        switch method {
+        case "hooks.invoke", "hooks.invoke.begin":
+            guard let arguments = params["arguments"] as? [String],
+                  remoteHookArgumentsAreAllowed(arguments) else {
+                return "remote hook arguments are invalid"
+            }
+            guard remoteHookEnvironmentIsAllowed(
+                params["environment"],
+                filesystemBridge: arguments.first?.hasPrefix("__remote-") == true
+            ) else {
+                return "remote hook environment is invalid"
+            }
+            if method == "hooks.invoke" {
+                guard let encoded = params["stdin_base64"] as? String,
+                      encoded.utf8.count <= 4 * 1_024 + 16,
+                      let input = Data(base64Encoded: encoded),
+                      input.count <= 3 * 1_024 else {
+                    return "remote hook payload is invalid"
+                }
+            }
+        case "hooks.invoke.append":
+            guard remoteHookTransferIDIsValid(params["transfer_id"]),
+                  let encoded = params["chunk_base64"] as? String,
+                  encoded.utf8.count <= 8 * 1_024 + 16,
+                  let chunk = Data(base64Encoded: encoded),
+                  !chunk.isEmpty,
+                  chunk.count <= 6 * 1_024 else {
+                return "remote hook transfer chunk is invalid"
+            }
+        case "hooks.invoke.cancel", "hooks.invoke.execute":
+            guard remoteHookTransferIDIsValid(params["transfer_id"]) else {
+                return "remote hook transfer id is invalid"
+            }
+        default:
+            return "remote hook method is invalid"
+        }
+        return nil
+    }
+
+    private func remoteHookArgumentsAreAllowed(_ arguments: [String]) -> Bool {
+        guard !arguments.isEmpty,
+              arguments.count <= 32,
+              arguments.allSatisfy({ !$0.contains("\0") && $0.utf8.count <= 4_096 }),
+              let first = arguments.first?.lowercased() else {
+            return false
+        }
+        if first.hasPrefix("__remote-") {
+            switch first {
+            case "__remote-catalog": return arguments.count == 1
+            case "__remote-describe": return arguments.count == 2
+            case "__remote-configure": return arguments.count == 1
+            default: return false
+            }
+        }
+        let prohibitedCommands: Set<String> = ["install", "setup", "uninstall"]
+        guard !prohibitedCommands.contains(first), arguments.count >= 2 else {
+            return false
+        }
+        let prohibitedActions: Set<String> = [
+            "install", "uninstall", "setup", "remove", "install-hooks",
+            "uninstall-hooks",
+        ]
+        return !prohibitedActions.contains(arguments[1].lowercased())
+    }
+
+    private func remoteHookEnvironmentIsAllowed(
+        _ rawEnvironment: Any?,
+        filesystemBridge: Bool
+    ) -> Bool {
+        guard let environment = rawEnvironment as? [String: String],
+              environment.count <= 32 else {
+            return false
+        }
+        let allowed = filesystemBridge
+            ? Self.remoteHookFilesystemEnvironmentKeys
+            : Self.remoteHookRoutingEnvironmentKeys
+        var totalBytes = 0
+        for (key, value) in environment {
+            guard allowed.contains(key),
+                  !key.contains("\0"), !value.contains("\0"),
+                  key.utf8.count <= 128, value.utf8.count <= 2 * 1_024 else {
+                return false
+            }
+            totalBytes += key.utf8.count + value.utf8.count
+            guard totalBytes <= 4 * 1_024 else { return false }
+        }
+        return true
+    }
+
+    private func remoteHookTransferIDIsValid(_ rawValue: Any?) -> Bool {
+        guard let value = rawValue as? String else { return false }
+        let components = value.split(
+            separator: ":",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        )
+        guard components.count == 2,
+              let slot = Int(components[0]),
+              (0 ..< 4).contains(slot),
+              let uuid = UUID(uuidString: String(components[1])) else {
+            return false
+        }
+        return uuid.uuidString == components[1].uppercased()
     }
 
     private func firstKey(in value: Any, matching keys: Set<String>) -> String? {

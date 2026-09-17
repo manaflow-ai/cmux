@@ -11,6 +11,8 @@ import (
 
 func TestChunkedHookAppendFailureCancelsTransfer(t *testing.T) {
 	sockPath, requests := startFailingHookAppendSocket(t)
+	t.Setenv("CMUX_WORKSPACE_ID", "00000000-0000-0000-0000-000000000010")
+	t.Setenv("CMUX_SURFACE_ID", "00000000-0000-0000-0000-000000000020")
 	_, err := invokeRemoteHook(
 		sockPath,
 		[]string{"omp", "session-start"},
@@ -28,6 +30,10 @@ func TestChunkedHookAppendFailureCancelsTransfer(t *testing.T) {
 		}
 		if expectedMethod == "hooks.invoke.cancel" && params(request)["transfer_id"] != "0:00000000-0000-0000-0000-000000000001" {
 			t.Fatalf("cancel request lost transfer id: %#v", params(request))
+		}
+		if params(request)["workspace_id"] != "00000000-0000-0000-0000-000000000010" ||
+			params(request)["surface_id"] != "00000000-0000-0000-0000-000000000020" {
+			t.Fatalf("%s request lost relay scope: %#v", expectedMethod, params(request))
 		}
 	}
 }

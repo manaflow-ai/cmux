@@ -436,28 +436,52 @@ func invokeRemoteHook(socketPath string, arguments []string, stdin []byte, refre
 	cancelPending := true
 	defer func() {
 		if cancelPending {
-			_, _ = socketRoundTripV2WithTimeout(socketPath, "hooks.invoke.cancel", map[string]any{
+			cancelParams := remoteHookScopedParams(environment, map[string]any{
 				"transfer_id": begin.TransferID,
-			}, refreshAddr, remoteHookCleanupTimeout)
+			})
+			_, _ = socketRoundTripV2WithTimeout(
+				socketPath,
+				"hooks.invoke.cancel",
+				cancelParams,
+				refreshAddr,
+				remoteHookCleanupTimeout,
+			)
 		}
 	}()
 	for offset := 0; offset < len(stdin); offset += remoteHookChunkBytes {
 		end := min(offset+remoteHookChunkBytes, len(stdin))
-		chunkParams := map[string]any{
+		chunkParams := remoteHookScopedParams(environment, map[string]any{
 			"transfer_id":  begin.TransferID,
 			"chunk_base64": base64.StdEncoding.EncodeToString(stdin[offset:end]),
-		}
+		})
 		if _, err := socketRoundTripV2WithTimeout(socketPath, "hooks.invoke.append", chunkParams, refreshAddr, remoteHookTimeout); err != nil {
 			return remoteHookInvocationResult{}, err
 		}
 	}
-	response, err = socketRoundTripV2WithTimeout(socketPath, "hooks.invoke.execute", map[string]any{
+	executeParams := remoteHookScopedParams(environment, map[string]any{
 		"transfer_id": begin.TransferID,
-	}, refreshAddr, remoteHookTimeout)
+	})
+	response, err = socketRoundTripV2WithTimeout(
+		socketPath,
+		"hooks.invoke.execute",
+		executeParams,
+		refreshAddr,
+		remoteHookTimeout,
+	)
 	if err == nil {
 		cancelPending = false
 	}
 	return decodeRemoteHookInvocation(response, err)
+}
+
+func remoteHookScopedParams(environment map[string]string, params map[string]any) map[string]any {
+	if workspaceID := environment["CMUX_WORKSPACE_ID"]; workspaceID != "" {
+		params["workspace_id"] = workspaceID
+	}
+	if surfaceID := environment["CMUX_SURFACE_ID"]; surfaceID != "" {
+		params["surface_id"] = surfaceID
+	}
+	return params
 }
 
 func decodeRemoteHookInvocation(response string, err error) (remoteHookInvocationResult, error) {
