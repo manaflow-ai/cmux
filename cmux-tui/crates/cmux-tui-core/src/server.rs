@@ -1190,8 +1190,14 @@ enum Command {
     },
     MoveTab {
         surface: SurfaceId,
-        pane: PaneId,
+        #[serde(default)]
+        pane: Option<PaneId>,
+        #[serde(default)]
         index: usize,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        new_workspace: bool,
     },
     MoveWorkspace {
         #[serde(default)]
@@ -12300,7 +12306,13 @@ fn handle_command_with_cancellation(
                 "generation":generation,
             }))
         }
-        Command::MoveTab { surface, pane, index } => {
+        Command::MoveTab { surface, pane, index, workspace, new_workspace } => {
+            anyhow::ensure!(usize::from(pane.is_some()) + usize::from(workspace.is_some()) + usize::from(new_workspace) == 1, "choose one tab move destination");
+            if pane.is_none() {
+                mux.move_tab_to_workspace(surface, workspace)?;
+                return Ok(json!({}));
+            }
+            let pane = pane.expect("validated pane destination");
             let valid = mux.with_state(|state| {
                 state.surfaces.contains_key(&surface)
                     && state.panes.contains_key(&pane)

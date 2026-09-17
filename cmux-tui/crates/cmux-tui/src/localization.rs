@@ -207,6 +207,8 @@ impl MachineAgentMessages {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MenuMessages {
+    pub move_tab_workspace: &'static str,
+    pub move_tab_new_workspace: &'static str,
     pub copy_message: &'static str,
     pub copy_workspace_id: &'static str,
     pub copy_tab_id: &'static str,
@@ -1388,6 +1390,8 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_argument: "Unknown machine-agent argument: {argument}",
     },
     menu: MenuMessages {
+        move_tab_workspace: "Move tab to workspace",
+        move_tab_new_workspace: "New workspace",
         copy_message: "Copy message",
         copy_workspace_id: "Copy workspace id",
         copy_tab_id: "Copy tab id",
@@ -2073,6 +2077,8 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_argument: "不明な machine-agent 引数です: {argument}",
     },
     menu: MenuMessages {
+        move_tab_workspace: "タブをワークスペースへ移動",
+        move_tab_new_workspace: "新しいワークスペース",
         copy_message: "メッセージをコピー",
         copy_workspace_id: "ワークスペース ID をコピー",
         copy_tab_id: "タブ ID をコピー",

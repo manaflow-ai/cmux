@@ -18230,7 +18230,7 @@ mod tests {
         mux.with_state(|state| {
             assert_eq!(state.workspaces.len(), 2);
             assert_eq!(state.resource_revision, before + 1);
-            assert_eq!(state.active_surface(), Some(second.id));
+            assert_eq!(state.active_pane().and_then(|id| state.panes[&id].active_surface()), Some(second.id));
             assert!(state.pane_of(first.id).is_some());
         });
         assert!(Arc::ptr_eq(&second, &mux.surface(second.id).unwrap()));
