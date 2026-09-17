@@ -270,7 +270,11 @@ actor CloudMachineLink {
                     return .timedOut
                 }
                 defer { group.cancelAll() }
-                switch try await group.next() {
+                let firstLine = try await group.next()
+                // Cancellation closes the first-value waiter as well as the
+                // timeout task. Its EOF must not be reported as a client exit.
+                try Task.checkCancellation()
+                switch firstLine {
                 case .socket(let socket)?:
                     return socket
                 case .ended?:
@@ -298,6 +302,7 @@ actor CloudMachineLink {
                 self.processExit = nil
             }
             await releaseHubLeaseOnce()
+            try Task.checkCancellation()
             throw error
         }
         let connected = Connected(socketPath: socketPath, session: session)
