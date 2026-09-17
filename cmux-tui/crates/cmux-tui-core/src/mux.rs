@@ -22540,7 +22540,11 @@ mod tests {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
         };
 
-        let registry = WorkspaceRegistry::in_memory("roster-gap").unwrap();
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-gap-{}", crate::workspace_registry::new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "roster-gap").unwrap();
+        let connection =
+            rusqlite::Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
         let snapshot = AgentRoster::default().snapshot().to_string();
         registry
             .put_journal_reducer_state(
@@ -22550,8 +22554,7 @@ mod tests {
                 &snapshot,
             )
             .unwrap();
-        registry
-            .connection
+        connection
             .execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,
@@ -22566,6 +22569,9 @@ mod tests {
         let (_, cursor, _) =
             registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
         assert_eq!(cursor, 0, "failed recovery must leave the durable snapshot untouched");
+        drop(connection);
+        drop(registry);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
