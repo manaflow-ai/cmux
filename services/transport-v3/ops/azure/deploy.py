@@ -147,7 +147,7 @@ def main():
     else:
         # ACR tags are commonly shortened for operator readability. Resolve the
         # full immutable commit tag first, then its exact 12-character prefix.
-        candidates = [build_tag, f'relay:{sha[:12]}']
+        candidates = [build_tag, *(f'relay:{sha[:length]}' for length in range(8, 17))]
         for candidate in candidates:
             try:
                 digest = az('acr','repository','show','-n',ARGS.registry,'--image',candidate)['digest']
