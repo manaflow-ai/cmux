@@ -11,7 +11,7 @@ test("create, fork, and restore reject a 64 GB machine on Pro before provisionin
   let creates = 0;
   const reservation = { memoryMb: 65536, vcpus: 16, diskMb: 131072 };
   const repo = {
-    findUserVm: () => Effect.succeed({ id: "row", userId: "user", billingTeamId: "team", status: "running", provider: "freestyle", providerVmId: "vm", providerMetadata: { cmuxResourceReservation: reservation } }),
+    findUserVm: () => Effect.succeed({ id: "row", userId: "user", billingTeamId: "team", ownerTeamId: "team", coderouterPoolId: null, status: "running", provider: "freestyle", providerVmId: "vm", providerMetadata: { cmuxResourceReservation: reservation } }),
     hasOwnedSnapshot: () => Effect.succeed(true),
     ownedSnapshotResourceReservation: () => Effect.succeed(reservation),
     beginCreate: () => Effect.sync(() => { creates++; throw new Error("must not create"); }),
@@ -51,7 +51,7 @@ test("a gateway fork method cannot override the provider capability", async () =
   let forks = 0;
   let creates = 0;
   const repo = {
-    findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", status: "running", provider: "freestyle",
+    findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", ownerTeamId: "u", coderouterPoolId: null, status: "running", provider: "freestyle",
       providerVmId: "vm", providerMetadata: { cmuxResourceReservation: { memoryMb: 8192, vcpus: 4, diskMb: 32768 } } }),
     beginCreate: () => Effect.sync(() => { creates++; throw new Error("must not reserve a native fork"); }),
   } as unknown as VmRepositoryShape;
@@ -71,7 +71,7 @@ test("a gateway fork method cannot override the provider capability", async () =
 
 test("Pro cannot bypass the memory gate with unknown snapshot or fork dimensions", async () => {
   const repo = {
-    findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", status: "running", provider: "freestyle", providerVmId: "vm", providerMetadata: {} }),
+    findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", ownerTeamId: "u", coderouterPoolId: null, status: "running", provider: "freestyle", providerVmId: "vm", providerMetadata: {} }),
     hasOwnedSnapshot: () => Effect.succeed(true),
     ownedSnapshotResourceReservation: () => Effect.succeed(null),
   } as unknown as VmRepositoryShape;

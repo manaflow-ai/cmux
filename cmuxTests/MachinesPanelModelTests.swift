@@ -30,7 +30,6 @@ final class MachinesPanelModelTests: XCTestCase {
             Date(timeIntervalSince1970: 1_787_400_000)
         )
     }
-
     func testDesktopImageDetection() {
         let desktop = MachineSnapshotBuilder.snapshot(from: VMSummary(
             id: "noble-dolphin",
@@ -753,7 +752,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
 
         let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
-        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_b", "tab_a"])
+        XCTAssertEqual(group.placements.map(\.remoteTabID), ["tab_a", "tab_b"])
     }
 
     @MainActor
@@ -772,9 +771,12 @@ final class MachinesPanelModelTests: XCTestCase {
         catalog.register(provider)
         XCTAssertTrue(catalog.replaceResources([resource], on: machine, info: provider.info, from: provider))
 
-        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)
-        XCTAssertEqual(group.resources, [resource.id])
-        XCTAssertEqual(group.placements.first?.remoteWorkspaceID, workspace.id)
+        XCTAssertThrowsError(try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: workspace.id)) { error in
+            XCTAssertEqual(
+                error as? SurfaceCatalogError,
+                .destinationNotFound("workspace ws_legacy on legacy-group-test has no projectable resources")
+            )
+        }
     }
 
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {
