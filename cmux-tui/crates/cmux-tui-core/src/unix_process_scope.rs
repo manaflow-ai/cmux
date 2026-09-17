@@ -43,7 +43,10 @@ struct ProcessIdentity {
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 struct FileMarker {
+    #[cfg(not(target_os = "linux"))]
     device: u64,
+    #[cfg(target_os = "linux")]
+    mount_id: u64,
     inode: u64,
 }
 
@@ -75,6 +78,9 @@ impl Default for TrackedProcesses {
 #[derive(Clone)]
 struct ScopeRegistration {
     marker: String,
+    // Keep the unlinked marker inode reserved until every asynchronous scan
+    // releases this registration, even after the command scope is dropped.
+    _marker_fd: Arc<OwnedFd>,
     file_marker: FileMarker,
     root: ProcessIdentity,
     tracked: Arc<Mutex<TrackedProcesses>>,
@@ -143,7 +149,7 @@ struct ProcessScopeTracker {
 /// that leave that group.
 pub struct UnixProcessScope {
     marker: String,
-    _marker_fd: OwnedFd,
+    _marker_fd: Arc<OwnedFd>,
     file_marker: FileMarker,
     root: Option<ProcessIdentity>,
     #[cfg(target_os = "linux")]
@@ -304,7 +310,7 @@ impl UnixProcessScope {
         let (marker_fd, file_marker) = create_file_marker(&marker)?;
         Ok(Self {
             marker,
-            _marker_fd: marker_fd,
+            _marker_fd: Arc::new(marker_fd),
             file_marker,
             root: None,
             #[cfg(target_os = "linux")]
@@ -351,8 +357,8 @@ impl UnixProcessScope {
     }
 
     /// Select this command as the only child that receives the scope
-    /// identities. The file was opened with `O_CLOEXEC`, so unrelated
-    /// concurrent spawns cannot inherit it.
+    /// identities. Only this child clears `FD_CLOEXEC`; scans ignore the
+    /// close-on-exec copies that unrelated forks hold until they exec.
     pub fn configure(&self, command: &mut Command) {
         command.env(PROCESS_SCOPE_ENV, &self.marker);
         let marker_fd = self._marker_fd.as_raw_fd();
@@ -427,6 +433,7 @@ impl UnixProcessScope {
         let registry = process_scope_tracker();
         let registration = registry.register(ScopeRegistration {
             marker: self.marker.clone(),
+            _marker_fd: self._marker_fd.clone(),
             file_marker: self.file_marker,
             root,
             tracked: self.tracked.clone(),
@@ -903,6 +910,35 @@ fn create_file_marker(marker: &str) -> io::Result<(OwnedFd, FileMarker)> {
     Ok((file.into(), identity))
 }
 
+#[cfg(target_os = "linux")]
+fn linux_read_fdinfo(path: &std::path::Path) -> io::Result<String> {
+    use std::io::Read as _;
+
+    // The identity fields precede descriptor-specific data, which can grow
+    // arbitrarily large for epoll and inotify descriptors.
+    let mut info = String::new();
+    std::fs::File::open(path)?.take(256).read_to_string(&mut info)?;
+    Ok(info)
+}
+
+#[cfg(target_os = "linux")]
+fn linux_file_marker_from_fdinfo(info: &str) -> Option<(FileMarker, bool)> {
+    let mut flags = None;
+    let mut mount_id = None;
+    let mut inode = None;
+    for line in info.lines() {
+        let Some((key, value)) = line.split_once(':') else { continue };
+        let value = value.trim();
+        match key {
+            "flags" => flags = Some(u32::from_str_radix(value, 8).ok()?),
+            "mnt_id" => mount_id = Some(value.parse().ok()?),
+            "ino" => inode = Some(value.parse().ok()?),
+            _ => {}
+        }
+    }
+    Some((FileMarker { mount_id: mount_id?, inode: inode? }, flags? & libc::O_CLOEXEC as u32 == 0))
+}
+
 fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::zeroed();
     if unsafe { libc::fstat(fd, stat.as_mut_ptr()) } != 0 {
@@ -913,10 +949,25 @@ fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
     #[cfg(target_os = "macos")]
     let device = u64::try_from(stat.st_dev)
         .map_err(|_| io::Error::other("file marker device is out of range"))?;
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let device = stat.st_dev;
     let inode = stat.st_ino;
-    Ok(FileMarker { device, inode })
+    #[cfg(target_os = "linux")]
+    {
+        // This descriptor is owned and cannot be reused during fstat/fdinfo.
+        // Kernels before 5.14 omit fdinfo's inode; they still support scopes
+        // through the group fence, environment marker, and known lineage.
+        let info = linux_read_fdinfo(std::path::Path::new(&format!("/proc/self/fdinfo/{fd}")))?;
+        let mount_id = info
+            .lines()
+            .find_map(|line| line.strip_prefix("mnt_id:")?.trim().parse().ok())
+            .ok_or_else(|| io::Error::other("process scope mount identity is unavailable"))?;
+        Ok(FileMarker { mount_id, inode })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(FileMarker { device, inode })
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1045,8 +1096,6 @@ fn scan_registered_processes(
     scopes: &[ScopeRegistration],
     cursor: ProcessScanCursor,
 ) -> ProcessScanResult {
-    use std::os::unix::fs::MetadataExt as _;
-
     let mut result = ProcessScanResult::default();
     let earliest_start = scopes.iter().map(|scope| scope.root.started).min().unwrap_or(0);
     let expected =
@@ -1105,7 +1154,7 @@ fn scan_registered_processes(
                 }
             }
         }
-        if let Ok(fds) = std::fs::read_dir(process.join("fd")) {
+        if let Ok(fds) = std::fs::read_dir(process.join("fdinfo")) {
             let after_fd = cursor
                 .file_descriptors
                 .filter(|(resume_pid, _)| *resume_pid == pid)
@@ -1134,9 +1183,12 @@ fn scan_registered_processes(
                 }
                 remaining_file_descriptors -= 1;
                 last_fd = fd;
-                let Some(marker) = std::fs::metadata(path)
+                // fdinfo captures the file reference and close-on-exec flag
+                // under the same kernel lock. A separate fd metadata lookup
+                // could accidentally combine identities after descriptor reuse.
+                let Some((marker, true)) = linux_read_fdinfo(&path)
                     .ok()
-                    .map(|metadata| FileMarker { device: metadata.dev(), inode: metadata.ino() })
+                    .and_then(|info| linux_file_marker_from_fdinfo(&info))
                 else {
                     continue;
                 };
@@ -1278,7 +1330,7 @@ fn scan_registered_processes(
 #[repr(C)]
 struct ProcFileInfo {
     _open_flags: u32,
-    _status: u32,
+    status: u32,
     _offset: libc::off_t,
     _file_type: i32,
     _guard_flags: u32,
@@ -1318,7 +1370,7 @@ unsafe extern "C" {
 #[cfg(target_os = "macos")]
 #[repr(C)]
 struct VnodeFdInfo {
-    _file: ProcFileInfo,
+    file: ProcFileInfo,
     vnode: libc::vnode_info,
 }
 
@@ -1335,6 +1387,7 @@ fn mac_process_file_markers(
     remaining: &mut usize,
 ) -> MacFileMarkerScan {
     const PROC_PIDFDVNODEINFO: libc::c_int = 1;
+    const PROC_FP_CLEXEC: u32 = 2;
     let empty = || MacFileMarkerScan { markers: Vec::new(), next_fd: None };
     let Ok(pid_int) = libc::c_int::try_from(pid) else { return empty() };
     let bytes =
@@ -1386,6 +1439,9 @@ fn mac_process_file_markers(
             }
             // SAFETY: proc_pidfdinfo initialized the full structure.
             let info = unsafe { info.assume_init() };
+            if info.file.status & PROC_FP_CLEXEC != 0 {
+                return None;
+            }
             Some(FileMarker {
                 device: u64::from(info.vnode.vi_stat.vst_dev),
                 inode: info.vnode.vi_stat.vst_ino,
@@ -1506,6 +1562,146 @@ fn process_identity(pid: u32) -> Option<ProcessIdentity> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn file_marker_ownership_requires_explicit_inheritance() {
+        use std::io::Read as _;
+        use std::os::unix::net::UnixStream;
+
+        struct ForkChild(libc::pid_t);
+        impl Drop for ForkChild {
+            fn drop(&mut self) {
+                // SAFETY: this PID remains our unreaped child until waitpid.
+                unsafe {
+                    libc::kill(self.0, libc::SIGKILL);
+                    while libc::waitpid(self.0, std::ptr::null_mut(), 0) < 0 {
+                        if io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        let unrelated = UnixProcessScope::prepare().unwrap();
+        let intended = UnixProcessScope::prepare().unwrap();
+        let (mut ready, signal) = UnixStream::pair().unwrap();
+        ready.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let inherited_fd = intended._marker_fd.as_raw_fd();
+        let signal_fd = signal.as_raw_fd();
+        // SAFETY: the child calls only async-signal-safe syscalls and never
+        // touches Rust state or destructors inherited from concurrent tests.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed: {}", io::Error::last_os_error());
+        if pid == 0 {
+            unsafe {
+                let flags = libc::fcntl(inherited_fd, libc::F_GETFD);
+                let granted = flags >= 0
+                    && libc::fcntl(inherited_fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) == 0;
+                let byte = u8::from(granted);
+                if libc::write(signal_fd, (&byte as *const u8).cast(), 1) != 1 || !granted {
+                    libc::_exit(1);
+                }
+                loop {
+                    libc::pause();
+                }
+            }
+        }
+        let child = ForkChild(pid);
+        drop(signal);
+        let mut ready_byte = [0];
+        ready.read_exact(&mut ready_byte).unwrap();
+        assert_eq!(ready_byte, [1], "child could not grant marker inheritance");
+        let identity = process_identity(pid as u32).unwrap();
+        let scopes = [&unrelated, &intended].map(|scope| ScopeRegistration {
+            marker: scope.marker.clone(),
+            _marker_fd: scope._marker_fd.clone(),
+            file_marker: scope.file_marker,
+            // This scan tests descriptor ownership alone, with no root lineage
+            // or marker environment entry able to claim the forked process.
+            root: ProcessIdentity { pid: u32::MAX, started: 0 },
+            tracked: scope.tracked.clone(),
+            track_before_finalization: true,
+            final_scan_gate: None,
+        });
+        let mut cursor = ProcessScanCursor::default();
+        let mut matches = HashSet::new();
+        loop {
+            let scan = scan_registered_processes(&scopes, cursor);
+            matches.extend(scan.matches);
+            let Some(next) = scan.next else { break };
+            cursor = next;
+        }
+        assert!(matches.contains(&(1, identity)), "explicitly inherited marker lost ownership");
+        assert!(
+            !matches.contains(&(0, identity)),
+            "a close-on-exec marker claimed an unrelated pre-exec fork"
+        );
+        for (scope, identity) in matches {
+            record_tracked_process(&scopes[scope], identity);
+        }
+        assert!(scope_known_identities(&scopes[0]).is_empty());
+        assert!(scope_known_identities(&scopes[1]).contains(&identity));
+        let exited = UnixChildExitSignal::observe(pid as u32).unwrap();
+        unrelated.signal_tracked();
+        assert!(!exited.try_waitable().unwrap());
+        intended.signal_tracked();
+        assert!(exited.wait_until(Instant::now() + Duration::from_secs(10)).unwrap());
+        exited.finish();
+        drop(child);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn file_marker_survives_until_async_final_scan_releases_ownership() {
+        let mut scope = UnixProcessScope::prepare().unwrap();
+        let (reached, resume) = scope.final_scan_gate_for_test();
+        let marker_fd = scope._marker_fd.as_raw_fd();
+        let marker = scope.file_marker;
+        let mut command = UnixProcessScope::suspended_command("/bin/sleep");
+        command.arg("30");
+        scope.configure(&mut command);
+        let mut child = command.spawn().unwrap();
+        scope.bind(child.id()).unwrap();
+
+        // An expired deadline leaves finalization with the tracker. Reap the
+        // root so no child-held descriptor can keep the marker inode alive.
+        scope.terminate_until(Instant::now());
+        drop(scope);
+        child.wait().unwrap();
+        reached.recv_timeout(Duration::from_secs(10)).unwrap();
+        let retained_marker = file_marker_for_fd(marker_fd).ok();
+        // Always release the tracker before reporting the regression failure.
+        resume.send(()).unwrap();
+        assert_eq!(
+            retained_marker,
+            Some(marker),
+            "async finalization released its marker before ownership scanning ended"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_file_marker_requires_complete_identity_and_inheritance_flags() {
+        let marker = FileMarker { mount_id: 12, inode: 345 };
+        assert_eq!(
+            linux_file_marker_from_fdinfo("pos:\t0\nflags:\t0100002\nmnt_id:\t12\nino:\t345\n"),
+            Some((marker, true))
+        );
+        assert_eq!(
+            linux_file_marker_from_fdinfo("pos:\t0\nflags:\t02100002\nmnt_id:\t12\nino:\t345\n"),
+            Some((marker, false))
+        );
+        for incomplete in [
+            "mnt_id: 12\nino: 345\n",
+            "flags: invalid\nmnt_id: 12\nino: 345\n",
+            "flags: 02\nino: 345\n",
+            "flags: 02\nmnt_id: 12\n",
+        ] {
+            assert_eq!(linux_file_marker_from_fdinfo(incomplete), None);
+        }
+    }
 
     #[cfg(target_os = "linux")]
     #[test]
