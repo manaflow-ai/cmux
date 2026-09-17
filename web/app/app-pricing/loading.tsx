@@ -1,1 +1,1 @@
-export { default } from "../[locale]/pricing/loading";
+export { AppPricingFallback as default } from "./pricing-fallback";

@@ -1,5 +1,6 @@
+import { connection } from "next/server";
 import { getTranslations } from "next-intl/server";
-import { Suspense } from "react";
+import { cache, Suspense, type ReactNode } from "react";
 import { SiteHeader } from "../components/site-header";
 import { Link } from "../../../i18n/navigation";
 import { ProCtaLink } from "../components/pro-cta-link";
@@ -67,7 +68,6 @@ const ENTERPRISE_CTA_URL = "/enterprise";
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 const HOSTED_NETWORKING_ENABLED = false;
 
-
 export async function generateMetadata({
   params,
 }: {
@@ -102,19 +102,106 @@ export async function generateMetadata({
   };
 }
 
-// oxlint-disable-next-line complexity -- Pricing presentation keeps all five plan actions and billing states together.
+type PricingQuery = Record<string, string | string[] | undefined>;
+type PricingTranslations = Awaited<ReturnType<typeof getTranslations>>;
+
+const unknownPlan: PlanSnapshot = {
+  authenticated: false,
+  planId: "free",
+  isPro: false,
+  billingManagement: "none",
+};
+
 export default async function PricingPage({
   params,
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  searchParams?: Promise<PricingQuery>;
 }) {
   const { locale } = await params;
-  const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
-  const snapshot = await currentPlanSnapshot();
-  const goPlanEnabled = await isGoPlanEnabled(snapshot.userId);
+  const fallback = {
+    t,
+    query: {},
+    snapshot: unknownPlan,
+    goPlanEnabled: false,
+    pending: true,
+  };
+  const personalize = (section: "individual" | "team" | "comparison") => (
+    <Suspense fallback={<PricingContent {...fallback} section={section} />}>
+      <PersonalizedPricing
+        t={t}
+        searchParams={searchParams}
+        section={section}
+      />
+    </Suspense>
+  );
+  return (
+    <PricingView surface="public_pricing">
+      <PricingContent
+        {...fallback}
+        personalization={{
+          individual: personalize("individual"),
+          team: personalize("team"),
+          comparison: personalize("comparison"),
+        }}
+      />
+    </PricingView>
+  );
+}
+
+const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
+  const [snapshot, query] = await Promise.all([
+    currentPlanSnapshot(),
+    searchParams ?? Promise.resolve({}),
+  ]);
+  // Paid subscribers cannot buy Go. Do not call PostHog for their page view.
+  const goPlanEnabled =
+    !snapshot.isPro && (await isGoPlanEnabled(snapshot.userId));
+  return { snapshot, query, goPlanEnabled };
+});
+
+async function PersonalizedPricing({
+  t,
+  searchParams,
+  section,
+}: {
+  t: PricingTranslations;
+  searchParams?: Promise<PricingQuery>;
+  section: "individual" | "team" | "comparison";
+}) {
+  return (
+    <PricingContent
+      t={t}
+      {...await pricingState(searchParams)}
+      section={section}
+    />
+  );
+}
+
+// oxlint-disable-next-line complexity -- All plan actions share the same billing snapshot.
+function PricingContent({
+  t,
+  query,
+  snapshot,
+  goPlanEnabled,
+  pending = false,
+  section,
+  personalization,
+}: {
+  t: PricingTranslations;
+  query: PricingQuery;
+  snapshot: PlanSnapshot;
+  goPlanEnabled: boolean;
+  pending?: boolean;
+  section?: "individual" | "team" | "comparison";
+  personalization?: {
+    individual: ReactNode;
+    team: ReactNode;
+    comparison: ReactNode;
+  };
+}) {
   const canManageBilling = snapshot.billingManagement === "stripe";
   // Max satisfies every "is Pro" check, so the Pro card must not call a Max
   // subscriber's plan current; only the Max card does.
@@ -130,7 +217,10 @@ export default async function PricingPage({
     ...checkoutAttributionParamsFrom(query),
   };
   const proCheckoutURL = withCheckoutAttribution(PRO_CHECKOUT_URL, attribution);
-  const teamCheckoutURL = withCheckoutAttribution(TEAM_CHECKOUT_URL, attribution);
+  const teamCheckoutURL = withCheckoutAttribution(
+    TEAM_CHECKOUT_URL,
+    attribution,
+  );
   // Max is monthly only: one checkout link, no interval parameter.
   const maxCheckoutHref = withCheckoutAttribution(
     snapshot.authenticated && snapshot.isPro && !isMax
@@ -148,7 +238,9 @@ export default async function PricingPage({
   const freeFeatures = t.raw("free.features") as string[];
   const proBaseFeatures = t.raw("pro.features") as string[];
   const proVaultFeatures = t.raw("pro.vaultFeatures") as string[];
-  const proNetworkingFeatures = t.raw("pro.hostedNetworkingFeatures") as string[];
+  const proNetworkingFeatures = t.raw(
+    "pro.hostedNetworkingFeatures",
+  ) as string[];
   const featureVisibility = {
     vault: isVaultEnabled(),
     hostedNetworking: HOSTED_NETWORKING_ENABLED,
@@ -174,6 +266,255 @@ export default async function PricingPage({
   const linkClass =
     "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
+  const individual = (
+    <PricingCategorySection
+      showHeading={false}
+      id="individual-pricing-category"
+      title={t("categories.individual.title")}
+      description={t("categories.individual.description")}
+      columns={showGo ? "four" : "three"}
+    >
+      {/* Free */}
+      <PlanCard
+        name={t("free.name")}
+        price={t("free.price")}
+        period={t("perMonth")}
+      >
+        <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>
+          {t("free.cta")}
+        </PrimaryLink>
+        <p className="mt-5 text-sm font-medium">{t("free.featuresLead")}</p>
+        <FeatureList items={freeFeatures} />
+      </PlanCard>
+
+      {showGo ? (
+        <>
+          {/* Go: one small, capped Cloud VM for focused work. */}
+          <PlanCard
+            name={t("go.name")}
+            price={`$${GO_PRICING_USD.month.billedAmount}`}
+            period={t("perMonth")}
+            badge={
+              isGo ? (
+                <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
+              ) : null
+            }
+          >
+            {isGo ? (
+              <div className="space-y-2">
+                {canManageBilling ? (
+                  <SecondaryLink href="/api/billing/portal">
+                    {t("manageBilling")}
+                  </SecondaryLink>
+                ) : (
+                  <DisabledButton>{t("currentPlan")}</DisabledButton>
+                )}
+              </div>
+            ) : (
+              <PricingCheckoutButton
+                href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
+                requiresSignIn={!pending && !snapshot.authenticated}
+                location="pricing_page"
+                plan="go"
+              >
+                {t("go.cta")}
+              </PricingCheckoutButton>
+            )}
+            <p className="mt-5 text-sm font-medium">{t("go.featuresLead")}</p>
+            <FeatureList items={t.raw("go.features") as string[]} />
+          </PlanCard>
+        </>
+      ) : null}
+
+      {/* Pro */}
+      <PlanCard
+        name={t("pro.name")}
+        price={`$${PRO_PRICING_USD.month.billedAmount}`}
+        period={t("perMonth")}
+        badge={
+          isProCurrent ? (
+            <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
+          ) : null
+        }
+      >
+        {isProCurrent ? (
+          <div className="space-y-2">
+            <SecondaryLink href="/api/billing/portal">
+              {t("manageBilling")}
+            </SecondaryLink>
+          </div>
+        ) : (canManageBilling && !isGo) || isMax ? (
+          <SecondaryLink href="/api/billing/portal">
+            {t("manageBilling")}
+          </SecondaryLink>
+        ) : (
+          <ProCtaLink
+            checkoutHref={proCheckoutHref}
+            requiresSignIn={!pending && !snapshot.authenticated}
+          >
+            {t("pro.cta")}
+          </ProCtaLink>
+        )}
+        <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
+        <FeatureList items={proFeatures} />
+      </PlanCard>
+
+      {/* Max: larger machines on the monthly personal plan.
+                A Pro subscriber sees checkout; the server routes an active
+                Pro subscription to the Stripe portal upgrade flow. */}
+      <PlanCard
+        name={t("max.name")}
+        price={`$${MAX_PRICING_USD.month.billedAmount}`}
+        period={t("perMonth")}
+        badge={
+          isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
+        }
+      >
+        {isMax ? (
+          <div className="space-y-2">
+            <SecondaryLink href="/api/billing/portal">
+              {t("manageBilling")}
+            </SecondaryLink>
+          </div>
+        ) : canManageBilling && !snapshot.isPro ? (
+          <SecondaryLink href="/api/billing/portal">
+            {t("manageBilling")}
+          </SecondaryLink>
+        ) : (
+          <PricingCheckoutButton
+            href={maxCheckoutHref}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            location="pricing_page"
+            plan="max"
+          >
+            {t("max.cta")}
+          </PricingCheckoutButton>
+        )}
+        <p className="mt-5 text-sm font-medium">{t("max.featuresLead")}</p>
+        <FeatureList items={maxFeatures} />
+      </PlanCard>
+    </PricingCategorySection>
+  );
+  const comparison = (
+    <PricingCompareTable
+      rows={compareRows}
+      showGo={showGo}
+      names={{
+        free: t("free.name"),
+        go: t("go.name"),
+        pro: t("pro.name"),
+        max: t("max.name"),
+        team: t("team.name"),
+        enterprise: t("enterprise.name"),
+      }}
+      prices={{
+        free: t("free.price"),
+        go: `$${GO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
+        pro: `$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
+        max: maxComparePrice,
+        team: teamMonthlyComparePrice,
+        enterprise: t("enterprise.price"),
+      }}
+      actions={{
+        free: (
+          <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
+            {t("free.cta")}
+          </PrimaryLink>
+        ),
+        pro: isProCurrent ? (
+          <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+        ) : (canManageBilling && !isGo) || isMax ? (
+          <SecondaryLink href="/api/billing/portal" size="compact">
+            {t("manageBilling")}
+          </SecondaryLink>
+        ) : (
+          <ProCtaLink
+            checkoutHref={proCheckoutHref}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            size="compact"
+            location="pricing_compare_header"
+          >
+            {t("pro.cta")}
+          </ProCtaLink>
+        ),
+        max: isMax ? (
+          <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
+        ) : canManageBilling && !snapshot.isPro ? (
+          <SecondaryLink href="/api/billing/portal" size="compact">
+            {t("manageBilling")}
+          </SecondaryLink>
+        ) : (
+          <PricingCheckoutButton
+            href={maxCheckoutHref}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            location="pricing_compare_header"
+            plan="max"
+            size="compact"
+          >
+            {t("max.cta")}
+          </PricingCheckoutButton>
+        ),
+        team: (
+          <PricingCheckoutButton
+            href={teamCheckoutHref}
+            requiresSignIn={!pending && !snapshot.authenticated}
+            location="pricing_compare_header"
+            plan="team"
+            size="compact"
+          >
+            {t("team.cta")}
+          </PricingCheckoutButton>
+        ),
+        enterprise: (
+          <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
+            {t("enterprise.cta")}
+          </SecondaryLink>
+        ),
+      }}
+    />
+  );
+  const team = (
+    <PricingCategorySection
+      showHeading={false}
+      id="team-enterprise-pricing-category"
+      title={t("categories.business.title")}
+      description={t("categories.business.description")}
+      columns="two"
+    >
+      {/* Team */}
+      <PlanCard
+        name={t("team.name")}
+        price={`$${TEAM_PRICING_USD.month.billedAmount}`}
+        period={t("perUserMonth")}
+      >
+        <PricingCheckoutButton
+          href={teamCheckoutHref}
+          requiresSignIn={!pending && !snapshot.authenticated}
+          location="pricing_page"
+          plan="team"
+        >
+          {t("team.cta")}
+        </PricingCheckoutButton>
+        <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
+        <FeatureList items={teamFeatures} />
+      </PlanCard>
+
+      {/* Enterprise */}
+      <PlanCard name={t("enterprise.name")} price={t("enterprise.price")}>
+        <SecondaryLink href={ENTERPRISE_CTA_URL}>
+          {t("enterprise.cta")}
+        </SecondaryLink>
+        <p className="mt-5 text-sm font-medium">
+          {t("enterprise.featuresLead")}
+        </p>
+        <FeatureList items={enterpriseFeatures} />
+      </PlanCard>
+    </PricingCategorySection>
+  );
+  if (section === "team") return team;
+  if (section === "individual") return individual;
+  if (section === "comparison") return comparison;
+
   return (
     <div className="min-h-screen">
       <SiteHeader />
@@ -184,174 +525,15 @@ export default async function PricingPage({
           <ProWelcomeBanner />
         </Suspense>
 
-        <PricingView surface="public_pricing">
+        <>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
           <PricingAudienceSelector
             individualLabel={t("audience.individual")}
             teamLabel={t("audience.team")}
             ariaLabel={t("audience.label")}
-            individual={
-<PricingCategorySection
-            showHeading={false}
-            id="individual-pricing-category"
-            title={t("categories.individual.title")}
-            description={t("categories.individual.description")}
-            columns={showGo ? "four" : "three"}
-          >
-            {/* Free */}
-            <PlanCard
-              name={t("free.name")}
-              price={t("free.price")}
-              period={t("perMonth")}
-            >
-              <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF}>{t("free.cta")}</PrimaryLink>
-              <p className="mt-5 text-sm font-medium">
-                {t("free.featuresLead")}
-              </p>
-              <FeatureList items={freeFeatures} />
-            </PlanCard>
-
-            {showGo ? <>
-            {/* Go: one small, capped Cloud VM for focused work. */}
-            <PlanCard
-              name={t("go.name")}
-              price={`$${GO_PRICING_USD.month.billedAmount}`}
-              period={t("perMonth")}
-              badge={isGo ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null}
-            >
-              {isGo ? (
-                <div className="space-y-2">
-                  <DisabledButton>{t("currentPlan")}</DisabledButton>
-                  {canManageBilling ? <SecondaryLink href="/api/billing/portal">{t("manageBilling")}</SecondaryLink> : null}
-                </div>
-              ) : (
-                <PricingCheckoutButton
-                  href={withCheckoutAttribution(GO_CHECKOUT_URL, attribution)}
-                  requiresSignIn={!snapshot.authenticated}
-                  location="pricing_page"
-                  plan="go"
-                >
-                  {t("go.cta")}
-                </PricingCheckoutButton>
-              )}
-              <p className="mt-5 text-sm font-medium">{t("go.featuresLead")}</p>
-              <FeatureList items={t.raw("go.features") as string[]} />
-            </PlanCard>
-            </> : null}
-
-            {/* Pro */}
-            <PlanCard
-              name={t("pro.name")}
-              price={`$${PRO_PRICING_USD.month.billedAmount}`}
-              period={t("perMonth")}
-              badge={
-                isProCurrent ? (
-                  <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
-                ) : null
-              }
-            >
-              {isProCurrent ? (
-                <div className="space-y-2">
-                  <DisabledButton>{t("currentPlan")}</DisabledButton>
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                </div>
-              ) : (canManageBilling && !isGo) || isMax ? (
-                <SecondaryLink href="/api/billing/portal">
-                  {t("manageBilling")}
-                </SecondaryLink>
-              ) : (
-                <ProCtaLink checkoutHref={proCheckoutHref} requiresSignIn={!snapshot.authenticated}>
-                  {t("pro.cta")}
-                </ProCtaLink>
-              )}
-              <p className="mt-5 text-sm font-medium">{t("pro.featuresLead")}</p>
-              <FeatureList items={proFeatures} />
-            </PlanCard>
-
-            {/* Max: larger machines on the monthly personal plan.
-                A Pro subscriber sees checkout; the server routes an active
-                Pro subscription to the Stripe portal upgrade flow. */}
-            <PlanCard
-              name={t("max.name")}
-              price={`$${MAX_PRICING_USD.month.billedAmount}`}
-              period={t("perMonth")}
-              badge={
-                isMax ? (
-                  <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge>
-                ) : null
-              }
-            >
-              {isMax ? (
-                <div className="space-y-2">
-                  <DisabledButton>{t("currentPlan")}</DisabledButton>
-                  <SecondaryLink href="/api/billing/portal">
-                    {t("manageBilling")}
-                  </SecondaryLink>
-                </div>
-              ) : canManageBilling && !snapshot.isPro ? (
-                <SecondaryLink href="/api/billing/portal">
-                  {t("manageBilling")}
-                </SecondaryLink>
-              ) : (
-                <PricingCheckoutButton
-                  href={maxCheckoutHref}
-                  requiresSignIn={!snapshot.authenticated}
-                  location="pricing_page"
-                  plan="max"
-                >
-                  {t("max.cta")}
-                </PricingCheckoutButton>
-              )}
-              <p className="mt-5 text-sm font-medium">{t("max.featuresLead")}</p>
-              <FeatureList items={maxFeatures} />
-            </PlanCard>
-
-          </PricingCategorySection>
-            }
-            team={
-<PricingCategorySection
-            showHeading={false}
-            id="team-enterprise-pricing-category"
-            title={t("categories.business.title")}
-            description={t("categories.business.description")}
-            columns="two"
-          >
-            {/* Team */}
-            <PlanCard
-              name={t("team.name")}
-              price={`$${TEAM_PRICING_USD.month.billedAmount}`}
-              period={t("perUserMonth")}
-            >
-              <PricingCheckoutButton
-                href={teamCheckoutHref}
-                requiresSignIn={!snapshot.authenticated}
-                location="pricing_page"
-                plan="team"
-              >
-                {t("team.cta")}
-              </PricingCheckoutButton>
-              <p className="mt-5 text-sm font-medium">{t("team.featuresLead")}</p>
-              <FeatureList items={teamFeatures} />
-            </PlanCard>
-
-            {/* Enterprise */}
-            <PlanCard
-              name={t("enterprise.name")}
-              price={t("enterprise.price")}
-            >
-              <SecondaryLink href={ENTERPRISE_CTA_URL}>
-                {t("enterprise.cta")}
-              </SecondaryLink>
-              <p className="mt-5 text-sm font-medium">
-                {t("enterprise.featuresLead")}
-              </p>
-              <FeatureList items={enterpriseFeatures} />
-            </PlanCard>
-          </PricingCategorySection>
-            }
+            individual={personalization?.individual ?? individual}
+            team={personalization?.team ?? team}
           />
 
           <p className="mt-6 text-sm text-muted">
@@ -367,88 +549,9 @@ export default async function PricingPage({
               Horizontal scrolling is mobile-only so desktop keeps the page as the
               sticky scroll container. */}
           <section className="mt-16">
-            <PricingCompareTable
-              rows={compareRows}
-              showGo={showGo}
-              names={{
-                free: t("free.name"),
-                go: t("go.name"),
-                pro: t("pro.name"),
-                max: t("max.name"),
-                team: t("team.name"),
-                enterprise: t("enterprise.name"),
-              }}
-              prices={{
-                free: t("free.price"),
-                go: `$${GO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
-                pro: `$${PRO_PRICING_USD.month.billedAmount} ${t("perMonth")}`,
-                max: maxComparePrice,
-                team: teamMonthlyComparePrice,
-                enterprise: t("enterprise.price"),
-              }}
-              actions={{
-                free: (
-                  <PrimaryLink href={DOWNLOAD_CONFIRMATION_HREF} size="compact">
-                    {t("free.cta")}
-                  </PrimaryLink>
-                ),
-                pro: (
-                  isProCurrent ? (
-                    <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-                  ) : (canManageBilling && !isGo) || isMax ? (
-                    <SecondaryLink href="/api/billing/portal" size="compact">
-                      {t("manageBilling")}
-                    </SecondaryLink>
-                  ) : (
-                    <ProCtaLink
-                      checkoutHref={proCheckoutHref}
-                      requiresSignIn={!snapshot.authenticated}
-                      size="compact"
-                      location="pricing_compare_header"
-                    >
-                      {t("pro.cta")}
-                    </ProCtaLink>
-                  )
-                ),
-                max: (
-                  isMax ? (
-                    <DisabledButton size="compact">{t("currentPlan")}</DisabledButton>
-                  ) : canManageBilling && !snapshot.isPro ? (
-                    <SecondaryLink href="/api/billing/portal" size="compact">
-                      {t("manageBilling")}
-                    </SecondaryLink>
-                  ) : (
-                    <PricingCheckoutButton
-                      href={maxCheckoutHref}
-                      requiresSignIn={!snapshot.authenticated}
-                      location="pricing_compare_header"
-                      plan="max"
-                      size="compact"
-                    >
-                      {t("max.cta")}
-                    </PricingCheckoutButton>
-                  )
-                ),
-                team: (
-                  <PricingCheckoutButton
-                    href={teamCheckoutHref}
-                    requiresSignIn={!snapshot.authenticated}
-                    location="pricing_compare_header"
-                    plan="team"
-                    size="compact"
-                  >
-                    {t("team.cta")}
-                  </PricingCheckoutButton>
-                ),
-                enterprise: (
-                  <SecondaryLink href={ENTERPRISE_CTA_URL} size="compact">
-                    {t("enterprise.cta")}
-                  </SecondaryLink>
-                ),
-              }}
-            />
+            {personalization?.comparison ?? comparison}
           </section>
-        </PricingView>
+        </>
 
         {/* FAQ */}
         <section className="mt-16 border-t border-border pt-10">
@@ -511,13 +614,23 @@ type PlanSnapshot = {
 
 async function currentPlanSnapshot(): Promise<PlanSnapshot> {
   if (!isStackConfigured()) {
-    return { authenticated: false, planId: "free", isPro: false, billingManagement: "none" };
+    return {
+      authenticated: false,
+      planId: "free",
+      isPro: false,
+      billingManagement: "none",
+    };
   }
 
   await connection();
   const user = await getStackServerApp().getUser({ or: ANONYMOUS_IF_EXISTS });
   if (!user) {
-    return { authenticated: false, planId: "free", isPro: false, billingManagement: "none" };
+    return {
+      authenticated: false,
+      planId: "free",
+      isPro: false,
+      billingManagement: "none",
+    };
   }
 
   const status = await resolveProPlanStatus(user);
@@ -529,9 +642,3 @@ async function currentPlanSnapshot(): Promise<PlanSnapshot> {
     billingManagement: status.billingManagement,
   };
 }
-
-function firstParam(value: string | string[] | undefined): string | null {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value ?? null;
-}
-import { connection } from "next/server";
