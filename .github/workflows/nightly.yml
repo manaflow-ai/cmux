@@ -432,6 +432,9 @@ jobs:
 
   build-nightly-app:
     needs: decide
+    outputs:
+      daemon_build: ${{ steps.remote_daemon.outputs.build }}
+      daemon_version: ${{ steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Full runs match the cache warmer and stable release lane. Fast branch
     # dogfood always uses the dedicated Blacksmith image. A repository-wide
@@ -643,6 +646,52 @@ jobs:
               --require-capability wireguard-hub
           fi
 
+      - name: Build immutable SSH daemon assets once for every app variant
+        if: needs.decide.outputs.build_only != 'true'
+        id: remote_daemon
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          base_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
+          version="${base_version}-${{ needs.decide.outputs.channel }}.${build}"
+          if [ "${{ needs.decide.outputs.channel }}" = "rc" ]; then
+            # A release candidate carries the project's own version and build
+            # number so the promoted stable release is the same file. Every
+            # respin must bump CURRENT_PROJECT_VERSION (bump-version.sh does),
+            # which keeps the rc feed monotonic; refuse a build number that
+            # already exists on the rc release.
+            build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
+            version="$base_version"
+            if gh release view "${{ needs.decide.outputs.release_tag }}" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null \
+              | grep -qx "${{ needs.decide.outputs.dmg_prefix }}-universal-${build}.dmg"; then
+              echo "::error::${{ needs.decide.outputs.dmg_prefix }}-universal-${build}.dmg already exists on the ${{ needs.decide.outputs.release_tag }} release; bump CURRENT_PROJECT_VERSION (scripts/bump-version.sh) before respinning the release candidate" >&2
+              exit 1
+            fi
+          fi
+          ./scripts/build_remote_daemon_release_assets.sh \
+            --version "$version" --release-tag "${{ needs.decide.outputs.release_tag }}" \
+            --repo "$GITHUB_REPOSITORY" --asset-suffix "$build" --output-dir remote-daemon-assets
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Attest immutable SSH daemon assets
+        if: needs.decide.outputs.build_only != 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: remote-daemon-assets/cmuxd-remote-*
+
+      - name: Upload SSH daemon assets
+        if: needs.decide.outputs.build_only != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets/cmuxd-remote-*
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Strip unsigned nightly app before transfer
         run: |
           set -euo pipefail
@@ -715,6 +764,9 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_VARIANT: ${{ matrix.variant }}
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_MARKETING_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
+      BUNDLE_REMOTE_DAEMON_ASSETS: ${{ needs.decide.outputs.fast_build == 'true' || needs.decide.outputs.should_publish != 'true' }}
       CHANNEL: ${{ needs.decide.outputs.channel }}
       CHANNEL_BUNDLE_ID: ${{ needs.decide.outputs.bundle_id }}
       CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -755,6 +807,12 @@ jobs:
         with:
           name: cmux-nightly-unsigned-app
           path: nightly-inputs/app
+
+      - name: Download SSH daemon assets
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
 
       - name: Download universal Ghostty CLI helper
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -881,39 +939,13 @@ jobs:
           fi
 
       - name: Inject nightly identities and metadata
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
           APP_DIR="build-universal/Build/Products/Release"
 
-          BASE_MARKETING=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${APP_DIR}/cmux.app/Contents/Info.plist")
-          NIGHTLY_DATE=$(date -u +%Y%m%d)
-
-          # Build number: unique/monotonic per workflow run attempt so same-day
-          # nightlies and reruns still compare as newer in Sparkle.
-          if [ -n "${GITHUB_RUN_ID:-}" ]; then
-            RUN_ATTEMPT="$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
-            NIGHTLY_BUILD="${GITHUB_RUN_ID}${RUN_ATTEMPT}"
-          else
-            NIGHTLY_BUILD="${NIGHTLY_DATE}000000"
-          fi
-          NIGHTLY_MARKETING_VERSION="${BASE_MARKETING}-${CHANNEL}.${NIGHTLY_BUILD}"
-          if [ "$CHANNEL" = "rc" ]; then
-            # A release candidate carries the project's own version and build
-            # number so the promoted stable release is the same file. Every
-            # respin must bump CURRENT_PROJECT_VERSION (bump-version.sh does),
-            # which keeps the rc feed monotonic; the publish job refuses a
-            # build number that already exists on the rc release.
-            NIGHTLY_BUILD="$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "${APP_DIR}/cmux.app/Contents/Info.plist")"
-            NIGHTLY_MARKETING_VERSION="$BASE_MARKETING"
-            if gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null \
-              | grep -qx "${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"; then
-              echo "::error::${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg already exists on the ${CHANNEL_RELEASE_TAG} release; bump CURRENT_PROJECT_VERSION (scripts/bump-version.sh) before respinning the release candidate" >&2
-              exit 1
-            fi
-          fi
+          # The producer owns the version for both the daemon and every app variant.
+          : "${NIGHTLY_BUILD:?missing daemon build}" "${NIGHTLY_MARKETING_VERSION:?missing daemon version}"
 
           NIGHTLY_DMG_IMMUTABLE="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
           NIGHTLY_DMG_RELEASE="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
@@ -988,6 +1020,18 @@ jobs:
           echo "Build number: ${NIGHTLY_BUILD}"
           echo "Immutable DMG: ${NIGHTLY_DMG_IMMUTABLE}"
           echo "Commit SHA: ${SHORT_SHA}"
+
+      - name: Embed verified SSH daemon manifest
+        run: |
+          bundle_args=()
+          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
+            # Unpublished dogfood builds must work without GitHub release URLs.
+            bundle_args+=(--bundle-assets)
+          fi
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir remote-daemon-assets \
+            --app "$CHANNEL_APP_PATH" --embed --verify-cli "${bundle_args[@]}"
 
       - name: Import signing cert
         env:
@@ -1101,6 +1145,17 @@ jobs:
             "$CHANNEL_ENTITLEMENTS" \
             "$APPLE_SIGNING_IDENTITY"
 
+      - name: Verify signed app SSH daemon contract
+        run: |
+          bundle_args=()
+          if [[ "$BUNDLE_REMOTE_DAEMON_ASSETS" == "true" ]]; then
+            bundle_args+=(--require-bundled-assets)
+          fi
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir remote-daemon-assets \
+            --app "$CHANNEL_APP_PATH" --verify-cli "${bundle_args[@]}"
+
       - name: Smoke launch signed app before notarization
         run: |
           set -euo pipefail
@@ -1178,6 +1233,7 @@ jobs:
           path: |
             ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
             ${{ needs.decide.outputs.dmg_prefix }}-arm64-*.dmg
+            remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
           retention-days: 3
 
@@ -1188,12 +1244,13 @@ jobs:
           rm -f /tmp/cert.p12
 
   publish-nightly:
-    needs: [decide, build-sign-notarize-nightly]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       NIGHTLY_LEGACY_VARIANT: ${{ needs.decide.outputs.legacy_variant }}
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
       CHANNEL: ${{ needs.decide.outputs.channel }}
       CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
@@ -1211,6 +1268,18 @@ jobs:
           pattern: cmux-nightly-variant-*
           path: nightly-out
           merge-multiple: true
+
+      - name: Download SSH daemon assets for publication
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: nightly-out
+
+      - name: Verify SSH daemon assets survived artifact transfer
+        run: |
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --assets-dir nightly-out
 
       - name: Assemble legacy nightly names
         run: |
@@ -1242,6 +1311,7 @@ jobs:
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}*.dmg
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}*.delta
             nightly-out/appcast*.xml
+            nightly-out/cmuxd-remote-*
           if-no-files-found: error
 
       - name: Prune old nightly release assets
@@ -1283,6 +1353,7 @@ jobs:
             nightly-out/appcast-arm64.xml
             nightly-out/appcast-x86_64.xml
             nightly-out/appcast-universal.xml
+            nightly-out/cmuxd-remote-*
           overwrite_files: true
 
       - name: Upload nightly appcasts to R2
