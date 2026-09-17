@@ -14,8 +14,13 @@ extension ReconnectRouteSelectionTests {
     @Test func soakReconnectReplacesAnAlreadyHealthyConnection() async throws {
         let fixture = try await makeRecoveryOwnerFixture()
         defer { fixture.release() }
+        await fixture.router.setCapabilities([
+            "events.v1", "terminal.bytes.v1", "terminal.render_grid.v1",
+            "terminal.replay.v1", "workspace.actions.v1",
+        ])
         #expect(await fixture.store.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(try await pollUntil { fixture.store.lastSuccessfulTerminalSubscription != nil })
+        _ = try #require(fixture.store.irohReleaseGateForegroundTarget())
         let originalClient = try #require(fixture.store.remoteClient)
 
         do {
