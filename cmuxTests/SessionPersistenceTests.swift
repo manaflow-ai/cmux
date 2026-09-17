@@ -547,6 +547,28 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(contents, "line one\nline two\n")
     }
 
+    func testScrollbackReplayEndsAtARowBoundary() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        // Ghostty's VT export ends on the cursor row, which is the idle prompt
+        // at capture time, with no terminator.
+        let captured = "\u{001B}[0mLast login\r\n\u{001B}[38;2;1;2;3mlawrence\u{001B}[0m in ~/fun λ "
+        let environment = SessionScrollbackReplayStore.replayEnvironment(for: captured, tempDirectory: tempDir)
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey],
+              let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected a replay file")
+            return
+        }
+        XCTAssertTrue(
+            contents.hasSuffix("\r\n"),
+            "The old prompt row must end with a line break so the restored shell's prompt starts on a fresh row"
+        )
+        XCTAssertFalse(contents.hasSuffix("\r\n\r\n"), "A single terminator is enough")
+    }
+
     func testScrollbackReplayEnvironmentSkipsWhitespaceOnlyContent() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
