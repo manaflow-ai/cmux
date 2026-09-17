@@ -105,10 +105,12 @@ function validateEncryptedRecipients(
   if (encryptedPayloads.length === 0) return null;
   if (!targetNamespace) return jsonResponse({ error: "missing_target_namespace" }, 400);
   const matchesOwner = encryptedPayloads.every((envelope) => {
-    const tuple = envelope.tuple as Record<string, unknown>;
-    return tuple.accountID === userID && tuple.iosBuildID === targetNamespace.bundleId
-      && tuple.macDeviceID === payload.macDeviceId
-      && (tuple.macInstanceTag ?? null) === payload.macInstanceTag;
+    const tuple = envelope.tuple;
+    if (!tuple || typeof tuple !== "object" || Array.isArray(tuple)) return false;
+    const tupleRecord = tuple as Record<string, unknown>;
+    return tupleRecord.accountID === userID && tupleRecord.iosBuildID === targetNamespace.bundleId
+      && tupleRecord.macDeviceID === payload.macDeviceId
+      && (tupleRecord.macInstanceTag ?? null) === payload.macInstanceTag;
   });
   return matchesOwner
     ? null
