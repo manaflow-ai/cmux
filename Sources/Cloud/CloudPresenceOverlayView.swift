@@ -213,25 +213,18 @@ final class CloudPresenceOverlayView: NSView {
     }
 
     private func drawPointer(at cell: CGRect, color: NSColor, label: String) {
-        // Cell frame.
-        color.withAlphaComponent(0.9).setStroke()
-        let frame = NSBezierPath(roundedRect: cell.insetBy(dx: -1, dy: -1), xRadius: 2, yRadius: 2)
-        frame.lineWidth = 1.5
-        frame.stroke()
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
 
-        // Compact presence marker anchored at the cell's top-left corner.
-        // A dot avoids looking like a local mouse cursor while the cell frame
-        // keeps the exact target visible.
+        // Use the exact Computer Use kite cursor, anchored at the target cell's
+        // top-left corner. This keeps remote presence visually consistent with
+        // the cursor users see when cmux Computer Use drives a surface.
         let tip = CGPoint(x: cell.minX, y: cell.minY)
-        let marker = CGRect(x: tip.x + 3, y: tip.y + 3, width: 7, height: 7)
-        color.setFill()
-        NSBezierPath(ovalIn: marker).fill()
-        NSColor.white.withAlphaComponent(0.9).setStroke()
-        let markerOutline = NSBezierPath(ovalIn: marker.insetBy(dx: -0.5, dy: -0.5))
-        markerOutline.lineWidth = 1
-        markerOutline.stroke()
+        context.saveGState()
+        context.translateBy(x: tip.x, y: tip.y)
+        ComputerUseCursorArtwork.drawPointer(in: context)
+        context.restoreGState()
 
-        // Name pill beside the arrow.
+        // Keep the teammate name beside the same cursor hotspot.
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
             .foregroundColor: NSColor.white,
@@ -239,7 +232,7 @@ final class CloudPresenceOverlayView: NSView {
         let text = NSAttributedString(string: label, attributes: attributes)
         let size = text.size()
         var pill = CGRect(
-            x: tip.x + 12,
+            x: tip.x + 18,
             y: tip.y + 12,
             width: size.width + 10,
             height: size.height + 4
