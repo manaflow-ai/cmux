@@ -8820,7 +8820,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if initialCommand == nil, initialInput == nil, tmuxStartCommand == nil,
            remotePTYSessionID == nil, workingDirectory == nil,
            !suppressWorkspaceRemoteStartupCommand,
-           cloudProjectedResource(forPanel: panelId) != nil {
+           SurfaceCatalog.shared.hasCloudProjection(panelID: panelId, workspaceID: id) {
             return routeCloudPaneTerminalSplit(
                 from: panelId, orientation: orientation, insertFirst: insertFirst, focus: focus
             ) ? .routedToRemote : .failed
@@ -9146,7 +9146,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if initialCommand == nil, tmuxStartCommand == nil, remotePTYSessionID == nil,
            workingDirectory == nil, initialInput == nil, startupRestoreAgent == nil,
            restoredSurfaceId == nil, !suppressWorkspaceRemoteStartupCommand,
-           cloudProjectedResource(inPane: paneId) != nil {
+           let selectedTab = bonsplitController.selectedTab(inPane: paneId),
+           let selectedPanelID = panelIdFromSurfaceId(selectedTab.id),
+           SurfaceCatalog.shared.hasCloudProjection(panelID: selectedPanelID, workspaceID: id) {
             return routeCloudPaneTerminalTab(
                 inPane: paneId, focus: focus ?? (bonsplitController.focusedPaneId == paneId)
             ) ? .routedToRemote : .failed
