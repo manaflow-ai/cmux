@@ -3,25 +3,151 @@ import Bonsplit
 import Foundation
 import SwiftUI
 
+/// Which in-app surface opened the upgrade flow. The raw value travels to the
+/// web as `cmux_source`, is stored on the Stripe Checkout Session, and comes
+/// back on every PostHog billing event, so a paid subscription can be traced to
+/// the button that started it. Raw values are lowercase `[a-z0-9_]` tokens;
+/// the server drops anything else.
+enum ProUpgradeSource: String, CaseIterable, Sendable {
+    /// "Upgrade" capsule in the sidebar footer.
+    case sidebarBadge = "mac_sidebar_badge"
+    /// "Upgrade to cmux Pro…" in the sidebar footer account menu.
+    case sidebarAccountMenu = "mac_sidebar_account_menu"
+    /// "Upgrade to cmux Pro…" in the sidebar help (?) menu.
+    case sidebarHelpMenu = "mac_sidebar_help_menu"
+    /// Help > "Upgrade to cmux Pro…" in the main menu bar.
+    case helpMenu = "mac_help_menu"
+    /// Command palette "Upgrade to cmux Pro".
+    case commandPalette = "mac_command_palette"
+    /// Settings > Account card "Upgrade" (via `AccountFlow`).
+    case settingsAccountCard = "mac_settings_account_card"
+    /// Settings > Cloud machines billing.
+    case settingsCloudMachines = "mac_settings_cloud_machines"
+    /// Machines panel empty state: plan does not include Cloud machines.
+    case machinesPanelRequiresPro = "mac_machines_panel_requires_pro"
+    /// Machines panel nudge under the create button.
+    case machinesPanelUpgradeNudge = "mac_machines_panel_upgrade_nudge"
+    /// Machines panel free-access countdown / expired banner.
+    case machinesPanelTrialBanner = "mac_machines_panel_trial_banner"
+    /// Machines panel row action that needs a paid plan.
+    case machinesPanelMachineAction = "mac_machines_panel_machine_action"
+    /// New machine sheet refused because the free plan is at its limit.
+    case newMachineAtLimit = "mac_new_machine_at_limit"
+    /// New machine sheet "Upgrade to Max" under the locked 32 GB / 64 GB sizes.
+    case newMachineSheetMaxUpgrade = "mac_new_machine_sheet_max_upgrade"
+    /// Link inside the `vm_memory_requires_plan` error text (`VMClient`).
+    case vmMemoryRequiresPlanError = "mac_vm_memory_requires_plan_error"
+    /// DEBUG native pricing window.
+    case nativePricingPreview = "mac_native_pricing_preview"
+    /// Link inside the `vm_requires_pro` error text (`VMClient`); the token
+    /// is spelled out in the localized string, so the test pins it here.
+    case vmRequiresProError = "mac_vm_requires_pro_error"
+}
+
+/// Which subscription a checkout starts. The raw value is the server's
+/// `plan` query parameter on `/api/billing/checkout`; Pro is the server
+/// default, so it sends no parameter and older web deploys keep working.
+enum CheckoutPlan: String, Sendable {
+    case go
+    case pro
+    case max
+
+    static let queryParam = "plan"
+
+    /// `url` with this plan's `plan` query item (none for Pro).
+    nonisolated func applying(to url: URL) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { $0.name == Self.queryParam }
+        if self != .pro {
+            queryItems.append(URLQueryItem(name: Self.queryParam, value: rawValue))
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        return components.url ?? url
+    }
+}
+
+/// Checkout attribution query parameters: the upgrade source plus the app's
+/// client, release channel, version and build. Mirrors
+/// `web/services/analytics/checkoutAttribution.ts`.
+enum CheckoutAttribution {
+    static let sourceParam = "cmux_source"
+    static let clientParam = "cmux_client"
+    static let channelParam = "cmux_channel"
+    static let appVersionParam = "cmux_app_version"
+    static let appBuildParam = "cmux_app_build"
+    static let paramNames: [String] = [sourceParam, clientParam, channelParam, appVersionParam, appBuildParam]
+
+    nonisolated static func queryItems(
+        source: ProUpgradeSource,
+        flavor: BuildFlavor = BuildFlavor.current,
+        infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]
+    ) -> [URLQueryItem] {
+        var items = [
+            URLQueryItem(name: sourceParam, value: source.rawValue),
+            URLQueryItem(name: clientParam, value: "mac"),
+            URLQueryItem(name: channelParam, value: flavor.rawValue),
+        ]
+        if let version = infoDictionary["CFBundleShortVersionString"] as? String, !version.isEmpty {
+            items.append(URLQueryItem(name: appVersionParam, value: version))
+        }
+        if let build = infoDictionary["CFBundleVersion"] as? String, !build.isEmpty {
+            items.append(URLQueryItem(name: appBuildParam, value: build))
+        }
+        return items
+    }
+
+    /// Replace any attribution already on `url` with this source's.
+    nonisolated static func applying(
+        to url: URL,
+        source: ProUpgradeSource,
+        flavor: BuildFlavor = BuildFlavor.current,
+        infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:]
+    ) -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        var queryItems = components.queryItems ?? []
+        queryItems.removeAll { paramNames.contains($0.name) }
+        queryItems.append(contentsOf: self.queryItems(source: source, flavor: flavor, infoDictionary: infoDictionary))
+        components.queryItems = queryItems
+        return components.url ?? url
+    }
+
+    /// PostHog properties for the Mac-side intent event, so the funnel has a
+    /// client-side count of upgrade clicks per surface and channel even before
+    /// the web page loads.
+    nonisolated static func intentProperties(
+        source: ProUpgradeSource,
+        flavor: BuildFlavor = BuildFlavor.current,
+        plan: CheckoutPlan = .pro
+    ) -> [String: Any] {
+        ["source": source.rawValue, "client": "mac", "channel": flavor.rawValue, "plan": plan.rawValue]
+    }
+}
+
 /// Shared entrypoint for every "Upgrade to cmux Pro" surface (sidebar badge,
 /// titlebar badge, Settings Account card, command palette, Help menu). Opens
 /// the app-specific pricing page in a dedicated browser workspace in the
 /// current window, falling back through the older in-window browser paths if
-/// workspace creation is unavailable.
+/// workspace creation is unavailable. Every caller names its
+/// ``ProUpgradeSource`` so the resulting checkout is attributable.
 enum ProUpgradePresenter {
+    static let intentEvent = "cmux_upgrade_entrypoint_opened"
+
     @MainActor
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
 
     @MainActor
-    static func present() {
-        presentAppPricingWeb()
+    static func present(source: ProUpgradeSource) {
+        PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source))
+        presentAppPricingWeb(source: source)
     }
 
     /// Hover hook for upgrade entrypoints: loads the pricing page into a
-    /// hidden webview so a subsequent ``present()`` adopts it and opens
-    /// instantly. Safe to call repeatedly; a live matching entry is a no-op.
+    /// hidden webview so a subsequent ``present(source:)`` with the same source
+    /// adopts it and opens instantly. Safe to call repeatedly; a live matching
+    /// entry is a no-op.
     @MainActor
-    static func prefetch() {
+    static func prefetch(source: ProUpgradeSource) {
         guard BrowserAvailabilitySettings.isEnabled() else { return }
         // When an upgrade workspace already exists, present() refocuses it and
         // navigates its existing panel, so a prewarmed webview would go unused.
@@ -31,14 +157,14 @@ enum ProUpgradePresenter {
             return
         }
         BrowserPrewarmedWebViewPool.shared.prewarm(
-            url: appPricingURLForCurrentAppearance(),
+            url: appPricingURLForCurrentAppearance(source: source),
             profileID: BrowserPanel.resolvedProfileID(requested: nil)
         )
     }
 
     @MainActor
-    static func presentAppPricingWeb() {
-        let url = appPricingURLForCurrentAppearance()
+    static func presentAppPricingWeb(source: ProUpgradeSource) {
+        let url = appPricingURLForCurrentAppearance(source: source)
         guard BrowserAvailabilitySettings.isEnabled() else {
             NSWorkspace.shared.open(url)
             return
@@ -55,8 +181,19 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func presentCheckout() {
-        NSWorkspace.shared.open(AuthEnvironment.billingCheckoutURL)
+    static func presentCheckout(source: ProUpgradeSource, plan: CheckoutPlan = .pro) {
+        PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source, plan: plan))
+        NSWorkspace.shared.open(checkoutURL(source: source, plan: plan))
+    }
+
+    /// The checkout URL a surface opens: the billing origin's checkout route,
+    /// the requested plan, and the source attribution.
+    nonisolated static func checkoutURL(
+        source: ProUpgradeSource,
+        plan: CheckoutPlan = .pro,
+        base: URL = AuthEnvironment.billingCheckoutURL
+    ) -> URL {
+        CheckoutAttribution.applying(to: plan.applying(to: base), source: source)
     }
 
     @MainActor
@@ -114,8 +251,8 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    private static func appPricingURLForCurrentAppearance() -> URL {
-        decoratedAppWebURL(AuthEnvironment.appPricingURL)
+    static func appPricingURLForCurrentAppearance(source: ProUpgradeSource) -> URL {
+        CheckoutAttribution.applying(to: decoratedAppWebURL(AuthEnvironment.appPricingURL), source: source)
     }
 }
 
@@ -175,9 +312,14 @@ private final class NativePricingWindowController: NSWindowController {
 
 private enum NativePricingPlanID: String, Decodable {
     case free
+    case go
     case pro
+    case max
 }
 
+/// `GET /api/billing/plan`. `planId` stays "free" | "pro" for older clients
+/// (a Max subscriber reports "pro" there, `isPro` true); `subscriptionPlanId`
+/// carries the real subscription and wins when present.
 private struct NativeBillingPlanResponse: Decodable {
     struct User: Decodable {
         let primaryEmail: String?
@@ -186,8 +328,18 @@ private struct NativeBillingPlanResponse: Decodable {
     let authenticated: Bool
     let billingAvailable: Bool
     let planId: NativePricingPlanID
+    let subscriptionPlanId: String?
     let isPro: Bool
     let user: User?
+
+    /// The plan the pricing cards mark as current.
+    var resolvedPlanId: NativePricingPlanID {
+        if let subscriptionPlanId,
+           let resolved = NativePricingPlanID(rawValue: subscriptionPlanId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            return resolved
+        }
+        return planId
+    }
 }
 
 private struct NativePricingSnapshot: Equatable {
@@ -196,6 +348,9 @@ private struct NativePricingSnapshot: Equatable {
     var planId: NativePricingPlanID = .free
     var isPro = false
     var email: String?
+
+    var isMax: Bool { planId == .max }
+    var isGo: Bool { planId == .go }
 }
 
 @MainActor
@@ -275,7 +430,7 @@ private final class NativePricingPlanStore: ObservableObject {
             return .loaded(NativePricingSnapshot(
                 authenticated: decoded.authenticated,
                 billingAvailable: decoded.billingAvailable,
-                planId: decoded.planId,
+                planId: decoded.resolvedPlanId,
                 isPro: decoded.isPro,
                 email: decoded.user?.primaryEmail
             ))
@@ -362,9 +517,16 @@ private struct NativePricingPlansView: View {
     }
 
     private var currentPlanPill: some View {
-        let plan = snapshot.isPro
-            ? String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
-            : String(localized: "pricing.native.plan.free", defaultValue: "Free")
+        let plan: String
+        if snapshot.isMax {
+            plan = String(localized: "pricing.native.plan.max", defaultValue: "Max")
+        } else if snapshot.isGo {
+            plan = String(localized: "pricing.native.plan.go", defaultValue: "Go")
+        } else if snapshot.isPro {
+            plan = String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
+        } else {
+            plan = String(localized: "pricing.native.plan.free", defaultValue: "Free")
+        }
         let detail = snapshot.authenticated
             ? snapshot.email ?? String(localized: "pricing.native.signedIn", defaultValue: "Signed in")
             : String(localized: "pricing.native.signedOut", defaultValue: "Signed out")
@@ -407,19 +569,48 @@ private struct NativePricingPlansView: View {
                     String(localized: "pricing.native.free.feature.community", defaultValue: "Community support on Discord and GitHub"),
                 ]
             )
+            if snapshot.isGo || (CmuxFeatureFlags.shared.isGoPlanEnabled && !snapshot.isPro) {
+                NativePricingPlanCard(
+                    name: String(localized: "pricing.native.plan.go", defaultValue: "Go"),
+                    price: String(localized: "pricing.native.go.price", defaultValue: "$10"),
+                    period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
+                    isCurrent: snapshot.isGo,
+                    actionTitle: snapshot.isGo ? String(localized: "pricing.native.currentPlan", defaultValue: "Current plan") : String(localized: "pricing.native.go.cta", defaultValue: "Get Go"),
+                    action: snapshot.isGo ? { ProUpgradePresenter.presentBillingPortal() } : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .go) },
+                    isProminent: snapshot.isGo,
+                    features: [
+                        String(localized: "pricing.native.go.feature.vm", defaultValue: "1 active Cloud VM, 2 vCPU, 4 GiB RAM, 16 GiB disk"),
+                        String(localized: "pricing.native.go.feature.saved", defaultValue: "2 saved VMs"),
+                        String(localized: "pricing.native.go.feature.hours", defaultValue: "40 included VM-hours each month; pauses at the limit"),
+                    ]
+                )
+            }
             NativePricingPlanCard(
                 name: String(localized: "pricing.native.plan.pro", defaultValue: "Pro"),
                 price: String(localized: "pricing.native.pro.price", defaultValue: "$50"),
                 period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
-                isCurrent: snapshot.isPro,
+                isCurrent: snapshot.isPro && !snapshot.isMax && !snapshot.isGo,
                 actionTitle: proActionTitle,
-                action: snapshot.isPro ? nil : { ProUpgradePresenter.presentCheckout() },
-                isProminent: true,
+                action: proAction,
+                isProminent: !snapshot.isMax && !snapshot.isGo,
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
-                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available"),
+                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs"),
                     String(localized: "pricing.native.pro.feature.gateway", defaultValue: "Unlimited workspaces"),
                     String(localized: "pricing.native.pro.feature.ios", defaultValue: "cmux iOS app and email support"),
+                ]
+            )
+            NativePricingPlanCard(
+                name: String(localized: "pricing.native.plan.max", defaultValue: "Max"),
+                price: String(localized: "pricing.native.max.price", defaultValue: "$200"),
+                period: String(localized: "pricing.native.period.month", defaultValue: "/month"),
+                isCurrent: snapshot.isMax,
+                actionTitle: maxActionTitle,
+                action: snapshot.isMax ? nil : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .max) },
+                isProminent: snapshot.isMax,
+                features: [
+                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 64 GB RAM per machine"),
+                    String(localized: "pricing.native.max.feature.pro", defaultValue: "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"),
                 ]
             )
             NativePricingPlanCard(
@@ -432,7 +623,7 @@ private struct NativePricingPlansView: View {
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),
-                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user, each with its own resources; default size 8 GB RAM and 32 GB disk, with 4 to 64 GB RAM available"),
+                    String(localized: "pricing.native.team.feature.compute", defaultValue: "Up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs"),
                     String(localized: "pricing.native.team.feature.gateway", defaultValue: "Team-wide model gateway analytics"),
                     String(localized: "pricing.native.team.feature.support", defaultValue: "Priority email support"),
                 ]
@@ -460,13 +651,35 @@ private struct NativePricingPlansView: View {
     }
 
     private var proActionTitle: String {
-        if snapshot.isPro {
+        if snapshot.isMax {
+            return String(localized: "pricing.native.manageBilling", defaultValue: "Manage billing")
+        }
+        if snapshot.isPro && !snapshot.isGo {
             return String(localized: "pricing.native.currentPlan", defaultValue: "Current plan")
         }
         if snapshot.authenticated {
             return String(localized: "pricing.native.upgrade", defaultValue: "Get Pro")
         }
         return String(localized: "pricing.native.signInToUpgrade", defaultValue: "Get Pro")
+    }
+
+    /// A Max subscriber already has everything Pro sells, so the Pro card
+    /// opens the billing portal instead of a second checkout.
+    private var proAction: (() -> Void)? {
+        if snapshot.isMax {
+            return { ProUpgradePresenter.presentBillingPortal() }
+        }
+        if snapshot.isPro && !snapshot.isGo {
+            return nil
+        }
+        return { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview) }
+    }
+
+    private var maxActionTitle: String {
+        if snapshot.isMax {
+            return String(localized: "pricing.native.currentPlan", defaultValue: "Current plan")
+        }
+        return String(localized: "pricing.native.max.cta", defaultValue: "Get Max")
     }
 
 }
@@ -527,7 +740,7 @@ private struct NativePricingPlanCard: View {
             Spacer(minLength: 0)
         }
         .padding(16)
-        .frame(width: 233, alignment: .topLeading)
+        .frame(width: 208, alignment: .topLeading)
         .frame(minHeight: 390, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor).opacity(isProminent ? 0.76 : 0.62))
         .overlay(
@@ -563,6 +776,7 @@ private struct NativePricingCompareRow: Identifiable {
     let label: String
     let free: NativePricingCompareValue
     let pro: NativePricingCompareValue
+    let max: NativePricingCompareValue
     let team: NativePricingCompareValue
     let enterprise: NativePricingCompareValue
 }
@@ -574,6 +788,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.terminal", defaultValue: "Native macOS terminal, open source"),
             free: .included,
             pro: .included,
+            max: .included,
             team: .included,
             enterprise: .included
         ),
@@ -582,6 +797,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.agents", defaultValue: "Local CLI agents with your own keys"),
             free: .included,
             pro: .included,
+            max: .included,
             team: .included,
             enterprise: .included
         ),
@@ -590,6 +806,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.workspace", defaultValue: "Vertical tabs, splits, notifications, socket API"),
             free: .included,
             pro: .included,
+            max: .included,
             team: .included,
             enterprise: .included
         ),
@@ -598,6 +815,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.cloud", defaultValue: "Cloud agents on Cloud VMs"),
             free: .text(String(localized: "pricing.native.compare.cloud.free", defaultValue: "1 VM trial")),
             pro: .text(String(localized: "pricing.native.compare.cloud.pro", defaultValue: "Included")),
+            max: .text(String(localized: "pricing.native.compare.cloud.max", defaultValue: "Included")),
             team: .text(String(localized: "pricing.native.compare.cloud.team", defaultValue: "Included")),
             enterprise: .text(String(localized: "pricing.native.compare.cloud.enterprise", defaultValue: "Committed usage"))
         ),
@@ -606,7 +824,17 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.concurrent", defaultValue: "Concurrent Cloud VMs"),
             free: .text(String(localized: "pricing.native.compare.concurrent.free", defaultValue: "1")),
             pro: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "50")),
+            max: .text(String(localized: "pricing.native.compare.concurrent.paid", defaultValue: "50")),
             team: .text(String(localized: "pricing.native.compare.concurrent.team", defaultValue: "50 per user")),
+            enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
+        ),
+        NativePricingCompareRow(
+            id: "largestVm",
+            label: String(localized: "pricing.native.compare.largestVm", defaultValue: "Largest Cloud VM"),
+            free: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
+            pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
+            max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM")),
+            team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "24 GB RAM")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
         NativePricingCompareRow(
@@ -614,6 +842,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.gateway", defaultValue: "Model gateway: routing and usage analytics"),
             free: .unavailable,
             pro: .included,
+            max: .included,
             team: .included,
             enterprise: .included
         ),
@@ -622,6 +851,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.ios", defaultValue: "iOS app"),
             free: .unavailable,
             pro: .included,
+            max: .included,
             team: .included,
             enterprise: .included
         ),
@@ -630,6 +860,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.billing", defaultValue: "Unified billing and seat management"),
             free: .unavailable,
             pro: .unavailable,
+            max: .unavailable,
             team: .included,
             enterprise: .included
         ),
@@ -638,6 +869,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.sso", defaultValue: "SSO and SAML sign-in"),
             free: .unavailable,
             pro: .unavailable,
+            max: .unavailable,
             team: .unavailable,
             enterprise: .included
         ),
@@ -646,6 +878,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.selfHosted", defaultValue: "Self-hosted and air-gapped execution"),
             free: .unavailable,
             pro: .unavailable,
+            max: .unavailable,
             team: .unavailable,
             enterprise: .included
         ),
@@ -654,6 +887,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.admin", defaultValue: "Centralized admin and shared team rules"),
             free: .unavailable,
             pro: .unavailable,
+            max: .unavailable,
             team: .included,
             enterprise: .included
         ),
@@ -662,6 +896,7 @@ private struct NativePricingComparisonSection: View {
             label: String(localized: "pricing.native.compare.support", defaultValue: "Support"),
             free: .text(String(localized: "pricing.native.compare.support.community", defaultValue: "Community")),
             pro: .text(String(localized: "pricing.native.compare.support.email", defaultValue: "Email")),
+            max: .text(String(localized: "pricing.native.compare.support.email", defaultValue: "Email")),
             team: .text(String(localized: "pricing.native.compare.support.priority", defaultValue: "Priority")),
             enterprise: .text(String(localized: "pricing.native.compare.support.dedicated", defaultValue: "Dedicated"))
         ),
@@ -687,10 +922,11 @@ private struct NativePricingComparisonHeader: View {
     var body: some View {
         HStack(spacing: 0) {
             NativePricingTableCell(text: "", width: 300, isHeader: true)
-            NativePricingTableCell(text: String(localized: "pricing.native.plan.free", defaultValue: "Free"), width: 160, isHeader: true)
-            NativePricingTableCell(text: String(localized: "pricing.native.plan.pro", defaultValue: "Pro"), width: 180, isHeader: true)
-            NativePricingTableCell(text: String(localized: "pricing.native.plan.team", defaultValue: "Team"), width: 170, isHeader: true)
-            NativePricingTableCell(text: String(localized: "pricing.native.plan.enterprise", defaultValue: "Enterprise"), width: 170, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.free", defaultValue: "Free"), width: 150, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.pro", defaultValue: "Pro"), width: 150, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.max", defaultValue: "Max"), width: 150, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.team", defaultValue: "Team"), width: 150, isHeader: true)
+            NativePricingTableCell(text: String(localized: "pricing.native.plan.enterprise", defaultValue: "Enterprise"), width: 150, isHeader: true)
         }
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
     }
@@ -702,10 +938,11 @@ private struct NativePricingComparisonRow: View {
     var body: some View {
         HStack(spacing: 0) {
             NativePricingTableCell(text: row.label, width: 300)
-            NativePricingCompareCell(value: row.free, width: 160)
-            NativePricingCompareCell(value: row.pro, width: 180)
-            NativePricingCompareCell(value: row.team, width: 170)
-            NativePricingCompareCell(value: row.enterprise, width: 170)
+            NativePricingCompareCell(value: row.free, width: 150)
+            NativePricingCompareCell(value: row.pro, width: 150)
+            NativePricingCompareCell(value: row.max, width: 150)
+            NativePricingCompareCell(value: row.team, width: 150)
+            NativePricingCompareCell(value: row.enterprise, width: 150)
         }
     }
 }
@@ -767,7 +1004,13 @@ private struct NativePricingSizeSection: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Pro includes up to 50 Cloud VMs. Team includes up to 50 Cloud VMs per user. Each machine has its own CPU, memory, and disk. The default size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available. Disks can grow up to 256 GB. There is no metering or overage billing."
+                defaultValue: "Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
+            ))
+            .font(.system(size: 13))
+            .foregroundStyle(.secondary)
+            Text(String(
+                localized: "pricing.native.sizes.max",
+                defaultValue: "32 GB and 64 GB machines need cmux Max."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)

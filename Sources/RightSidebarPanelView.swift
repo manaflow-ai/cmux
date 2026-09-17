@@ -160,7 +160,6 @@ struct RightSidebarPanelView: View {
     @State private var customSidebarWorkerClient: RenderWorkerClient?
     @State private var managedPolicyRevision = 0
 
-    // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
     // new items.
     private var feedPendingCount: Int {
@@ -271,7 +270,8 @@ struct RightSidebarPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: ManagedDevicePolicy.didChangeNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: ManagedDevicePolicy.didChangeNotification)
+            .merge(with: NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange))) { _ in
             managedPolicyRevision &+= 1
             refreshModeAvailabilityAndFocusIfNeeded()
         }
@@ -323,13 +323,17 @@ struct RightSidebarPanelView: View {
                     )
                 }
                 Spacer(minLength: 0)
-                if fileExplorerState.mode.canOpenAsPane {
+                if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)
                 }
                 closeButton
             }
         }
-        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .rightSidebarChromeBar(
+            leadingPadding: RightSidebarChromeMetrics.headerLeadingPadding,
+            trailingPadding: RightSidebarChromeMetrics.headerTrailingPadding,
+            height: titlebarHeight
+        )
         .contextMenu { tabCustomizationMenu }
         .overlay(alignment: .topLeading) {
             focusShortcutHintOverlay
@@ -511,9 +515,18 @@ struct RightSidebarPanelView: View {
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:
-                MachinesPanelView(
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
-                )
+                if let store = AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore {
+                    MachinesPanelView(
+                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                        defaultMachineStore: store,
+                        tabManager: tabManager
+                    )
+                } else {
+                    MachinesPanelView(
+                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                        tabManager: tabManager
+                    )
+                }
             case .customSidebar:
                 customSidebarPanel
             }
@@ -713,28 +726,6 @@ extension NSView {
             view = current.superview
         }
         return true
-    }
-}
-
-/// Drag payload for reordering the mode bar's tabs in place. Same shape as
-/// `SidebarTabDragPayload`: an in-process custom UTI (declared in
-/// `Resources/Info.plist` under `UTExportedTypeDeclarations`) carrying the
-/// dragged mode's raw value.
-enum RightSidebarModeDragPayload {
-    static let typeIdentifier = "com.cmux.right-sidebar-mode-reorder"
-    static let dropContentType = UTType(exportedAs: typeIdentifier)
-
-    static func provider(for mode: RightSidebarMode) -> NSItemProvider {
-        let provider = NSItemProvider()
-        let data = Data(mode.rawValue.utf8)
-        provider.registerDataRepresentation(
-            forTypeIdentifier: typeIdentifier,
-            visibility: .ownProcess
-        ) { completion in
-            completion(data, nil)
-            return nil
-        }
-        return provider
     }
 }
 

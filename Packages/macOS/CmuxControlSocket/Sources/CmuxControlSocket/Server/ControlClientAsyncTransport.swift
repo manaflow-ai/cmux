@@ -511,7 +511,7 @@ public final class ControlClientAsyncWriter: @unchecked Sendable {
         let writable: Void? = await withTaskCancellationHandler {
             await iterator.next()
         } onCancel: {
-            writeSource.cancel()
+            sourceBox.source?.cancel()
             streamContinuation.finish()
         }
         return writable != nil
