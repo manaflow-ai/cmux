@@ -98,6 +98,16 @@ jobs:
             -Dsentry=false \
             -Dtest-filter="open stderr reader exits"
 
+      - name: Test embedded helper environment lifetime
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="resolved embedded helper directory survives refreshing exact path"
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false'
         run: |
