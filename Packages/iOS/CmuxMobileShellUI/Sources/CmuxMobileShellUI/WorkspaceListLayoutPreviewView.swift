@@ -789,6 +789,9 @@ public struct WorkspaceListLayoutPreviewView: View {
                     } notifications: {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
+                    } cloud: {
+            Text(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
+                            .foregroundStyle(.secondary)
                     } search: {
                         MobilePrimarySearchNavigationStack(
                             path: $searchFixturePath,

@@ -759,7 +759,7 @@ reload_simulator() {
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA" \
     ${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"} \
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+    CMUX_IOS_APP_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
@@ -969,7 +969,7 @@ reload_device() {
   build_args+=(${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"})
 
   build_args+=(
-    PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
+    CMUX_IOS_APP_BUNDLE_IDENTIFIER="$BUNDLE_ID"
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
@@ -1006,6 +1006,8 @@ reload_device() {
     echo "error: built device app not found at $device_app_path" >&2
     exit 1
   fi
+
+  python3 "$IOS_DIR/scripts/cloud-vpn-signing.py" --app "$device_app_path"
 
   if [[ "$queue_mode" -eq 1 ]]; then
     local enqueue_args

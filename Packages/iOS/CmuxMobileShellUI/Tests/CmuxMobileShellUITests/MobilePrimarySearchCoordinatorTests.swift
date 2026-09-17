@@ -3,6 +3,23 @@ import Testing
 
 @MainActor
 @Suite struct MobilePrimarySearchCoordinatorTests {
+    @Test func cloudSelectionCancelsSearchWithoutChangingItsScope() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .notifications)
+        coordinator.beginSearch(for: .notifications)
+        coordinator.updateNativeSearchText(
+            "alerts",
+            for: .notifications,
+            activationGeneration: coordinator.activationGeneration
+        )
+
+        coordinator.synchronizeSelection(.cloud)
+
+        #expect(coordinator.isPresented == false)
+        #expect(coordinator.notifications.isEmpty)
+        #expect(coordinator.scope == .notifications)
+        #expect(MobilePrimaryTab.cloud.searchScope == nil)
+    }
+
     @Test func beginSearchSelectsRequestedScopeBeforePresenting() {
         let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
         coordinator.notifications = "alerts"

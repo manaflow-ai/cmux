@@ -2,6 +2,10 @@
 
 cmux includes the following third-party software:
 
+The iOS Cloud VPN extension also includes WireGuardKit, wireguard-go (MIT),
+and Go supplementary libraries (BSD 3-Clause). Their complete notices are in
+[WireGuardKit notices](vendor/WireGuardKit/THIRD_PARTY_LICENSES.md).
+
 ---
 
 ## Ghostty

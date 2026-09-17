@@ -186,6 +186,8 @@ public struct MobileRootAuthGate {
     ///     warranted at all. The caller resolves this from the shell
     ///     presentation policy (no saved Macs AND no hidden computers), so
     ///     hidden-computer semantics live in one place.
+    ///   - supportsCloud: Whether Cloud is configured. Its primary tab must
+    ///     remain accessible even when the user has never paired a Mac.
     /// - Returns: The surface to mount. Restoring, connected, and
     ///   offline-with-saved-Macs all return ``MobileRootShellSurface/workspaceShell(isRestoringStoredMac:)``
     ///   so the mounted shell view never changes identity across those
@@ -193,10 +195,11 @@ public struct MobileRootAuthGate {
     public static func shellSurface(
         connectionState: MobileConnectionState,
         showRestoringStoredMac: Bool,
-        showDisconnectedNoPairedMacShell: Bool
+        showDisconnectedNoPairedMacShell: Bool,
+        supportsCloud: Bool = false
     ) -> MobileRootShellSurface {
         let isRestoringStoredMac = connectionState != .connected && showRestoringStoredMac
-        if connectionState != .connected, showDisconnectedNoPairedMacShell, !isRestoringStoredMac {
+        if !supportsCloud, connectionState != .connected, showDisconnectedNoPairedMacShell, !isRestoringStoredMac {
             return .disconnectedNoKnownPairedMac
         }
         return .workspaceShell(isRestoringStoredMac: isRestoringStoredMac)

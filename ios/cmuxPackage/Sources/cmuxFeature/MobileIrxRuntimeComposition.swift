@@ -66,6 +66,12 @@ public actor MobileIrxRuntimeComposition {
             journalFileURL: configuration.stateDirectory.appendingPathComponent("iroh-v2-journal.jsonl"))
     }
 
+    /// Shared registration ID for this installation's Iroh and Cloud clients.
+    /// Storage failures propagate so callers never create a substitute identity.
+    public func installationDeviceID() async throws -> String {
+        try await installation.deviceID()
+    }
+
     func changes() -> AsyncStream<Void> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))

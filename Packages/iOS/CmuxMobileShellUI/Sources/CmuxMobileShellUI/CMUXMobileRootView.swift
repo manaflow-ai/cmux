@@ -8,6 +8,7 @@ import CmuxMobileToast
 import CmuxMobileWorkspace
 import SwiftUI
 #if os(iOS)
+import CmuxMobileCloudUI
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
@@ -18,6 +19,17 @@ struct CMUXMobileRootView: View {
 
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
+    #if os(iOS)
+    @Environment(\.cloudSessionController) private var cloudSessionController
+    #endif
+
+    private var supportsCloud: Bool {
+        #if os(iOS)
+        cloudSessionController != nil
+        #else
+        false
+        #endif
+    }
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
@@ -548,7 +560,8 @@ struct CMUXMobileRootView: View {
                     connectionState: store.connectionState,
                     hasKnownPairedMac: store.hasKnownPairedMac,
                     hasHiddenComputers: store.hasHiddenComputers
-                ) == .disconnected
+                ) == .disconnected,
+                supportsCloud: supportsCloud
             ) {
             case .disconnectedNoKnownPairedMac:
                 // ONLY when there are no saved Macs at all: the add-device flow (it

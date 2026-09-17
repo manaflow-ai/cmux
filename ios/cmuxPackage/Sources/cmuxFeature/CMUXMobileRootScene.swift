@@ -4,6 +4,8 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
+import CmuxMobileCloud
+import CmuxMobileCloudUI
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -84,6 +86,10 @@ public struct CMUXMobileRootScene: View {
     /// Injected as a plain environment value through
     /// `\.mobileWebAppSession`.
     private let webAppSession: MobileWebAppSessionBroker
+    /// The Cloud section's tunnel and link owner, built once per scene and
+    /// injected through `\.cloudSessionController`. Nil when the build has
+    /// no API origin, which hides the Cloud entry.
+    @State private var cloudSessionController: CloudSessionController?
     #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
@@ -154,6 +160,7 @@ public struct CMUXMobileRootScene: View {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
         diagnosticLog: DiagnosticLog,
+        cloudDeviceID: @escaping @Sendable () async -> String?,
         appLog: AppLog? = nil,
         v2Configuration: MobileIrohV2Configuration? = nil
     ) {
@@ -190,6 +197,9 @@ public struct CMUXMobileRootScene: View {
             apiBaseURL: auth.config.apiBaseURL,
             projectID: auth.config.stack.projectId
         )
+        _cloudSessionController = State(initialValue: MobileCloudComposition(
+            auth: auth, deviceID: cloudDeviceID
+        ).makeController())
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -339,6 +349,13 @@ public struct CMUXMobileRootScene: View {
         return scopedStore
     }
 
+    #if os(iOS)
+    private var cloudAccountScope: String? {
+        guard let userID = auth.coordinator.currentUser?.id else { return nil }
+        return [auth.config.apiBaseURL, userID, auth.coordinator.resolvedTeamID ?? ""].joined(separator: "|")
+    }
+    #endif
+
     public var body: some View {
         applyingRootEnvironment(to: content)
     }
@@ -368,6 +385,15 @@ public struct CMUXMobileRootScene: View {
             .environment(whatsNewCenter)
             .environment(macCompatCenter)
             .environment(\.mobileWebAppSession, webAppSession)
+            .environment(\.cloudSessionController, cloudSessionController)
+            .onChange(of: cloudAccountScope) { _, scope in
+                guard !auth.coordinator.isRestoringSession else { return }
+                cloudSessionController?.systemVPN?.setScope(scope)
+            }
+            .onChange(of: auth.coordinator.isRestoringSession, initial: true) { _, restoring in
+                guard !restoring else { return }
+                cloudSessionController?.systemVPN?.setScope(cloudAccountScope)
+            }
             #endif
     }
 
@@ -415,7 +441,10 @@ public struct CMUXMobileRootScene: View {
             browserStreamStore: browserStreamStore,
             simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
-            signOutHook: signOutHook
+            signOutHook: MobileSignOutHook {
+                cloudSessionController?.systemVPN?.setScope(nil)
+                return signOutHook.begin()
+            }
         )
         #else
         return CMUXMobileAppView(
