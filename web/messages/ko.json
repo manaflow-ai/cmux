@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "팀과 공유",
+      "makePrivate": "비공개로 전환",
+      "privateImportHint": "새 계정은 비공개입니다. 이 팀의 Cloud VM에서 사용하려면 계정을 공유하세요.",
+      "description": "공유 계정은 이 팀의 Cloud VM에서 사용할 수 있습니다. 비공개 계정은 계정을 추가한 사람만 사용할 수 있습니다.",
+      "cancelAction": "취소"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "잘못된 창이 선택되거나 클릭이 차단됨",
       "targetBody": "앱을 다시 확인하고 현재 상태에서 새 요소를 선택하세요. 다른 창이 대상을 가리면 원하는 창을 드러낸 뒤 다시 확인하세요. 오래된 좌표나 요소 인덱스를 재사용하지 마세요.",
       "productLink": "cmux Computer Use 개요",
-    "copyTitle": "Computer Use 프롬프트 복사",
-    "copyPrompt": "프롬프트 복사",
-    "copiedPrompt": "복사됨",
-    "installPrompt": "이 작업에는 $cmux-cua 스킬을 사용하세요. 없으면 평소 스킬 설치 도구로 설치하세요. 권한이 없으면 cmux 설정 → Computer Use를 열라고 알려 주세요. 먼저 확인하고 변경 후마다 검증하세요.\n\n작업: [여기에 작업 설명]"
+      "copyTitle": "Computer Use 프롬프트 복사",
+      "copyPrompt": "프롬프트 복사",
+      "copiedPrompt": "복사됨",
+      "installPrompt": "이 작업에는 $cmux-cua 스킬을 사용하세요. 없으면 평소 스킬 설치 도구로 설치하세요. 권한이 없으면 cmux 설정 → Computer Use를 열라고 알려 주세요. 먼저 확인하고 변경 후마다 검증하세요.\n\n작업: [여기에 작업 설명]"
     },
     "remoteTmux": {
       "moshContrast": "네트워크 간 로밍에는 cmux mosh-tmux를 사용하세요. 이름 있는 tmux 세션에 연결된 완전한 Mosh 터미널을 열며, SSH tmux 제어 모드가 제공하는 네이티브 워크스페이스·탭·분할 미러를 대체하지는 않습니다."
