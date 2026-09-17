@@ -22676,7 +22676,7 @@ mod tests {
         use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
 
         let root = std::env::temp_dir()
-            .join(format!("cmux-roster-malformed-cursor-{}", crate::workspace_registry::new_uuid_v4()));
+            .join(format!("cmux-roster-malformed-{}", crate::workspace_registry::new_uuid_v4()));
         let registry = WorkspaceRegistry::open(&root, "roster-malformed-cursor").unwrap();
         let connection =
             rusqlite::Connection::open(registry.session_journal_database_path().unwrap()).unwrap();
