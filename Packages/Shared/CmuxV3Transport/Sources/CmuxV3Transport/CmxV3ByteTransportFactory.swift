@@ -24,11 +24,13 @@ public struct CmxV3Authorization: Sendable {
     public let peerID: String
     public let grant: String
     public let addresses: [String]
-    public init(deviceID: String, peerID: String, grant: String, addresses: [String] = []) {
+    public let renewEverySeconds: UInt32
+    public init(deviceID: String, peerID: String, grant: String, addresses: [String] = [], renewEverySeconds: UInt32 = 30) {
         self.deviceID = deviceID
         self.peerID = peerID
         self.grant = grant
         self.addresses = addresses
+        self.renewEverySeconds = renewEverySeconds
     }
 }
 
@@ -70,13 +72,15 @@ public struct CmxV3ByteTransportFactory: CmxRouteAwareByteTransportFactory {
         else { throw CmxV3TransportError.peerIntentRequired }
         let endpoint = self.endpoint
         let grants = self.grants
-        return V3ByteTransport { operation in
+        let interval = CmxV3RenewalInterval()
+        return V3ByteTransport(establish: { operation in
             let action = switch kind {
             case 2: "terminal_read"
             case 3: "terminal_write"
             default: "connect"
             }
             let authorization = try await grants.authorization(for: request, source: endpoint.peerId(), action: action)
+            interval.store(authorization.renewEverySeconds)
             if let expected = request.expectedPeerDeviceID, authorization.deviceID != expected {
                 throw CmxV3TransportError.peerIntentRequired
             }
@@ -98,9 +102,33 @@ public struct CmxV3ByteTransportFactory: CmxRouteAwareByteTransportFactory {
                 }
             }
             throw lastError
-        }
+        }, renew: { stream in
+            var delay: UInt64 = max(1, UInt64(interval.load()))
+            while !Task.isCancelled {
+                try await Task.sleep(for: .seconds(delay))
+                let refreshed = try await grants.authorization(for: request, source: endpoint.peerId(), action: actionForLane(kind))
+                delay = max(1, UInt64(refreshed.renewEverySeconds))
+                interval.store(refreshed.renewEverySeconds)
+                try await stream.renew(grant: refreshed.grant, operation: CmuxV3Native.Operation())
+            }
+        })
     }
 
+}
+
+private final class CmxV3RenewalInterval: @unchecked Sendable {
+    private let lock = NSLock()
+    private var seconds: UInt32 = 30
+    func store(_ value: UInt32) { lock.lock(); seconds = value; lock.unlock() }
+    func load() -> UInt32 { lock.lock(); defer { lock.unlock() }; return seconds }
+}
+
+private func actionForLane(_ kind: UInt8) -> String {
+    switch kind {
+    case 2: "terminal_read"
+    case 3: "terminal_write"
+    default: "connect"
+    }
 }
 
 private extension String {

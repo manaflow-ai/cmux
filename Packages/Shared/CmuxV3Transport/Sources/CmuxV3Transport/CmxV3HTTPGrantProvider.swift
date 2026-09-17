@@ -55,7 +55,7 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
         guard let target = directory.devices.first(where: { $0.peerID == request.route.v3PeerID }) else { throw CmxV3HTTPGrantError.unknownPeer }
         let payload = AuthorizationPayload(team: configuration.team, destination: target.peerID, action: action)
         let grant: GrantResponse = try await post("/v3/authorize", body: Signed(request: payload, proof: try await proof(path: "/v3/authorize", payload: payload)))
-        return CmxV3Authorization(deviceID: target.deviceID, peerID: target.peerID, grant: grant.grant, addresses: target.addresses)
+        return CmxV3Authorization(deviceID: target.deviceID, peerID: target.peerID, grant: grant.grant, addresses: target.addresses, renewEverySeconds: target.lease.renewEverySeconds)
     }
 
     public func relayGrant(for request: CmxByteTransportRequest, source: String, relay: String) async throws -> String? {
@@ -139,13 +139,19 @@ private struct DirectoryDevice: Decodable {
     let peerID: String
     let deviceID: String
     let addresses: [String]
+    let lease: DirectoryLease
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         peerID = try container.decode(String.self, forKey: .peerID)
         deviceID = try container.decode(String.self, forKey: .deviceID)
         addresses = try container.decodeIfPresent([String].self, forKey: .addresses) ?? []
+        lease = try container.decodeIfPresent(DirectoryLease.self, forKey: .lease) ?? DirectoryLease(renewEverySeconds: 30)
     }
-    enum CodingKeys: String, CodingKey { case peerID = "peer_id"; case deviceID = "device_id"; case addresses }
+    enum CodingKeys: String, CodingKey { case peerID = "peer_id"; case deviceID = "device_id"; case addresses; case lease }
+}
+private struct DirectoryLease: Decodable {
+    let renewEverySeconds: UInt32
+    enum CodingKeys: String, CodingKey { case renewEverySeconds = "renew_every_seconds" }
 }
 private struct ProofMessage<Payload: Encodable>: Encodable {
     let audience: String; let user: String; let path: String; let nonce: UUID; let issuedAt: UInt64; let payload: Payload

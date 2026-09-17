@@ -5,20 +5,28 @@ import Foundation
 /// One RPC owner's stream. Closing this owner never retires another lane.
 public actor V3ByteTransport: CmxByteTransport, CmxByteTransportLivenessObserving, CmxByteTransportClosureObserving {
     public typealias Establish = @Sendable (CmuxV3Native.Operation) async throws -> NativeStream
+    public typealias Renew = @Sendable (NativeStream) async throws -> Void
     private let establish: Establish
+    private let renew: Renew?
     private var stream: NativeStream?
     private var connecting: Task<NativeStream, any Error>?
     private var operation: CmuxV3Native.Operation?
+    private var renewalTask: Task<Void, Never>?
     private var closed = false
 
-    public init(establish: @escaping Establish) { self.establish = establish }
+    public init(establish: @escaping Establish, renew: Renew? = nil) {
+        self.establish = establish
+        self.renew = renew
+    }
     public init(stream: NativeStream) {
         self.stream = stream
         self.establish = { _ in stream }
+        self.renew = nil
     }
     deinit {
         operation?.cancel()
         connecting?.cancel()
+        renewalTask?.cancel()
         stream?.close()
     }
 
@@ -63,6 +71,8 @@ public actor V3ByteTransport: CmxByteTransport, CmxByteTransportLivenessObservin
         connecting?.cancel()
         operation = nil
         connecting = nil
+        renewalTask?.cancel()
+        renewalTask = nil
         stream?.close()
         stream = nil
     }
@@ -101,6 +111,12 @@ public actor V3ByteTransport: CmxByteTransport, CmxByteTransportLivenessObservin
                 stream = value
                 connecting = nil
                 operation = nil
+                if let renew {
+                    renewalTask = Task {
+                        do { try await renew(value) }
+                        catch { value.close() }
+                    }
+                }
                 return value
             } catch {
                 close()
