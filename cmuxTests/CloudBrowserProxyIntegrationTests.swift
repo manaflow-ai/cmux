@@ -60,6 +60,47 @@ struct CloudBrowserProxyIntegrationTests {
         await model.retire()
     }
 
+    @Test("a Cloud profile switch keeps localhost requests on the VM")
+    func profileSwitchPreservesCloudRouting() async throws {
+        let server = try CloudBrowserProxyTestServer(address: "10.16.0.11", marker: "profile")
+        try await server.start()
+        defer { server.stop() }
+        let profiles = BrowserProfileStore.shared
+        let profile = try #require(profiles.createProfile(named: "Cloud routing \(UUID())"))
+        defer { _ = profiles.deleteProfile(id: profile.id) }
+        let panel = BrowserPanel(workspaceId: UUID(), profileID: profiles.builtInDefaultProfileID)
+        defer { panel.close() }
+        let access = model(server: server)
+        let url = try await prepare(panel: panel, model: access, server: server)
+        _ = panel.navigate(to: url)
+        let initialDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !panel.cloudAccess.showsPage && ContinuousClock.now < initialDeadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(panel.cloudAccess.showsPage)
+        let previousStore = panel.websiteDataStore
+        #expect(panel.switchToProfile(profile.id))
+        #expect(panel.websiteDataStore !== previousStore)
+        #expect(panel.webView.configuration.websiteDataStore === panel.websiteDataStore)
+        #expect(panel.websiteDataStore.proxyConfigurations.count == 1)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !panel.cloudAccess.showsPage && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(panel.cloudAccess.showsPage)
+        let posted = try #require(try await panel.webView.callAsyncJavaScript("""
+            const response = await fetch('http://localhost:8000/echo', {
+              method: 'POST', body: 'after-profile-switch', signal: AbortSignal.timeout(5000)
+            });
+            return await response.json();
+            """, arguments: [:], in: nil, contentWorld: .page) as? [String: String])
+        #expect(posted["machine"] == server.marker)
+        #expect(posted["host"] == "\(server.address):8000")
+        #expect(posted["body"] == "after-profile-switch")
+        #expect(panel.webView.url == url)
+        await access.retire()
+    }
+
     @Test("two VM origins use the same port without sharing routing or changing document identity")
     func twoMachinesKeepTheirPrivateOrigins() async throws {
         let first = try CloudBrowserProxyTestServer(address: "10.16.0.7", marker: "vm-a")
