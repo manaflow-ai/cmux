@@ -40,6 +40,7 @@ public actor MobileIrxRuntimeComposition {
     var identity: IrxIdentity?
     var cache: V2CachedState?
     var lastFailure: String?
+    var lastLoggedControlState: String?
     var enginesByPeer: [String: IrxPeerEngine] = [:]
     var dialIntentByPeer: [String: DialIntent] = [:]
     var activeDialIntentByPeer: [String: DialIntent] = [:]

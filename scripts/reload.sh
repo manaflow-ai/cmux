@@ -395,7 +395,7 @@ derive_socket_marker_names() {
   # Keep this table in lockstep with SocketPathMarkerFiles.variant. In
   # particular, an identifier that is not one of the known cmux flavors is
   # stable (rather than an implicitly-tagged dev build), and an empty suffix
-  # uses the unscoped nightly/staging/dev marker name.
+  # uses the unscoped nightly/rc/staging/dev marker name.
   bundle_id="$(printf '%s' "$bundle_id" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
   CMUX_RELOAD_MARKER_NAME="last-socket-path"
   CMUX_RELOAD_TMP_MARKER="/tmp/cmux-last-socket-path"
@@ -412,6 +412,20 @@ derive_socket_marker_names() {
       else
         CMUX_RELOAD_MARKER_NAME="nightly-last-socket-path"
         CMUX_RELOAD_TMP_MARKER="/tmp/cmux-nightly-last-socket-path"
+      fi
+      ;;
+    com.cmuxterm.app.rc)
+      CMUX_RELOAD_MARKER_NAME="rc-last-socket-path"
+      CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-last-socket-path"
+      ;;
+    com.cmuxterm.app.rc.*)
+      variant_slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.rc.}")"
+      if [[ -n "$variant_slug" ]]; then
+        CMUX_RELOAD_MARKER_NAME="rc-${variant_slug}-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-${variant_slug}-last-socket-path"
+      else
+        CMUX_RELOAD_MARKER_NAME="rc-last-socket-path"
+        CMUX_RELOAD_TMP_MARKER="/tmp/cmux-rc-last-socket-path"
       fi
       ;;
     com.cmuxterm.app.staging)
@@ -1194,6 +1208,26 @@ if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
   usage
   exit 1
+fi
+
+# A tagged launch is a dogfood surface, so it must have an explicit identity
+# before the app is started.  Keeping this gate here covers agents that call
+# reload.sh directly instead of the higher-level dev-setup wrapper.
+if [[ "$LAUNCH" -eq 1 && -n "$TAG" && -z "$AUTH_PROFILE" ]]; then
+  AUTH_PROFILE="personal"
+  if [[ -z "$AUTH_CREDENTIALS_FILE" ]]; then
+    for candidate in "${HOME:-}/.secrets/cmuxterm-dev.env" "${HOME:-}/.secrets/cmux.env"; do
+      if [[ -f "$candidate" ]]; then
+        AUTH_CREDENTIALS_FILE="$candidate"
+        break
+      fi
+    done
+  fi
+  if [[ -z "$AUTH_CREDENTIALS_FILE" || ! -f "$AUTH_CREDENTIALS_FILE" ]]; then
+    echo "error: tagged launches require authenticated dev credentials" >&2
+    echo "error: configure ~/.secrets/cmuxterm-dev.env with scripts/setup-team-dev.sh" >&2
+    exit 2
+  fi
 fi
 
 if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then

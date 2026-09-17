@@ -116,10 +116,9 @@ export function reflectionIsLive(row: Pick<ReflectionRow, "status">): boolean {
   return (VM_PRINCIPAL_LIVE_STATUSES as readonly string[]).includes(row.status);
 }
 
-/** Same owner as `self`: the billing team when there is one, else the creating user. */
+/** Resource ownership is independent of the creator and payer. */
 export function reflectionSharesOwner(self: ReflectionRow, other: ReflectionRow): boolean {
-  if (self.billingTeamId) return other.billingTeamId === self.billingTeamId;
-  return other.billingTeamId === null && other.userId === self.userId;
+  return other.ownerTeamId === self.ownerTeamId;
 }
 
 export function reflectionUrls(context: Pick<ReflectionContext, "aliasOrigin" | "reflectionOrigin">): string[] {

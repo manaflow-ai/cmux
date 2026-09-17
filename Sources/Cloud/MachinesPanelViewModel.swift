@@ -124,7 +124,7 @@ struct MachinePlanSnapshot: Equatable {
 
     static func isPaidPlanID(_ planId: String) -> Bool {
         switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "pro", "team", "founders":
+        case "go", "pro", "max", "team", "founders":
             return true
         default:
             return false
@@ -284,6 +284,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// these on every local recompute without another round trip.
     private var lastLimits: VMPlanLimits?
     var memoryOptionsMb: [Int] { lastLimits?.memoryOptionsMb ?? [] }
+    var lockedMemoryOptionsMb: [Int]? { lastLimits?.lockedMemoryOptionsMb }
+    var memoryUpgradePlanId: String? { lastLimits?.memoryUpgradePlanId }
+    var memoryUpgradePlansByMb: [String: String]? { lastLimits?.memoryUpgradePlansByMb }
     private var authSignOutObserver: NSObjectProtocol?
     private var featureFlagObserver: CloudFeatureAvailabilityObserver?
     private var wantsPolling = false
@@ -463,7 +466,7 @@ final class MachinesPanelViewModel: ObservableObject {
             await withTaskGroup(of: (String, VMStats?).self) { group in
                 for id in ids {
                     group.addTask {
-                        (id, try? await VMClient.shared.stats(id: id))
+                        (id, (try? await VMClient.shared.stats(id: id)) ?? .unavailable())
                     }
                 }
                 for await (id, stats) in group {

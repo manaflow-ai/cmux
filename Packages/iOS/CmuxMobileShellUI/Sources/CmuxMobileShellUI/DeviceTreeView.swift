@@ -222,7 +222,7 @@ struct DeviceTreeView: View {
         if connectionMethodStore?.method == .tailscale {
             return MobilePairingScannerSheet.emptyStateGuidanceText
         }
-        return showAddDevice != nil
+        let description = showAddDevice != nil
             ? L10n.string(
                 "mobile.v2.connections.empty",
                 defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
@@ -231,6 +231,7 @@ struct DeviceTreeView: View {
                 "mobile.v2.devices.emptyDescription",
                 defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
             )
+        return "\(description) \(MobilePairingCopy().emptyWorkspaceMessage)"
     }
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
