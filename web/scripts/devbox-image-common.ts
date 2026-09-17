@@ -714,6 +714,12 @@ export function devboxDaemonReadyCondition(): string {
   );
 }
 
+/** Keep snapshot timers tied to the hypervisor, rather than a migrated host TSC. */
+export const devboxSnapshotClockCommand =
+  "grep -qw kvm-clock /sys/devices/system/clocksource/clocksource0/available_clocksource && " +
+  "echo kvm-clock > /sys/devices/system/clocksource/clocksource0/current_clocksource && " +
+  "test \"$(cat /sys/devices/system/clocksource/clocksource0/current_clocksource)\" = kvm-clock";
+
 /**
  * Blocks in the guest until {@link devboxDaemonReadyCondition} holds, then
  * exits 0. Bounded: on timeout it exits 1 with the elapsed budget on stderr,
