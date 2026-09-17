@@ -16,7 +16,10 @@ import Testing
 /// agents with SIGWINCH blocked: Codex and Claude Code never received a resize
 /// event again, kept painting at their startup width, and garbled on the first
 /// pane resize. Every CLI exec goes through `cliExecFailureErrno`, so the child
-/// it produces must start from the default signal state.
+/// it produces must start from the default signal state, and every exec or
+/// `posix_spawn` site under `CLI/` must use that wrapper or the equivalent
+/// spawn attributes: `cmux restore` and `cmux fork` exec the resumed agent from
+/// their own files.
 @Suite struct CLIExecInheritedSignalStateTests {
     private typealias ForkFunction = @convention(c) () -> pid_t
 
@@ -44,6 +47,55 @@ import Testing
             "The exec'd child inherited a blocked signal mask: \(state.blockedSignals)"
         )
         #expect(!state.ignoresWindowChange, "The exec'd child inherited SIG_IGN for SIGWINCH")
+    }
+
+    /// The exec wrapper only protects the sites that call it. `cmux restore`
+    /// and `cmux fork` exec the resumed agent from their own files, so one
+    /// direct `execve` hands the agent the blocked mask again. Every exec under
+    /// `CLI/` must run inside `cliExecFailureErrno`, and every `posix_spawn`
+    /// must set `POSIX_SPAWN_SETSIGMASK`.
+    @Test func everyCLIExecAndSpawnSiteStartsChildrenFromDefaultSignalState() throws {
+        let cliDirectory = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("CLI", isDirectory: true)
+        let fileNames = try FileManager.default.contentsOfDirectory(atPath: cliDirectory.path)
+            .filter { $0.hasSuffix(".swift") }
+            .sorted()
+        try #require(!fileNames.isEmpty, "no CLI sources under \(cliDirectory.path)")
+
+        let execCall = try Regex(#"\b(execve|execv|execvp|execvP|execl|execle|execlp)\("#)
+        let spawnCall = try Regex(#"\bposix_spawnp?\("#)
+        var unguardedExecSites: [String] = []
+        var unguardedSpawnSites: [String] = []
+        for fileName in fileNames {
+            let path = cliDirectory.appendingPathComponent(fileName).path
+            let lines = try String(contentsOfFile: path, encoding: .utf8)
+                .components(separatedBy: "\n")
+            let source = lines.joined(separator: "\n")
+            let spawnSetsMask = source.contains("POSIX_SPAWN_SETSIGMASK")
+                && source.contains("posix_spawnattr_setsigmask(")
+            for (index, line) in lines.enumerated() {
+                if line.trimmingCharacters(in: .whitespaces).hasPrefix("//") { continue }
+                if line.contains(execCall) {
+                    let precedingLines = lines[max(0, index - 12)..<index]
+                    if !precedingLines.contains(where: { $0.contains("cliExecFailureErrno") }) {
+                        unguardedExecSites.append("\(fileName):\(index + 1)")
+                    }
+                }
+                if line.contains(spawnCall), !spawnSetsMask {
+                    unguardedSpawnSites.append("\(fileName):\(index + 1)")
+                }
+            }
+        }
+        #expect(
+            unguardedExecSites.isEmpty,
+            "exec sites outside cliExecFailureErrno hand the child the thread's signal mask: \(unguardedExecSites)"
+        )
+        #expect(
+            unguardedSpawnSites.isEmpty,
+            "posix_spawn sites without POSIX_SPAWN_SETSIGMASK hand the child the thread's signal mask: \(unguardedSpawnSites)"
+        )
     }
 
     /// Forks a child on the current thread and replaces it through the CLI's
