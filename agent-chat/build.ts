@@ -1,7 +1,9 @@
 const out = await Bun.build({
-  entrypoints: [`${import.meta.dir}/src/main.tsx`],
+  entrypoints: [`${import.meta.dir}/src/main.tsx`, `${import.meta.dir}/src/gallery-main.tsx`],
   target: "browser",
   minify: true,
+  splitting: true,
+  outdir: `/tmp/cmux-agent-chat-build-check`,
   define: { "process.env.NODE_ENV": '"production"' },
 });
 

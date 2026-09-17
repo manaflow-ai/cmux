@@ -39,6 +39,12 @@ public protocol FocusHistoryNavigating: AnyObject {
 
     /// Builds the back or forward menu snapshot, optionally truncated.
     func focusHistoryMenuSnapshot(direction: FocusHistoryMenuDirection, maxItemCount: Int?) -> FocusHistoryMenuSnapshot
+    /// Returns the most-recently-focused menu rows across both directions.
+    /// The raw records are ordered by their stored timestamps before host
+    /// resolution, so at most the requested number of rendered rows normally
+    /// crosses the workspace/panel lookup seam without assuming history-index
+    /// order implies recency.
+    func recentlyFocusedFocusHistoryMenuItems(maxItemCount: Int) -> [FocusHistoryMenuItem]
     /// Navigates to a menu item; returns whether navigation happened.
     @discardableResult
     func navigateToFocusHistoryMenuItem(_ item: FocusHistoryMenuItem) -> Bool

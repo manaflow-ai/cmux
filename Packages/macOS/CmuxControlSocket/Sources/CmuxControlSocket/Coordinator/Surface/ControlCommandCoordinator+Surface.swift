@@ -57,6 +57,8 @@ extension ControlCommandCoordinator {
             return surfaceSendKey(request.params, context: context)
         case "surface.report_tty": return surfaceReportTTY(request.params)
         case "surface.report_pwd": return surfaceReportPWD(request.params)
+        case "surface.report_git_branch": return surfaceReportGitBranch(request.params)
+        case "surface.clear_git_branch": return surfaceClearGitBranch(request.params)
         case "surface.report_shell_state":
             return surfaceReportShellState(request.params)
         case "surface.ports_kick":
@@ -167,6 +169,17 @@ extension ControlCommandCoordinator {
                     item["initial_command"] = orNull(surface.initialCommand)
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
                     item["resume_binding"] = surfaceResumeBindingPayload(surface.resumeBinding)
+                    item["render_health"] = orNull(surface.renderHealthRawValue)
+                }
+                if surface.typeRawValue == "simulator" {
+                    item["simulator_id"] = orNull(surface.simulatorDeviceID)
+                    item["runtime_id"] = orNull(surface.simulatorRuntimeIdentifier)
+                    item["device_type_id"] = orNull(surface.simulatorDeviceTypeIdentifier)
+                    item["device_name"] = orNull(surface.simulatorDeviceName)
+                    item["state"] = orNull(surface.simulatorDeviceState)
+                }
+                if let dockScope = surface.dockScopeRawValue {
+                    item["dock_scope"] = .string(dockScope)
                 }
                 return .object(item)
             }
@@ -241,7 +254,6 @@ extension ControlCommandCoordinator {
             ]))
         }
     }
-
     // MARK: - health
 
     /// `surface.health` — render health for the resolved workspace's surfaces.
@@ -260,6 +272,8 @@ extension ControlCommandCoordinator {
                 "ref": ref(.surface, entry.surfaceID),
                 "type": .string(entry.typeRawValue),
                 "in_window": entry.inWindow.map { .bool($0) } ?? .null,
+                "socket_binding": entry.socketBindingRawValue.map { .string($0) } ?? .null,
+                "render_health": entry.renderHealthRawValue.map { .string($0) } ?? .null,
             ])
         }
         return .ok(.object([
@@ -270,7 +284,6 @@ extension ControlCommandCoordinator {
             "window_ref": ref(.window, snapshot.windowID),
         ]))
     }
-
     // MARK: - focus
 
     /// `surface.focus` — focus a surface in the resolved workspace.
@@ -295,6 +308,12 @@ extension ControlCommandCoordinator {
                 message: "Surface not found",
                 data: .object(["surface_id": .string(id.uuidString)])
             )
+        case .dockUnavailable(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
+            )
         case .focused(let windowID, let workspaceID, let focusedSurfaceID):
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
@@ -311,6 +330,9 @@ extension ControlCommandCoordinator {
 
     /// `surface.split` — split a surface into a new pane.
     func surfaceSplit(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -344,6 +366,7 @@ extension ControlCommandCoordinator {
             requestedSourceSurfaceID: uuid(params, "surface_id"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
@@ -393,7 +416,8 @@ extension ControlCommandCoordinator {
             return remoteRoutedCreationResult(
                 windowID: windowID,
                 workspaceID: workspaceID,
-                typeRawValue: typeRawValue
+                typeRawValue: typeRawValue,
+                operation: .splitWindow
             )
         case .created(let windowID, let workspaceID, let paneID, let surfaceID, let typeRawValue):
             return .ok(.object([
@@ -431,12 +455,18 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: strings.invalidFocus, data: nil)
         }
 
+        let hasSurfaceIDParam = params["surface_id"] != nil
+        let requestedSurfaceID = uuid(params, "surface_id")
+        if hasSurfaceIDParam, requestedSurfaceID == nil {
+            return .err(code: "not_found", message: strings.surfaceNotFoundForID, data: nil)
+        }
+
         let inputs = ControlSurfaceRespawnInputs(
             command: command,
             tmuxStartCommand: tmuxStartCommand,
             workingDirectory: workingDirectory,
-            hasSurfaceIDParam: hasNonNull(params, "surface_id"),
-            requestedSurfaceID: uuid(params, "surface_id"),
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            requestedSurfaceID: requestedSurfaceID,
             hasFocusParam: hasFocusParam,
             requestedFocus: bool(params, "focus") ?? false
         )
@@ -487,6 +517,9 @@ extension ControlCommandCoordinator {
 
     /// `surface.create` — create a surface in a pane.
     func surfaceCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -499,6 +532,7 @@ extension ControlCommandCoordinator {
             urlRaw: string(params, "url"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             remotePTYSessionID: optionalTrimmedRawString(params, "remote_pty_session_id"),
             remoteContextRaw: optionalTrimmedRawString(params, "remote_context"),
@@ -537,6 +571,15 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .paneNotFound:
             return .err(code: "not_found", message: "Pane not found", data: nil)
+        case .mirrorPaneTargetUnsupportedType(let typeRawValue, let message):
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object([
+                    "type": .string(typeRawValue),
+                    "target": .string("remote-tmux-pane"),
+                ])
+            )
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create surface", data: nil)
         case .mirrorUnsupportedOptions(let unsupported):
@@ -545,7 +588,8 @@ extension ControlCommandCoordinator {
             return remoteRoutedCreationResult(
                 windowID: windowID,
                 workspaceID: workspaceID,
-                typeRawValue: typeRawValue
+                typeRawValue: typeRawValue,
+                operation: .newWindow
             )
         case .createdDock(let windowID, let workspaceID, let dockPaneID, let dockSurfaceID, let typeRawValue):
             return .ok(.object([
@@ -582,11 +626,19 @@ extension ControlCommandCoordinator {
     /// `surface.close` — force-close a surface.
     func surfaceClose(_ params: [String: JSONValue]) -> ControlCallResult {
         let routing = routingSelectors(params)
-        guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
+        guard let context, context.controlSurfaceRoutingResolvesTabManager(routing: routing) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let resolution = context?.controlSurfaceClose(routing: routing, surfaceID: uuid(params, "surface_id"))
-            ?? .tabManagerUnavailable
+        let surfaceID = uuid(params, "surface_id")
+        let hasSurfaceIDParam = params["surface_id"] != nil
+        if hasSurfaceIDParam, surfaceID == nil {
+            return .err(code: "not_found", message: context.controlSurfaceNotFoundMessage(), data: nil)
+        }
+        let resolution = context.controlSurfaceClose(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam
+        )
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -594,10 +646,12 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .noFocusedSurface:
             return .err(code: "not_found", message: "No focused surface", data: nil)
+        case .invalidSurfaceID:
+            return .err(code: "not_found", message: context.controlSurfaceNotFoundMessage(), data: nil)
         case .surfaceNotFound(let id):
             return .err(
                 code: "not_found",
-                message: "Surface not found",
+                message: context.controlSurfaceNotFoundMessage(),
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .lastSurface:

@@ -1,7 +1,7 @@
 name: Activation performance
 
 on:
-  pull_request:
+  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
   workflow_dispatch:
     inputs:
       ref:
@@ -153,6 +153,9 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Download pre-built GhosttyKit.xcframework
         env:

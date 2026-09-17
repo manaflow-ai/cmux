@@ -67,7 +67,7 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
+<code>cmux ssh user@remote</code> creates a workspace for a remote machine. Pass <code>--command 'omp "investigate auth"'</code> to run an initial command once in its first remote terminal. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -182,6 +182,7 @@ For more info on how to configure cmux, [head over to our docs](https://cmux.com
 | ⌘ D | Split right |
 | ⌘ ⇧ D | Split down |
 | ⌥ ⌘ ← → ↑ ↓ | Focus pane directionally |
+| ⌃ ⇧ H J K L | Resize pane left/down/up/right |
 | ⌘ ⇧ H | Flash focused panel |
 
 ### Browser
@@ -207,6 +208,8 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | ⌘ ⇧ U | Jump to latest unread |
 | ⌥ ⌘ U | Toggle current item unread state |
 | ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
+| — | Mark all notifications read (unbound by default; configure in Settings or `cmux.json`) |
+| — | Clear all notifications (unbound by default; configure in Settings or `cmux.json`) |
 
 ### Find
 
@@ -240,7 +243,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 ## Nightly Builds
 
-[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg) (universal; updates then switch to your Mac's architecture automatically)
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 
@@ -255,8 +258,11 @@ state:
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
 
-cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
-unsupported terminal apps reopen as normal terminals.
+cmux does not checkpoint arbitrary live process state. Ordinary terminals,
+tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
+For live detach/reattach across cmux quit, crashes, and updates, opt in to the
+local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
+for its lifecycle and machine-sleep limits.
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
@@ -371,7 +377,15 @@ Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and 
 
 ### Are my sessions saved?
 
-Yes. cmux restores your windows, workspaces, panes, working directories, and scrollback when you relaunch, and the state survives a full computer restart, not just quitting the app. Agent sessions like Claude Code, Codex, and OpenCode come back too. See [session restore](https://cmux.com/docs/session-restore).
+cmux restores windows, workspaces, panes, working directories, and best-effort
+scrollback when you relaunch. Supported agent integrations can resume from
+their saved session IDs. Those are reconstructed app state and resume commands;
+they do not keep arbitrary live processes running. Use `cmux local-tmux` for
+live local detach/reattach across cmux quit, crashes, and updates. A local tmux
+server cannot survive logout, restart, shutdown, or power loss; use
+`cmux ssh-tmux`, `cmux mosh-tmux`, or a persistent cloud VM when the owner must
+remain online while this Mac is offline. See [session restore](https://cmux.com/docs/session-restore)
+and [`docs/local-tmux.md`](docs/local-tmux.md).
 
 ### How does it compare to tmux?
 
@@ -391,11 +405,11 @@ We want to hear it. Open an [issue](https://github.com/manaflow-ai/cmux/issues) 
 
 ## Star History
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -411,6 +425,7 @@ Ways to get involved:
 ## Community
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
@@ -439,4 +454,8 @@ cmux is free, open source, and always will be. If you'd like to support developm
 
 cmux is open source under [GPL-3.0-or-later](LICENSE).
 
-If your organization cannot comply with GPL, a commercial license is available. Contact [founders@manaflow.com](mailto:founders@manaflow.com) for details.
+If your organization cannot comply with GPL, commercial terms may be available
+for portions for which Manaflow controls the necessary rights. They do not
+relicense third-party material or outside contributions for which Manaflow
+lacks a separate grant. See [LICENSE](LICENSE) for the exact scope and contact
+[founders@manaflow.com](mailto:founders@manaflow.com) for details.

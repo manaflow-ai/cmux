@@ -1,9 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "bash tools/vercel-ignore-build.sh",
+  "git": {
+    "deploymentEnabled": {
+      "main": true,
+      "**": false
+    }
+  },
   "regions": [
     "pdx1"
   ],
   "crons": [
+    {
+      "path": "/api/cron/vm-runtime-limits",
+      "schedule": "* * * * *"
+    },
     {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
@@ -13,8 +24,28 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/coderouter-alerts",
+      "schedule": "2,7,12,17,22,27,32,37,42,47,52,57 * * * *"
+    },
+    {
+      "path": "/api/cron/billing-reconcile",
+      "schedule": "23 * * * *"
+    },
+    {
       "path": "/api/internal/vm/leases/revoke-expired",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/internal/iroh/retention",
+      "schedule": "3,13,23,33,43,53 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-reaper",
+      "schedule": "49 * * * *"
+    },
+    {
+      "path": "/api/cron/cloud-diagnostics",
+      "schedule": "* * * * *"
     }
   ]
 }

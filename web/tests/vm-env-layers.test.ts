@@ -5,6 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import type { ProviderId } from "../services/vms/drivers";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
@@ -106,6 +107,19 @@ describe("env layer cache", () => {
       chainHashes: editedChain,
     }));
     expect(shallow?.stepIndex).toBe(0);
+
+    // Current snapshot lifecycle blocks a layer as soon as deletion is requested.
+    await sql!`
+      insert into cloud_vm_usage_events (user_id, billing_team_id, event_type, provider, metadata)
+      values (${scope.userId}, ${scope.billingTeamId}, 'vm.snapshot.delete_requested', 'freestyle',
+              ${sql!.json({ snapshotId: "snap-envlayer-deep-1" })})
+    `;
+    const afterDeletion = await run(resolveEnvLayers({
+      billingTeamId: scope.billingTeamId,
+      provider: "freestyle",
+      chainHashes: chain,
+    }));
+    expect(afterDeletion?.stepIndex).toBe(0);
   });
 
   dbTest("resolve derives depth from the requested chain, not stored stepIndex", async () => {
@@ -249,7 +263,7 @@ describe("env layer cache", () => {
     const resolveError = await run(
       resolveEnvLayers({
         billingTeamId: "team-envlayer-provider",
-        provider: "e2b",
+        provider: "retired-provider" as ProviderId,
         chainHashes: ["hash-any"],
       }).pipe(Effect.flip),
     );
@@ -259,7 +273,7 @@ describe("env layer cache", () => {
       recordEnvLayer({
         userId: "user-envlayer-5",
         billingTeamId: "team-envlayer-provider",
-        provider: "daytona",
+        provider: "retired-provider" as ProviderId,
         baseImageId: "img",
         chainHash: "hash-any",
         stepIndex: 0,

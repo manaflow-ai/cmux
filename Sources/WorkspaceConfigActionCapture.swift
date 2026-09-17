@@ -41,6 +41,18 @@ struct WorkspaceConfigActionSnapshot {
         return keys.sorted()
     }
 
+    /// Commands too long to replay through a freshly spawned shell's canonical tty line buffer.
+    var oversizedCommands: [String] {
+        var commands: [String] = []
+        if let setup = definition.setup {
+            commands.append(setup)
+        }
+        commands.append(contentsOf: capturedCommands)
+        return commands.filter {
+            $0.utf8.count > TerminalForegroundCommandCapture.maxReplayableCommandUTF8Length
+        }
+    }
+
     private func collectSurfaceValues(_ value: (CmuxSurfaceDefinition) -> String?) -> [String] {
         guard let layout = definition.layout else { return [] }
         var values: [String] = []
