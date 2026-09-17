@@ -10,6 +10,7 @@ import { vmCapabilitiesFor } from "../services/vms/drivers";
 // machine. The manifest keeps one snapshot per Freestyle size, and the pro
 // plan machine (8 GiB, `memoryMb: 8192` below) boots the smallest size with at
 // least that much memory.
+const originalManifestImages = manifestJson.images;
 const PRO_PLAN_MEMORY_MB = 8192;
 const PRO_PLAN_SIZE = pickVmImageSizeForMemory(PRO_PLAN_MEMORY_MB)!.name;
 type ManifestTestEntry = {
@@ -26,22 +27,6 @@ function manifestDefault(kind: "desktop" | "base"): ManifestTestEntry {
 }
 const MANIFEST_DESKTOP_DEFAULT = manifestDefault("desktop");
 const MANIFEST_BASE_DEFAULT = manifestDefault("base");
-
-
-/** Exercise unavailable plan images with a real, incomplete manifest ladder. */
-async function withSmallImageDefaults(operation: () => Promise<void>): Promise<void> {
-  const originalImages = manifestJson.images;
-  try {
-    // Keep the 4 GiB defaults so allowedKinds still describes both kinds,
-    // but leave the normal 8 GiB plan without a large-enough default image.
-    manifestJson.images = originalImages.filter((entry) =>
-      !entry.defaultForKind || (entry.size?.memoryMb ?? 0) <= 4096
-    );
-    await operation();
-  } finally {
-    manifestJson.images = originalImages;
-  }
-}
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -260,6 +245,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  manifestJson.images = originalManifestImages;
   restoreVmEnv();
   clearNativeAuthCacheForTests();
   getUser.mockClear();
@@ -294,6 +280,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  manifestJson.images = originalManifestImages;
   restoreVmEnv();
 });
 
@@ -612,47 +599,49 @@ describe("VM REST auth", () => {
 
   }
 
-  test("a plan size the manifest ladder cannot serve fails with an actionable image config error", async () => {
-    await withSmallImageDefaults(async () => {
-      getUser.mockResolvedValue(authedStackUser());
+  test("a missing desktop default fails with an actionable image config error", async () => {
+    // Both kinds have a manifest ladder, so the only way nothing resolves is a
+    // plan machine above the ladder's largest snapshot (2xl, 64 GiB). The
+    // route must 503 with a config error rather than boot a smaller machine.
+    manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
+    getUser.mockResolvedValue(authedStackUser());
 
-      const create = await POST(
-        new Request("https://cmux.test/api/vm", {
-          method: "POST",
-          headers: { origin: "https://cmux.test" },
-          body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
-        }),
-      );
-      expect(create.status).toBe(503);
-      const createPayload = await create.json();
-      expect(createPayload).toMatchObject({
-        error: "vm_image_config_error",
-        message: "No desktop Cloud VM image is available in this environment.",
-        details: {
-          imageRequested: false,
-          kind: "desktop",
-          source: "default",
-          // What the provider serves at its smallest size, so a client can still
-          // offer both kinds.
-          allowedKinds: ["desktop", "base"],
-        },
-      });
-      expectNoCloudVmImplementationLeaks(createPayload);
-
-      const open = await baseOpenRoute.POST(
-        new Request("https://cmux.test/api/vm/base/open", {
-          method: "POST",
-          headers: { origin: "https://cmux.test" },
-          body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
-        }),
-      );
-      expect(open.status).toBe(503);
-      expect(await open.json()).toMatchObject({
-        error: "vm_image_config_error",
-        details: { imageRequested: false, kind: "desktop", source: "default" },
-      });
-      expect(runVmWorkflow).not.toHaveBeenCalled();
+    const create = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
+      }),
+    );
+    expect(create.status).toBe(503);
+    const createPayload = await create.json();
+    expect(createPayload).toMatchObject({
+      error: "vm_image_config_error",
+      message: "No desktop Cloud VM image is available in this environment.",
+      details: {
+        imageRequested: false,
+        kind: "desktop",
+        source: "default",
+        // What the provider serves at its smallest size, so a client can still
+        // offer both kinds.
+        allowedKinds: ["base"],
+      },
     });
+    expectNoCloudVmImplementationLeaks(createPayload);
+
+    const open = await baseOpenRoute.POST(
+      new Request("https://cmux.test/api/vm/base/open", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
+      }),
+    );
+    expect(open.status).toBe(503);
+    expect(await open.json()).toMatchObject({
+      error: "vm_image_config_error",
+      details: { imageRequested: false, kind: "desktop", source: "default" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("lists the kinds the default provider can serve alongside plan limits", async () => {
@@ -781,6 +770,52 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
+  });
+
+  test("refuses a 32 GB machine on Pro with the Max upgrade instead of coercing it", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
+      }),
+    );
+
+    expect(response.status).toBe(402);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_memory_requires_plan",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
+      memoryMb: 32768,
+      maxMemoryMb: 24576,
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("starts a 64 GB machine on Max", async () => {
+    getUser.mockResolvedValue(stackUserForPlan("max"));
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-max",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 65536 }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 65536 }));
   });
 
   test("rejects malformed memory sizes before billing or provider work", async () => {
@@ -2578,32 +2613,33 @@ describe("VM REST auth", () => {
   });
 
   test("omits image from image config errors when no image was resolved", async () => {
-    await withSmallImageDefaults(async () => {
-      process.env.VERCEL = "1";
-      process.env.VERCEL_ENV = "preview";
-      getUser.mockResolvedValue(authedStackUser());
+    // A plan machine above the manifest ladder is the shape where nothing
+    // resolves; the error must not name an image.
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "preview";
+    manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
+    getUser.mockResolvedValue(authedStackUser());
 
-      const response = await POST(
-        new Request("https://cmux.test/api/vm", {
-          method: "POST",
-          headers: { origin: "https://cmux.test" },
-          body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
-        }),
-      );
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
+      }),
+    );
 
-      const payload = await response.json();
-      expect(response.status).toBe(503);
-      expect(payload).toMatchObject({
-        error: "vm_image_config_error",
-        details: {
-          imageRequested: false,
-        },
-      });
-      expectNoCloudVmImplementationLeaks(payload);
-      expect(payload.action).toContain("Cloud VM image");
-      expect(payload).not.toHaveProperty("image");
-      expect(runVmWorkflow).not.toHaveBeenCalled();
+    const payload = await response.json();
+    expect(response.status).toBe(503);
+    expect(payload).toMatchObject({
+      error: "vm_image_config_error",
+      details: {
+        imageRequested: false,
+      },
     });
+    expectNoCloudVmImplementationLeaks(payload);
+    expect(payload.action).toContain("Cloud VM image");
+    expect(payload).not.toHaveProperty("image");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("a create with no image and no kind gets the desktop default and records its manifest version", async () => {
@@ -2689,6 +2725,7 @@ function stackUserForPlan(plan: string | undefined) {
   const clientReadOnlyMetadata = plan ? { cmuxVmPlan: plan } : {};
   return {
     id: "user-1",
+    ...(plan === "max" ? { clientReadOnlyMetadata: { cmuxVmPlan: "max" } } : {}),
     displayName: null,
     primaryEmail: "user@example.com",
     selectedTeam: {

@@ -2499,10 +2499,7 @@ fn start_detached_owner_session(
     // Capture the client's truthful terminal identity once. The detached
     // owner may outlive this client and must not derive TERM from a different
     // launch environment, or prompt palettes can diverge between clients.
-    let owner_term = args
-        .term
-        .clone()
-        .unwrap_or_else(cmux_tui_core::platform::default_child_term);
+    let owner_term = args.term.clone().unwrap_or_else(cmux_tui_core::default_child_term);
     let spec = local_owner::OwnerSpec {
         session: args.session.clone(),
         socket: socket_path.clone(),

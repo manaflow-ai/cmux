@@ -9408,32 +9408,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    func handleDroppedFileURLs(_ urls: [URL]) -> Bool {
-        let dragTypes = NSPasteboard(name: .drag).types ?? []
-        guard let durableURLs = GhosttyApp.terminalPasteboard.durableDroppedFileURLs(
-            urls,
-            sourceIsTransient: PasteboardFileURLReader.hasPromisedFileURLType(
-                dragTypes
-            )
-        ) else {
-            return false
-        }
-        return executePreparedImageTransfer(
-            .fileURLs(durableURLs),
-            onCancel: {}
-        )
-    }
-
-    @discardableResult
-    fileprivate func insertDroppedPasteboard(_ pasteboard: NSPasteboard) -> Bool {
-        executePreparedImageTransfer(
-            TerminalImageTransferPlanner.prepareSynchronously(
-                pasteboard: pasteboard,
-                mode: .drop
-            ),
-            onCancel: {}
-        )
-    }
 
 
 #if DEBUG
@@ -11789,11 +11763,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     /// Handle file/URL drops, forwarding to the terminal as shell-escaped paths.
-    func handleDroppedURLs(_ urls: [URL]) -> Bool {
+    func handleDroppedURLs(_ urls: [URL], pasteboard: NSPasteboard? = nil) -> Bool {
         #if DEBUG
         cmuxDebugLog("terminal.swiftUIDrop surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") urls=\(urls.map(\.lastPathComponent))")
         #endif
-        return surfaceView.handleDroppedFileURLs(urls)
+        return surfaceView.handleDroppedFileURLs(urls, pasteboard: pasteboard)
     }
 
     func terminalViewForDrop(at point: NSPoint) -> GhosttyNSView? {

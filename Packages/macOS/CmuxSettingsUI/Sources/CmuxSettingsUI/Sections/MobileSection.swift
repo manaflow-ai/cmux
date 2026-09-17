@@ -247,7 +247,7 @@ public struct MobileSection: View {
         SettingsCardRow(
             configurationReview: .action,
             searchAnchorID: "setting:mobile:pairDevice",
-            String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+            String(localized: "settings.mobile.pairDevice", defaultValue: "Mobile Pairing"),
             subtitle: String(
                 localized: "settings.mobile.pairDevice.subtitle",
                 defaultValue: """

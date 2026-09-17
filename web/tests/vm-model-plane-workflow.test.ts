@@ -63,7 +63,7 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     destroyedAt: null,
     failureCode: null,
     failureMessage: null,
-    providerMetadata: {},
+    providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 } },
     ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-mp",
     coderouterPoolId: null,
     ...overrides,
@@ -103,6 +103,7 @@ function fakeRepo(input: {
     findUserVm: ({ userId, providerVmId }) =>
       Effect.succeed(vm.userId === userId && vm.providerVmId === providerVmId ? vm : null),
     hasOwnedSnapshot: () => Effect.succeed(true),
+    ownedSnapshotResourceReservation: () => Effect.succeed({ vcpus: 2, memoryMb: 8192, diskMb: 32768 }),
     activeIdentityLeases: () => Effect.succeed([]),
     markLeasesRevoked: () => Effect.void,
     markDestroyed: (id) =>
