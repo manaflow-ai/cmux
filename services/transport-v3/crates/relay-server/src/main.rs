@@ -568,6 +568,13 @@ mod feed_tests {
     use ed25519_dalek::SigningKey;
     use libp2p::identity::Keypair;
 
+    fn now() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    }
+
     #[tokio::test]
     async fn revocation_feed_applies_signed_ordered_events_and_reports_health() {
         let signing = SigningKey::from_bytes(&[101; 32]);
@@ -581,9 +588,9 @@ mod feed_tests {
                 .public()
                 .to_peer_id()
                 .to_string()],
-            issued_at: unix_now(),
+            issued_at: now(),
         };
-        let token = signer.sign_revocation(update, unix_now()).unwrap();
+        let token = signer.sign_revocation(update, now()).unwrap();
         let response = serde_json::json!({
             "events": [{"sequence": 1, "update": token}]
         });
