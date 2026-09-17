@@ -417,6 +417,14 @@ final class CmuxFeatureFlags {
                 values[definition.key] = value
             }
         }
+#if DEBUG
+        if overrideCapability.allowsCloudOverride {
+            // Every tagged DEBUG bundle is a Cloud dogfood build. Keep this
+            // in-memory override above stale remote values and old user
+            // defaults, without changing release or Nightly behavior.
+            localOverridesByKey[Self.cloudMachinesFlag.key] = true
+        }
+#endif
         remoteValuesByKey = Self.allFlags.reduce(into: [:]) { values, definition in
             if let value = Self.storedBoolValue(
                 forKey: Self.remoteCacheKey(for: definition.key),
@@ -649,6 +657,13 @@ final class CmuxFeatureFlags {
     }
 
     func setOverride(_ value: Bool?, for definition: CmuxFeatureFlagDefinition) {
+#if DEBUG
+        if definition.key == Self.cloudMachinesFlag.key,
+           overrideCapability.allowsCloudOverride,
+           value != true {
+            return
+        }
+#endif
         guard value == nil || resolution(for: definition).allowsLocalOverride else { return }
 
         let previousResolutions = resolutionsByKey
@@ -667,6 +682,12 @@ final class CmuxFeatureFlags {
         let previousResolutions = resolutionsByKey
         var clearedAnyOverride = false
         for definition in Self.allFlags {
+#if DEBUG
+            if definition.key == Self.cloudMachinesFlag.key,
+               overrideCapability.allowsCloudOverride {
+                continue
+            }
+#endif
             if localOverridesByKey.removeValue(forKey: definition.key) != nil {
                 clearedAnyOverride = true
             }
