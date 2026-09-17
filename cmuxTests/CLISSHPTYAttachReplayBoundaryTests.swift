@@ -179,7 +179,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         }
     }
 
-    @Test(arguments: [SIGHUP, SIGINT, SIGTERM], [false, true])
+    @Test(arguments: [SIGHUP, SIGINT, SIGTERM, SIGQUIT], [false, true])
     func terminationRestoresCallerMode(number: Int32, duringReplay: Bool) throws {
         let finish = DispatchSemaphore(value: 0)
         defer { finish.signal() }
@@ -225,7 +225,7 @@ struct CLISSHPTYAttachReplayBoundaryTests {
         }
     }
 
-    @Test(arguments: [SIGHUP, SIGINT, SIGTERM])
+    @Test(arguments: [SIGHUP, SIGINT, SIGTERM, SIGQUIT])
     func signalRestoresCallerModeWithBlockedOutput(number: Int32) throws {
         try withSSHPTYAttach(requireExisting: false, outputIsBackpressured: true) { bridge in
             guard bridge.sendReady(replayBytes: 0) else { return }
