@@ -4,7 +4,8 @@ import Foundation
 
 /// The pure merge behind the Devices directory: the pairing store's saved
 /// Macs, durable registry rows, live presence instances, and the owners the
-/// sync collection reports fold into one record per `(deviceId, tag)`.
+/// sync collection reports fold into one record per app instance, joining its
+/// host identity to its v2 directory identity (``DeviceDirectoryIdentityIndex``).
 /// Deterministic and clock-injected so every rule is unit-testable without a
 /// network.
 struct DeviceDirectoryMerge {
@@ -35,21 +36,52 @@ struct DeviceDirectoryMerge {
         var resolvedTeamID: String?
     }
 
+    private typealias RegistryEntry = (device: DeviceRegistryDirectoryClient.Device, instance: DeviceRegistryDirectoryClient.Instance)
+
     static func merge(_ input: Input, now: Date = Date()) -> [DeviceDirectoryRecord] {
-        var registryInstances: [SurfaceDeviceInstanceID: (device: DeviceRegistryDirectoryClient.Device, instance: DeviceRegistryDirectoryClient.Instance)] = [:]
+        var hostRegistry: [SurfaceDeviceInstanceID: RegistryEntry] = [:]
         for device in input.registry where device.platform == "mac" && !device.isManual {
             for instance in device.instances {
                 let id = SurfaceDeviceInstanceID(deviceID: device.deviceID, tag: instance.tag)
-                registryInstances[id] = (device, instance)
+                hostRegistry[id] = (device, instance)
             }
         }
-        let presenceMacs = input.presence.filter { $0.value.platform.lowercased() == "mac" }
+        let hostPresence = input.presence.filter { $0.value.platform.lowercased() == "mac" }
         let accountMacs = Dictionary(input.authenticatedMacs.map { (SurfaceDeviceInstanceID(deviceID: $0.deviceID, tag: $0.tag), $0) }, uniquingKeysWith: { first, _ in first })
-        let pairedByID = Dictionary(input.paired.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
+        let hostPaired = Dictionary(input.paired.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
         let retainedPrevious = input.previous.filter {
-            $0.wasDiscovered || pairedByID[$0.instance] != nil
+            $0.wasDiscovered || hostPaired[$0.instance] != nil
         }
-        let previousByID = Dictionary(retainedPrevious.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
+        let hostPrevious = Dictionary(retainedPrevious.map { ($0.instance, $0) }, uniquingKeysWith: { first, _ in first })
+
+        // One app instance carries a host identity and a directory identity.
+        // Any source may advertise the endpoint that joins them, so the row is
+        // decided per instance across all sources and then applied to each.
+        // An instance on this physical Mac is never folded: it stays hidden.
+        let identities = DeviceDirectoryIdentityIndex(authenticatedMacs: input.authenticatedMacs, previous: input.previous)
+        var advertised: [SurfaceDeviceInstanceID: [CmxAttachRoute]] = [:]
+        for (id, entry) in hostRegistry { advertised[id, default: []] += entry.instance.routes }
+        for (id, instance) in hostPresence { advertised[id, default: []] += instance.routes ?? [] }
+        for (id, device) in hostPaired { advertised[id, default: []] += device.routes }
+        for (id, record) in hostPrevious { advertised[id, default: []] += record.routes }
+        var rows: [SurfaceDeviceInstanceID: SurfaceDeviceInstanceID] = [:]
+        var hostIDsByRow: [SurfaceDeviceInstanceID: [SurfaceDeviceInstanceID]] = [:]
+        for (id, routes) in advertised where id.isVisible(from: input.selfInstance) {
+            let row = identities.rowInstance(for: id, advertising: routes)
+            rows[id] = row
+            if row != id { hostIDsByRow[row, default: []].append(id) }
+        }
+        let registryInstances = fold(hostRegistry, onto: rows) { candidate, existing in
+            (candidate.instance.lastSeenAt ?? candidate.device.lastSeenAt ?? .distantPast)
+                > (existing.instance.lastSeenAt ?? existing.device.lastSeenAt ?? .distantPast)
+        }
+        let presenceMacs = fold(hostPresence, onto: rows) { candidate, existing in
+            candidate.online != existing.online ? candidate.online : candidate.lastSeenAt > existing.lastSeenAt
+        }
+        let pairedByID = fold(hostPaired, onto: rows) { _, _ in false }
+        let previousByID = fold(hostPrevious, onto: rows) { candidate, existing in
+            candidate.directoryEndpoint != nil && existing.directoryEndpoint == nil
+        }
 
         var ids = Set(registryInstances.keys)
         ids.formUnion(accountMacs.keys)
@@ -81,7 +113,7 @@ struct DeviceDirectoryMerge {
             // presence routes follow while online, the registry's after.
             var routes: [CmxAttachRoute] = []
             func append(_ candidates: [CmxAttachRoute]) {
-                for route in candidates where !routes.contains(where: { $0.id == route.id || $0.endpoint == route.endpoint }) {
+                for route in candidates where !routes.contains(where: { isSameRoute($0, route) }) {
                     routes.append(route)
                 }
             }
@@ -104,7 +136,10 @@ struct DeviceDirectoryMerge {
             let lastSeenAt = [presenceSeen, registry?.instance.lastSeenAt, registry?.device.lastSeenAt, paired?.lastSeenAt, previous?.lastSeenAt]
                 .compactMap { $0 }
                 .max()
-            let ownerUserID = input.owners[id.deviceID] ?? (input.ownersKnown ? nil : previous?.ownerUserID)
+            // The `devices` collection pins owners by host device id.
+            let ownerIDs = [id] + (hostIDsByRow[id] ?? []).sorted { $0.wireValue < $1.wireValue }
+            let pinnedOwner = ownerIDs.lazy.compactMap { input.owners[$0.deviceID] }.first
+            let ownerUserID = pinnedOwner ?? (input.ownersKnown ? nil : previous?.ownerUserID)
             let trust: SurfaceDevicePresence.AccountTrust
             if accountMac != nil || paired != nil {
                 // Pairing verified the host's authenticated identity under this
@@ -136,7 +171,8 @@ struct DeviceDirectoryMerge {
                 lastSeenAt: lastSeenAt,
                 routes: routes,
                 ownerUserID: ownerUserID,
-                accountTrust: trust
+                accountTrust: trust,
+                directoryEndpoint: accountMac?.endpointID ?? previous?.directoryEndpoint
             )
         }
         return records.sorted { lhs, rhs in
@@ -146,6 +182,30 @@ struct DeviceDirectoryMerge {
             if byName != .orderedSame { return byName == .orderedAscending }
             return lhs.instance.wireValue < rhs.instance.wireValue
         }
+    }
+
+    /// Re-keys host-keyed facts onto their rows. `outranks` settles two facts
+    /// that land on one row; candidates arrive in wire order, so ties are stable.
+    private static func fold<Value>(
+        _ values: [SurfaceDeviceInstanceID: Value],
+        onto rows: [SurfaceDeviceInstanceID: SurfaceDeviceInstanceID],
+        outranks: (_ candidate: Value, _ existing: Value) -> Bool
+    ) -> [SurfaceDeviceInstanceID: Value] {
+        var folded: [SurfaceDeviceInstanceID: Value] = [:]
+        for (id, value) in values.sorted(by: { $0.key.wireValue < $1.key.wireValue }) {
+            let row = rows[id] ?? id
+            if let existing = folded[row], !outranks(value, existing) { continue }
+            folded[row] = value
+        }
+        return folded
+    }
+
+    /// Two routes to one iroh peer are one route: hints change, the peer does not.
+    private static func isSameRoute(_ lhs: CmxAttachRoute, _ rhs: CmxAttachRoute) -> Bool {
+        if lhs.id == rhs.id || lhs.endpoint == rhs.endpoint { return true }
+        guard lhs.kind == .iroh, rhs.kind == .iroh,
+              case .peer(let left, _) = lhs.endpoint, case .peer(let right, _) = rhs.endpoint else { return false }
+        return left == right
     }
 
     /// Online first, then devices presence has not reported on, then offline.

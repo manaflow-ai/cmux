@@ -37,6 +37,10 @@ struct DeviceDirectoryRecord: Equatable, Sendable, Identifiable {
     let routes: [CmxAttachRoute]
     let ownerUserID: String?
     let accountTrust: SurfaceDevicePresence.AccountTrust
+    /// The iroh endpoint of the v2 directory record that names this row; nil
+    /// for a row named by its host device id. Remembered across merges so a
+    /// briefly stale directory does not split the Mac back into two rows.
+    var directoryEndpoint: CmxIrohPeerIdentity? = nil
 
     var isOnline: Bool { presenceState == .online }
 
