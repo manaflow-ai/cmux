@@ -9,6 +9,11 @@ else
 fi
 
 command="${1:-status}"
+db_provider="${CMUX_DB_PROVIDER:-docker}"
+if [[ "$db_provider" != "docker" && "$db_provider" != "planetscale" ]]; then
+  echo "CMUX_DB_PROVIDER must be docker or planetscale" >&2
+  exit 2
+fi
 
 cmux_port="${CMUX_PORT:-${PORT:-3777}}"
 if [[ ! "$cmux_port" =~ ^[0-9]+$ ]]; then
@@ -49,16 +54,26 @@ export CMUX_DB_PORT="$db_port"
 export CMUX_DB_USER="$db_user"
 export CMUX_DB_PASSWORD="$db_password"
 export CMUX_DB_NAME="$db_name"
-export DATABASE_URL="${DATABASE_URL:-postgres://${db_user}:${db_password}@localhost:${db_port}/${db_name}}"
+if [[ "$db_provider" == "planetscale" ]]; then
+  export DATABASE_URL="${PLANETSCALE_DATABASE_URL:-${DATABASE_URL:-}}"
+  [[ -n "$DATABASE_URL" ]] || { echo "CMUX_DB_PROVIDER=planetscale requires PLANETSCALE_DATABASE_URL or DATABASE_URL" >&2; exit 2; }
+else
+  export DATABASE_URL="${DATABASE_URL:-postgres://${db_user}:${db_password}@localhost:${db_port}/${db_name}}"
+fi
 export DIRECT_DATABASE_URL="${DIRECT_DATABASE_URL:-$DATABASE_URL}"
 
 compose() {
+  [[ "$db_provider" == "docker" ]] || { echo "Docker database is disabled when CMUX_DB_PROVIDER=planetscale" >&2; return 2; }
   docker compose -f "$ROOT_DIR/docker-compose.db.yml" "$@"
 }
 
 wait_for_postgres() {
   for _ in $(seq 1 60); do
-    if compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1; then
+    # pg_isready can report success during the short handoff before a new
+    # server accepts a real client connection. Drizzle opens that connection
+    # immediately, so prove the same SQL handshake before returning ready.
+    if compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1 \
+      && compose exec -T postgres psql -XAtq -U "$db_user" -d "$db_name" -c 'SELECT 1' >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -70,7 +85,7 @@ wait_for_postgres() {
 
 print_status() {
   local redacted_url
-  redacted_url="postgres://${db_user}:<redacted>@localhost:${db_port}/${db_name}"
+  redacted_url="$(printf '%s' "$DATABASE_URL" | sed -E 's#(://[^:/@]+:)[^@]+@#\1<redacted>@#')"
   cat <<EOF
 CMUX_PORT=$cmux_port
 CMUX_DB_KIND=$db_kind
@@ -79,6 +94,7 @@ COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME
 CMUX_DB_CONTAINER_NAME=$CMUX_DB_CONTAINER_NAME
 CMUX_DB_VOLUME_NAME=$CMUX_DB_VOLUME_NAME
 DATABASE_URL=$redacted_url
+CMUX_DB_PROVIDER=$db_provider
 EOF
 }
 
@@ -99,16 +115,18 @@ case "$command" in
     ;;
   status)
     print_status
-    compose ps
+    if [[ "$db_provider" == "docker" ]]; then compose ps; fi
     ;;
   migrate)
-    "$0" up >/dev/null
+    if [[ "$db_provider" == "docker" ]]; then "$0" up >/dev/null; fi
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
     ;;
   ready)
-    compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null
+    compose exec -T postgres pg_isready -U "$db_user" -d "$db_name" >/dev/null \
+      && compose exec -T postgres psql -XAtq -U "$db_user" -d "$db_name" -c 'SELECT 1' >/dev/null
     ;;
   test)
+    [[ "$db_provider" == "docker" ]] || { echo "Database behavior tests require an isolated Docker database; refusing to run against PlanetScale" >&2; exit 2; }
     env \
       -u COMPOSE_PROJECT_NAME \
       -u CMUX_DB_CONTAINER_NAME \

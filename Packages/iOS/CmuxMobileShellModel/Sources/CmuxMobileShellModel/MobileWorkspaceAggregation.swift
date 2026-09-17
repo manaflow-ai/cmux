@@ -257,6 +257,10 @@ public struct MobileWorkspaceAggregation: Sendable {
                 stamped.remoteGroupID = shouldScopeIDs ? remoteGroupID : group.remoteGroupID
                 stamped.macDeviceID = state.macDeviceID
                 stamped.macInstanceTag = state.instanceTag
+                // Group actions are scoped to the owning Mac, so retain that
+                // capability snapshot even when this group has no live anchor
+                // workspace to carry it.
+                stamped.actionCapabilities = state.actionCapabilities
                 guard shouldScopeIDs, !state.macDeviceID.isEmpty else {
                     result.append(stamped)
                     continue
@@ -266,13 +270,22 @@ public struct MobileWorkspaceAggregation: Sendable {
                     instanceTag: state.instanceTag,
                     groupID: remoteGroupID
                 )
-                let remoteAnchorID = remoteWorkspaceIDByLocalID[group.anchorWorkspaceID]
-                    ?? group.anchorWorkspaceID
-                stamped.anchorWorkspaceID = rowID(
-                    macDeviceID: state.macDeviceID,
-                    instanceTag: state.instanceTag,
-                    workspaceID: remoteAnchorID
-                )
+                if let liveAnchorWorkspaceID = group.liveAnchorWorkspaceID {
+                    let remoteAnchorID = remoteWorkspaceIDByLocalID[liveAnchorWorkspaceID]
+                        ?? liveAnchorWorkspaceID
+                    stamped.anchorWorkspaceID = rowID(
+                        macDeviceID: state.macDeviceID,
+                        instanceTag: state.instanceTag,
+                        workspaceID: remoteAnchorID
+                    )
+                } else {
+                    // Empty headers have no workspace row to namespace; use
+                    // the already-namespaced group id only as a stable UI row
+                    // identity, never as a workspace capability.
+                    stamped.anchorWorkspaceID = MobileWorkspacePreview.ID(
+                        rawValue: stamped.id.rawValue
+                    )
+                }
                 result.append(stamped)
             }
         }

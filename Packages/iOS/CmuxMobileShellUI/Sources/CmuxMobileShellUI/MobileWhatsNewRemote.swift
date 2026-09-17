@@ -9,13 +9,23 @@ import Foundation
 /// news) targeted at a version range.
 struct MobileWhatsNewRemoteList: Codable {
     var visibleEntryIds: [String]
+    /// Per-binary-entry channel targeting, keyed by catalog entry id, with
+    /// `MobileBuildType.token` values. When present for an entry it REPLACES
+    /// the entry's compiled-in channel declaration, so a specific page can be
+    /// opted into (or out of) the official App Store channel remotely.
+    /// Absent key or absent map: the compiled-in declaration (usually the
+    /// team-lanes-only default) applies. Old clients decode and ignore
+    /// unknown keys, so serving this field is backward compatible.
+    var entryChannels: [String: [String]]?
     var announcements: [MobileWhatsNewRemoteAnnouncement]
 
     init(
         visibleEntryIds: [String],
+        entryChannels: [String: [String]]? = nil,
         announcements: [MobileWhatsNewRemoteAnnouncement]
     ) {
         self.visibleEntryIds = visibleEntryIds
+        self.entryChannels = entryChannels
         self.announcements = announcements
     }
 
@@ -24,6 +34,10 @@ struct MobileWhatsNewRemoteList: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         visibleEntryIds = try container.decode([String].self, forKey: .visibleEntryIds)
+        entryChannels = try container.decodeIfPresent(
+            [String: [String]].self,
+            forKey: .entryChannels
+        )
         var decoded: [MobileWhatsNewRemoteAnnouncement] = []
         if var elements = try? container.nestedUnkeyedContainer(forKey: .announcements) {
             while !elements.isAtEnd {
@@ -69,6 +83,11 @@ struct MobileWhatsNewRemoteAnnouncement: Codable, Identifiable {
     var features: [Feature]?
     var nativeEntryId: String?
     var webUrl: String?
+    /// Build channels this announcement targets (`MobileBuildType.token`
+    /// values). `nil` means the ``MobileWhatsNewChannelPolicy`` default:
+    /// team lanes only, never the official App Store app. Must list "prod"
+    /// explicitly to reach official builds.
+    var channels: [String]?
 }
 
 /// Dotted-numeric ("1.0.4"-style) version comparison; missing components are

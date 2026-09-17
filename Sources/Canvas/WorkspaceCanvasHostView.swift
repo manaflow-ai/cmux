@@ -50,6 +50,7 @@ struct WorkspaceCanvasHostView: View {
             let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
             return CanvasPaneDescriptor(
                 id: panelId,
+                contentIdentity: ObjectIdentifier(panel),
                 tab: CanvasTabChrome(
                     id: panelId,
                     title: panel.displayTitle,
@@ -156,6 +157,12 @@ struct WorkspaceCanvasHostView: View {
             customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)
+            },
+            onRequestDeferredBrowserMaterialization: { [weak workspace] in
+                workspace?.requestDeferredBrowserMaterialization(
+                    panelId: panel.id,
+                    isVisibleInUI: isWorkspaceVisible
+                )
             }
         )
         let hosted = NSHostingView(rootView: AnyView(content))

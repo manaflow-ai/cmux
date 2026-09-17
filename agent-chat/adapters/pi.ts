@@ -351,6 +351,10 @@ function handleLine(sess: SessionCtx, line: string) {
       });
       break;
     case "agent_end":
+      // A low-level run can end before Pi has finished retrying, compacting, or
+      // draining a queued follow-up. Keep the turn active until agent_settled.
+      break;
+    case "agent_settled":
       finishTurn(sess);
       break;
     case "error":

@@ -1,230 +1,273 @@
-// Server-side product analytics for the Cloud VM control plane.
+// Cloud VM product analytics: the usage ledger mirrored to PostHog.
 //
-// ONE module owns every PostHog capture for the VM lifecycle so callers stay
-// one-line hooks: the usage-event chokepoint (`VmRepository.recordUsageEvent`)
-// forwards persisted lifecycle events (vm.created, vm.create.failed,
-// vm.resumed, vm.destroyed, vm.attach, vm.create.credit.*, ...), and route
-// handlers add the few signals the chokepoint cannot know — request duration
-// and outcome (`vm.create.completed`, `vm.attach.completed`), the paywall
-// funnel (`vm.limit_hit`), and desktop opens (`vm.desktop.opened`).
+// Every machine lifecycle fact (created, destroyed, attached, exec, fork,
+// resume, snapshot, port opened, base opened) is already written once to the
+// `cloud_vm_usage_events` ledger by the workflows, whatever path produced it
+// (a route, the status-reconcile cron, account deletion). That ledger write is
+// the single choke point, so this module decorates the repository and emits
+// one PostHog event per allowlisted ledger row, keyed by the Stack user id
+// with the billing team as the `stack_team` group and the plan on the person.
 //
-// Analytics must never fail or slow a request: every capture is
-// fire-and-forget behind a hard timeout and swallows all transport failures.
-// Properties are allowlisted to scalars and scrubbed of anything that smells
-// like a token, credential, lease, or command string.
+// Failures are deliberately NOT mirrored here: `cloud_vm_request` and
+// `cloud_vm_provision` (services/vms/observability.ts) already carry every
+// failure with its error code, and they feed the alerts.
+//
+// The ledger `metadata` column is free-form JSON, so each event forwards only
+// an allowlisted, typed subset of it.
+import * as Effect from "effect/Effect";
 
-import { randomUUID } from "node:crypto";
-import { after } from "next/server";
+import {
+  captureServerEvent,
+  type ServerEventDependencies,
+  type ServerEventInput,
+  type ServerEventScalar,
+} from "../analytics/serverEvents";
+import type { VmRepositoryShape, VmUsageEventInput } from "./repository";
 
-import { POSTHOG_HOST, POSTHOG_PROJECT_KEY } from "../analytics/iosEventPolicy";
+export const VM_PRODUCT_ANALYTICS_SCHEMA_VERSION = 1;
 
-export type VmAnalyticsScalar = string | number | boolean | null;
-export type VmAnalyticsProperties = Record<string, VmAnalyticsScalar>;
+/** Ledger event type to PostHog event name. Anything else stays out of PostHog. */
+export const VM_LEDGER_TO_POSTHOG_EVENT = {
+  "vm.created": "cloud_vm_created",
+  "vm.destroyed": "cloud_vm_destroyed",
+  "vm.attach": "cloud_vm_attached",
+  "vm.exec": "cloud_vm_exec",
+  "vm.forked": "cloud_vm_forked",
+  "vm.resumed": "cloud_vm_resumed",
+  "vm.paused": "cloud_vm_paused",
+  "vm.snapshot.created": "cloud_vm_snapshot_created",
+  "vm.open_port": "cloud_vm_port_opened",
+  "vm.base.opened": "cloud_vm_base_opened",
+  "vm.base.reset": "cloud_vm_base_reset",
+} as const satisfies Record<string, string>;
 
-const CAPTURE_TIMEOUT_MS = 2_000;
-const MAX_STRING_PROPERTY_LENGTH = 200;
+export type VmLedgerEventType = keyof typeof VM_LEDGER_TO_POSTHOG_EVENT;
+export type VmProductEventName = (typeof VM_LEDGER_TO_POSTHOG_EVENT)[VmLedgerEventType];
 
-/** Keys whose values must never leave the control plane, whatever they hold. */
-const SENSITIVE_KEY_PATTERN =
-  /(token|secret|password|credential|cookie|lease|authorization|api[_-]?key|bearer|private)/i;
-/** Raw command strings are user data; `commandLength` and friends stay. */
-const COMMAND_STRING_KEY_PATTERN = /^(command|cmd|args|argv|script)$/i;
-
-export type VmAnalyticsOptions = {
-  /** Test seam. Defaults to global fetch. */
-  readonly fetchImpl?: typeof fetch;
-  /** Test seam. Defaults to process.env. */
-  readonly env?: Record<string, string | undefined>;
-};
-
-export function vmAnalyticsEnabled(
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  if (env.CMUX_VM_ANALYTICS_DISABLED === "1") return false;
-  return env.VERCEL_ENV === "production" || env.CMUX_VM_ANALYTICS_FORCE === "1";
-}
+export const VM_PRODUCT_EVENT_NAMES: readonly VmProductEventName[] = Object.values(VM_LEDGER_TO_POSTHOG_EVENT);
 
 /**
- * Fire-and-forget capture. Returns a promise that never rejects so tests can
- * await settlement; production callers ignore the return value.
+ * Why a machine row became destroyed. `destroyVm` stamps the caller's reason
+ * into the ledger metadata (`source`); the reconcile cron and base reset
+ * stamp theirs at their own write sites.
  */
-export function captureVmAnalyticsEvent(
-  input: {
-    readonly event: string;
-    readonly distinctId: string;
-    readonly properties?: VmAnalyticsProperties;
-  },
-  options: VmAnalyticsOptions = {},
-): Promise<void> {
-  const env = options.env ?? process.env;
-  if (!vmAnalyticsEnabled(env)) return Promise.resolve();
-  const doFetch = options.fetchImpl ?? fetch;
-  let body: string;
-  try {
-    body = JSON.stringify({
-      api_key: POSTHOG_PROJECT_KEY,
-      event: input.event,
-      distinct_id: input.distinctId,
-      properties: {
-        ...input.properties,
-        schema_version: 1,
-        $insert_id: randomUUID(),
-        // The server's egress IP says nothing about the user.
-        $geoip_disable: true,
-      },
-      timestamp: new Date().toISOString(),
-    });
-  } catch {
-    return Promise.resolve();
-  }
-  const task = Promise.resolve()
-    .then(() =>
-      doFetch(`${POSTHOG_HOST}/capture/`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-        signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS),
-      }),
-    )
-    .then(() => undefined)
-    .catch(() => undefined);
-  // Keep the serverless function alive until the capture settles when the
-  // request context supports it; outside a request just detach.
-  try {
-    after(task);
-  } catch {
-    void task;
-  }
-  return task;
-}
+export const VM_DESTROY_SOURCES = [
+  "user_request",
+  "account_deletion",
+  "provider_status_cron",
+  "provider_status_refresh",
+  "base_open_provider_missing",
+] as const;
+export type VmDestroySource = (typeof VM_DESTROY_SOURCES)[number];
 
-/** Only scalar, non-sensitive, bounded metadata becomes event properties. */
-export function sanitizedVmEventProperties(
-  metadata: Record<string, unknown> | undefined,
-): VmAnalyticsProperties {
-  const properties: VmAnalyticsProperties = {};
-  if (!metadata) return properties;
-  for (const [key, value] of Object.entries(metadata)) {
-    if (SENSITIVE_KEY_PATTERN.test(key) || COMMAND_STRING_KEY_PATTERN.test(key)) continue;
-    if (value === null) {
-      properties[key] = null;
-      continue;
-    }
-    if (typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) {
-      properties[key] = value;
-      continue;
-    }
-    if (typeof value === "string") {
-      properties[key] = value.slice(0, MAX_STRING_PROPERTY_LENGTH);
-    }
-    // Objects, arrays, functions, symbols, bigints: dropped by design.
-  }
-  return properties;
-}
+type MetadataPicker = (metadata: Record<string, unknown>) => Record<string, ServerEventScalar | null | undefined>;
 
-/** Shape of `VmRepository.recordUsageEvent` input; kept structural so the
- * repository hook stays a one-liner with no import cycle. */
-export type VmUsageEventAnalyticsInput = {
-  readonly userId: string;
-  readonly billingTeamId?: string | null;
-  readonly billingPlanId?: string | null;
-  readonly vmId?: string | null;
-  readonly eventType: string;
-  readonly provider?: string;
-  readonly imageId?: string;
-  readonly metadata?: Record<string, unknown>;
+/**
+ * Per-event metadata allowlist. Keys are renamed to snake_case PostHog
+ * properties; values are type-checked so a stray object or secret in the
+ * ledger metadata can never reach PostHog.
+ */
+const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
+  "vm.created": (m) => ({
+    origin: enumValue(m.origin, ["create", "restore", "fork", "base"]) ?? "create",
+    image_version: str(m.imageVersion),
+    image_size: str(m.imageSize),
+    memory_mb: int(m.memoryMb),
+    persistent_home: bool(m.persistentHome),
+    per_machine_home: bool(m.perMachineHome),
+    idempotency_key_set: bool(m.idempotencyKeySet),
+  }),
+  "vm.destroyed": (m) => ({
+    reason: enumValue(m.source, VM_DESTROY_SOURCES) ?? "unknown",
+    home_volume_deleted: bool(m.homeVolumeDeleted),
+  }),
+  "vm.attach": (m) => ({
+    transport: str(m.transport) ?? "unknown",
+    invited: bool(m.invited),
+    reattach: m.requestedSessionId != null,
+  }),
+  "vm.exec": (m) => ({
+    exit_code: int(m.exitCode),
+    command_length: int(m.commandLength),
+  }),
+  "vm.forked": (m) => ({
+    native: bool(m.native),
+    idempotency_key_set: bool(m.idempotencyKeySet),
+  }),
+  "vm.resumed": (m) => ({
+    source: str(m.source) ?? "unknown",
+    duration_ms: int(m.durationMs),
+  }),
+  "vm.paused": (m) => ({
+    source: enumValue(m.source, ["user", "go_hours_limit"]) ?? "unknown",
+    used_seconds: int(m.usedSeconds), automated: bool(m.automated),
+  }),
+  "vm.snapshot.created": (m) => ({
+    named: bool(m.named),
+  }),
+  "vm.open_port": (m) => ({
+    port: int(m.port),
+  }),
+  "vm.base.opened": (m) => ({
+    generation: int(m.generation),
+  }),
+  "vm.base.reset": (m) => ({
+    generation: int(m.generation),
+  }),
+};
+
+/** Ledger rows whose dedupe key is the machine itself: emitted at most once per machine. */
+const NATURAL_INSERT_IDS: Partial<Record<VmLedgerEventType, true>> = {
+  "vm.created": true,
+  "vm.destroyed": true,
 };
 
 /**
- * Chokepoint hook: every persisted Cloud VM usage event is mirrored to
- * PostHog under its `eventType` name. Never throws.
+ * Map one ledger row to its PostHog event, or null when the row is not a
+ * product event (failures, credit bookkeeping, unknown types).
  */
-export function captureVmUsageEvents(
-  inputs: readonly VmUsageEventAnalyticsInput[],
-  options: VmAnalyticsOptions = {},
-): void {
-  for (const input of inputs) {
-    try {
-      const properties: VmAnalyticsProperties = {
-        ...sanitizedVmEventProperties(input.metadata),
-        ...(input.provider ? { provider: input.provider } : {}),
-        ...(input.imageId ? { image: input.imageId.slice(0, MAX_STRING_PROPERTY_LENGTH) } : {}),
-        ...(input.billingPlanId ? { plan_id: input.billingPlanId } : {}),
-        team_scoped: !!input.billingTeamId,
-        vm_row_id_set: !!input.vmId,
-      };
-      if (input.eventType === "vm.attach") {
-        properties.reattach = input.metadata?.requestedSessionId != null;
-      }
-      void captureVmAnalyticsEvent(
-        { event: input.eventType, distinctId: input.userId, properties },
-        options,
-      );
-    } catch {
-      // Analytics never breaks usage-event persistence.
-    }
-  }
-}
-
-/** Route-layer: create latency and outcome, with per-stage timings. */
-export function captureVmCreateCompleted(
-  input: {
-    readonly userId: string;
-    readonly provider?: string | null;
-    readonly image?: string | null;
-    readonly planId?: string | null;
-    readonly memoryMb?: number | null;
-    readonly status: number;
-    readonly durationMs: number;
-    readonly timings?: Record<string, number>;
-  },
-  options: VmAnalyticsOptions = {},
-): void {
-  const properties: VmAnalyticsProperties = {
-    outcome: input.status < 400 ? "success" : "failure",
-    http_status: input.status,
-    duration_ms: Math.round(input.durationMs),
-    ...(input.provider ? { provider: input.provider } : {}),
-    ...(input.image ? { image: input.image.slice(0, MAX_STRING_PROPERTY_LENGTH) } : {}),
-    ...(input.planId ? { plan_id: input.planId } : {}),
-    ...(typeof input.memoryMb === "number" ? { memory_mb: input.memoryMb } : {}),
+export function vmProductEventFromLedger(
+  input: VmUsageEventInput,
+  now: Date = new Date(),
+): ServerEventInput | null {
+  if (!isLedgerEventType(input.eventType)) return null;
+  const event = VM_LEDGER_TO_POSTHOG_EVENT[input.eventType];
+  const metadata = input.metadata ?? {};
+  // Account deletion removes the person before provider teardown. Emitting a
+  // user-keyed destroy event after that point would recreate the deleted
+  // PostHog person, so the ledger row remains the audit record but is not
+  // mirrored to product analytics.
+  if (input.eventType === "vm.destroyed" && metadata.source === "account_deletion") return null;
+  const planId = normalizedPlan(input.billingPlanId);
+  const properties: Record<string, ServerEventScalar | null | undefined> = {
+    product: "cloud_vm",
+    ledger_event: input.eventType,
+    vm_id: input.vmId ?? undefined,
+    provider: input.provider,
+    image_id: input.imageId,
+    plan_id: planId,
+    billing_team_id: input.billingTeamId ?? undefined,
+    schema_version: VM_PRODUCT_ANALYTICS_SCHEMA_VERSION,
+    ...METADATA_PICKERS[input.eventType](metadata),
   };
-  for (const [stage, ms] of Object.entries(input.timings ?? {})) {
-    if (Number.isFinite(ms)) properties[`timing_${stage}_ms`] = ms;
+  if (input.eventType === "vm.destroyed" && input.vmCreatedAt) {
+    const lifetimeSeconds = Math.round((now.getTime() - input.vmCreatedAt.getTime()) / 1000);
+    if (Number.isFinite(lifetimeSeconds) && lifetimeSeconds >= 0) {
+      properties.lifetime_seconds = lifetimeSeconds;
+    }
   }
-  void captureVmAnalyticsEvent(
-    { event: "vm.create.completed", distinctId: input.userId, properties },
-    options,
-  );
+  const set: Record<string, ServerEventScalar> = {};
+  if (planId) set.billing_plan = planId;
+  const setOnce: Record<string, ServerEventScalar> = {};
+  if (input.eventType === "vm.created") setOnce.cloud_vm_first_created_at = now.toISOString();
+  if (input.eventType === "vm.attach") setOnce.cloud_vm_first_attached_at = now.toISOString();
+  return {
+    event,
+    distinctId: input.userId,
+    teamId: input.billingTeamId,
+    properties,
+    set,
+    setOnce,
+    insertId: NATURAL_INSERT_IDS[input.eventType] && input.vmId ? `${event}:${input.vmId}` : undefined,
+    timestamp: now,
+  };
 }
 
-/** Route-layer: attach latency and reconnect-vs-fresh. */
-export function captureVmAttachCompleted(
-  input: {
-    readonly userId: string;
-    readonly reattach: boolean;
-    readonly requireDaemon: boolean;
-    readonly transport?: string | null;
-    readonly status: number;
-    readonly durationMs: number;
-  },
-  options: VmAnalyticsOptions = {},
+export type VmProductCapture = (input: VmUsageEventInput) => void;
+
+/** Default capture: map the ledger row and hand it to the shared sender. */
+export function captureVmProductEvent(
+  input: VmUsageEventInput,
+  dependencies: Partial<ServerEventDependencies> = {},
 ): void {
-  void captureVmAnalyticsEvent(
-    {
-      event: "vm.attach.completed",
-      distinctId: input.userId,
-      properties: {
-        outcome: input.status < 400 ? "success" : "failure",
-        http_status: input.status,
-        duration_ms: Math.round(input.durationMs),
-        reattach: input.reattach,
-        require_daemon: input.requireDaemon,
-        ...(input.transport ? { transport: input.transport } : {}),
-      },
-    },
-    options,
-  );
+  if ((dependencies.env ?? process.env).CMUX_VM_ANALYTICS_DISABLED === "1") return;
+  const event = vmProductEventFromLedger(input, dependencies.now?.() ?? new Date());
+  if (!event) return;
+  void captureServerEvent(event, dependencies);
+}
+
+/**
+ * Decorate a repository so every successful ledger write also reaches
+ * PostHog. Postgres is the source of truth, so capture runs only after the
+ * insert succeeds. A capture failure never touches the workflow.
+ */
+export function withVmProductAnalytics(
+  repository: VmRepositoryShape,
+  capture: VmProductCapture = captureVmProductEvent,
+): VmRepositoryShape {
+  const safeCapture = (input: VmUsageEventInput): void => {
+    try {
+      capture(input);
+    } catch (error) {
+      console.warn("[analytics] cloud vm product capture failed", {
+        event_type: input.eventType,
+        error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+      });
+    }
+  };
+  return {
+    ...repository,
+    recordUsageEvent: (input) =>
+      repository.recordUsageEvent(input).pipe(
+        Effect.tap(() => Effect.sync(() => safeCapture(input))),
+      ),
+    recordUsageEvents: (inputs) =>
+      repository.recordUsageEvents(inputs).pipe(
+        Effect.tap(() => Effect.sync(() => {
+          for (const input of inputs) safeCapture(input);
+        })),
+      ),
+  };
+}
+
+function isLedgerEventType(value: string): value is VmLedgerEventType {
+  return Object.hasOwn(VM_LEDGER_TO_POSTHOG_EVENT, value);
+}
+
+function normalizedPlan(planId: string | null | undefined): string | undefined {
+  const normalized = planId?.trim().toLowerCase();
+  return normalized ? normalized.slice(0, 40) : undefined;
+}
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value.slice(0, 120) : undefined;
+}
+
+function int(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
+}
+
+function bool(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function enumValue<const Value extends string>(
+  value: unknown,
+  allowed: readonly Value[],
+): Value | undefined {
+  return typeof value === "string" && (allowed as readonly string[]).includes(value)
+    ? (value as Value)
+    : undefined;
+}
+
+// Signals that are not already covered by cloud_vm_request/cloud_vm_provision
+// or the successful ledger-write decorator. Inputs below are explicit allowlists.
+function captureVmSupplementalEvent(
+  input: ServerEventInput,
+  dependencies: Partial<ServerEventDependencies> = {},
+): void {
+  const env = dependencies.env ?? process.env;
+  if (env.CMUX_VM_ANALYTICS_DISABLED === "1") return;
+  try {
+    void captureServerEvent(input, {
+      ...dependencies,
+      env: env.CMUX_VM_ANALYTICS_FORCE === "1"
+        ? { ...env, CMUX_SERVER_ANALYTICS_FORCE: "1" }
+        : env,
+    }).catch(() => undefined);
+  } catch {
+    // Product analytics must never fail a VM operation.
+  }
 }
 
 /**
@@ -239,9 +282,9 @@ export function captureVmLimitHit(
     readonly upgradeShown: boolean;
     readonly phase?: string;
   },
-  options: VmAnalyticsOptions = {},
+  options: Partial<ServerEventDependencies> = {},
 ): void {
-  void captureVmAnalyticsEvent(
+  void captureVmSupplementalEvent(
     {
       event: "vm.limit_hit",
       distinctId: input.userId,
@@ -270,9 +313,9 @@ export function captureVmWakeCompleted(
     readonly durationMs: number;
     readonly reserved: boolean;
   },
-  options: VmAnalyticsOptions = {},
+  options: Partial<ServerEventDependencies> = {},
 ): void {
-  void captureVmAnalyticsEvent(
+  void captureVmSupplementalEvent(
     {
       event: "vm.wake.completed",
       distinctId: input.userId,
@@ -294,9 +337,9 @@ export function captureVmDesktopOpened(
     readonly port: number;
     readonly wrapped: boolean;
   },
-  options: VmAnalyticsOptions = {},
+  options: Partial<ServerEventDependencies> = {},
 ): void {
-  void captureVmAnalyticsEvent(
+  void captureVmSupplementalEvent(
     {
       event: "vm.desktop.opened",
       distinctId: input.userId,

@@ -1,23 +1,24 @@
+import { recordSpanError, setSpanAttributes, withPrioritySpan } from "../../../../services/telemetry";
+import { authorizeCronRequest } from "../../../../services/cronAuth";
+import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 import {
   reconcileVmProviderStatuses,
   runVmWorkflow,
 } from "../../../../services/vms/workflows";
-import {
-  recordSpanError,
-  setSpanAttributes,
-  withVmSpan,
-} from "../../../../services/vms/telemetry";
 
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  return withVmSpan("vm.reconcile", { "cmux.vm.trigger": "cron" }, async (span) => {
+  return withPrioritySpan("cmux-vm", "vm.reconcile", {
+    "cmux.subsystem": "vm-cloud",
+    "cmux.vm.trigger": "cron",
+  }, async (span) => {
     try {
-      const result = await runVmWorkflow(reconcileVmProviderStatuses());
+      // Machines the provider reports gone get their coderouter tokens revoked.
+      const result = await runVmWorkflow(reconcileVmProviderStatuses({ modelPlane: vmModelPlaneRevoker() }));
       setSpanAttributes(span, {
         "cmux.vm.reconcile.checked": result.checked,
         "cmux.vm.reconcile.updated": result.updated,

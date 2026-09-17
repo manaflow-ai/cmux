@@ -62,13 +62,9 @@ extension MobileShellComposite {
         let previousForegroundKey = foregroundMacKey
         let previousForegroundID = foregroundMacDeviceID
         let previousForegroundTag = activeMacInstanceTag
-        let previousConnection = previousForegroundID.flatMap { _ in
-            connections[previousForegroundKey]
-        }
-        guard previousConnection?.ownerKey == previousForegroundKey
-                || previousConnection == nil else {
-            return false
-        }
+        let previousConnection = previousForegroundID == nil
+            ? nil
+            : focusedForegroundConnection
         let previousAnonymousClient = previousConnection == nil
             ? remoteClient
             : nil
@@ -146,6 +142,7 @@ extension MobileShellComposite {
             )
         foregroundMacDeviceID = macDeviceID
         supportedHostCapabilities = subscription.supportedHostCapabilities
+        adoptSecondaryCaffeineStatusForPromotedForeground(ownerKey: ownerKey)
         terminalOutputTransport = Self.resolvedTerminalOutputTransport(
             capabilities: subscription.supportedHostCapabilities,
             terminalFidelity: nil
@@ -222,7 +219,12 @@ extension MobileShellComposite {
             )
         }
 
-        dropStalePreviousForeground(previousForegroundKey)
+        dropStalePreviousForeground(
+            previousForegroundKey,
+            retainingConnection: demotedSubscription == nil
+                ? nil
+                : previousConnection
+        )
         scheduleForegroundNotificationFeedRefresh(
             client: subscription.client
         )

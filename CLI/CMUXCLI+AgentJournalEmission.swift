@@ -28,6 +28,10 @@ extension CMUXCLI {
         nativeEvent: String?,
         declaredPhase: AgentLifecyclePhase? = nil,
         detail: String? = nil,
+        attention: AgentAttentionContext? = nil,
+        occurredAtMs: Int64? = nil,
+        responseTimeout: TimeInterval? = nil,
+        deadline: Date? = nil,
         store: ClaudeHookSessionStore? = nil,
         telemetry: CLISocketSentryTelemetry? = nil
     ) {
@@ -47,7 +51,7 @@ extension CMUXCLI {
         }
         let draft = AgentJournalEventDraft(
             kind: kind,
-            occurredAtMs: Int64(Date().timeIntervalSince1970 * 1000),
+            occurredAtMs: occurredAtMs ?? Int64(Date().timeIntervalSince1970 * 1000),
             source: source,
             agentKey: agentKey,
             sessionId: sessionId,
@@ -58,14 +62,16 @@ extension CMUXCLI {
             pendingWork: pendingWork,
             nativeEvent: nativeEvent,
             declaredPhase: declaredPhase,
-            detail: detail
+            detail: detail,
+            attention: attention
         )
         if let problem = draft.validationProblem() {
             recordAgentJournalDeliveryFailure(
                 draft: draft,
                 message: "invalid draft: \(problem)",
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
             return
         }
@@ -77,18 +83,29 @@ extension CMUXCLI {
                 draft: draft,
                 message: "encode failed",
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
             return
         }
         do {
-            let response = try sendV1Command("agent_journal_append \(json)", client: client)
+            let response: String
+            if responseTimeout != nil || deadline != nil {
+                response = try client.send(
+                    command: "agent_journal_append \(json)",
+                    responseTimeout: responseTimeout,
+                    deadline: deadline
+                )
+            } else {
+                response = try sendV1Command("agent_journal_append \(json)", client: client)
+            }
             guard response.hasPrefix("OK") else {
                 recordAgentJournalDeliveryFailure(
                     draft: draft,
                     message: response,
                     store: store,
-                    telemetry: telemetry
+                    telemetry: telemetry,
+                    deadline: deadline
                 )
                 return
             }
@@ -97,7 +114,8 @@ extension CMUXCLI {
                 draft: draft,
                 message: String(describing: error),
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
         }
     }
@@ -139,7 +157,8 @@ extension CMUXCLI {
         draft: AgentJournalEventDraft,
         message: String,
         store: ClaudeHookSessionStore?,
-        telemetry: CLISocketSentryTelemetry?
+        telemetry: CLISocketSentryTelemetry?,
+        deadline: Date? = nil
     ) {
         appendAgentJournalDeadLetter(draft: draft, message: message)
         cliWriteStderr("Warning: agent journal append failed (\(draft.kind.rawValue)): \(message)\n")
@@ -151,7 +170,8 @@ extension CMUXCLI {
                 event: draft.nativeEvent ?? draft.kind.rawValue,
                 error: nil,
                 store: store,
-                telemetry: telemetry
+                telemetry: telemetry,
+                deadline: deadline
             )
         }
     }
