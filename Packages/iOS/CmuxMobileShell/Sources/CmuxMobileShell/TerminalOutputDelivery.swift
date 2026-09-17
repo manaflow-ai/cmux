@@ -32,10 +32,17 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replacementScope != nil
     }
 
-    /// Viewport-policy-only deliveries resize the surface without presenting
-    /// terminal output and therefore must not enter the latency histograms.
+    /// Only byte and render-grid deliveries represent terminal output. Theme
+    /// and viewport-policy updates can still trigger a redraw, but they do not
+    /// represent terminal work for the latency histograms.
     var latencyMetricsEligible: Bool {
-        replacementScope != .viewportPolicy
+        guard replacementScope != .viewportPolicy else { return false }
+        switch payload {
+        case .bytes, .renderGrid:
+            return true
+        case .theme:
+            return false
+        }
     }
 
     /// A revisioned render-grid delta is tied to the exact frame named by its
