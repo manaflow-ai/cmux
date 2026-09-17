@@ -59,8 +59,8 @@ public struct MobileIrohV2Configuration: Sendable {
         } ?? defaultEnvironment
         let origin: String
         switch environment {
-        case "production": origin = "https://cmux-iroh-v2.cmux-presence-worker.workers.dev"
-        case "staging": origin = "https://cmux-iroh-v2-staging.cmux-presence-worker.workers.dev"
+        case "production": origin = "https://cmux-iroh-v2.debussy.workers.dev"
+        case "staging": origin = "https://cmux-iroh-v2-staging.debussy.workers.dev"
         default: origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
         }
         func validOrigin(_ candidate: String?) -> URL? {
