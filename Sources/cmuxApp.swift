@@ -664,6 +664,21 @@ struct cmuxApp: App {
                         CloudTreeStyleGalleryWindowController.shared.show()
                     }
                     Menu("Cloud Terminal Error Style") {
+                        Button("Preview in Selected Terminal") {
+                            guard let workspace = activeTabManager.selectedWorkspace,
+                                  let panelID = workspace.focusedPanelId,
+                                  workspace.terminalPanel(for: panelID) != nil else { return }
+                            let failure = CloudPaneCreationFailure(
+                                machine: .cloud("preview"),
+                                error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("preview")
+                            )
+                            workspace.setCloudMaterializationFailure(
+                                surfaceID: panelID,
+                                detail: failure.errorText,
+                                reference: "Design preview"
+                            )
+                        }
+                        Divider()
                         Button("Compact") {
                             UserDefaults.standard.set("compact", forKey: "cloudPaneFailurePrototypeStyle")
                         }
