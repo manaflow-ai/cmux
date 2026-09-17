@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "แชร์กับทีม",
       "makePrivate": "ตั้งเป็นส่วนตัว",
-      "privateImportHint": "บัญชีใหม่เป็นส่วนตัว แชร์บัญชีเพื่อให้ Cloud VM ของทีมนี้ใช้งานได้"
+      "privateImportHint": "บัญชีใหม่เป็นส่วนตัว แชร์บัญชีเพื่อให้ Cloud VM ของทีมนี้ใช้งานได้",
+      "description": "บัญชีที่แชร์พร้อมใช้งานสำหรับ Cloud VM ของทีมนี้ บัญชีส่วนตัวใช้ได้เฉพาะผู้ที่เพิ่มบัญชีนั้นเท่านั้น",
+      "cancelAction": "ยกเลิก"
     }
   },
   "community": {

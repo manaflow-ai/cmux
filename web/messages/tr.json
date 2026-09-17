@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "Ekiple paylaş",
       "makePrivate": "Özel yap",
-      "privateImportHint": "Yeni hesaplar özeldir. Bu ekibin Cloud VM makinelerinde kullanmak için bir hesabı paylaşın."
+      "privateImportHint": "Yeni hesaplar özeldir. Bu ekibin Cloud VM makinelerinde kullanmak için bir hesabı paylaşın.",
+      "description": "Paylaşılan hesaplar bu ekibin Cloud VM’leri tarafından kullanılabilir. Özel hesaplar yalnızca onları ekleyen kişi tarafından kullanılabilir.",
+      "cancelAction": "İptal"
     }
   },
   "community": {

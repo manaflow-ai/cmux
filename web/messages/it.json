@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "Condividi con il team",
       "makePrivate": "Rendi privato",
-      "privateImportHint": "I nuovi account sono privati. Condividi un account per renderlo disponibile alle VM Cloud di questo team."
+      "privateImportHint": "I nuovi account sono privati. Condividi un account per renderlo disponibile alle VM Cloud di questo team.",
+      "description": "Gli account condivisi sono disponibili per le VM Cloud di questo team. Gli account privati restano accessibili solo alla persona che li ha aggiunti.",
+      "cancelAction": "Annulla"
     }
   },
   "community": {

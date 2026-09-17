@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "Udostępnij zespołowi",
       "makePrivate": "Ustaw jako prywatne",
-      "privateImportHint": "Nowe konta są prywatne. Udostępnij konto, aby maszyny Cloud VM tego zespołu mogły z niego korzystać."
+      "privateImportHint": "Nowe konta są prywatne. Udostępnij konto, aby maszyny Cloud VM tego zespołu mogły z niego korzystać.",
+      "description": "Konta udostępnione są dostępne dla maszyn Cloud VM tego zespołu. Konta prywatne pozostają dostępne tylko dla osoby, która je dodała.",
+      "cancelAction": "Anuluj"
     }
   },
   "community": {

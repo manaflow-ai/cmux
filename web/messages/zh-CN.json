@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "与团队共享",
       "makePrivate": "设为私有",
-      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。"
+      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
+      "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
+      "cancelAction": "取消"
     }
   },
   "community": {

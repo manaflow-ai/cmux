@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "팀과 공유",
       "makePrivate": "비공개로 전환",
-      "privateImportHint": "새 계정은 비공개입니다. 이 팀의 Cloud VM에서 사용하려면 계정을 공유하세요."
+      "privateImportHint": "새 계정은 비공개입니다. 이 팀의 Cloud VM에서 사용하려면 계정을 공유하세요.",
+      "description": "공유 계정은 이 팀의 Cloud VM에서 사용할 수 있습니다. 비공개 계정은 계정을 추가한 사람만 사용할 수 있습니다.",
+      "cancelAction": "취소"
     }
   },
   "community": {

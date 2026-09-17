@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "Podijeli s timom",
       "makePrivate": "Učini privatnim",
-      "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima."
+      "privateImportHint": "Novi računi su privatni. Podijelite račun da bude dostupan Cloud VM mašinama ovog tima.",
+      "description": "Dijeljeni računi dostupni su Cloud VM-ovima ovog tima. Privatni računi ostaju dostupni samo osobi koja ih je dodala.",
+      "cancelAction": "Otkaži"
     }
   },
   "community": {

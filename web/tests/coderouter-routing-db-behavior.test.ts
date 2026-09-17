@@ -348,7 +348,8 @@ describe("coderouter route token VM binding db behavior", () => {
 
   dbTest("a token issued for a VM authenticates with that binding", async () => {
     const { token } = await issueRouteToken(TEAM, "user-1", "vm", { vmId: vm1 });
-    await expect(authenticateRouteToken(token)).resolves.toMatchObject({
+    expect(vm1PoolId).not.toBeNull();
+    await expect(authenticateRouteToken(token)).resolves.toEqual({
       teamId: TEAM,
       stackUserId: "user-1",
       vmId: vm1,

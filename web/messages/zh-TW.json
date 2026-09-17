@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "與團隊共用",
       "makePrivate": "設為私人",
-      "privateImportHint": "新帳戶預設為私人。共用帳戶後，此團隊的雲端虛擬機即可使用。"
+      "privateImportHint": "新帳戶預設為私人。共用帳戶後，此團隊的雲端虛擬機即可使用。",
+      "description": "共享帳戶可供此團隊的 Cloud VM 使用。私人帳戶僅供新增它們的人使用。",
+      "cancelAction": "取消"
     }
   },
   "community": {

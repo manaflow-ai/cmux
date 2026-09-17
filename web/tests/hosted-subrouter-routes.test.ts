@@ -247,6 +247,7 @@ describe("hosted Subrouter account routes", () => {
     // both capabilities, so the hosted tenant exchange asks for both and the
     // upload succeeds.
     currentUser = Object.assign(stackUser(), {
+      hasPermission: async () => false,
       listPermissions: async () => [],
     });
 

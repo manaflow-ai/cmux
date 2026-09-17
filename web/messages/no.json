@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gjør privat",
-      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er."
+      "privateImportHint": "Nye kontoer er private. Del en konto for å gjøre den tilgjengelig for teamets Cloud-VM-er.",
+      "description": "Delte kontoer er tilgjengelige for dette teamets Cloud-VM-er. Private kontoer kan bare brukes av personen som la dem til.",
+      "cancelAction": "Avbryt"
     }
   },
   "community": {

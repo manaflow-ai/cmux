@@ -384,7 +384,9 @@
     "coderouterAccounts": {
       "shareWithTeam": "Mit Team teilen",
       "makePrivate": "Privat machen",
-      "privateImportHint": "Neue Konten sind privat. Teilen Sie ein Konto, um es den Cloud-VMs dieses Teams verfügbar zu machen."
+      "privateImportHint": "Neue Konten sind privat. Teilen Sie ein Konto, um es den Cloud-VMs dieses Teams verfügbar zu machen.",
+      "description": "Geteilte Konten stehen den Cloud-VMs dieses Teams zur Verfügung. Private Konten bleiben der Person vorbehalten, die sie hinzugefügt hat.",
+      "cancelAction": "Abbrechen"
     }
   },
   "community": {
