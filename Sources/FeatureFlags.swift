@@ -53,9 +53,9 @@ final class CmuxFeatureFlags {
     private nonisolated static let mobileTaskComposerDefault = true
     private static let goPlanDefault = false
     #if DEBUG
-    private nonisolated static let cloudMachinesDefault = true
+    nonisolated static let cloudMachinesDefault = true
     #else
-    private nonisolated static let cloudMachinesDefault = false
+    nonisolated static let cloudMachinesDefault = false
     #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
