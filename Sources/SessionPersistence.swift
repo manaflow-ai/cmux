@@ -2033,7 +2033,7 @@ enum SessionScrollbackReplayStore {
         // white-on-white output (issue #5165). Strip them before replay.
         let themePortable = strippingTerminalColorOSCSequences(scrollback)
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(themePortable) else { return nil }
-        return rowTerminated(ansiSafeReplayText(truncated))
+        return ansiSafeReplayText(rowTerminated(truncated))
     }
 
     /// Ends the replay at a row boundary.

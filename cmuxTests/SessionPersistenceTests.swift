@@ -563,10 +563,10 @@ final class SessionPersistenceTests: XCTestCase {
             return
         }
         XCTAssertTrue(
-            contents.hasSuffix("\r\n"),
+            contents.hasSuffix("\r\n\u{001B}[0m"),
             "The old prompt row must end with a line break so the restored shell's prompt starts on a fresh row"
         )
-        XCTAssertFalse(contents.hasSuffix("\r\n\r\n"), "A single terminator is enough")
+        XCTAssertFalse(contents.contains("\r\n\r\n\u{001B}[0m"), "A single terminator is enough")
     }
 
     func testScrollbackReplayEnvironmentSkipsWhitespaceOnlyContent() {
