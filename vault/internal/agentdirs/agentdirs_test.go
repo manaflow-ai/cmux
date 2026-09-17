@@ -15,12 +15,17 @@ const (
 
 func TestClaudeDiscover(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "claude-config")
+	secretPath := filepath.Join(t.TempDir(), "secret.jsonl")
+	writeFile(t, secretPath, `{"cwd":"/secret"}`+"\n")
 	sessionPath := filepath.Join(root, "projects", "-Users-lawrence-work-cmux", uuidA+".jsonl")
 	writeFile(t, sessionPath, `{"type":"message","cwd":"/Users/lawrence/work/cmux"}`+"\n")
 	writeFile(t, filepath.Join(root, "projects", "-Users-lawrence-work-cmux", "not-a-session.jsonl"), "{}\n")
 	writeFile(t, filepath.Join(root, "projects", "-Users-lawrence-work-cmux", uuidB+".txt"), "{}\n")
 	writeFile(t, filepath.Join(root, "projects", "nested", uuidB+".jsonl"), `{"cwd":"/nested"}`+"\n")
 	if err := os.Symlink(filepath.Join(root, "missing-target.jsonl"), filepath.Join(root, "projects", "nested", uuidC+".jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secretPath, filepath.Join(root, "projects", "nested", uuidD+".jsonl")); err != nil {
 		t.Fatal(err)
 	}
 	unreadable := filepath.Join(root, "projects", "unreadable")
@@ -55,6 +60,29 @@ func TestClaudeDiscover(t *testing.T) {
 	}
 	if len(warnings) == 0 {
 		t.Fatal("expected skip warning")
+	}
+}
+
+func TestCodexDiscoverSkipsSymlinkedSessionFiles(t *testing.T) {
+	home := t.TempDir()
+	root := filepath.Join(home, ".codex")
+	secretPath := filepath.Join(t.TempDir(), "secret.jsonl")
+	writeFile(t, secretPath, `{"type":"session_meta","payload":{"id":"`+uuidD+`","cwd":"/secret"}}`+"\n")
+	sessionDir := filepath.Join(root, "sessions", "2026", "07", "04")
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(sessionDir, "rollout-2026-07-04T00-00-00-"+uuidD+".jsonl")
+	if err := os.Symlink(secretPath, link); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := (Codex{}).Discover(Environ{HomeDir: home, Vars: map[string]string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected symlinked session to be skipped, got %#v", got)
 	}
 }
 

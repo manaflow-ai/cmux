@@ -9,10 +9,7 @@ import {
   isVmCreateDisabledError,
   vmWorkflowErrorCause,
 } from "../vms/errors";
-import {
-  imageUsesBakedFreestyleSignedAdmin,
-  resolveVmImage,
-} from "../vms/images/resolver";
+import { resolveVmImage } from "../vms/images/resolver";
 import {
   createVm,
   destroyVm,
@@ -210,7 +207,6 @@ export async function runVmProbe(options: {
         image: configured.image,
         imageVersion: configured.imageVersion,
         idempotencyKey: `${PROBE_IDEMPOTENCY_PREFIX}${startedAt.toISOString()}`,
-        bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(configured.provider, configured.image),
       })
     );
     vmId = created.providerVmId;
@@ -713,7 +709,7 @@ type ProbeConfig = {
   readonly billingTeamId: string;
   readonly billingCustomerType: "team" | "user";
   readonly billingPlanId: string;
-  readonly maxActiveVms: number;
+  readonly maxActiveVms: number | null;
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
@@ -754,10 +750,12 @@ function probeConfig(env: Record<string, string | undefined>): ProbeConfig | nul
 
 function providerEnv(value: string | undefined): ProviderId | null {
   const trimmed = value?.trim();
-  return trimmed === "e2b" || trimmed === "freestyle" || trimmed === "daytona" ? trimmed : null;
+  return trimmed === "freestyle" ? trimmed : null;
 }
 
-function positiveIntegerEnv(value: string | undefined, fallback: number): number {
+function positiveIntegerEnv(value: string | undefined, fallback: number): number;
+function positiveIntegerEnv(value: string | undefined, fallback: number | null): number | null;
+function positiveIntegerEnv(value: string | undefined, fallback: number | null): number | null {
   const trimmed = value?.trim();
   if (!trimmed || !/^\d+$/.test(trimmed)) return fallback;
   const parsed = Number(trimmed);

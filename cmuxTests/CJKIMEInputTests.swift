@@ -1496,8 +1496,11 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        let previousTextInputEventHandler = GhosttyNSView.debugTextInputEventHandler
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
         defer {
-            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            GhosttyNSView.debugTextInputEventHandler = previousTextInputEventHandler
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver
             window.orderOut(nil)
         }
 
@@ -1515,6 +1518,12 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        // In a host without an active input context, interpretKeyEvents consumes the
+        // synthetic ESC as insertText("\u{1B}"); the lone control byte fills the key
+        // accumulator and the textForKeyEvent tilde fallback under test never runs.
+        // Route around AppKit interpretation the way the focus-reassertion suite does.
+        GhosttyNSView.debugTextInputEventHandler = { _, _ in true }
 
         var pressText: String?
         var pressUnshiftedCodepoint: UInt32?
@@ -2130,7 +2139,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
 
 @MainActor
 final class DeadKeyCompositionRegressionTests: XCTestCase {
-    func testOptionTildeDeadKeyUsesOriginalEventBeforeAltTranslation() {
+    func testOptionDeadKeyUsesGhosttyTranslationInsteadOfStartingComposition() {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -2174,32 +2183,20 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             return
         }
 
-        var deadKeyPrimed = false
+        var interpretedKeyCodes: [UInt16] = []
         installCJKIMEInterpretKeyEventsSwizzle()
         cjkIMEInterpretKeyEventsHook = { candidateView, events in
             guard candidateView === view,
                   let event = events.first else { return false }
 
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if event.keyCode == 45,
-               flags.contains(.option),
-               !flags.contains(.command),
-               !flags.contains(.control),
-               (event.characters ?? "").isEmpty {
-                deadKeyPrimed = true
-                candidateView.setMarkedText(
-                    "~",
-                    selectedRange: NSRange(location: 1, length: 0),
-                    replacementRange: NSRange(location: NSNotFound, length: 0)
+            if [14, 32, 34, 45, 50].contains(Int(event.keyCode)) {
+                interpretedKeyCodes.append(event.keyCode)
+                XCTAssertFalse(
+                    flags.contains(.option),
+                    "A claimed Option side must show AppKit Ghostty's translated event"
                 )
-                return true
             }
-
-            if event.keyCode == 0, deadKeyPrimed, candidateView.hasMarkedText() {
-                candidateView.insertText("ã", replacementRange: NSRange(location: NSNotFound, length: 0))
-                return true
-            }
-
             return false
         }
 
@@ -2214,42 +2211,41 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             }
         }
 
-        guard let optionN = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [.option],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "",
-            charactersIgnoringModifiers: "n",
-            isARepeat: false,
-            keyCode: 45
-        ), let aKey = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
-            modifierFlags: [],
-            timestamp: ProcessInfo.processInfo.systemUptime + 0.01,
-            windowNumber: window.windowNumber,
-            context: nil,
-            characters: "a",
-            charactersIgnoringModifiers: "a",
-            isARepeat: false,
-            keyCode: 0
-        ) else {
+        let deadKeyEvents: [(keyCode: UInt16, character: String)] = [
+            (14, "e"), (32, "u"), (34, "i"), (45, "n"), (50, "`")
+        ]
+        let events = deadKeyEvents.enumerated().compactMap { index, item in
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: ProcessInfo.processInfo.systemUptime + Double(index) * 0.01,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: item.character,
+                isARepeat: false,
+                keyCode: item.keyCode
+            )
+        }
+        guard events.count == deadKeyEvents.count else {
             XCTFail("Failed to create dead-key events")
             return
         }
 
         window.makeFirstResponder(view)
         withExtendedLifetime(surface) {
-            view.keyDown(with: optionN)
-            view.keyDown(with: aKey)
+            events.forEach { view.keyDown(with: $0) }
         }
 
-        XCTAssertEqual(pressedText, ["ã"])
-        XCTAssertEqual(pressedKeycodes, [], "Dead-key composition should not leak raw Alt-N key events")
-        XCTAssertFalse(view.hasMarkedText(), "Composition should clear after the composed character commits")
+        XCTAssertEqual(
+            interpretedKeyCodes,
+            deadKeyEvents.map(\.keyCode),
+            "Every claimed dead-key event must be interpreted through AppKit"
+        )
+        XCTAssertEqual(pressedText, deadKeyEvents.map(\.character))
+        XCTAssertEqual(pressedKeycodes, [], "The translated text path should not leak raw key events")
+        XCTAssertFalse(view.hasMarkedText(), "Claimed Option dead keys must not start marked-text composition")
     }
 }
 

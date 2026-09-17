@@ -13,8 +13,9 @@ const baseEnv = {
   CMUX_VM_PROBE_USER_ID: "probe-user",
   CMUX_VM_PROBE_TEAM_ID: "probe-team",
   CMUX_VM_PROBE_PLAN_ID: "free",
-  CMUX_VM_PROBE_PROVIDER: "e2b",
+  CMUX_VM_PROBE_PROVIDER: "freestyle",
   CMUX_VM_PROBE_IMAGE: "cmuxd-ws:tooling-20260509f",
+  CMUX_VM_ALLOW_UNMANIFESTED_IMAGES: "1",
   CMUX_VM_PROBE_CREATE_TIMEOUT_MS: "120000",
   CMUX_VM_PROBE_STATUS_TIMEOUT_MS: "60000",
   CMUX_VM_PROBE_EXEC_TIMEOUT_MS: "30000",
@@ -44,7 +45,7 @@ describe("Cloud VM synthetic probe", () => {
     const harness = makeHarness({
       exec: async () => {
         throw new VmProviderOperationError({
-          provider: "e2b",
+          provider: "freestyle",
           operation: "exec",
           cause: new Error("exec gateway down"),
         });
@@ -68,7 +69,7 @@ describe("Cloud VM synthetic probe", () => {
     const harness = makeHarness({
       exec: async () => {
         throw new VmProviderOperationError({
-          provider: "e2b",
+          provider: "freestyle",
           operation: "exec",
           cause: new Error("exec denied with Bearer srt_secret123token and api key sk-liveSecret123"),
         });
@@ -99,14 +100,14 @@ describe("Cloud VM synthetic probe", () => {
     const harness = makeHarness({
       exec: async () => {
         throw new VmProviderOperationError({
-          provider: "e2b",
+          provider: "freestyle",
           operation: "exec",
           cause: new Error("exec gateway down"),
         });
       },
       destroy: async () => {
         throw new VmProviderOperationError({
-          provider: "e2b",
+          provider: "freestyle",
           operation: "destroy",
           cause: new Error("destroy also down"),
         });
@@ -174,7 +175,7 @@ describe("Cloud VM synthetic probe", () => {
     const harness = makeHarness({
       destroy: async () => {
         throw new VmProviderOperationError({
-          provider: "e2b",
+          provider: "freestyle",
           operation: "destroy",
           cause: new Error("destroy failed"),
         });
@@ -266,6 +267,7 @@ describe("Cloud VM synthetic probe", () => {
         ...baseEnv,
         VERCEL_ENV: "production",
         CMUX_VM_PROBE_IMAGE: "missing-image",
+        CMUX_VM_ALLOW_UNMANIFESTED_IMAGES: "0",
       },
     });
     const summary = await harness.run();
@@ -391,7 +393,7 @@ function makeHarness(overrides: {
         workflows,
         sendAlert: async (input) => {
           alerts.push(input);
-          return { sent: true, status: 200 };
+          return { sent: true, configured: true, status: 200 };
         },
       }),
   };
@@ -450,10 +452,14 @@ function vmEntry(input: {
 }): VmEntry {
   return {
     providerVmId: input.providerVmId,
-    provider: input.provider ?? "e2b",
+    provider: input.provider ?? "freestyle",
     image: "cmuxd-ws:tooling-20260509f",
-    imageVersion: "e2b-tooling-20260509f",
+    imageVersion: "freestyle-tooling-20260509f",
     status: input.status ?? "running",
     createdAt: Date.parse("2026-07-05T12:00:00.000Z"),
+    displayName: null,
+    slug: null,
+    addressIpv4: null,
+    addressIpv6: null,
   };
 }

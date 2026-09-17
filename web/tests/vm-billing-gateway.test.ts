@@ -224,7 +224,7 @@ function createInput(overrides: Partial<ReserveCreateInput> = {}): ReserveCreate
     billingCustomerType: "team" as const,
     billingTeamId: "team-billing",
     billingPlanId: "free",
-    provider: "e2b" as const,
+    provider: "freestyle" as const,
     image: "cmuxd-ws:test",
     imageVersion: "test-version",
     vmId: "vm-billing",

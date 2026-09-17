@@ -21,14 +21,19 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     let isDevLikeBundle: Bool
     /// Host actions the driver delegates upward. Held weak; set by ``UpdateController``.
     weak var actionDelegate: (any UpdateActionDelegate)?
+    /// Causal lifecycle signals consumed by ``UpdateController``.
+    weak var eventDelegate: (any UpdateDriverEventDelegate)?
 
     private let minimumCheckDuration: TimeInterval = UpdateTiming.minimumCheckDisplayDuration
     private let checkTimeoutDuration: TimeInterval = UpdateTiming.checkTimeoutDuration
     private var lastCheckStart: Date?
     private var pendingCheckTransitionTask: Task<Void, Never>?
+    /// The state captured by ``pendingCheckTransitionTask`` while its minimum-display delay is
+    /// pending. Keeping it separately lets cancellation causally finish callbacks (especially a
+    /// mandatory Sparkle update-choice reply) before the task drops its capture.
+    private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
-    private var pendingPromptDismissCallbacks: [UUID] = []
 
     init(
         model: UpdateStateModel,
@@ -78,8 +83,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
-        available.reply.onDismissConsumed = { [weak self] reply in
-            self?.recordPromptDismissCallbackExpected(for: reply)
+        available.reply.onConsumed = { [weak self] reply, choice, source in
+            self?.handlePromptReply(reply, choice: choice, source: source)
         }
         setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
@@ -188,71 +193,65 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func dismissUpdateInstallation() {
-        log.append("dismiss update installation")
-        let promptDismissCallback = takePromptDismissCallbackForCurrentState()
-        if case .error = model.state {
-            log.append("dismiss update installation ignored (error visible)")
+        // This callback has no prompt/session identity. User actions update the model at their
+        // causal boundary, and UpdateController reconciles unexpected active-session termination
+        // from Sparkle's authoritative cycle-finished callback. Mutating here could only let an old
+        // session erase a newer prompt or an accepted install (#8368).
+        log.append("dismiss update installation observed (state=\(describe(model.state)); no state mutation)")
+    }
+
+    func handlePromptReply(_ reply: UpdatePromptReply,
+                           choice: SPUUserUpdateChoice,
+                           source: UpdatePromptReplySource) {
+        log.append("update prompt reply consumed (choice=\(choice.rawValue), source=\(source.rawValue))")
+        guard source == .user, choice == .dismiss || choice == .skip else { return }
+
+        guard case .updateAvailable(let available) = model.state,
+              available.reply.id == reply.id else {
+            log.append("user prompt reply did not match live prompt; preserving current state")
             return
         }
-        if case .notFound = model.state {
-            log.append("dismiss update installation ignored (notFound visible)")
-            return
-        }
-        if case .checking = model.state {
-            log.append("dismiss update installation ignored (checking)")
-            return
-        }
-        if promptDismissCallback.expected && !promptDismissCallback.currentPrompt {
-            switch model.state {
-            case .updateAvailable(let available)
-                where !available.reply.isConsumed || available.reply.consumedChoice == .install:
-                // Sparkle can deliver a dismissed old prompt's teardown after a fresh check has
-                // already resolved or auto-confirmed a new prompt. Only this tracked callback may
-                // leave the new prompt alive; unexpected dismissals still clear it below.
-                log.append("dismiss update installation ignored (superseded prompt dismissal)")
-                return
-            case .downloading, .extracting, .installing:
-                log.append("dismiss update installation ignored (superseded prompt dismissal)")
-                return
-            default:
-                break
-            }
-        }
+
+        // Tell the lifecycle owner only after the structured prompt identity matches. A delayed
+        // action from an old prompt must not cancel a newer check or accepted install.
+        eventDelegate?.updateDriverUserDidDismissPrompt()
         setState(.idle)
-    }
-
-    func recordPromptDismissCallbackExpected(for reply: UpdatePromptReply) {
-        pendingPromptDismissCallbacks.append(reply.id)
-    }
-
-    private func takePromptDismissCallbackForCurrentState() -> (expected: Bool, currentPrompt: Bool) {
-        guard !pendingPromptDismissCallbacks.isEmpty else { return (false, false) }
-        if case .updateAvailable(let available) = model.state {
-            if let index = pendingPromptDismissCallbacks.firstIndex(of: available.reply.id) {
-                pendingPromptDismissCallbacks.remove(at: index)
-                return (true, true)
-            }
-        }
-        pendingPromptDismissCallbacks.removeFirst()
-        return (true, false)
     }
 
     // MARK: - State transition helpers
 
+    /// Replaces the visible state while first finishing any delayed callback-bearing transition.
+    /// Controller paths that supersede a check use this instead of mutating the model directly.
+    func replaceActiveState(with replacement: UpdateState) {
+        cancelPendingCheckTransition()
+        model.replaceActiveState(with: replacement)
+    }
+
     private func beginChecking(cancel: @escaping () -> Void) {
         model.setOverrideState(nil)
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
+        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
         lastCheckStart = Date()
-        applyState(.checking(.init(cancel: cancel)))
+        applyState(.checking(.init(cancellationHandler: { [weak self] source in
+            guard let self else {
+                cancel()
+                return
+            }
+            self.log.append("update check cancellation requested (source=\(source))")
+            if source == .user {
+                self.eventDelegate?.updateDriverUserDidCancelCheck()
+            }
+            cancel()
+            if source == .user, case .checking = self.model.state {
+                self.setState(.idle)
+            }
+        })))
         scheduleCheckTimeout()
     }
 
     private func setStateAfterMinimumCheckDelay(_ newState: UpdateState) {
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
+        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
 
@@ -270,23 +269,42 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
 
         let delay = minimumCheckDuration - elapsed
+        pendingCheckTransitionState = newState
         pendingCheckTransitionTask = Task { @MainActor [weak self] in
             // Bounded, cancellable minimum-display delay via the injected clock.
             try? await self?.clock.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
-            guard case .checking = self.model.state else { return }
+            guard case .checking = self.model.state else {
+                guard let pendingState = self.pendingCheckTransitionState else { return }
+                self.pendingCheckTransitionState = nil
+                self.pendingCheckTransitionTask = nil
+                pendingState.finishAsSuperseded()
+                return
+            }
+            self.pendingCheckTransitionState = nil
+            self.pendingCheckTransitionTask = nil
             self.lastCheckStart = nil
             self.applyState(newState)
         }
     }
 
     private func setState(_ newState: UpdateState) {
-        pendingCheckTransitionTask?.cancel()
-        pendingCheckTransitionTask = nil
+        cancelPendingCheckTransition()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
         lastCheckStart = nil
         applyState(newState)
+    }
+
+    /// Cancels the minimum-display task after causally completing the callback-bearing state it
+    /// captured. Without this handoff, cancelling while still visibly checking drops Sparkle's
+    /// mandatory update-choice reply and strands its session behind `sessionInProgress`.
+    private func cancelPendingCheckTransition() {
+        pendingCheckTransitionTask?.cancel()
+        pendingCheckTransitionTask = nil
+        guard let pendingState = pendingCheckTransitionState else { return }
+        pendingCheckTransitionState = nil
+        pendingState.finishAsSuperseded()
     }
 
     private func scheduleCheckTimeout() {
@@ -353,6 +371,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return "idle"
         case .permissionRequest:
             return "permissionRequest"
+        case .preparingCheck:
+            return "preparingCheck"
         case .checking:
             return "checking"
         case .updateAvailable(let update):
@@ -361,6 +381,8 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
             return "notFound"
         case .error(let err):
             return "error(\(err.error.localizedDescription))"
+        case .startingDownload:
+            return "startingDownload"
         case .downloading(let download):
             if let expected = download.expectedLength, expected > 0 {
                 let percent = Double(download.progress) / Double(expected) * 100

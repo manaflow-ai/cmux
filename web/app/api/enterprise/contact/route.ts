@@ -8,6 +8,7 @@ import {
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
 } from "../../../../services/analytics/iosEventPolicy";
+import { reportMissingRateLimitRule } from "../../../../services/rateLimitObservability";
 import {
   recordSpanError,
   setSpanAttributes,
@@ -15,8 +16,6 @@ import {
 } from "../../../../services/telemetry";
 import { checkEmailDeliverable } from "../../waitlist/email-check";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const enterpriseRecipient = "founders@manaflow.com";
 
@@ -51,11 +50,22 @@ export async function POST(request: Request) {
         return jsonError("Enterprise contact endpoint is not configured", 503);
       }
 
-      if (process.env.VERCEL === "1") {
-        const { error, rateLimited } = await checkRateLimit(
-          config.rateLimitId,
-          { request },
-        );
+      if (process.env.VERCEL === "1" && !config.rateLimitId) {
+        void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "unset" });
+      }
+      if (process.env.VERCEL === "1" && config.rateLimitId) {
+        let result: Awaited<ReturnType<typeof checkRateLimit>>;
+        try {
+          result = await checkRateLimit(config.rateLimitId, { request });
+        } catch {
+          // A firewall transport failure must not fall through to Resend. The
+          // endpoint is an expensive, externally visible side effect.
+          console.error("enterprise.contact.rate_limit_error", {
+            failure: "check_failed",
+          });
+          return jsonError("service_unavailable", 503);
+        }
+        const { error, rateLimited } = result;
         setSpanAttributes(span, {
           "cmux.rate_limited": rateLimited || error === "blocked",
         });
@@ -63,12 +73,12 @@ export async function POST(request: Request) {
           return jsonError("Rate limit exceeded", 429);
         }
         if (error === "not-found") {
-          console.error(
-            "enterprise.contact.rate_limit_not_found",
-            config.rateLimitId,
-          );
+          void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "not-found" });
         } else if (error) {
-          console.error("enterprise.contact.rate_limit_error", error);
+          console.error("enterprise.contact.rate_limit_error", {
+            failure: "check_error",
+          });
+          return jsonError("service_unavailable", 503);
         }
       }
 
@@ -148,14 +158,18 @@ export async function POST(request: Request) {
 function resolveEnterpriseConfig() {
   const resendApiKey = env.RESEND_API_KEY;
   const fromEmail = env.CMUX_FEEDBACK_FROM_EMAIL;
+  // rateLimitId is optional: unset means the route runs without rate limiting.
   const rateLimitId = env.CMUX_FEEDBACK_RATE_LIMIT_ID;
-  if (!resendApiKey || !fromEmail || !rateLimitId) return null;
+  if (!resendApiKey || !fromEmail) return null;
   return {
     resendApiKey,
     fromEmail,
     rateLimitId,
     slackWebhookUrl:
-      env.SLACK_ENTERPRISE_WEBHOOK_URL ?? env.SLACK_WAITLIST_WEBHOOK_URL,
+      env.SLACK_ENTERPRISE_WEBHOOK_URL
+      ?? env.SLACK_WAITLIST_WEBHOOK_URL
+      ?? process.env.SLACK_ENTERPRISE_WEBHOOK_URL?.trim()
+      ?? process.env.SLACK_WAITLIST_WEBHOOK_URL?.trim(),
   };
 }
 

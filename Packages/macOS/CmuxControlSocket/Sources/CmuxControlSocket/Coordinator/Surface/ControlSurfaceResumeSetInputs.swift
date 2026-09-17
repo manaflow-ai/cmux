@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 
 /// The pre-parsed inputs for `surface.resume.set`, lifted from the legacy
 /// `v2SurfaceResumeSet` body's param parsing.
@@ -22,9 +22,19 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     public let source: String?
     /// The environment overrides (the legacy `v2StringMap`, or `nil`).
     public let environment: [String: String]?
+    /// Structured launch data supplied alongside the compatibility command.
+    public let launchCommand: ControlAgentLaunchCommand?
+    /// Last provider permission mode captured by an agent hook.
+    public let permissionMode: String?
     /// Whether automatic resume is requested (already gated: `true` only for the
     /// `agent-hook` source with `auto_resume == true`).
     public let autoResume: Bool
+    /// Verified Codex hook provenance used by the app-owned atomic replacement gate.
+    public let resumeEvidenceProvenance: String?
+    /// The relay-claimed remote workspace, authenticated by the app context.
+    public let remoteWorkspaceID: UUID?
+    /// Raw relay parameters retained to authenticate their provenance.
+    public let remoteRelayParameters: [String: JSONValue]?
 
     /// Creates resume-set inputs.
     ///
@@ -37,6 +47,9 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
     ///   - source: The (already-mapped) binding source.
     ///   - environment: The environment overrides.
     ///   - autoResume: Whether automatic resume is requested.
+    ///   - remoteWorkspaceID: The authenticated relay's owning workspace.
+    ///   - remoteRelayParameters: Raw parameters carrying relay authentication.
+    ///   - resumeEvidenceProvenance: The verified Codex hook provenance, when present.
     public init(
         name: String?,
         kind: String?,
@@ -45,7 +58,12 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         checkpointID: String?,
         source: String?,
         environment: [String: String]?,
-        autoResume: Bool
+        launchCommand: ControlAgentLaunchCommand?,
+        permissionMode: String?,
+        autoResume: Bool,
+        remoteWorkspaceID: UUID?,
+        remoteRelayParameters: [String: JSONValue]?,
+        resumeEvidenceProvenance: String? = nil
     ) {
         self.name = name
         self.kind = kind
@@ -54,6 +72,11 @@ public struct ControlSurfaceResumeSetInputs: Sendable, Equatable {
         self.checkpointID = checkpointID
         self.source = source
         self.environment = environment
+        self.launchCommand = launchCommand
+        self.permissionMode = permissionMode
         self.autoResume = autoResume
+        self.resumeEvidenceProvenance = resumeEvidenceProvenance
+        self.remoteWorkspaceID = remoteWorkspaceID
+        self.remoteRelayParameters = remoteRelayParameters
     }
 }

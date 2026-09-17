@@ -4,7 +4,7 @@ import Foundation
 // MARK: - New-workspace plus-button context menu
 
 @MainActor
-private final class NewWorkspaceContextMenuActionBox: NSObject {
+final class NewWorkspaceContextMenuActionBox: NSObject {
     let windowId: UUID
     let action: CmuxResolvedConfigAction
 
@@ -12,11 +12,6 @@ private final class NewWorkspaceContextMenuActionBox: NSObject {
         self.windowId = windowId
         self.action = action
     }
-}
-
-private enum NewWorkspaceContextMenuSection {
-    case custom
-    case cloudVM
 }
 
 extension AppDelegate {
@@ -46,9 +41,12 @@ extension AppDelegate {
         return true
     }
 
+    /// Pops the menu below `anchorView`, or at `location` (in `anchorView`
+    /// coordinates) when the caller only knows where the click landed.
     @discardableResult
     func showNewWorkspaceContextMenu(
         anchorView: NSView,
+        at location: NSPoint? = nil,
         debugSource: String = "titlebar.newWorkspace.contextMenu"
     ) -> Bool {
         let context = contextForMainWindow(anchorView.window)
@@ -67,133 +65,96 @@ extension AppDelegate {
 
         menu.popUp(
             positioning: nil,
-            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
+            at: location ?? NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
             in: anchorView
         )
         return true
     }
 
-    private func makeNewWorkspaceContextMenu(
+    func makeNewWorkspaceContextMenu(
         context: MainWindowContext,
         cmuxConfigStore: CmuxConfigStore
     ) -> NSMenu? {
-        let menu = NSMenu()
-        let sections: [NewWorkspaceContextMenuSection]
-        switch cmuxConfigStore.newWorkspaceMenuSectionOrder {
-        case .customFirst:
-            sections = [.custom, .cloudVM]
-        case .cloudFirst:
-            sections = [.cloudVM, .custom]
-        }
-
-        for section in sections {
-            switch section {
-            case .custom:
-                let customItems = makeConfiguredNewWorkspaceMenuItems(
-                    context: context,
-                    cmuxConfigStore: cmuxConfigStore
-                )
-                appendNewWorkspaceMenuSection(customItems, to: menu)
-            case .cloudVM:
-                let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
-                appendNewWorkspaceMenuSection(cloudMenu.items, to: menu)
+        let model = NewWorkspaceMenuModel.build(
+            newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems.filter { item in
+                guard case .action(let menuAction) = item,
+                      case .builtIn(let builtIn) = menuAction.action.action else { return true }
+                return Self.isBuiltInActionAvailableInNewWorkspaceMenu(builtIn)
+            },
+            agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
+            templateNames: savedLayoutNames(),
+            loadedActions: cmuxConfigStore.loadedActions,
+            newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID,
+            deletable: { [weak self, weak cmuxConfigStore] action in
+                guard let self, let cmuxConfigStore else { return false }
+                return isDeletableGlobalAction(action, cmuxConfigStore: cmuxConfigStore)
             }
-        }
-
-        appendSavedLayoutMenuItems(to: menu, windowId: context.windowId)
-        appendWorkspaceActionAffordances(
-            to: menu,
-            windowId: context.windowId,
+        )
+        return renderNewWorkspaceContextMenu(
+            model: model,
+            context: context,
             cmuxConfigStore: cmuxConfigStore
         )
-        trimTrailingNewWorkspaceMenuSeparators(menu)
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return nil }
-        return menu
     }
 
-    private func makeConfiguredNewWorkspaceMenuItems(
-        context: MainWindowContext,
+    /// Feature gates for built-in plus-menu rows, evaluated when the menu
+    /// opens (not at config load) so flag and setting flips apply at once.
+    /// Mirrors the command palette's gates for the same actions.
+    static func isBuiltInActionAvailableInNewWorkspaceMenu(_ action: CmuxSurfaceTabBarBuiltInAction) -> Bool {
+        switch action {
+        case .newCloudWorkspace, .newCloudMachine, .cloudVM:
+            return CloudMachinesFeature.isEnabled
+                && AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true
+        case .newBrowser, .newAgentChat:
+            return BrowserAvailabilitySettings.isEnabled()
+        case .newSimulator:
+            return CmuxFeatureFlags.shared.isSimulatorEnabled
+        case .mobileConnect:
+            return !MobileRemoteControlPolicy.isDisabled
+        case .newWorkspace, .newTerminal, .splitRight, .splitDown:
+            return true
+        }
+    }
+
+    private func savedLayoutNames() -> [String] {
+        ((try? SavedLayoutStore().list()) ?? []).map(\.name)
+    }
+
+    private func resolvedBuiltInNewAgentChatAction(
         cmuxConfigStore: CmuxConfigStore
-    ) -> [NSMenuItem] {
-        let configuredItems = cmuxConfigStore.newWorkspaceContextMenuItems
-        var menuItems: [NSMenuItem] = []
-        for configuredItem in configuredItems {
-            switch configuredItem {
-            case .separator:
-                if !menuItems.isEmpty, menuItems.last?.isSeparatorItem == false {
-                    menuItems.append(.separator())
-                }
-            case .action(let menuAction):
-                let item = NSMenuItem(
-                    title: menuAction.title,
-                    action: #selector(performNewWorkspaceContextMenuItem(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = self
-                item.representedObject = NewWorkspaceContextMenuActionBox(
-                    windowId: context.windowId,
-                    action: menuAction.action
-                )
-                item.toolTip = menuAction.tooltip
-                item.image = menuAction.icon?.contextMenuImage(
-                    configSourcePath: menuAction.iconSourcePath,
-                    globalConfigPath: cmuxConfigStore.globalConfigPath
-                )
-                menuItems.append(item)
-
-                // Hold Option to turn a deletable saved action into its delete
-                // affordance, native alternate-item style.
-                if isDeletableGlobalAction(menuAction.action, cmuxConfigStore: cmuxConfigStore) {
-                    let deleteFormat = String(
-                        localized: "menu.newWorkspace.deleteLayoutAlternate",
-                        defaultValue: "Delete “%@”"
-                    )
-                    let alternate = NSMenuItem(
-                        title: String(format: deleteFormat, menuAction.action.title),
-                        action: #selector(deleteWorkspaceConfigActionMenuItem(_:)),
-                        keyEquivalent: ""
-                    )
-                    alternate.target = self
-                    alternate.isAlternate = true
-                    alternate.keyEquivalentModifierMask = [.option]
-                    alternate.representedObject = WorkspaceActionDeleteBox(
-                        windowId: context.windowId,
-                        actionID: menuAction.action.id,
-                        actionTitle: menuAction.action.title
-                    )
-                    menuItems.append(alternate)
-                }
-            }
+    ) -> CmuxResolvedConfigAction? {
+        // Agent chat opens a browser surface; hide it when browser surfaces
+        // are disabled, matching the command palette's browserDisabled gate.
+        guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else { return nil }
+        guard BrowserAvailabilitySettings.isEnabled() else { return nil }
+        let actionID = CmuxSurfaceTabBarBuiltInAction.newAgentChat.configID
+        let action = cmuxConfigStore.resolvedAction(id: actionID)
+            ?? .builtIn(.newAgentChat)
+        guard shouldAppendBuiltInNewAgentChatMenuItem(
+            action,
+            actionID: actionID,
+            cmuxConfigStore: cmuxConfigStore
+        ) else {
+            return nil
         }
-        while menuItems.last?.isSeparatorItem == true {
-            menuItems.removeLast()
-        }
-        guard menuItems.contains(where: { !$0.isSeparatorItem }) else { return [] }
-        return menuItems
+        return action
     }
 
-    private func appendNewWorkspaceMenuSection(_ items: [NSMenuItem], to menu: NSMenu) {
-        guard items.contains(where: { !$0.isSeparatorItem }) else { return }
-        if menu.items.contains(where: { !$0.isSeparatorItem }),
-           menu.items.last?.isSeparatorItem == false {
-            menu.addItem(.separator())
-        }
-        for item in items {
-            if item.menu != nil {
-                item.menu?.removeItem(item)
-            }
-            menu.addItem(item)
-        }
-        trimTrailingNewWorkspaceMenuSeparators(menu)
+    private func shouldAppendBuiltInNewAgentChatMenuItem(
+        _ action: CmuxResolvedConfigAction,
+        actionID: String,
+        cmuxConfigStore: CmuxConfigStore
+    ) -> Bool {
+        if action.newWorkspaceMenu == false { return false }
+        let configuredActionIDs = Set(cmuxConfigStore.newWorkspaceContextMenuItems.compactMap { item -> String? in
+            guard case .action(let menuAction) = item else { return nil }
+            return menuAction.action.id
+        })
+        if configuredActionIDs.contains(actionID) { return false }
+        return true
     }
 
-    private func trimTrailingNewWorkspaceMenuSeparators(_ menu: NSMenu) {
-        while menu.items.last?.isSeparatorItem == true {
-            menu.removeItem(at: menu.items.count - 1)
-        }
-    }
-
-    @objc private func performNewWorkspaceContextMenuItem(_ sender: NSMenuItem) {
+    @objc func performNewWorkspaceContextMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? NewWorkspaceContextMenuActionBox,
               let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
               let window = resolvedWindow(for: context) else {

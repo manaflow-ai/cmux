@@ -15,6 +15,9 @@ public enum ControlWorkspaceCloseResolution: Sendable, Equatable {
     /// "Workspace not found"). The legacy failure payload carries only the
     /// workspace identity.
     case notFound
+    /// The workspace resolved and was eligible to close, but local teardown did
+    /// not complete. Carries the owning window id (may be absent).
+    case closeFailed(windowID: UUID?)
     /// The workspace was closed. Carries the owning window id (may be absent).
     case resolved(windowID: UUID?)
 }

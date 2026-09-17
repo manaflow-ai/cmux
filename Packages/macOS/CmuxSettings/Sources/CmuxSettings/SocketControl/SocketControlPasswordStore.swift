@@ -179,6 +179,11 @@ public struct SocketControlPasswordStore: Sendable {
         return Self.normalized(password)
     }
 
+    /// The authoritative password-file URL watched for out-of-process changes.
+    public var passwordFileURL: URL? {
+        resolvedFileURL()
+    }
+
     /// Writes the password to the password file (or clears it when empty), then posts ``didChangeNotification``.
     /// - Parameter password: The password to store; an empty/whitespace value clears it.
     /// - Throws: If the file path cannot be resolved or the write fails.

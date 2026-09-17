@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -46,6 +45,10 @@ func (a Codex) Discover(env Environ) ([]Session, error) {
 			if entry.IsDir() {
 				return nil
 			}
+			if IsSymlinkEntry(entry) {
+				env.Warn("codex: skipping symlinked session %s", path)
+				return nil
+			}
 			id := codexIDFromFilename(entry.Name())
 			if id == "" {
 				return nil
@@ -78,7 +81,7 @@ func codexIDFromFilename(name string) string {
 }
 
 func codexMeta(path string) (string, string) {
-	file, err := os.Open(path)
+	file, _, err := OpenRegularFileNoSymlink(path)
 	if err != nil {
 		return "", ""
 	}

@@ -47,6 +47,42 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "customSidebars.beta.enabled"
     )
 
+    /// Workspace todo controls: the experimental UI that lets users add
+    /// checklist items and set workspace completion/status lanes. Defaults off
+    /// so the todo summary remains read-only unless the user opts in or the
+    /// remote rollout flag enables it.
+    public let workspaceTodoControls = DefaultsKey<Bool>(
+        id: "sidebar.beta.workspaceTodos.controls.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.workspaceTodos.controls.enabled"
+    )
+
+    /// How a workspace row's checklist opens from its summary line while the
+    /// workspace-todos feature is on: an anchored popover (default) or the
+    /// round-1 inline expansion.
+    public let workspaceTodosChecklistStyle = DefaultsKey<WorkspaceTodoChecklistStyle>(
+        id: "sidebar.beta.workspaceTodos.checklistStyle",
+        defaultValue: .popover,
+        userDefaultsKey: "sidebarWorkspaceTodosChecklistStyle"
+    )
+
+    /// Cloud Machines: the Cloud tab in the right sidebar plus every other
+    /// Cloud VM surface (Settings section, palette commands), and the gate
+    /// for launch-time Cloud work (fleet polling, the Cloud tunnel). Dev
+    /// builds default on for dogfood; release builds stay opt-in. An explicit
+    /// setting still wins on either build.
+    public let cloudMachines = DefaultsKey<Bool>(
+        id: "cloud.beta.machines.enabled",
+        defaultValue: Self.cloudMachinesDefault,
+        userDefaultsKey: "cloud.beta.machines.enabled"
+    )
+
+    #if DEBUG
+    private static let cloudMachinesDefault = true
+    #else
+    private static let cloudMachinesDefault = false
+    #endif
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;

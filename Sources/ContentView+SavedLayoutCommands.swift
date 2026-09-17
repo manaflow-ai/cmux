@@ -81,7 +81,7 @@ extension ContentView {
         alert.accessoryView = input
         alert.window.initialFirstResponder = input
 
-        guard runCmuxModalAlert(alert) == .alertFirstButtonReturn else { return }
+        guard alert.runCmuxModal() == .alertFirstButtonReturn else { return }
         let name = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
             presentSavedLayoutError(
@@ -120,7 +120,7 @@ extension ContentView {
         alert.informativeText = String.localizedStringWithFormat(format, name)
         alert.addButton(withTitle: String(localized: "dialog.savedLayout.overwrite.confirm", defaultValue: "Replace"))
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        return runCmuxModalAlert(alert) == .alertFirstButtonReturn
+        return alert.runCmuxModal() == .alertFirstButtonReturn
     }
 
     private func presentSavedLayoutError(title: String, message: String) {
@@ -129,7 +129,7 @@ extension ContentView {
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        _ = runCmuxModalAlert(alert)
+        _ = alert.runCmuxModal()
     }
 
     private func savedLayoutErrorTitle() -> String {

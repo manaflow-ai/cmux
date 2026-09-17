@@ -43,7 +43,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -90,7 +90,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -132,7 +132,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -168,7 +168,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                     environment: [:]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)
@@ -219,7 +219,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         let session = try #require(observed.first)
@@ -260,7 +260,7 @@ struct AgentChatSessionRegistryClaudeObservationTests {
                     ]
                 )
             },
-            codexRolloutPath: { _ in nil }
+            codexRolloutPaths: { _ in [] }
         )
 
         #expect(observed.isEmpty)

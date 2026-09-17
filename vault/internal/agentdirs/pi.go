@@ -38,6 +38,10 @@ func (a Pi) Discover(env Environ) ([]Session, error) {
 		if entry.IsDir() {
 			return nil
 		}
+		if IsSymlinkEntry(entry) {
+			env.Warn("pi: skipping symlinked session %s", path)
+			return nil
+		}
 		matches := piFileRE.FindStringSubmatch(entry.Name())
 		if len(matches) != 2 {
 			return nil

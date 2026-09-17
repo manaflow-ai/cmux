@@ -70,6 +70,21 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "paneFirstClickFocus.enabled"
     )
 
+    /// Number of points moved by each keyboard pane-resize step.
+    public let paneResizeStepPixels = DefaultsKey<Int>(
+        id: "app.paneResizeStepPixels",
+        defaultValue: PaneResizeStepSettings.defaultPixels,
+        userDefaultsKey: PaneResizeStepSettings.key
+    )
+
+    /// Whether focus history includes pane and tab changes within a workspace.
+    /// Defaults to workspace-only navigation.
+    public let focusHistoryIncludesPanesAndTabs = DefaultsKey<Bool>(
+        id: "app.focusHistoryIncludesPanesAndTabs",
+        defaultValue: false,
+        userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
+    )
+
     public let preferredEditor = DefaultsKey<String>(
         id: "app.preferredEditor",
         defaultValue: "",

@@ -391,8 +391,9 @@ actor TextBoxMentionIndexStore {
         let relativePaths = candidateURLs.map {
             Self.relativePath(for: $0.path, rootPath: rootPath)
         }
-        let ignoredRelativePaths = await isGitWorkTree(rootURL: rootURL)
-            ? await gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+        let gitIgnoreProbe = TextBoxGitIgnoreProbe(rootURL: rootURL)
+        let ignoredRelativePaths = await gitIgnoreProbe.isWorkTree()
+            ? await gitIgnoreProbe.ignoredRelativePaths(relativePaths)
             : []
 
         var candidates: [TextBoxMentionCandidate] = []
@@ -447,6 +448,7 @@ actor TextBoxMentionIndexStore {
         process.currentDirectoryURL = rootURL
 
         let stdout = Pipe()
+        let outputHandle = stdout.fileHandleForReading
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
         let terminationStatus = TextBoxProcessTerminationStatus()
@@ -460,8 +462,12 @@ actor TextBoxMentionIndexStore {
         do {
             try process.run()
         } catch {
+            try? stdout.fileHandleForWriting.close()
+            try? outputHandle.close()
             return nil
         }
+        try? stdout.fileHandleForWriting.close()
+        defer { try? outputHandle.close() }
 
         let directorySeed = await scanDirectoryCandidateSeed(rootURL: rootURL)
         var directoryCandidates = directorySeed.candidates
@@ -512,7 +518,7 @@ actor TextBoxMentionIndexStore {
         var buffer = Data()
         let newline: UInt8 = 10
         do {
-            for try await byte in stdout.fileHandleForReading.bytes {
+            for try await byte in outputHandle.bytes {
                 buffer.append(byte)
                 guard byte == newline else { continue }
 
@@ -554,7 +560,8 @@ actor TextBoxMentionIndexStore {
     ) async -> (candidates: [TextBoxMentionCandidate], seenRelativePaths: Set<String>) {
         let fileManager = FileManager.default
         let rootPath = rootURL.standardizedFileURL.path
-        let checksGitIgnore = await isGitWorkTree(rootURL: rootURL)
+        let gitIgnoreProbe = TextBoxGitIgnoreProbe(rootURL: rootURL)
+        let checksGitIgnore = await gitIgnoreProbe.isWorkTree()
         var candidates: [TextBoxMentionCandidate] = []
         var seenRelativePaths = Set<String>()
         candidates.reserveCapacity(min(maxIndexedDirectories, 256))
@@ -571,7 +578,7 @@ actor TextBoxMentionIndexStore {
                 Self.relativePath(for: $0.path, rootPath: rootPath)
             }
             let ignoredRelativePaths = checksGitIgnore
-                ? await gitIgnoredRelativePaths(rootURL: rootURL, relativePaths: relativePaths)
+                ? await gitIgnoreProbe.ignoredRelativePaths(relativePaths)
                 : []
 
             for standardizedURL in directoryBatch {
@@ -617,94 +624,6 @@ actor TextBoxMentionIndexStore {
                 (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
                     !shouldSkipIndexedDirectoryName($0.lastPathComponent)
             }
-    }
-
-    private static func isGitWorkTree(rootURL: URL) async -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "git",
-            "-C", rootURL.path,
-            "rev-parse",
-            "--is-inside-work-tree"
-        ]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        let terminationStatus = TextBoxProcessTerminationStatus()
-        process.terminationHandler = { process in
-            let status = process.terminationStatus
-            Task {
-                await terminationStatus.finish(status: status)
-            }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            return false
-        }
-        return await terminationStatus.wait() == 0
-    }
-
-    private static func gitIgnoredRelativePaths(rootURL: URL, relativePaths: [String]) async -> Set<String> {
-        guard !relativePaths.isEmpty else { return [] }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "git",
-            "-C", rootURL.path,
-            "check-ignore",
-            "--stdin"
-        ]
-
-        let stdin = Pipe()
-        let stdout = Pipe()
-        process.standardInput = stdin
-        process.standardOutput = stdout
-        process.standardError = FileHandle.nullDevice
-        let terminationStatus = TextBoxProcessTerminationStatus()
-        process.terminationHandler = { process in
-            let status = process.terminationStatus
-            Task {
-                await terminationStatus.finish(status: status)
-            }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            return []
-        }
-        let outputTask = Task<Data, Never> {
-            var output = Data()
-            do {
-                for try await byte in stdout.fileHandleForReading.bytes {
-                    output.append(byte)
-                }
-            } catch {
-                return Data()
-            }
-            return output
-        }
-
-        let probePaths = relativePaths + relativePaths.map { "\($0)/" }
-        let input = probePaths.joined(separator: "\n") + "\n"
-        if let data = input.data(using: .utf8) {
-            stdin.fileHandleForWriting.write(data)
-        }
-        stdin.fileHandleForWriting.closeFile()
-
-        let output = await outputTask.value
-        let status = await terminationStatus.wait()
-        guard status == 0 || status == 1,
-              let outputText = String(data: output, encoding: .utf8) else {
-            return []
-        }
-
-        return Set(outputText
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .map(String.init))
     }
 
     private static func directoryCandidate(relativePath: String, directoryURL: URL) -> TextBoxMentionCandidate {
