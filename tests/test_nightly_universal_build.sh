@@ -505,6 +505,20 @@ if ! awk '
   exit 1
 fi
 
+if ! awk '
+  /^      - name: Publish nightly release assets/ { saw_first=1 }
+  /^      - name: Retry nightly release asset publication/ { saw_retry=1 }
+  saw_retry && /id: publish-nightly-attempt-2/ { saw_retry_id=1 }
+  saw_retry && /steps\.publish-nightly-attempt-1\.outcome == '\''failure'\''/ { saw_retry_if=1 }
+  saw_retry && /continue-on-error: true/ { saw_retry_continue=1 }
+  /^      - name: Require nightly release asset publication/ { saw_require=1 }
+  saw_require && /steps\.publish-nightly-attempt-2\.outcome != '\''success'\''/ { saw_require_guard=1 }
+  END { exit !(saw_first && saw_retry && saw_retry_id && saw_retry_if && saw_retry_continue && saw_require && saw_require_guard) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly publication must retry transient GitHub asset-upload failures and fail closed before feeds/tag updates"
+  exit 1
+fi
+
 # A build-only measurement run is the only safe way to time the nightly build
 # job from a branch: a full branch dispatch still signs and notarizes under the
 # release identity. build_only must stop at the unsigned universal build, so it
