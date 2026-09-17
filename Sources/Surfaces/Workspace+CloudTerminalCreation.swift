@@ -8,7 +8,12 @@ import Foundation
 /// where that pane lives". The new terminal is created through the machine's provider
 /// (`workspace <ws> run`) and projected back into this workspace at the requested spot,
 /// so the sidebar, the socket, and the shortcut agree on what exists.
-/// Installs the temporary panel used while a Cloud terminal split is materialized.
+///
+/// Every route is optimistic: the pane is reserved at the requested spot first
+/// (`Workspace+CloudTerminalReservation`), the machine creates the terminal behind it,
+/// and the attachment adopts the pane when it resolves. Nothing "starting" is ever shown
+/// as a separate surface; a slow create shows the pane's own connecting card after the
+/// same grace a reconnect uses, and a failure is explained inside the pane with Retry.
 @MainActor
 extension Workspace {
     /// The cloud resource behind a panel, when the panel projects one.
@@ -51,8 +56,14 @@ extension Workspace {
     /// projects a cloud resource: the already-created empty pane receives the machine's
     /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
     func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID, orientation: SplitOrientation) -> Bool {
-        guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
-        return routeCloudPaneTerminalCreate(
+        guard SurfaceCatalog.shared.hasCloudProjection(panelID: sourcePanelID, workspaceID: id) else { return false }
+        // Projection identity survives a missing provider graph during restore
+        // or reconnect. A handled Cloud split must not seed a local shell.
+        guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else {
+            closeUntouchedPane(newPane)
+            return true
+        }
+        let routed = routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: sourcePanelID,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
             preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: sourcePanelID)?.remoteWorkspaceID,
@@ -60,6 +71,8 @@ extension Workspace {
             splitDirection: orientation == .horizontal ? .right : .down,
             pendingPane: newPane
         )
+        if !routed { closeUntouchedPane(newPane) }
+        return true
     }
 
     /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a cloud
@@ -76,9 +89,9 @@ extension Workspace {
 
     /// Creates a terminal on `resource`'s machine (in the remote workspace of the
     /// anchor's first view, when it has one) and projects it at `destination`.
-    /// Optimistic like the cloud tree's "New Terminal Here": the pane appears when the
-    /// machine reports the terminal; a failure is announced instead of silently doing
-    /// nothing, because the user's gesture otherwise looks dead.
+    /// The pane appears at once; the machine reports the terminal into it. A failure
+    /// is shown in that pane instead of silently doing nothing, because the user's
+    /// gesture otherwise looks dead.
     private func routeCloudPaneTerminalCreate(
         near resource: SurfaceResource,
         sourcePanelID: UUID?,
@@ -93,8 +106,11 @@ extension Workspace {
         let remoteWorkspaceID = catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: resource, preferredRemoteWorkspaceID: preferredRemoteWorkspaceID)
         let machine = resource.machine
         let requestID = cloudPaneCreationFailureStore.beginRequest()
+        let request = CloudTerminalCreationRequest(id: requestID)
         let sourceProjection = sourcePanelID.flatMap { catalog.projection(forPanel: $0) }
         if remoteWorkspaceID == nil, sourceProjection?.remoteTabID == nil {
+            // No pane exists yet for this request, so the ambiguity is reported on
+            // the workspace card rather than inside a pane.
             Task { @MainActor in
                 self.presentCloudPaneCreationFailure(
                     machine: machine,
@@ -102,31 +118,28 @@ extension Workspace {
                     requestID: requestID
                 )
             }
+            if let pendingPane { closeUntouchedPane(pendingPane) }
             return true
         }
-        let pendingPanel: CloudTerminalPendingPanel?
-        if let pendingPane {
-            guard let pending = installCloudTerminalPendingPanel(machine: machine, in: pendingPane) else {
-                // The pane may have been closed or claimed while Bonsplit was
-                // delivering the split callback. Remove only an untouched pane;
-                // never leave a handled Cloud request as a blank slot.
-                if bonsplitController.allPaneIds.contains(pendingPane),
-                   bonsplitController.tabs(inPane: pendingPane).isEmpty {
-                    _ = bonsplitController.closePane(pendingPane)
-                }
-                return true
-            }
-            pendingPanel = pending
-        } else {
-            pendingPanel = nil
+        let reservationDestination: SurfaceDestination = pendingPane.map {
+            .tab(workspaceID: id, paneID: $0.id.uuidString, index: nil)
+        } ?? destination
+        guard let reservation = reserveCloudTerminalPane(machine: machine, at: reservationDestination, focus: focus) else {
+            // The pane may have been closed or claimed while Bonsplit was
+            // delivering the split callback. Remove only an untouched pane;
+            // never leave a handled Cloud request as a blank slot.
+            if let pendingPane { closeUntouchedPane(pendingPane) }
+            return true
         }
 
-        let scope = catalog.beginProjectionMutation(for: [resource.id])
-        var projectionMutationEnded = false
+        var scope: [SurfaceMachineID: UUID]?
+        let beginProjectionMutation: @MainActor () -> Void = {
+            if scope == nil { scope = catalog.beginProjectionMutation(for: [resource.id]) }
+        }
         let endProjectionMutation: @MainActor () -> Void = {
-            guard !projectionMutationEnded else { return }
-            projectionMutationEnded = true
-            catalog.endProjectionMutation(scope)
+            guard let current = scope else { return }
+            scope = nil
+            catalog.endProjectionMutation(current)
         }
         let create: CloudTerminalCreationCoordinator.Create = {
             do {
@@ -138,7 +151,8 @@ extension Workspace {
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
                     return try await layoutProvider.createTerminal(
                         nearTabID: sourceTabID,
-                        splitDirection: direction
+                        splitDirection: direction,
+                        request: request
                     )
                 }
                 let workingDirectory = await provider.currentWorkingDirectory(of: resource)
@@ -146,64 +160,130 @@ extension Workspace {
                     command: nil,
                     cwd: workingDirectory,
                     name: nil,
-                    remoteWorkspaceID: remoteWorkspaceID
+                    remoteWorkspaceID: remoteWorkspaceID,
+                    request: request
                 )
             } catch {
                 endProjectionMutation()
                 throw error
             }
         }
-        let project: CloudTerminalCreationCoordinator.Project = { [weak self, weak pendingPanel] created in
-            if let pendingPanel {
-                guard let self, self.panels[pendingPanel.id] != nil else {
-                    endProjectionMutation()
-                    throw CancellationError()
-                }
+        runOptimisticCloudTerminalCreation(
+            reservation: reservation,
+            requestID: requestID,
+            destination: destination,
+            create: create,
+            onStart: beginProjectionMutation,
+            onFinish: endProjectionMutation
+        )
+        return true
+    }
+
+    /// Starts a fresh terminal on `machine` (in `remoteWorkspaceID` when given) as a
+    /// tab of this workspace's focused pane, optimistically. The Cloud sidebar's
+    /// "New Terminal" and an empty remote workspace's open both land here, so they
+    /// share the shortcut routes' pane, retry, and failure behavior. Returns false
+    /// when the machine has no provider or the pane cannot be reserved.
+    @discardableResult
+    func openCloudTerminalOptimistically(on machine: SurfaceMachineID, remoteWorkspaceID: String?) -> Bool {
+        let catalog = SurfaceCatalog.shared
+        guard !machine.isLocal, let provider = catalog.provider(for: machine) else { return false }
+        let destination = SurfaceDestination.workspace(id: id, placement: .tab)
+        guard let reservation = reserveCloudTerminalPane(machine: machine, at: destination, focus: true) else { return false }
+        let requestID = cloudPaneCreationFailureStore.beginRequest()
+        let request = CloudTerminalCreationRequest(id: requestID)
+        var token: UUID?
+        let beginLocalMutation: @MainActor () -> Void = {
+            if token == nil { token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine) }
+        }
+        let endLocalMutation: @MainActor () -> Void = {
+            guard let current = token else { return }
+            token = nil
+            catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(current, on: machine, catalog: catalog)
+        }
+        let create: CloudTerminalCreationCoordinator.Create = {
+            do {
+                return try await provider.createTerminal(
+                    command: nil, cwd: nil, name: nil,
+                    remoteWorkspaceID: remoteWorkspaceID,
+                    request: request
+                )
+            } catch {
+                endLocalMutation()
+                throw error
             }
-            defer { endProjectionMutation() }
-            return try await catalog.project(
+        }
+        runOptimisticCloudTerminalCreation(
+            reservation: reservation,
+            requestID: requestID,
+            destination: destination,
+            create: create,
+            onStart: beginLocalMutation,
+            onFinish: endLocalMutation
+        )
+        return true
+    }
+
+    /// The shared coordinator run behind every optimistic route: one request id,
+    /// one remote create, projection adopting the reserved pane, and pane-local
+    /// failure and retry. `onStart`/`onFinish` bracket the projection-suppression
+    /// scope the caller chose.
+    private func runOptimisticCloudTerminalCreation(
+        reservation: CloudTerminalPaneReservation,
+        requestID: UUID,
+        destination: SurfaceDestination,
+        create: @escaping CloudTerminalCreationCoordinator.Create,
+        onStart: @escaping @MainActor () -> Void,
+        onFinish: @escaping @MainActor () -> Void
+    ) {
+        let catalog = SurfaceCatalog.shared
+        let store = cloudPaneCreationFailureStore
+        let project: CloudTerminalCreationCoordinator.Project = { [weak self, reservation] created in
+            guard let self, !self.isRetiredFromOwningTabManager,
+                  self.cloudPendingCreations[reservation.panelID] === reservation else {
+                onFinish()
+                throw CancellationError()
+            }
+            defer { onFinish() }
+            // Focus was granted when the pane appeared; adoption must not steal it
+            // back from wherever the user has typed since.
+            let result = try await catalog.project(
                 created.id,
                 into: destination,
-                focus: focus,
+                focus: false,
                 reuseExisting: true,
-                remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil
+                remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil,
+                adopting: reservation
             )
+            self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: result.projection.panelID)
+            return result
         }
-        if let pendingPanel {
-            let coordinator = CloudTerminalCreationCoordinator(
-                panel: pendingPanel,
-                create: create,
-                project: project,
-                onSuccess: { [weak self, weak pendingPanel] in
-                    endProjectionMutation()
-                    guard let self, let pendingPanel,
-                          self.panels[pendingPanel.id] != nil else { return }
-                    pendingPanel.onCancel = nil
-                    pendingPanel.onRetry = nil
-                    _ = self.closePanel(pendingPanel.id, force: true)
-                },
-                discardProjection: { projection in
-                    catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-                }
-            )
-            pendingPanel.onCancel = {
-                coordinator.cancel()
-                endProjectionMutation()
+        reservation.retry = { [weak store] in store?.retry(requestID: requestID) }
+        reservation.cancel = { [weak store] in store?.cancel(requestID: requestID) }
+        store.run(
+            machine: reservation.machine,
+            requestID: requestID,
+            create: create,
+            project: project,
+            onStart: { [weak self, reservation] in
+                onStart()
+                self?.restartReservedCloudTerminalPane(reservation)
+            },
+            onFinish: onFinish,
+            inlineFailure: { [weak self, reservation] error in
+                self?.failReservedCloudTerminalPane(reservation, error: error)
+            },
+            discardProjection: { projection in
+                catalog.endProjections(panelID: projection.panelID, reason: .replaced)
             }
-            pendingPanel.onRetry = { coordinator.retry() }
-            coordinator.start()
-        } else {
-            Task { @MainActor in
-                defer { endProjectionMutation() }
-                do {
-                    let created = try await create()
-                    _ = try await project(created)
-                } catch {
-                    self.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID)
-                }
-            }
-        }
-        return true
+        )
+    }
+
+    /// Removes a pane a split created that never received a tab.
+    private func closeUntouchedPane(_ pane: PaneID) {
+        guard bonsplitController.allPaneIds.contains(pane),
+              bonsplitController.tabs(inPane: pane).isEmpty else { return }
+        _ = bonsplitController.closePane(pane)
     }
 
     /// Publishes a non-modal failure card for a cloud terminal request.
@@ -213,41 +293,5 @@ extension Workspace {
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
         #endif
         cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID)
-    }
-
-}
-
-
-extension Workspace {
-    /// Adds a visible pending panel to an empty Bonsplit pane.
-    ///
-    /// Returns nil when the pane disappeared, was claimed by another action, or
-    /// Bonsplit could not create the placeholder tab. In those cases the caller
-    /// must not fall through to local terminal creation.
-    @discardableResult
-    func installCloudTerminalPendingPanel(
-        machine: SurfaceMachineID,
-        in pane: PaneID
-    ) -> CloudTerminalPendingPanel? {
-        guard bonsplitController.allPaneIds.contains(pane),
-              bonsplitController.tabs(inPane: pane).isEmpty else { return nil }
-        let pending = CloudTerminalPendingPanel(workspaceId: id, machine: machine)
-        panels[pending.id] = pending
-        panelTitles[pending.id] = pending.displayTitle
-        guard let tab = bonsplitController.createTab(
-            title: pending.displayTitle,
-            icon: pending.displayIcon,
-            kind: SurfaceKind.cloudVMLoading.rawValue,
-            isDirty: false,
-            isLoading: true,
-            isPinned: false,
-            inPane: pane
-        ) else {
-            panels.removeValue(forKey: pending.id)
-            panelTitles.removeValue(forKey: pending.id)
-            return nil
-        }
-        bindSurface(tab, toPanelId: pending.id)
-        return pending
     }
 }

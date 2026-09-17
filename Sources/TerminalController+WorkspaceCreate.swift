@@ -115,6 +115,12 @@ extension TerminalController {
                     autoRefreshMetadata: execution.shouldAutoRefreshMetadata
                 ) else { return }
                 ws.taskCreateOperationID = operationID
+                if execution.titleSource == .auto, execution.title != nil {
+                    // The source is captured before this create returns to the
+                    // caller, so a later bind can distinguish the placeholder
+                    // from an explicit user rename with identical text.
+                    ws.customTitleSource = .auto
+                }
                 ws.setCustomDescription(execution.description)
                 if let layoutNode = execution.layoutNode {
                     ws.applyCustomLayout(
@@ -171,8 +177,8 @@ extension TerminalController {
     func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
         // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
         // `vm.*` socket gate never sees them.
-        guard ManagedCloudPolicy.isEnabled else {
-            return .err(code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage, data: nil)
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
         }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -210,8 +216,8 @@ extension TerminalController {
     func v2WorkspaceCloudVMTerminalReady(params: [String: Any]) -> V2CallResult {
         // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
         // `vm.*` socket gate never sees them.
-        guard ManagedCloudPolicy.isEnabled else {
-            return .err(code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage, data: nil)
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
         }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -258,8 +264,8 @@ extension TerminalController {
     func v2WorkspaceCloudVMBind(params: [String: Any]) -> V2CallResult {
         // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
         // `vm.*` socket gate never sees them.
-        guard ManagedCloudPolicy.isEnabled else {
-            return .err(code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage, data: nil)
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
         }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)

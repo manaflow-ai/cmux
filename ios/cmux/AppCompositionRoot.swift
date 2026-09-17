@@ -21,16 +21,9 @@ import cmuxFeature
 final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
-    let iroh: MobileIrohRuntimeComposition
-    /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
-    /// `.iroh` route; nil when the legacy runtime is active.
-    let irx: MobileIrxRuntimeComposition?
-    /// Settings surface routed to the same Iroh implementation that owns
-    /// connections. In IRX mode, private addresses must never mutate only the
-    /// dormant legacy runtime.
+    let irx: MobileIrxRuntimeComposition
     let irohSettingsController: any CmxIrohSettingsControlling
-    /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
-    let irxDiscovery: MobileIrxDiscoveryProvider?
+    let irxDiscovery: MobileIrxDiscoveryProvider
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -96,9 +89,8 @@ final class AppCompositionRoot {
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
-        iroh: MobileIrohRuntimeComposition,
-        irx: MobileIrxRuntimeComposition? = nil,
-        irxDiscovery: MobileIrxDiscoveryProvider? = nil,
+        irx: MobileIrxRuntimeComposition,
+        irxDiscovery: MobileIrxDiscoveryProvider,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -111,16 +103,8 @@ final class AppCompositionRoot {
 
         self.runtime = runtime
         self.auth = auth
-        self.iroh = iroh
         self.irx = irx
-        if let irx {
-            self.irohSettingsController = MobileIrxSettingsController(
-                irx: irx,
-                legacy: iroh
-            )
-        } else {
-            self.irohSettingsController = iroh
-        }
+        self.irohSettingsController = MobileIrxSettingsController(irx: irx, diagnosticLog: diagnosticLog)
         self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
@@ -236,7 +220,7 @@ final class AppCompositionRoot {
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
             let signingOutAccountID = auth.coordinator.currentUser?.id
-            let preparation = iroh.beginSignOutPreparation()
+            let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
@@ -246,20 +230,7 @@ final class AppCompositionRoot {
                             refreshToken: refreshToken
                         )
                     }
-                    group.addTask {
-                        await iroh.completeSignOutAfterAuthClear(
-                            preparation,
-                            accessToken: accessToken,
-                            refreshToken: refreshToken
-                        )
-                    }
-                    if let irx {
-                        // Drop the device-list lease (memory, Keychain/file,
-                        // UI projection) with the account's other state.
-                        group.addTask {
-                            await irx.handleSignOut()
-                        }
-                    }
+                    group.addTask { await irx.handleSignOut(ifCurrent: signingOutScope) }
                 }
                 await diagnosticLog.clear()
             }
@@ -389,6 +360,7 @@ final class AppCompositionRoot {
     /// The most recent scene phase, so a `.active` transition is classified as a
     /// cold first foreground vs. a warm resume.
     private var hasForegrounded = false
+    private var wasBackgrounded = false
     /// When the current session started, for the best-effort `ios_session_ended`
     /// duration emitted on background.
     private var currentSessionStartedAt: Date?
@@ -410,12 +382,9 @@ final class AppCompositionRoot {
         case .active:
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
-            let isFullForegroundReturn = iroh.didBecomeActive()
-            if let irx {
-                // Credential freshness re-check + engine warm-up: iOS
-                // suspension pauses the autopilot's sleep loop.
-                Task { await irx.didBecomeActive() }
-            }
+            let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
+            wasBackgrounded = false
+            Task { await irx.didBecomeActive() }
             // A notification-permission prompt is itself a transient inactive
             // edge, so readiness still observes every active transition.
             Task { await pushCoordinator.refreshReadiness() }
@@ -447,10 +416,11 @@ final class AppCompositionRoot {
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
-            iroh.archiveDiagnostics()
+            break
         case .background:
             diagnosticLog.recordAppEvent(.appBackgrounded)
-            iroh.didEnterBackground()
+            wasBackgrounded = true
+            Task { await irx.didEnterBackground() }
             let now = Date()
             analytics.sessionStore.recordBackgrounded(at: now)
             emitter.capture("ios_app_backgrounded", [:])

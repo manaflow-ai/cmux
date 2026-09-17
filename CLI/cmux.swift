@@ -4995,9 +4995,8 @@ struct CMUXCLI {
 
         let command = args[index]
         let rawCommandArgs = Array(args[(index + 1)...])
-        if command == "__codex-teams-app-server-supervisor" {
-            let status = try CodexTeamsAppServerSupervisor(arguments: rawCommandArgs).run()
-            exit(status)
+        if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
+            exit(try supervisor.run())
         }
         // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
         // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
@@ -5540,6 +5539,29 @@ struct CMUXCLI {
         case "vpn":
             try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "billing":
+            let (planOption, rest) = parseOption(Array(commandArgs.dropFirst()), name: "--plan")
+            guard let plan = planOption, commandArgs.first == "checkout", ["go", "pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
+                throw CLIError(message: "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]")
+            }
+            let response = try client.sendV2(method: "vm.billing_checkout", params: ["plan": plan])
+            guard let url = response["url"] as? String else {
+                throw CLIError(message: "Checkout URL is missing. Open https://cmux.com/pricing.")
+            }
+            if !rest.contains("--no-open") && !jsonOutput {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: openToolPath())
+                process.arguments = [url]
+                try process.run()
+                process.waitUntilExit()
+            }
+            if jsonOutput {
+                print(jsonString(response))
+            } else {
+                print(url)
+                print("Review the plan and price in your browser. After payment, retry your VM command.")
+            }
+
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
             let sub = authArgs.first?.lowercased() ?? "status"
@@ -5926,7 +5948,7 @@ struct CMUXCLI {
                             vm new: unknown size '\(sizeOpt)'.
 
                             Sizes: 4g, 8g, 16g, 24g, 32g, 64g (or memory in MB).
-                            Plans cap the largest size; `cmux vm ls` shows your plan.
+                            Pro starts 4g to 24g; 32g and 64g need cmux Max. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -5942,7 +5964,7 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --size <4g|8g|16g|24g|32g|64g>
+                          --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
                           --desktop, --base  \(String(localized: "cli.vm.help.legacyKindFlags", defaultValue: "accepted for older scripts; every machine has a screen"))
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -12746,6 +12768,17 @@ struct CMUXCLI {
 
     private func effectiveSSHOptions(_ options: [String], remoteRelayPort: Int? = nil) -> [String] {
         var merged = sshOptionsWithControlSocketDefaults(options, remoteRelayPort: remoteRelayPort)
+        if remoteRelayPort != nil {
+            // Relay-controlled input is delivered to the local OpenSSH PTY.
+            // Disable OpenSSH escape commands so a remote caller cannot turn
+            // `surface.send_text`/`send_key` into `~!` local command execution,
+            // suspend the SSH client, or enter its local command line.
+            let resolver = SSHAgentSocketResolver()
+            merged = resolver.removingOptions(named: "EscapeChar", from: merged)
+            merged = resolver.removingOptions(named: "EnableEscapeCommandline", from: merged)
+            merged.append("EscapeChar=none")
+            merged.append("EnableEscapeCommandline=no")
+        }
         if !hasSSHOptionKey(merged, key: "StrictHostKeyChecking") {
             merged.append("StrictHostKeyChecking=accept-new")
         }
@@ -14170,6 +14203,7 @@ struct CMUXCLI {
         var attempt = 0
         let maxAttempts = 8
         while true {
+            try ensureCloudFeatureEnabledForPty()
             let bridge = VMPtyWebSocketBridge(config: config, debugEvent: debugEvent)
             let startedAt = Date()
             var bridgeError: Error?
@@ -14250,7 +14284,6 @@ struct CMUXCLI {
             attachmentId: endpoint.attachmentId
         )
     }
-
     private func runVMPtyConnect(commandArgs: [String]) throws {
         // `DisableCloud` (MDM): this verb dials the Cloud PTY directly from a
         // pre-minted config, before any socket gate could refuse it, so it
@@ -14261,6 +14294,7 @@ struct CMUXCLI {
                 defaultValue: "Cloud Machines are disabled by your administrator."
             ))
         }
+        try ensureCloudFeatureEnabledForPty()
         let (configPath, rem0) = parseOption(commandArgs, name: "--config")
         let (vmIDOpt, remaining) = parseOption(rem0, name: "--id")
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
@@ -14283,7 +14317,6 @@ struct CMUXCLI {
         }()
         try runVMPtyBridgeWithReconnect(initialConfig: config, vmID: vmID, debugEvent: debugEvent)
     }
-
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, rem0) = parseOption(commandArgs, name: "--id")
         let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session")
@@ -15206,21 +15239,7 @@ struct CMUXCLI {
                   var decoded = String(data: data, encoding: .utf8) else {
                 throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
             }
-            decoded = decoded
-                .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
-                .replacingOccurrences(
-                    of: "__CMUX_SURFACE_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
-                )
-                .replacingOccurrences(
-                    of: "__CMUX_TERMINAL_LIFECYCLE_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_TERMINAL_LIFECYCLE_ID"] ?? ""
-                )
-                .replacingOccurrences(
-                    of: "__CMUX_SSH_ATTEMPT_ID__",
-                    with: ProcessInfo.processInfo.environment["CMUX_SSH_ATTEMPT_ID"] ?? ""
-                )
-            return decoded
+            return Self.applyingSSHPTYAttachBootstrapSubstitutions(to: decoded, workspaceID: workspaceId)
         }
         var bridgeReachedReady = false
         var sessionLostWillRespawn = false
@@ -15288,16 +15307,18 @@ struct CMUXCLI {
             }
         }
 
-        let filtersReconnectInput = requireExisting && command == nil && isatty(STDIN_FILENO) == 1
-        var terminalInputMode: SSHPTYTerminalInputMode?
-        if filtersReconnectInput {
-            terminalInputMode = SSHPTYTerminalInputMode(phase: .disconnected)
-        }
+        let isTerminalInput = isatty(STDIN_FILENO) == 1
+        let filtersReconnectInput = requireExisting && command == nil && isTerminalInput
+        // Capture once. Admission and network setup must not mutate this snapshot.
+        let terminalInputMode = isTerminalInput ? SSHPTYTerminalInputMode(fileDescriptor: STDIN_FILENO) : nil
+        var signalMonitor: SSHPTYAttachSignalMonitor?
+        var discardDisconnectedInput = filtersReconnectInput
         defer {
             if let terminalInputMode,
-               !terminalInputMode.restore(flushInput: filtersReconnectInput) {
+               !terminalInputMode.restore(flushInput: discardDisconnectedInput) {
                 cliDebugLog("ssh.pty.attach.terminal.restore_failed")
             }
+            signalMonitor?.cancel()
         }
 
         let bridge: [String: Any]
@@ -15365,6 +15386,18 @@ struct CMUXCLI {
                 exitCode: exitCode
             )
         }
+        // After endpoint establishment, only remote reconciliation can retire the lifecycle.
+        preserveLifecycleForRecovery = true
+        do {
+            try validateSSHPTYDaemonVersion(
+                bridge["daemon_version"] as? String,
+                clientVersion: remoteDaemonVersionString(from: resolvedVersionInfo())
+            )
+        } catch {
+            discardDisconnectedInput = false
+            throw error
+        }
+        if isTerminalInput, terminalInputMode == nil { throw sshPTYTerminalModeError() }
         var connectedFD: Int32?
         var bridgeHandshakeSize = Self.currentCLITerminalSize()
         var bridgeReadyUptime: TimeInterval = 0
@@ -15380,6 +15413,10 @@ struct CMUXCLI {
 
             connectedFD = try connectLoopbackTCP(host: host, port: port)
             let fd = connectedFD!
+            signalMonitor = try SSHPTYAttachSignalMonitor(bridgeFD: fd)
+            if filtersReconnectInput, terminalInputMode?.beginDisconnected() != true {
+                throw sshPTYTerminalModeError()
+            }
             let size = Self.currentCLITerminalSize()
             bridgeHandshakeSize = size
             var handshakeData = try JSONSerialization.data(withJSONObject: [
@@ -15417,6 +15454,8 @@ struct CMUXCLI {
                 )
             }
         } catch {
+            if let connectedFD { Darwin.close(connectedFD) }
+            try checkSSHPTYCancellation(signalMonitor)
             let sessionNotFound = requireExisting &&
                 (error as? CLIError)?.exitCode == SSHPTYAttachExitCode.sessionNotFound.rawValue
             if sessionNotFound {
@@ -15429,7 +15468,6 @@ struct CMUXCLI {
                sshPTYAttachWrapperWillRetry(preReadyExitCode) {
                 wrapperWillRetrySameSurface = true
             }
-            if let connectedFD { Darwin.close(connectedFD) }
             if !sessionNotFound, preReadyRetryable,
                try reconcileBridgeEnd(intentionalOnly: true) {
                 attachFinished = true
@@ -15440,18 +15478,11 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
-        if filtersReconnectInput {
-            guard terminalInputMode?.beginForwarding() == true else {
-                throw CLIError(
-                    message: String(
-                        localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                        defaultValue: "SSH terminal input could not enter reconnect mode."
-                    ),
-                    exitCode: SSHPTYAttachExitCode.retryableTransient
-                )
-            }
-        } else {
-            terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+        let outputWriter = try SSHPTYOutputWriter(fileDescriptor: STDOUT_FILENO)
+        // Fresh output may contain live terminal queries, so raw mode precedes it.
+        // A reconnect keeps signal keys live until its historical replay is drained.
+        if isTerminalInput, !filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
+            throw sshPTYTerminalModeError()
         }
         let resizeMonitor = SSHPTYResizeMonitor(
             socketPath: client.socketPath,
@@ -15528,41 +15559,28 @@ struct CMUXCLI {
         var replayOutputFilter = SSHPTYReplayOutputFilter(
             replayBytes: filtersReplayOutput ? bridgeReplayBytes : 0
         )
-        func writeReplayFilteredOutput(_ data: Data) {
+        func writeReplayFilteredOutput(_ data: Data) throws {
             guard !data.isEmpty else { return }
             let filtered = replayOutputFilter.filter(data)
-            if !filtered.isEmpty {
-                cliWriteStdout(filtered)
-            }
-        }
-        func finishReplayFiltering() {
-            let trailingReplay = replayOutputFilter.finish()
-            if !trailingReplay.isEmpty {
-                cliWriteStdout(trailingReplay)
+            if !filtered.isEmpty,
+               !outputWriter.write(filtered, cancellation: signalMonitor!) {
+                // Local output failure unwinds termios while preserving the remote PTY.
+                preserveLifecycleForRecovery = true
+                try checkSSHPTYCancellation(signalMonitor)
+                throw CLIError(message: "", exitCode: 0)
             }
         }
         defer {
             let pendingReplay = outputProgress.finishPendingReplay(
                 discarding: sshPTYAttachWrapperRetryPending()
             )
-            writeReplayFilteredOutput(pendingReplay)
-            finishReplayFiltering()
+            try? writeReplayFilteredOutput(pendingReplay)
+            _ = outputWriter.write(replayOutputFilter.finish(), cancellation: signalMonitor!)
         }
         func startInputForwardingAfterReplay() throws {
             guard !inputPumpStarted, outputProgress.replayBytesRemaining == 0 else { return }
-            if filtersReconnectInput {
-                guard terminalInputMode?.beginForwarding() == true else {
-                    throw CLIError(
-                        message: String(
-                            localized: "cli.sshPtyAttach.terminalInputTransitionFailed",
-                            defaultValue: "SSH reattach stopped because queued terminal input could not be discarded safely.",
-                            bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main
-                        ),
-                        exitCode: SSHPTYAttachExitCode.retryableTransient
-                    )
-                }
-            } else {
-                terminalInputMode = SSHPTYTerminalInputMode(phase: .forwarding)
+            if filtersReconnectInput, terminalInputMode?.beginForwarding() != true {
+                throw sshPTYTerminalModeError()
             }
             do {
                 reconnectInputFilterControl = try SSHPTYAttachReconnectInputFilter.startStdinPump(
@@ -15595,6 +15613,7 @@ struct CMUXCLI {
         var outputBuffer = [UInt8](repeating: 0, count: 32768)
         while true {
             let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
+            try checkSSHPTYCancellation(signalMonitor)
             if count > 0 {
                 let output = outputProgress.terminalOutput(
                     from: Data(outputBuffer.prefix(count)),
@@ -15604,7 +15623,7 @@ struct CMUXCLI {
                     if inputPumpStarted {
                         reconnectInputFilterControl?.stopFilteringBeforeFirstOutput(unlessAlreadyRequested: &reconnectInputFilterStopRequested)
                     }
-                    writeReplayFilteredOutput(output)
+                    try writeReplayFilteredOutput(output)
                 }
                 if !replayStateStored, outputProgress.replayBytesRemaining == 0 {
                     replayState.storeSnapshot(
@@ -15766,7 +15785,7 @@ struct CMUXCLI {
         let downloadCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(assetName)"
         let downloadChecksumsCommand = "gh release download \(releaseTag) --repo manaflow-ai/cmux --pattern \(checksumsAssetName)"
         let checksumVerifyCommand = "shasum -a 256 -c \(checksumsAssetName) --ignore-missing"
-        let signerWorkflow = releaseTag == "nightly"
+        let signerWorkflow = releaseTag == "nightly" || releaseTag == "rc"
             ? "manaflow-ai/cmux/.github/workflows/nightly.yml"
             : "manaflow-ai/cmux/.github/workflows/release.yml"
         let verifyCommand = "gh attestation verify ./\(assetName) --repo manaflow-ai/cmux --signer-workflow \(signerWorkflow)"
@@ -18350,6 +18369,8 @@ struct CMUXCLI {
             never leave this Mac. Signed builds fail closed if the Network
             Extension is absent. There is no privileged fallback.
             """
+        case "billing":
+            return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>

@@ -4,8 +4,9 @@
     "description": "Return to your terminal to finish setup."
   },
   "guestCLI": {
-    "topologyHelp": "Arrange this machine without restarting its terminals:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nUse IDs from cmux tree. Indices start at zero. A tab label belongs to one placement;\nterminal rename labels every current placement (no process is restarted).\nUse tab move for a terminal with several views so only the selected placement moves.\nFor a peer: cmux vm <workspace|pane|tab|terminal> <verb> <machine> ...\nSelector-first daemon syntax remains supported. Layout apply creates a new/empty\nworkspace; use move/swap/resize to rearrange an occupied one. These commands change\nthe daemon layout. On the Mac, open it with cmux vm workspace open <machine> <ws>.",
+    "topologyHelp": "Arrange this machine without restarting its terminals:\n  cmux workspace new [--name <name>] [--json]\n  cmux workspace rename <workspace> <name> [--json]\n  cmux workspace move <workspace> --index <index> [--json]\n  cmux workspace focus|close <workspace> [--json]\n  cmux workspace <selector> close [--json]\n  cmux workspace close --workspace <selector> [--focus false] [--json]\n  cmux tab rename <tab> <name> [--json]\n  cmux terminal rename <terminal|current> <name> [--json]\n  cmux tab move <tab> --workspace <ws> --screen <screen> --pane <pane> --index <index> [--json]\n  cmux pane split <pane> <left|right|up|down> [--ratio <fraction>] [--json]\n  cmux pane swap <pane> --other-workspace <ws> --other-screen <screen> --other-pane <pane> [--json]\n  cmux pane resize <pane> --split <split> --ratio <fraction> [--json]\n  cmux pane|tab focus <id> [--json]\n  cmux workspace|pane|tab list [--json]\n\nUse IDs from cmux tree. Indices start at zero. A tab label belongs to one placement;\nterminal rename labels every current placement (no process is restarted).\nUse tab move for a terminal with several views so only the selected placement moves.\nFor a peer: cmux vm <workspace|pane|tab|terminal> <verb> <machine> ...\nSelector-first daemon syntax remains supported. Layout apply creates a new/empty\nworkspace; use move/swap/resize to rearrange an occupied one. These commands change\nthe daemon layout. On the Mac, open it with cmux vm workspace open <machine> <ws>.\nClose accepts --focus false for compatibility, without an additional focus action.\n--focus true is unsupported. Revision and idempotency options pass through to the daemon.",
     "topologyUsage": "Invalid topology arguments. Run cmux workspace help for workspace, pane, tab, and terminal naming and layout commands.",
+    "topologyCloseFocus": "workspace close accepts --focus false only; use workspace focus <id> for an explicit focus action.",
     "topologyRenameTarget": "Cannot rename terminal %s: no exact terminal placements or versioned snapshot. Run cmux tree and use a terminal ID.",
     "topologyRenamePartial": "Terminal %s rename stopped after %s placement(s). Earlier changes remain; inspect cmux tree before retrying.",
     "topologyRenameReceipt": "Terminal %s returned an invalid or changed-generation rename receipt. Some labels may have changed; inspect cmux tree before retrying.",
@@ -94,7 +95,7 @@
     "hostTokens": "Stack account tokens: host-only (never stored in this VM)",
     "version": "cmux guest CLI (cmux-tui transport)",
     "connected": "OK connected %s socket=%s",
-    "help": "cmux - Cloud workspace CLI (inside a cmux Cloud machine)\n\nTHIS MACHINE (your session; the same verbs as on a Mac)\n  cmux tree [--json]                          workspaces, panes, and terminals here\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   drive any terminal headlessly (cmux terminal help)\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     environment for every shell and agent here (cmux env help)\n  cmux file receive <path> [--mode <octal>]   receiving end of cmux vm push (a Mac's --secret, a peer): bytes typed over the link (cmux file help)\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui's own resource grammar (cmux <resource> --help)\n\nWHO AM I\n  cmux self [--json]                          name, id, status, team, owner, plan, as the control plane knows it\n  cmux self peers|integrations|owner|machine [--json]   what I can reach and use (aliases: cmux whoami, cmux reflect)\n\nOTHER MACHINES (cmux vm <verb> <machine> ...; the same grammar as on a Mac)\n  cmux vm ls [--json]                         the owner's machines, this one marked *\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   one file, typed over the link (never an exec API)\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    (cmux vm help lists them all)\n\nREACH THE HUMAN\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nMODELS AND AGENTS\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   runs here, in this terminal, until it exits\n  cmux agent list|report|hook ...\n\nAUTH\n  cmux auth status [--json]                   this daemon, the injected CodeRouter edge, and the machine identity\n  cmux auth login|logout                      account sign-in is host-owned; run it on the Mac\n\nNo account token lives in this machine: the TLS edge authenticates it on the wire.\n\nNames and existing layouts: cmux workspace help (workspace/tab/terminal rename, tab move, pane split/swap/resize/focus).",
+    "help": "cmux - Cloud workspace CLI (inside a cmux Cloud machine)\n\nTHIS MACHINE (your session; the same verbs as on a Mac)\n  cmux tree [--json]                          workspaces, panes, and terminals here\n  cmux new-workspace [--name <name>]          cmux new-split <right|down> [--pane <pane_id>]\n  cmux send [--terminal <id>] <text>          cmux send-key [--terminal <id>] <key> [key...]\n  cmux read-screen [--terminal <id>] [--json]\n  cmux terminal send|read|wait|wait-exit|output|close <id> ...   drive any terminal headlessly (cmux terminal help)\n  cmux layout export [--workspace <ws>] [--raw]\n  cmux layout apply [--workspace <ws>|--name <n>] [--cwd <dir>] [<file>|-]\n  cmux env set|ls|rm|path                     environment for every shell and agent here (cmux env help)\n  cmux file receive <path> [--mode <octal>]   receiving end of cmux vm push (a Mac's --secret, a peer): bytes typed over the link (cmux file help)\n  cmux workspace|pane|tab|terminal|browser|session <action> ...   cmux-tui's own resource grammar (cmux <resource> --help)\n\nWHO AM I\n  cmux self [--json]                          name, id, status, team, owner, plan, as the control plane knows it\n  cmux self peers|integrations|owner|machine [--json]   what I can reach and use (aliases: cmux whoami, cmux reflect)\n\nOTHER MACHINES (cmux vm <verb> <machine> ...; the same grammar as on a Mac)\n  cmux vm ls [--json]                         the owner's machines, this one marked *\n  cmux vm exec <machine> -- <cmd...>          cmux vm tree <machine>\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> ...\n  cmux vm workspace new|rename|close|rm <machine> ...      cmux vm layout export|apply <machine> ...\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]   one file, typed over the link (never an exec API)\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--wait [--output] [--timeout <s>]] -- <prompt>\n  cmux vm env set|ls|rm|path <machine> ...    (cmux vm help lists them all)\n\nREACH THE HUMAN\n  cmux notify --title <text> [--subtitle <text>] [--body <text>]\n\nMODELS AND AGENTS\n  cmux coderouter status|usage [--json]|models\n  cmux coderouter accounts [--json]\n  cmux coderouter org current [--json]\n  cmux coderouter agent <claude|codex|opencode|pi> [args...]\n  cmux agent <claude|codex|opencode|pi> [--timeout <s>] [args...]   runs here, in this terminal, until it exits\n  cmux agent list|report|hook ...\n\nAUTH\n  cmux auth status [--json]                   this daemon, the injected CodeRouter edge, and the machine identity\n  cmux auth login|logout                      account sign-in is host-owned; run it on the Mac\n\nNo account token lives in this machine: the TLS edge authenticates it on the wire.\n\nNames and existing layouts: cmux workspace help (workspace/tab/terminal rename, tab move, pane split/swap/resize/focus).",
     "peerHelp": "cmux vm - other cmux Cloud machines of the same owner, from inside this one (the same grammar as on a Mac).\n\n  cmux vm ls [--json]                 the owner's machines: this one marked *, status, reachable, linked/connected\n  cmux vm connect <machine>           bring up the link (done lazily otherwise)\n  cmux vm exec <machine> -- <cmd…>    run a command on the machine (durable terminal)\n  cmux vm tree <machine>              the machine's workspace/terminal snapshot\n  cmux vm terminal send|read|wait|wait-exit|output|close <machine> <term> …   drive a terminal there headlessly\n  cmux vm send|send-key|read-screen <machine> <term> …       the same, Mac spelling\n  cmux vm workspace new|rename|close|rm <machine> …          its workspaces (rm kills their terminals)\n  cmux vm push <machine> <local-file> <remote-path> [--mode <octal>]\n                                      one file (up to 256 KiB) into its cmux file receive, typed over the link:\n                                      never an exec API, an argv, or a control plane\n  cmux vm agent <machine> --agent <claude|codex|opencode|pi> [--name <n>] [--cwd <dir>] [--workspace <ws>] [--wait [--output] [--timeout <s>]] -- <prompt or args…>\n                                      start a coding agent in a durable terminal there; --wait blocks until it exits\n                                      (exit code = the agent's), --output prints its terminal stream, --timeout caps the wait\n  cmux vm layout export|apply <machine> …    its workspace layouts as data (see cmux layout help)\n  cmux vm env set|ls|rm|path <machine> …     its machine env (values travel only over the link; see cmux env help)\n  cmux vm <resource> <machine> …      any cmux-tui resource verb there\n\nA machine with no link yet is found through reflection (cmux self peers): its\nprivate-network route is enough on current images, so no Mac step is needed.\nLocal verbs need no prefix: cmux workspace…, cmux terminal…, cmux session….\n\nNames and existing layouts: cmux workspace help (workspace/tab/terminal rename, tab move, pane split/swap/resize/focus).",
     "thisMachine": "(this machine)",
     "selfHelp": "cmux self - who am I. Reflection is the control plane's view of this machine, asserted by the TLS edge (no credential lives here).\n\n  cmux self [--json]                   name, id, status, team, owner, plan\n  cmux self peers [--json]             the owner's other machines: status, private route, reachable\n  cmux self integrations [--json]      what this machine can use, each with a help command\n  cmux self owner|machine [--json]     the owner / this machine's size, image, network, desktop\n  cmux self <path> [--json]            any reflection path (peers, /peers, ...)\n\nAliases: cmux whoami = cmux self; cmux reflect [<path>] = cmux self [<path>].\nDiscovery: cmux vm ls lists the same machines; cmux vm exec <machine> -- <cmd> links on first use.",
@@ -167,8 +168,31 @@
       "title": "cmux Pro required",
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "The source machine’s RAM size could not be verified.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "This machine size is currently unavailable. Choose a size up to {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go includes two saved VMs, including the running VM.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go includes one running VM at a time.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go has used its 40 VM-hours this month. Saved VMs remain available after the next billing period starts.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
@@ -294,7 +318,8 @@
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "irohDevices": "IROH devices"
     },
     "home": {
       "title": "dashboard",
@@ -356,7 +381,7 @@
     },
     "coderouterAccounts": {
       "title": "Accounts",
-      "description": "Claude Code, Codex, and OpenCode on this team's Cloud VMs and CLI route through these accounts. Each machine is pinned to one account per provider so prompt caching keeps working. A rate limit or a rejected credential puts that account in cooldown and moves the machine to the next one.",
+      "description": "Shared accounts are available to this team’s Cloud VMs. Private accounts stay with the person who added them.",
       "accountsCount": "{count, plural, one {# account} other {# accounts}}",
       "emptyTitle": "No accounts yet",
       "emptyBody": "Requests from this team fail until an account is added.",
@@ -428,7 +453,10 @@
       "removeClaudeConfirmBody": "Machines pinned to it move to the team's other accounts. If it is the last one, Claude requests from this team fail until a new account is added.",
       "removeNativeConfirmBody": "Sessions pinned to it move to the team's other accounts. Adding it back means signing in again with cr add.",
       "removeSharedConfirmBody": "This removes the account for the whole team. Adding it back requires signing in again.",
-      "cancelAction": "Cancel"
+      "cancelAction": "Cancel",
+      "shareWithTeam": "Share with team",
+      "makePrivate": "Make private",
+      "privateImportHint": "New accounts are private. Share an account to make it available to this team’s Cloud VMs."
     },
     "accountMenu": {
       "label": "Account menu",
@@ -473,6 +501,12 @@
         "annualPrice": "${monthly}/mo, billed annually",
         "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
+      "go": {
+        "name": "cmux Go",
+        "activeBody": "Your Go plan is active. It renews on {date}.",
+        "pendingBody": "Your Go plan ends on {date}.",
+        "monthlyPrice": "${amount}/mo"
+      },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
@@ -507,6 +541,13 @@
         "free": "Free",
         "pro": "Pro",
         "loading": "Loading…"
+      },
+      "max": {
+        "name": "cmux Max",
+        "activeBody": "Your Max plan is active. It renews on {date}.",
+        "pendingBody": "Your Max plan ends on {date}.",
+        "monthlyPrice": "${amount}/mo",
+        "upsell": "Run machines with up to 64 GB RAM on Max for $200 per month, billed monthly."
       }
     },
     "testflight": {
@@ -552,6 +593,24 @@
         "join": "Join iOS TestFlight",
         "leave": "Leave TestFlight"
       }
+    },
+    "iroh": {
+      "title": "IROH devices",
+      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+      "team": "Team",
+      "loading": "Loading devices…",
+      "empty": "No IROH devices are registered for this team.",
+      "unavailable": "Dashboard authorization is unavailable.",
+      "mutationError": "The device change could not be completed.",
+      "revoke": "Revoke access",
+      "deviceId": "Device",
+      "revision": "Revision",
+      "status": "Status",
+      "active": "Active",
+      "revoked": "Revoked",
+      "relaySettings": "Relay settings",
+      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
+      "saveRelaySettings": "Save relay settings"
     }
   },
   "vault": {
@@ -791,18 +850,22 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "categories": {
+      "individual": {
+        "title": "For individuals",
+        "description": "Start free, then add cloud capacity as your work grows."
+      },
+      "business": {
+        "title": "For teams and businesses",
+        "description": "Shared billing, administration, and controls for your organization."
+      }
+    },
     "alreadyPaid": "Already paid? Connect Founder's Edition",
     "perMonth": "/mo",
-    "perMonthBilledYearly": "/mo, billed yearly",
     "perUserMonth": "/user/mo",
-    "perUserMonthBilledYearly": "/user/mo, billed yearly",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",
-    "annual": "Annual",
-    "saveAnnual": "Save {discount}%",
-    "annualComparePrice": "${monthly}/mo",
     "teamMonthlyComparePrice": "${monthly}/user/mo",
-    "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -817,6 +880,17 @@
         "Browser panels, a scriptable socket API, and custom skills",
         "Local session history",
         "Community support on Discord and GitHub"
+      ]
+    },
+    "go": {
+      "name": "Go",
+      "cta": "Get Go",
+      "featuresLead": "A small Cloud VM for focused work:",
+      "features": [
+        "1 active Cloud VM",
+        "2 vCPU, 4 GiB RAM, and 16 GiB disk",
+        "2 saved VMs in total, including the running VM",
+        "40 included VM-hours each month; VMs pause at the limit"
       ]
     },
     "pro": {
@@ -835,6 +909,15 @@
       ],
       "hostedNetworkingFeatures": [
         "Hosted networking to reach your Mac from the iOS app, no Tailscale setup"
+      ]
+    },
+    "max": {
+      "name": "Max",
+      "cta": "Get Max",
+      "featuresLead": "Everything in Pro, plus:",
+      "features": [
+        "Up to 64 GB RAM per machine",
+        "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
       ]
     },
     "team": {
@@ -867,131 +950,176 @@
           "label": "Native macOS terminal, open source",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Local CLI agents with your own keys",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Vertical tabs, splits, notifications, socket API",
           "free": "true",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Session history",
           "free": "Local",
           "pro": "Unlimited",
+          "max": "Unlimited",
           "team": "Unlimited",
           "enterprise": "Unlimited",
-          "vault": true
+          "vault": true,
+          "go": "Local"
         },
         {
           "label": "cmux Vault: cloud session backup",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Search across all your sessions",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
           "enterprise": "true",
-          "vault": true
+          "vault": true,
+          "go": "false"
         },
         {
           "label": "Cloud agents on Cloud VMs",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "true"
         },
         {
           "label": "Concurrent Cloud VMs",
           "free": "false",
           "pro": "50",
+          "max": "50",
           "team": "50 per user",
-          "enterprise": "Custom"
+          "enterprise": "Custom",
+          "go": "1"
         },
         {
           "label": "Resources shared across all Cloud VMs",
           "free": "false",
           "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
+          "max": "64 GB RAM and 16 vCPUs per VM",
           "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
-          "enterprise": "Custom"
+          "enterprise": "Custom",
+          "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
+        },
+        {
+          "label": "Largest Cloud VM",
+          "free": "24 GB RAM",
+          "pro": "24 GB RAM",
+          "max": "64 GB RAM",
+          "team": "24 GB RAM",
+          "enterprise": "Custom",
+          "go": "4 GiB RAM"
         },
         {
           "label": "Workspaces",
           "free": "Unlimited",
           "pro": "Unlimited",
+          "max": "Unlimited",
           "team": "Unlimited",
-          "enterprise": "Unlimited"
+          "enterprise": "Unlimited",
+          "go": "Unlimited"
         },
         {
           "label": "iOS app",
           "free": "false",
           "pro": "true",
+          "max": "true",
           "team": "true",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Networking to reach your Mac",
           "free": "Bring your own",
           "pro": "Hosted",
+          "max": "Hosted",
           "team": "Hosted",
           "enterprise": "Self-hosted",
-          "hostedNetworking": true
+          "hostedNetworking": true,
+          "go": "Bring your own"
         },
         {
           "label": "SSO and SAML sign-in",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Self-hosted and air-gapped execution",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Audit logs: sessions, network, browser",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Volume pricing",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "SOC 2 and an SLA",
           "free": "false",
           "pro": "false",
+          "max": "false",
           "team": "false",
-          "enterprise": "true"
+          "enterprise": "true",
+          "go": "false"
         },
         {
           "label": "Support",
           "free": "Community",
           "pro": "Email",
+          "max": "Email",
           "team": "Priority",
-          "enterprise": "Dedicated"
+          "enterprise": "Dedicated",
+          "go": "Community"
         }
       ]
     },
@@ -1005,7 +1133,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs, with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same limits per user. There is no metering or overage billing."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 Cloud VMs with 24 GB RAM and 6 vCPUs shared across all VMs. Team includes the same pool per user."
+        },
+        {
+          "q": "What does Max add?",
+          "a": "Max is $200/mo, billed monthly, with up to 64 GB RAM and 16 vCPUs per VM. It includes everything in Pro and unlocks Cloud VMs with 32 GB or 64 GB RAM. Pro, Team, and Free machines top out at 24 GB RAM."
         },
         {
           "q": "What is cmux Vault?",
@@ -1018,7 +1150,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with 24 GB RAM and 6 vCPUs per user shared across all their VMs. There is no metering or overage billing. The terminal and local agents stay free."
+          "a": "Paid plans are billed monthly. Pro is $50/mo, Max is $200/mo, and Team is $60/user/mo. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -1026,7 +1158,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $60/user/mo, or $48/user/mo when billed annually, with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/user/mo with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -1037,11 +1169,20 @@
     "billingError": "Something went wrong starting checkout. Please try again in a moment.",
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
+    "billingAnnualUnavailable": "Annual billing is not available for new subscriptions. Choose a monthly plan below.",
+    "billingPlanUnavailable": "This plan is not available yet. Choose Pro or Max below.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
     "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
     "signedOutSignIn": "Sign in",
     "billingInvalidRelay": "The app checkout link expired or could not be verified. Return to cmux and try again.",
-    "welcomeTeam": "Your cmux Team purchase is complete."
+    "welcomeTeam": "Your cmux Team purchase is complete.",
+    "audience": {
+      "label": "Pricing audience",
+      "individual": "Individual",
+      "team": "Team & Enterprise"
+    },
+    "priceMonthlyNote": "${amount}/mo when billed monthly",
+    "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
@@ -1812,6 +1953,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: AI agents for Mac automation",
+      "metaDescription": "Let Claude Code and Codex control your Mac with cmux Computer Use. Automate native apps with screenshots, accessibility, clicks, typing, and keyboard input.",
+      "docsMetaTitle": "Computer Use setup and agent tools",
+      "docsMetaDescription": "Set up cmux Computer Use on macOS. Learn permissions, Claude Code and Codex tools, app targeting, session controls, skills, and troubleshooting.",
+      "tagline": "Let Claude Code and Codex control your Mac.",
+      "intro": "Give AI coding agents access to native Mac apps. Read app interfaces, take screenshots, click controls, and type text with cmux Computer Use.",
+      "imageAlt": "cmux Computer Use setup with Accessibility and Screenshots permission controls",
+      "caption": "Computer Use permissions are managed by a separate helper, so your terminal sessions stay open during onboarding.",
+      "featuresTitle": "Control native Mac apps",
+      "featureInspect": "Inspect app interfaces with accessibility trees and screenshots.",
+      "featureAct": "Click, type, scroll, drag, and use keyboard shortcuts in macOS apps.",
+      "featureReview": "Follow the agent’s visible cursor, inspect the result, and return to its calling terminal.",
+      "agentsTitle": "Your coding agents in cmux",
+      "agentsBody": "Run {agents} and other command-line agents in cmux.",
+      "supportTitle": "Supported agents",
+      "supportBody": "Native Computer Use tools attach automatically to Claude Code and Codex sessions launched inside cmux. Other agents can run in the terminal, but do not yet receive this automatic Mac-control integration.",
+      "setupTitle": "Get started",
+      "step1": "Install and open cmux for Mac. In Settings → Computer Use, enable Computer Use.",
+      "step2": "Use the permission controls to grant Accessibility and Screen Recording to cmux Computer Use in System Settings. If the helper is missing from the list, add or drag its app tile into the permission pane.",
+      "step3": "Start a new Claude Code or Codex session inside cmux. Ask it to use Computer Use and name the app and task. The tools connect automatically; no manual MCP configuration is required.",
+      "permissionsTitle": "Permissions and setup",
+      "permissionsBody": "Accessibility allows the helper to read and interact with app interfaces. Screen Recording allows it to capture screenshots. Grant both permissions to cmux Computer Use. Opening cmux or starting an agent does not grant access or open setup automatically.",
+      "tahoeBody": "On macOS Tahoe, approve the additional screen-capture confirmation during setup. Wait until cmux shows both permissions as granted before retrying the task.",
+      "promptTitle": "Try it with Calculator",
+      "prompt": "Use cmux Computer Use to open Calculator, click 100 + 105, and show me the result.",
+      "workflowBody": "Inspect the target first, act on controls from that snapshot, then inspect again to verify the result. Element indexes belong to the current snapshot; refresh them after navigation or layout changes. A successful click acknowledgement alone does not prove the task finished.",
+      "toolsTitle": "Agent tools",
+      "toolsBody": "cmux-cua is the bundled MCP server, which gives agents structured tools for native app control. These are tool names, not shell commands. The exact arguments depend on the agent profile; use the schemas attached to the session.",
+      "codexBody": "Codex uses get_app_state with an app name or bundle identifier to receive a screenshot and accessibility tree. Act on a current element_index or screenshot coordinates, then call get_app_state again. Its tool set is:",
+      "claudeBody": "Claude Code uses list_apps and list_windows to find a target, then get_window_state with its pid and window_id. Prefer element tokens or fresh indexes. The native profile also supports perform_actions for a group of actions that does not invalidate later targets.",
+      "controlTitle": "Follow and stop Computer Use",
+      "controlBody": "The Computer Use menu-bar item shows the active agent. Focus Computer Use follows the app it is driving; Focus Calling Terminal returns to the originating terminal. Returning to the terminal does not stop automation. Use the menu’s stop action to stop the driving session.",
+      "disableBody": "Turn off Computer Use in Settings to disable it. To exclude the tools from a new agent launch, set CMUX_COMPUTER_USE_MCP_DISABLED=1 before launching that agent.",
+      "skillTitle": "Skills",
+      "skillBody": "The cmux-cua skill explains the inspection and action workflow. It is optional and does not grant macOS permissions. Use your agent’s skill installer for a persistent installation; cmux does not install global skills by default.",
+      "skillLink": "Read the cmux-cua skill",
+      "browserTitle": "Native apps and browser automation",
+      "browserBody": "Computer Use operates native Mac windows through screenshots and accessibility. For cmux browser panes, use cmux browser commands for DOM snapshots, selectors, forms, and JavaScript. A browser surface reference is different from a native app element index.",
+      "browserLink": "Browser automation reference",
+      "troubleTitle": "Troubleshooting",
+      "missingTitle": "The agent has no Computer Use tools",
+      "missingBody": "Enable Computer Use in cmux Settings and start a fresh Claude Code or Codex session inside cmux. Existing sessions may retain their original tool configuration. Check that Computer Use is not disabled by an environment variable or a managed policy.",
+      "blockedTitle": "Setup is incomplete, clicks fail, or screenshots are blank",
+      "blockedBody": "Reopen Settings → Computer Use and finish both permission steps, including any extra capture confirmation. Retry after setup completes. If the helper needs to restart, your terminal sessions can remain open.",
+      "targetTitle": "The wrong window is targeted or a click is blocked",
+      "targetBody": "Inspect the app again and select a fresh element from its current state. If another window covers the target, reveal the intended window and inspect again before retrying. Do not reuse stale coordinates or element indexes.",
+      "productLink": "cmux Computer Use overview",
+      "copyTitle": "Copy a Computer Use prompt",
+      "copyPrompt": "Copy prompt",
+      "copiedPrompt": "Copied",
+      "installPrompt": "Use the $cmux-cua skill for this task. If it is unavailable, install it with your normal skill installer. If permissions are missing, ask me to open cmux Settings → Computer Use. Inspect before acting and verify after each change.\n\nTask: [describe the task here]"
+    },
     "base": {
       "title": "Base",
       "metaTitle": "Base cloud workspace",
@@ -2241,7 +2436,7 @@
           "paneResizeStepPixels": "Pixels moved per keypress when using pane-resize shortcuts. Accepts 1–200; defaults to 20. Changes apply immediately."
         },
         "terminal": {
-          "adaptiveDefaultTheme": "When true (the default), cmux supplies its managed light/dark palette only when the Ghostty config contains no directives. When false, an untouched Ghostty config uses Ghostty's fixed built-in palette. Any Ghostty directive suppresses the managed palette; Ghostty theme = light:X,dark:Y remains appearance-adaptive.",
+          "adaptiveDefaultTheme": "When true (the default), cmux supplies an appearance-adaptive default palette unless a Ghostty theme or terminal colors are configured. Font and other settings are preserved. When false, Ghostty uses its fixed built-in palette. Explicit themes and colors always take precedence, including theme = light:X,dark:Y.",
           "agentHibernation": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
@@ -3084,6 +3279,7 @@
       "envSocket": "Path to the cmux control socket for the shim to connect to"
     },
     "navItems": {
+      "computerUse": "Computer Use",
       "gettingStarted": "Getting Started",
       "tui": "cmux TUI",
       "concepts": "Concepts",
@@ -5532,6 +5728,7 @@
     "email": "Email",
     "emailUnavailable": "email unavailable",
     "organization": "Organization",
-    "personalAccount": "personal account"
+    "personalAccount": "personal account",
+    "switchAccountButton": "Use a different account"
   }
 }

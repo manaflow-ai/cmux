@@ -406,6 +406,7 @@ fn is_targeted_host_response(kind: MessageKind) -> bool {
     matches!(
         kind,
         MessageKind::Capability
+            | MessageKind::ResizeAck
             | MessageKind::CellPixelSizeAck
             | MessageKind::KittyGraphicsLimitsAck
             | MessageKind::ClearHistoryAck
@@ -1640,6 +1641,7 @@ pub const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR: &str =
 pub(crate) const CLEAR_HISTORY_STREAM_WAIT_TIMEOUT: Duration = Duration::from_millis(250);
 pub(crate) const CLEAR_HISTORY_KEY_TEXT_MAX_BYTES: usize = 4 * 1024;
 const CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT: Duration = Duration::from_millis(250);
+const LOCAL_PASTE_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 // Kitty associated-text encoding can expand each ASCII input byte to a
 // three-digit codepoint plus one separator. The extra key-text budget covers
 // the fixed CSI-u fields without making fallback writes unbounded.
@@ -1680,45 +1682,6 @@ impl ClearHistoryFailure {
 }
 
 #[cfg(unix)]
-struct NonblockingFdGuard {
-    fd: std::os::fd::RawFd,
-    original_flags: libc::c_int,
-    restored: bool,
-}
-
-#[cfg(unix)]
-impl NonblockingFdGuard {
-    fn install(fd: std::os::fd::RawFd) -> std::io::Result<Self> {
-        let original_flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-        if original_flags < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        if unsafe { libc::fcntl(fd, libc::F_SETFL, original_flags | libc::O_NONBLOCK) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        Ok(Self { fd, original_flags, restored: false })
-    }
-
-    fn restore(&mut self) -> std::io::Result<()> {
-        if self.restored {
-            return Ok(());
-        }
-        if unsafe { libc::fcntl(self.fd, libc::F_SETFL, self.original_flags) } < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        self.restored = true;
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-impl Drop for NonblockingFdGuard {
-    fn drop(&mut self) {
-        let _ = self.restore();
-    }
-}
-
-#[cfg(unix)]
 fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> ClearHistoryFailure {
     let error = anyhow::Error::from(error);
     if delivered == 0 {
@@ -1741,73 +1704,13 @@ pub(crate) fn write_clear_history_fallback(
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {
-        let mut nonblocking = NonblockingFdGuard::install(fd)
-            .map_err(|error| clear_history_write_failure(error, 0))?;
-        let deadline = Instant::now() + CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT;
-        let mut delivered = 0;
-        while delivered < bytes.len() {
-            let written = unsafe {
-                libc::write(
-                    fd,
-                    bytes[delivered..].as_ptr().cast(),
-                    bytes.len().saturating_sub(delivered),
-                )
-            };
-            if written > 0 {
-                delivered = delivered.saturating_add(written as usize);
-                continue;
-            }
-            if written == 0 {
-                let error =
-                    std::io::Error::new(std::io::ErrorKind::WriteZero, "PTY write returned zero");
-                return Err(clear_history_write_failure(error, delivered));
-            }
-            let error = std::io::Error::last_os_error();
-            if error.kind() == std::io::ErrorKind::Interrupted {
-                continue;
-            }
-            if error.kind() != std::io::ErrorKind::WouldBlock {
-                return Err(clear_history_write_failure(error, delivered));
-            }
-
-            let now = Instant::now();
-            if now >= deadline {
-                let error = anyhow::anyhow!(CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR);
-                return Err(if delivered == 0 {
-                    ClearHistoryFailure::known_not_delivered(error)
-                } else {
-                    ClearHistoryFailure::ambiguous(error)
-                });
-            }
-            let remaining = deadline.saturating_duration_since(now);
-            let timeout_ms = remaining
-                .as_nanos()
-                .saturating_add(999_999)
-                .checked_div(1_000_000)
-                .unwrap_or(u128::MAX)
-                .clamp(1, i32::MAX as u128) as libc::c_int;
-            let mut poll_fd = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
-            let ready = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-            if ready > 0 {
-                if poll_fd.revents & libc::POLLNVAL != 0 {
-                    let error =
-                        std::io::Error::new(std::io::ErrorKind::BrokenPipe, "PTY fd is invalid");
-                    return Err(clear_history_write_failure(error, delivered));
-                }
-                continue;
-            }
-            if ready < 0 {
-                let error = std::io::Error::last_os_error();
-                if error.kind() == std::io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(clear_history_write_failure(error, delivered));
-            }
-        }
-        if let Err(error) = nonblocking.restore() {
-            return Err(ClearHistoryFailure::ambiguous(error.into()));
-        }
-        return Ok(());
+        return crate::pty_write::write_bounded(
+            fd,
+            bytes,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+        )
+        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
     }
 
     #[cfg(test)]
@@ -4510,6 +4413,24 @@ impl Surface {
     /// Write a protocol input payload, conditionally applying bracketed-paste
     /// markers from a terminal-mode snapshot taken before the PTY write.
     pub fn write_paste(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, None)
+    }
+
+    /// Write a paste with a bounded local PTY write for daemon-owned uploads.
+    ///
+    /// Hosted attachments already enforce their socket write deadline. Local
+    /// PTY masters are switched to nonblocking mode for this operation and
+    /// polled until the same two-second bound, so a full PTY cannot retain an
+    /// image-paste reservation indefinitely.
+    pub(crate) fn write_paste_bounded(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, Some(LOCAL_PASTE_WRITE_TIMEOUT))
+    }
+
+    fn write_paste_with_timeout(
+        &self,
+        bytes: &[u8],
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -4536,17 +4457,43 @@ impl Surface {
             term.mode(2004, false)
         };
         let mut runtime = pty.runtime.lock().unwrap();
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+        let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
             unreachable!("hosted paste returned above")
         };
+        #[cfg(not(unix))]
+        let _ = master;
+        let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
         if bracketed {
-            writer.write_all(b"\x1b[200~")?;
+            payload.extend_from_slice(b"\x1b[200~");
         }
-        writer.write_all(bytes)?;
+        payload.extend_from_slice(bytes);
         if bracketed {
-            writer.write_all(b"\x1b[201~")?;
+            payload.extend_from_slice(b"\x1b[201~");
         }
+        #[cfg(unix)]
+        if let Some(timeout) = timeout
+            && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
+        {
+            return crate::pty_write::write_bounded(
+                fd,
+                &payload,
+                timeout,
+                "PTY paste write timed out",
+            )
+            .map_err(|failure| failure.error);
+        }
+        writer.write_all(&payload)?;
         writer.flush()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
+        let pty = self.as_pty().expect("input test requires a terminal");
+        let mut runtime = pty.runtime.lock().unwrap();
+        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+            panic!("input test requires the in-process test runtime");
+        };
+        *writer = replacement;
     }
 
     /// Run `f` with exclusive access to the terminal state.
