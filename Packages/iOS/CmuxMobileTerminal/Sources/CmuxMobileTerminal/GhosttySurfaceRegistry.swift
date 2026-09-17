@@ -19,6 +19,10 @@ final class WeakGhosttySurfaceViewBox {
 extension GhosttySurfaceView {
     @MainActor
     static var registeredSurfaceViews: [UInt: WeakGhosttySurfaceViewBox] = [:]
+    @MainActor
+    static var registeredHostSurfaceViews: [
+        ObjectIdentifier: WeakGhosttySurfaceViewBox
+    ] = [:]
 
     @MainActor
     static func register(surface: ghostty_surface_t, for view: GhosttySurfaceView) {
@@ -29,6 +33,19 @@ extension GhosttySurfaceView {
     @MainActor
     static func unregister(surface: ghostty_surface_t) {
         registeredSurfaceViews.removeValue(forKey: surfaceIdentifier(for: surface))
+    }
+
+    @MainActor
+    static func registerHostSurfaceView(_ view: GhosttySurfaceView) {
+        registeredHostSurfaceViews[ObjectIdentifier(view)] = WeakGhosttySurfaceViewBox(view)
+        registeredHostSurfaceViews = registeredHostSurfaceViews.filter {
+            $0.value.value != nil
+        }
+    }
+
+    @MainActor
+    static func unregisterHostSurfaceView(_ view: GhosttySurfaceView) {
+        registeredHostSurfaceViews.removeValue(forKey: ObjectIdentifier(view))
     }
 
     @MainActor
@@ -58,9 +75,13 @@ extension GhosttySurfaceView {
     /// never grab the keyboard for a different workspace's terminal.
     @MainActor
     public static func focusInput(surfaceID: String) {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
-        let matchingView = registeredSurfaceViews
-            .sorted { $0.key < $1.key }
+        registeredHostSurfaceViews = registeredHostSurfaceViews.filter {
+            $0.value.value != nil
+        }
+        let matchingView = registeredHostSurfaceViews
+            .sorted {
+                UInt(bitPattern: $0.key) < UInt(bitPattern: $1.key)
+            }
             .compactMap(\.value.value)
             .first { candidate in
                 candidate.hostSurfaceID == surfaceID && candidate.window != nil
@@ -69,10 +90,9 @@ extension GhosttySurfaceView {
         matchingView?.focusInput()
     }
 
-    /// Full-content capture for the "View as Text" copy sheet: the SCREEN
-    /// range (scrollback history plus every written row) of the on-screen
-    /// terminal surface, read entirely on the phone's own libghostty surface —
-    /// no Mac round-trip, works offline.
+    /// Text capture for the "View as Text" copy sheet. Compatibility surfaces
+    /// read their local SCREEN range. Semantic surfaces return the latest
+    /// canonical viewport text fenced to the visible frame.
     ///
     /// Same threading contract as ``visibleTerminalSnapshot()``: the read runs
     /// on the serial `outputQueue` because `ghostty_surface_read_text` takes
@@ -101,7 +121,9 @@ extension GhosttySurfaceView {
     /// - Returns: The surface's screen text, or nil when that terminal has no
     ///   mounted surface or the read fails.
     public static func copyableTerminalText(surfaceID: String) async -> String? {
-        registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
+        registeredHostSurfaceViews = registeredHostSurfaceViews.filter {
+            $0.value.value != nil
+        }
         // Scoped pick: only views stamped with the requested id qualify, and
         // only while actually on screen (same visibility filter as
         // `visibleTerminalSnapshot()`). A dismantling view can linger in the
@@ -111,16 +133,21 @@ extension GhosttySurfaceView {
         // If the same terminal is mounted in several scenes the contents are
         // identical, so the lowest-keyed visible match keeps the pick
         // deterministic.
-        let matchingView = registeredSurfaceViews
-            .sorted { $0.key < $1.key }
+        let matchingView = registeredHostSurfaceViews
+            .sorted {
+                UInt(bitPattern: $0.key) < UInt(bitPattern: $1.key)
+            }
             .compactMap(\.value.value)
             .first { candidate in
-                candidate.hostSurfaceID == surfaceID && candidate.surface != nil
-                    && candidate.window != nil && !candidate.isHidden
+                candidate.hostSurfaceID == surfaceID && candidate.window != nil
+                    && !candidate.isHidden
                     && candidate.alpha > 0.01
             }
-        guard let matchingView,
-              let surface = matchingView.surface else { return nil }
+        guard let matchingView else { return nil }
+        if matchingView.usesSemanticSceneRenderer {
+            return matchingView.semanticSceneAccessibility?.text
+        }
+        guard let surface = matchingView.surface else { return nil }
         return await matchingView.copyableTextForCurrentSurface(surface: surface)
     }
 }

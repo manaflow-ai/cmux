@@ -9,6 +9,9 @@ public enum CmxIrohLane: Equatable, Sendable {
     /// One terminal's ordered stream resumed after the optional byte cursor.
     case terminal(resourceID: CmxIrohResourceID, cursor: UInt64?)
 
+    /// One full-first semantic-scene presentation with exact drawable geometry.
+    case terminalScene(CmxIrohTerminalSceneLaneRequest)
+
     /// A low-priority artifact stream resumed at an exact byte offset.
     case artifact(resourceID: CmxIrohResourceID, offset: UInt64)
 }

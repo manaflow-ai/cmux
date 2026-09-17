@@ -668,7 +668,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var sidebarState: SidebarState?
     private(set) var terminalClientComposition: TerminalClientComposition?
     private var terminalBackendServiceModel: TerminalBackendServiceModel?
-    private var terminalBackendTopologyProjectionRegistry:
+    var terminalBackendTopologyProjectionRegistry:
         TerminalBackendTopologyProjectionRegistry?
     private var terminalBackendTopologyCoordinator: TerminalBackendTopologyCoordinator?
 #if DEBUG

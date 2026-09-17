@@ -68,15 +68,34 @@ final class TerminalClientComposition {
             UnavailablePersistentMobileTerminalDataPlane(),
         topologyFailureReporter: @escaping @MainActor (String) -> Void = { _ in }
     ) -> TerminalClientComposition where Client: TerminalBackendClient & TerminalBackendTopologyMutating {
-        let registry = TerminalBackendPresentationRegistry()
+        persistent(
+            backendClient: backendClient,
+            presentationDependencies: presentationDependencies,
+            launchDependencies: launchDependencies,
+            renderConfigSource: TerminalBackendRenderConfigSource(
+                serializer: renderConfigSerializer
+            ),
+            mobileTerminalDataPlane: mobileTerminalDataPlane,
+            topologyFailureReporter: topologyFailureReporter
+        )
+    }
+
+    static func persistent<Client>(
+        backendClient: Client,
+        presentationDependencies: TerminalSurfacePresentationDependencies,
+        launchDependencies: TerminalSurfaceLaunchDependencies,
+        renderConfigSource: TerminalBackendRenderConfigSource,
+        presentationRegistry: TerminalBackendPresentationRegistry? = nil,
+        mobileTerminalDataPlane: any MobileTerminalDataPlane =
+            UnavailablePersistentMobileTerminalDataPlane(),
+        topologyFailureReporter: @escaping @MainActor (String) -> Void = { _ in }
+    ) -> TerminalClientComposition where Client: TerminalBackendClient & TerminalBackendTopologyMutating {
+        let registry = presentationRegistry ?? TerminalBackendPresentationRegistry()
         let topologyAuthorizationGate = TerminalBackendTopologyAuthorizationGate()
         let topologyAdoptionRegistry = TerminalBackendTopologyAdoptionRegistry()
         let topologyMutationCoordinator = TerminalBackendTopologyMutationCoordinator(
             mutator: backendClient,
             failureReporter: topologyFailureReporter
-        )
-        let renderConfigSource = TerminalBackendRenderConfigSource(
-            serializer: renderConfigSerializer
         )
         let remoteTmuxSurfaceRegistry: TerminalBackendRemoteTmuxSurfaceRegistry? = {
             guard let externalService = backendClient as?
