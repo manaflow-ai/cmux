@@ -231,7 +231,7 @@ private extension Data {
         for index in stride(from: 0, to: hexString.count, by: 2) {
             let start = hexString.index(hexString.startIndex, offsetBy: index)
             let end = hexString.index(start, offsetBy: 2)
-            guard let byte = UInt8(hexString[start..<end], radix: 16) else { return nil }
+            guard let byte = UInt8(String(hexString[start..<end]), radix: 16) else { return nil }
             value.append(byte)
         }
         self = value
