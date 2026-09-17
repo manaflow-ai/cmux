@@ -90,6 +90,10 @@ final class PhonePushClient {
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
     private var pushRecipients: [PhonePushRecipient] = []
+    /// Active queue payloads retained only in memory so a recipient-key
+    /// rotation can rebuild ciphertext without putting plaintext in the
+    /// durable queue or sending it to the server.
+    private var pendingPayloadsByCorrelationID: [String: PhonePushPayload] = [:]
     private var recipientRefreshTask: Task<Void, Never>?
     private var lastRecipientRefreshEpochSeconds = 0
     private var lastEncryptionUnavailableLogEpochSeconds = 0
@@ -106,8 +110,13 @@ final class PhonePushClient {
     private lazy var deliveryQueue = PhonePushSerialDeliveryQueue(
         startsImmediately: false,
         pendingChanged: { [weak self] snapshot in
-            guard self?.suppressQueuePersistence == false else { return }
-            self?.schedulePersistence(snapshot)
+            guard let self else { return }
+            let queuedCorrelationIDs = Set(snapshot.map { $0.correlationID })
+            self.pendingPayloadsByCorrelationID = self.pendingPayloadsByCorrelationID.filter {
+                queuedCorrelationIDs.contains($0.key)
+            }
+            guard self.suppressQueuePersistence == false else { return }
+            self.schedulePersistence(snapshot)
         },
         sender: { [weak self] envelope in
             guard let self else { return .cancelled }
@@ -329,7 +338,9 @@ final class PhonePushClient {
             accountID: identity.accountID,
             generation: identity.generation
         )
+        pendingPayloadsByCorrelationID[envelope.correlationID] = payload
         guard deliveryQueue.enqueue(envelope) else {
+            pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
             logQueueStage("queue_overflow", correlationID: envelope.correlationID)
             return .queueFull
         }
@@ -400,7 +411,9 @@ final class PhonePushClient {
                 logQueueStage("dismiss_encoding_failed", correlationID: UUID().uuidString.lowercased())
                 continue
             }
+            pendingPayloadsByCorrelationID[envelope.correlationID] = payload
             if !deliveryQueue.enqueuePrioritizingDismiss(envelope) {
+                pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
                 admission = .queueFull
                 logQueueStage(
                     "dismiss_queue_overflow",
@@ -502,7 +515,8 @@ final class PhonePushClient {
     private func makeEncryptedEnvelope(
         payload: PhonePushPayload,
         identity: AuthenticatedSessionIdentity,
-        targetBundleIdentifier: String
+        targetBundleIdentifier: String,
+        expirationEpochSeconds: Int? = nil
     ) -> PhonePushRequestEnvelope? {
         guard !identity.accountID.isEmpty,
               let macDeviceID = payload.macDeviceId,
@@ -518,11 +532,13 @@ final class PhonePushClient {
         )
         guard !recipients.isEmpty else { return nil }
         let correlationID = UUID()
+        let expirationEpochSeconds = expirationEpochSeconds
+            ?? clock.nowEpochSeconds + Self.eventTTLSeconds
         do {
             let plaintext = try PhonePushRequestEnvelope(
                 payload: payload,
                 correlationID: correlationID,
-                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
+                expirationEpochSeconds: expirationEpochSeconds,
                 expectedAccountID: identity.accountID,
                 expectedSessionGeneration: identity.generation,
                 targetBundleIdentifier: targetBundleIdentifier,
@@ -553,7 +569,7 @@ final class PhonePushClient {
                 encryptedPayloads: encrypted,
                 payload: payload,
                 correlationID: correlationID,
-                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
+                expirationEpochSeconds: expirationEpochSeconds,
                 expectedAccountID: identity.accountID,
                 expectedSessionGeneration: identity.generation,
                 targetBundleIdentifier: targetBundleIdentifier
@@ -687,6 +703,7 @@ final class PhonePushClient {
         suppressQueuePersistence = true
         deliveryQueue.cancelAll()
         suppressQueuePersistence = false
+        pendingPayloadsByCorrelationID.removeAll()
     }
     private func drainPersistence() async {
         while let snapshot = pendingPersistenceSnapshot {
@@ -799,7 +816,34 @@ final class PhonePushClient {
             if response.result == .recipientKeyChanged {
                 pushRecipients = []
                 lastRecipientRefreshEpochSeconds = 0
-                scheduleRecipientRefresh(force: true)
+                recipientRefreshTask?.cancel()
+                recipientRefreshTask = nil
+                await refreshPushRecipients(auth: auth)
+                guard let payload = pendingPayloadsByCorrelationID[envelope.correlationID],
+                      let identity = auth.authenticatedSessionIdentity,
+                      identity.accountID == envelope.expectedAccountID,
+                      identity.generation == envelope.expectedSessionGeneration,
+                      let targetBundleIdentifier = envelope.targetBundleIdentifier,
+                      let reencrypted = makeEncryptedEnvelope(
+                          payload: payload,
+                          identity: identity,
+                          targetBundleIdentifier: targetBundleIdentifier,
+                          expirationEpochSeconds: envelope.expirationEpochSeconds
+                      ) else {
+                    logQueueStage(
+                        "recipient_key_changed_reencrypt_failed",
+                        correlationID: envelope.correlationID
+                    )
+                    return response.result
+                }
+                pendingPayloadsByCorrelationID[reencrypted.correlationID] = payload
+                guard deliveryQueue.enqueue(reencrypted) else {
+                    pendingPayloadsByCorrelationID.removeValue(forKey: reencrypted.correlationID)
+                    logQueueStage(
+                        "recipient_key_changed_requeue_failed",
+                        correlationID: envelope.correlationID
+                    )
+                }
                 return response.result
             }
             if response.result == .authenticationRequired,
