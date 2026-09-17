@@ -69,7 +69,10 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
             showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
+            // `DisableComputerUse` (MDM) wins over the user setting on every
+            // spawn, so a new agent launch never receives the tools.
             computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
+                && !ManagedDevicePolicy().isEnforced(.disableComputerUse)
         )
     }
 

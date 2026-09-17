@@ -25,7 +25,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public final class SearchState: ObservableObject {
         /// The current search needle.
         @Published public var needle: String
-
         /// The 1-based index of the selected match, if known.
         @Published public var selected: UInt?
 
@@ -93,12 +92,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
     let globalFontMagnificationPercent: @Sendable () -> Int
-
-    /// Presentation state for the current runtime renderer. This distinguishes a
-    /// renderer Ghostty created from one cmux has actually presented in a real
-    /// window, while preserving Ghostty's native rebuild transaction.
     var rendererPresentationPhase = TerminalRendererPresentationPhase.awaitingFirstPresentation
-
+    /// Current renderer health; the direct callback below is the observation seam for hosts.
+    public internal(set) var renderHealth: TerminalSurfaceRenderHealth = .notStarted {
+        didSet { if oldValue != renderHealth { onRenderHealthChanged?(renderHealth) } }
+    }
+    var onRenderHealthChanged: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?
+    let rendererPresentationState = TerminalRendererPresentationState()
     /// Wall-clock time (epoch seconds) this surface was last made visible in the
     /// UI. Used by `RendererRealizationController` as the LRU key so recently
     /// used tabs stay warm. Seeded at creation.
@@ -143,6 +143,15 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Whether the surface's pane container is in a real (non-bootstrap) window.
     @MainActor
     public var isViewInWindow: Bool { uiWindow != nil }
+
+    /// Whether both the pane host and the native Ghostty view are attached to
+    /// the same real window. This excludes the hidden bootstrap window and
+    /// transient portal reparenting where the two views briefly disagree.
+    @MainActor
+    public var isNativeViewInRealWindow: Bool {
+        guard let realWindow = uiWindow else { return false }
+        return attachedView?.window === realWindow
+    }
 
     /// Whether `window` is this surface's hidden bootstrap startup window.
     public func isHeadlessStartupWindow(_ window: NSWindow?) -> Bool {
@@ -227,14 +236,18 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// Resolves physical keys that the manual transport should encode itself.
     let manualInputKeyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)?
 
-    /// Remote tmux manual-I/O resize and runtime-readiness hooks.
+    /// Manual-I/O resize and runtime-readiness hooks used by remote mirrors.
     @MainActor public var onManualSizeApplied: (@MainActor (TerminalSurfaceRawSizingSample) -> Void)?
-    /// Notifies a manual-I/O owner that this surface became the authoritative
-    /// input and geometry target. This is separate from resize reporting so a
-    /// focus reassertion can reclaim daemon-side sizing even when the grid did
-    /// not change.
-    @MainActor public var onManualGeometryOwnershipChanged: (@MainActor () -> Void)?
     @MainActor public var onRuntimeReady: (@MainActor () -> Void)?
+    /// Called when a manual-I/O surface enters a real pane window (as opposed
+    /// to the hidden bootstrap window). Owners use this edge to sample the
+    /// final pane grid even when bootstrap and pane pixels happen to match and
+    /// no size-change callback is emitted.
+    @MainActor public var onManualWindowAttached: (@MainActor () -> Void)?
+    /// Called when the portal toggles this manual-I/O surface's visibility.
+    /// Owners use the reveal edge to sample a pane whose grid did not change
+    /// while it was hidden.
+    @MainActor public var onManualVisibilityChanged: (@MainActor (Bool) -> Void)?
     /// Requests owner-scoped visual bell attention without activating the app.
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.
@@ -293,6 +306,13 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// the pinned grid and clips or letterboxes the difference — the same
     /// answer tmux gives a client whose size disagrees with the window.
     var assignedGrid: (columns: Int, rows: Int)?
+    /// The last pane size a host committed through ``commitPaneGeometry(_:)``.
+    /// The renderer grid and PTY size derive from this value and from nothing
+    /// else, so a frame the user cannot see never reaches the terminal.
+    @MainActor public internal(set) var committedPaneGeometry: TerminalPaneGeometry?
+    /// A runtime creation that waits for the first committed pane geometry so
+    /// the PTY's initial window size is the pane's real size.
+    var pendingRuntimeSurfaceCreationSource: RuntimeSurfaceCreationSource?
     /// Temporary runtime font-size ownership while a mobile viewport is fitted.
     var mobileViewportFontFitState: MobileViewportFontFitState?
     // Debug metadata is read from debug/CLI paths off the main thread; the
@@ -646,12 +666,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public func debugWaitAfterCommand() -> Bool {
         configTemplate?.waitAfterCommand ?? false
     }
-
     /// The ghostty launch context the surface was created with.
     public var launchContext: ghostty_surface_context_e {
         surfaceContext
     }
-
     /// Rebinds the surface (and its views) to a new owning workspace id.
     @MainActor
     public func updateWorkspaceId(_ newTabId: UUID) {
@@ -662,7 +680,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         attachedView?.tabId = newTabId
         surfaceView.tabId = newTabId
     }
-
     /// Moves this surface between focus-routing placements (workspace ↔
     /// right-sidebar dock) and keeps the surface registry's record in sync.
     /// Used when a live terminal is dragged across containers so it is not
@@ -675,7 +692,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         focusPlacement = placement
         registry.updateFocusPlacement(for: self, placement)
     }
-
     /// Retires logical registry ownership once across explicit teardown and deinit.
     func retireSurfaceRegistryRegistrationIfNeeded() {
         guard ownsSurfaceRegistryRegistration else { return }
@@ -807,10 +823,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 extension TerminalSurface: TerminalSurfaceControlling {
     /// The stable identity of the terminal surface (callback seam).
     public var surfaceId: UUID { id }
-
     /// The workspace tab that owns the surface (callback seam).
     public var owningTabId: UUID { tabId }
-
     /// The live runtime surface pointer (callback seam).
     public var runtimeSurfacePointer: ghostty_surface_t? { surface }
 }
@@ -819,7 +833,6 @@ extension TerminalSurface: TerminalSurfaceControlling {
 // TerminalSurfacing seam; lifecycle generations are registered separately so
 // the registry never reads mutable model state from a socket worker thread.
 extension TerminalSurface: TerminalSurfacing {}
-
 /// Transports the hidden bootstrap window from a nonisolated `deinit` to the
 /// main actor for closing. `@unchecked Sendable` because the window is
 /// exclusively owned by the request from creation until `close()` runs.

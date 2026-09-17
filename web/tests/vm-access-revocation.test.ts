@@ -31,7 +31,7 @@ describe("Cloud VM access revocation", () => {
         consumedAt: null,
         revokedAt: null,
         createdAt: new Date(),
-        provider: "blaxel",
+        provider: "freestyle",
         providerVmId: "machine-a",
       },
       {
@@ -48,7 +48,7 @@ describe("Cloud VM access revocation", () => {
         consumedAt: null,
         revokedAt: null,
         createdAt: new Date(),
-        provider: "blaxel",
+        provider: "freestyle",
         providerVmId: "machine-a",
       },
     ] as unknown as CloudVmAccessLeaseRow[];

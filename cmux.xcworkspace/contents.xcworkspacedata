@@ -43,6 +43,9 @@
       <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
+      <FileRef
+         location = "group:CmuxSyntaxHighlighting">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
@@ -121,6 +124,9 @@
          location = "group:CMUXAgentLaunch">
       </FileRef>
       <FileRef
+         location = "group:CmuxAgentSessionStore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAppKitSupportUI">
       </FileRef>
       <FileRef
@@ -131,6 +137,15 @@
       </FileRef>
       <FileRef
          location = "group:CmuxCanvasUI">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudBannerCore">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudImagePaste">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxCloudMachines">
       </FileRef>
       <FileRef
          location = "group:CmuxCommandPalette">
@@ -152,6 +167,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxFeedback">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFilePreviewCore">
       </FileRef>
       <FileRef
          location = "group:CmuxFoundation">
@@ -205,6 +223,12 @@
          location = "group:CmuxSimulator">
       </FileRef>
       <FileRef
+         location = "group:CmuxSudoBroker">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxSudoBrokerUI">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSwiftRender">
       </FileRef>
       <FileRef
@@ -218,9 +242,6 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTestSupport">
-      </FileRef>
-      <FileRef
-         location = "group:CmuxTuiManualIO">
       </FileRef>
       <FileRef
          location = "group:CmuxUpdater">

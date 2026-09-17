@@ -453,6 +453,8 @@ extension TerminalSurface {
         guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
 
         switch scalars[start + 1].value {
+        case 0x5B: // CSI terminal reports such as CPR/DA/DSR responses.
+            return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
@@ -659,8 +661,7 @@ extension TerminalSurface {
         manualIONoReflow = value
     }
 
-    /// Enqueues remote output (tmux `%output`, tui pipe-io bytes) for the
-    /// terminal parser.
+    /// Enqueues remote tmux `%output` for the terminal parser.
     ///
     /// The native parser runs on the surface generation's FIFO output lane and
     /// this method returns without waiting for Ghostty's renderer-state mutex.
