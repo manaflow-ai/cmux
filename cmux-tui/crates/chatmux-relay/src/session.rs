@@ -1574,30 +1574,6 @@ mod cancellation_tests {
     }
 }
 
-#[cfg(all(test, unix))]
-mod tunnel_authority_tests {
-    use super::{SessionRuntime, TunnelAuth, reconcile_tunnel_authority};
-
-    #[test]
-    fn trust_downgrade_revokes_old_tunnel_authority() {
-        let runtime = SessionRuntime::new();
-        let published = reconcile_tunnel_authority(
-            &runtime,
-            Some(TunnelAuth {
-                trust: "autonomous".to_owned(),
-                local_roots: None,
-                owner_user_id: None,
-            }),
-        );
-        assert!(runtime.tunnel_auth.read().expect("authority lock").auth.is_some());
-
-        let revoked = reconcile_tunnel_authority(&runtime, None);
-        let authority = runtime.tunnel_auth.read().expect("authority lock");
-        assert_eq!(revoked, published + 1);
-        assert!(authority.auth.is_none(), "a trust downgrade must revoke tunnel access");
-        assert_eq!(authority.generation, revoked);
-    }
-}
 
 #[cfg(all(test, unix))]
 mod tunnel_authority_tests {

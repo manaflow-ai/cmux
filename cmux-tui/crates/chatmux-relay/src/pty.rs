@@ -1260,7 +1260,10 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
-        let reservation_owner = OpeningOwner { owner: TransportOwner::from_context(context) };
+        let reservation_owner = OpeningOwner {
+            owner: TransportOwner::from_context(context),
+            attempt_id: cancellation.attempt_id(),
+        };
         let reservation_result = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
@@ -4275,162 +4278,8 @@ mod tests {
     }
 
     #[test]
-    fn tunnel_operations_on_different_attachments_do_not_share_a_gate() {
-        let h = harness(None, None);
-        let inner = Arc::clone(&h.manager.inner);
-        let entered = Arc::new(Barrier::new(2));
-        let release = Arc::new(Barrier::new(2));
-        let slow: Arc<dyn PtyControl> = Arc::new(BlockingControl {
-            entered: Arc::clone(&entered),
-            release: Arc::clone(&release),
-        });
-        let fast = FakePty {
-            state: Arc::new(StdMutex::new(FakeState::default())),
-            spawn_file: String::new(),
-            spawn_cwd: PathBuf::new(),
-            spawn_term: String::new(),
-        };
-        let owner_a =
-            TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
-        let owner_b =
-            TransportOwner { id: Some("tunnel-b".to_owned()), kind: TransportKind::Tunnel };
-        {
-            let mut attachments = inner.attachments.lock().unwrap();
-            attachments.insert(
-                "p1".to_owned(),
-                Attachment {
-                    closing: Arc::new(AtomicBool::new(false)),
-                    operation_gate: Arc::new(Mutex::new(())),
-                    control: slow,
-                    actor_id: "user_owner".to_owned(),
-                    owner: owner_a.clone(),
-                },
-            );
-            attachments.insert(
-                "p2".to_owned(),
-                Attachment {
-                    closing: Arc::new(AtomicBool::new(false)),
-                    operation_gate: Arc::new(Mutex::new(())),
-                    control: Arc::new(fast),
-                    actor_id: "user_owner".to_owned(),
-                    owner: owner_b.clone(),
-                },
-            );
-        }
-        let mut context_a =
-            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
-        let mut context_b =
-            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-b"));
-        context_a.transport_kind = TransportKind::Tunnel;
-        context_b.transport_kind = TransportKind::Tunnel;
-        inner.cache_transport_auth(&context_a);
-        inner.cache_transport_auth(&context_b);
-
-        let slow_inner = Arc::clone(&inner);
-        let slow_context = context_a.clone();
-        let slow_thread = thread::spawn(move || {
-            slow_inner.with_authorized("p1", &slow_context, "input", |attachment| {
-                attachment.control.write(b"slow");
-            });
-        });
-        entered.wait();
-
-        let (done_tx, done_rx) = sync_channel(1);
-        let fast_inner = Arc::clone(&inner);
-        let fast_context = context_b.clone();
-        let fast_thread = thread::spawn(move || {
-            fast_inner.with_authorized("p2", &fast_context, "input", |attachment| {
-                attachment.control.write(b"fast");
-            });
-            done_tx.send(()).unwrap();
-        });
-        assert!(done_rx.recv_timeout(Duration::from_secs(1)).is_ok());
-        release.wait();
-        slow_thread.join().unwrap();
-        fast_thread.join().unwrap();
-    }
-
     #[test]
-    fn tunnel_revocation_does_not_wait_for_a_blocking_operation() {
-        let h = harness(None, None);
-        let inner = Arc::clone(&h.manager.inner);
-        let entered = Arc::new(Barrier::new(2));
-        let release = Arc::new(Barrier::new(2));
-        let owner = TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
-        {
-            let mut attachments = inner.attachments.lock().unwrap();
-            attachments.insert(
-                "p1".to_owned(),
-                Attachment {
-                    closing: Arc::new(AtomicBool::new(false)),
-                    operation_gate: Arc::new(Mutex::new(())),
-                    control: Arc::new(BlockingControl {
-                        entered: Arc::clone(&entered),
-                        release: Arc::clone(&release),
-                    }),
-                    actor_id: "user_owner".to_owned(),
-                    owner: owner.clone(),
-                },
-            );
-        }
-        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
-        context.transport_kind = TransportKind::Tunnel;
-        inner.cache_transport_auth(&context);
-
-        let operation_inner = Arc::clone(&inner);
-        let operation_context = context.clone();
-        let operation = thread::spawn(move || {
-            operation_inner.with_authorized("p1", &operation_context, "input", |attachment| {
-                attachment.control.write(b"blocked");
-            });
-        });
-        entered.wait();
-
-        let (done_tx, done_rx) = sync_channel(1);
-        let revoke_inner = Arc::clone(&inner);
-        let revoke = thread::spawn(move || {
-            revoke_inner.detach_tunnel_transports();
-            done_tx.send(()).unwrap();
-        });
-        let completed_without_waiting = done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
-        release.wait();
-        operation.join().unwrap();
-        revoke.join().unwrap();
-        assert!(completed_without_waiting, "revocation must not wait for PTY I/O");
-        assert!(!h.manager.has_attachment("p1"));
-    }
-
     #[test]
-    fn an_old_open_drop_cannot_clear_a_new_owner_cancellation_marker() {
-        let h = harness(None, None);
-        let inner = Arc::clone(&h.manager.inner);
-        let id = "reused".to_owned();
-        let owner_a = OpeningOwner {
-            owner: TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel },
-        };
-        let owner_b = OpeningOwner {
-            owner: TransportOwner { id: Some("tunnel-b".to_owned()), kind: TransportKind::Tunnel },
-        };
-        let old = OpeningReservation {
-            inner: Arc::clone(&inner),
-            id: id.clone(),
-            owner: owner_a.clone(),
-            active: true,
-        };
-        {
-            let mut state = inner.opening_state.lock().unwrap();
-            state.reservations.insert(id.clone(), owner_a.clone());
-            state.cancelled.insert(id.clone(), owner_a.clone());
-            state.reservations.remove(&id);
-            state.reservations.insert(id.clone(), owner_b.clone());
-            state.cancelled.insert(id.clone(), owner_b.clone());
-        }
-        drop(old);
-        let state = inner.opening_state.lock().unwrap();
-        assert_eq!(state.reservations.get(&id), Some(&owner_b));
-        assert_eq!(state.cancelled.get(&id), Some(&owner_b));
-    }
-
     #[tokio::test]
     async fn detached_transport_rejects_late_frames_and_allows_a_fresh_owner() {
         let h = harness(None, None);

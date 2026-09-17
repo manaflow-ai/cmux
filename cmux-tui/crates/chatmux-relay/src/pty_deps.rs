@@ -9,9 +9,10 @@
 #![cfg(unix)]
 
 use std::collections::{HashMap, VecDeque};
+use std::ffi::CString;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::mem::{offset_of, size_of};
+use std::mem::{MaybeUninit, offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -32,6 +33,7 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
+const CHILD_REAP_POLL: Duration = Duration::from_millis(10);
 const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
@@ -1358,7 +1360,7 @@ impl DaemonProcessGuard {
             self.pid = None;
             self.child.take();
         } else {
-            signal_process_group(self.pid);
+            signal_process_group_with(self.pid, libc::SIGKILL);
             if let Some(child) = self.child.as_mut() {
                 let _ = child.kill();
             }
@@ -1381,7 +1383,7 @@ impl Drop for DaemonProcessGuard {
         if self.child.is_some() {
             // Drop cannot await. A group SIGKILL plus a detached waiter gives
             // cancellation bounded synchronous work and preserves reaping.
-            signal_process_group(self.pid);
+            signal_process_group_with(self.pid, libc::SIGKILL);
             if let Some(child) = self.child.as_mut() {
                 let _ = child.kill();
             }
