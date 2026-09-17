@@ -17,7 +17,8 @@ extension Workspace {
             error: error,
             requestID: requestID,
             title: title,
-            recoveryText: recovery
+            recoveryText: recovery,
+            sourcePanelID: focusedPanelId
         )
     }
 }

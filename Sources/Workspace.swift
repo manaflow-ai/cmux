@@ -7576,7 +7576,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         reference: String?
     ) -> CloudTerminalReconnectOverlayPolicy.Presentation {
         var presentation = CloudTerminalReconnectOverlayPolicy.Presentation(
-            title: String(localized: "cloud.overlay.materializationFailed.title", defaultValue: "Cloud terminal could not start"),
+            title: String(localized: "cloudPane.newTerminalFailed.shortTitle", defaultValue: "Couldn’t open terminal"),
             detail: detail,
             showsProgress: false,
             showsReconnectButton: true
