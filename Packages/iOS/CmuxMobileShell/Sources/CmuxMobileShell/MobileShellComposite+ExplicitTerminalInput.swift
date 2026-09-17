@@ -50,18 +50,22 @@ extension MobileShellComposite {
             surfaceID: terminalID.rawValue,
             byteCount: text.utf8.count
         )
+        let marker = inputSequence != 0 && supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
+            ? String(inputSequence)
+            : nil
 
         do {
+            var params: [String: Any] = [
+                "workspace_id": remoteWorkspaceID(for: workspaceID).rawValue,
+                "surface_id": terminalID.rawValue,
+                "text": text,
+                "client_id": clientID,
+            ]
+            params["input_sequence"] = marker
             _ = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
-                    params: [
-                        "workspace_id": remoteWorkspaceID(for: workspaceID).rawValue,
-                        "surface_id": terminalID.rawValue,
-                        "text": text,
-                        "client_id": clientID,
-                        "input_sequence": String(inputSequence),
-                    ]
+                    params: params
                 )
             )
             terminalLatencyObserver.inputSent(

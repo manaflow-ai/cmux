@@ -88,6 +88,7 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         lhs.payload == rhs.payload && lhs.replacementScope == rhs.replacementScope
             && lhs.viewportPolicy == rhs.viewportPolicy && lhs.endSequence == rhs.endSequence
             && lhs.requiresVerifiedReplay == rhs.requiresVerifiedReplay
+            && lhs.terminalConfigTheme == rhs.terminalConfigTheme
     }
 
     var bytes: Data {
