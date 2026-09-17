@@ -1,6 +1,124 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.sshPtyAttach.incompatibleDaemon": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH attach stopped because the remote daemon version does not match this cmux client. Install a cmux release with its matching remote daemon, then reconnect the workspace. Do not substitute a daemon from an older release."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートデーモンのバージョンがこの cmux クライアントと一致しないため、SSH 接続を停止しました。対応するリモートデーモンを含む cmux リリースをインストールしてから、ワークスペースに再接続してください。古いリリースのデーモンで代用しないでください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Verbindungsaufbau wurde gestoppt, weil die Version des Remote-Daemons nicht zu diesem cmux-Client passt. Installiere eine cmux-Version mit dem zugehörigen Remote-Daemon und verbinde den Arbeitsbereich erneut. Verwende keinen Daemon einer älteren Version."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH a été interrompue car la version du démon distant ne correspond pas à ce client cmux. Installez une version de cmux avec le démon distant correspondant, puis reconnectez l’espace de travail. Ne le remplacez pas par le démon d’une ancienne version."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف اتصال SSH لأن إصدار البرنامج الخفي البعيد لا يطابق عميل cmux هذا. ثبّت إصدار cmux مع البرنامج الخفي البعيد المطابق له، ثم أعد توصيل مساحة العمل. لا تستخدم برنامجًا خفيًا من إصدار أقدم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH se detuvo porque la versión del demonio remoto no coincide con este cliente cmux. Instala una versión de cmux con su demonio remoto correspondiente y vuelve a conectar el espacio de trabajo. No uses un demonio de una versión anterior."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線已停止，因為遠端常駐程式版本與此 cmux 用戶端不符。請安裝包含對應遠端常駐程式的 cmux 版本，再重新連線工作區。請勿使用舊版本的常駐程式替代。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接已停止，因为远程守护进程版本与此 cmux 客户端不匹配。请安装包含对应远程守护进程的 cmux 版本，然后重新连接工作区。请勿使用旧版本的守护进程替代。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 데몬 버전이 이 cmux 클라이언트와 일치하지 않아 SSH 연결을 중단했습니다. 해당 원격 데몬이 포함된 cmux 릴리스를 설치한 후 작업 공간에 다시 연결하세요. 이전 릴리스의 데몬으로 대체하지 마세요."
+          }
+        }
+      }
+    },
+    "cli.sshPtyAttach.terminalModeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH attach stopped because terminal input could not be placed in raw forwarding mode. Reconnect the workspace to try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル入力を raw 転送モードに切り替えられなかったため、SSH 接続を停止しました。ワークスペースに再接続して再試行してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der SSH-Verbindungsaufbau wurde gestoppt, weil die Terminaleingabe nicht in den Raw-Weiterleitungsmodus wechseln konnte. Verbinde den Arbeitsbereich erneut, um es noch einmal zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH a été interrompue car la saisie du terminal n’a pas pu passer en mode de transmission brute. Reconnectez l’espace de travail pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف اتصال SSH لتعذر وضع إدخال الطرفية في وضع التمرير الخام. أعد توصيل مساحة العمل للمحاولة مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión SSH se detuvo porque la entrada del terminal no pudo pasar al modo de reenvío sin procesar. Vuelve a conectar el espacio de trabajo para intentarlo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 連線已停止，因為無法將終端機輸入切換為原始轉送模式。請重新連線工作區再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 连接已停止，因为无法将终端输入切换为原始转发模式。请重新连接工作区再试一次。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 입력을 원시 전달 모드로 전환할 수 없어 SSH 연결을 중단했습니다. 작업 공간에 다시 연결하여 재시도하세요."
+          }
+        }
+      }
+    },
     "cloud.portAccess.desktopDisconnected": {
       "extractionState": "manual",
       "localizations": {
@@ -259926,6 +260044,65 @@
         }
       }
     },
+    "mobile.pairing.error.preparationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إكمال الاقتران. تحقق من الاتصال وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopplung konnte nicht abgeschlossen werden. Überprüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not finish. Check your connection and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha podido completar el enlace. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jumelage n’a pas pu être terminé. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링을 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成配对。请检查连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法完成配對。請檢查連線後再試一次。"
+          }
+        }
+      }
+    },
     "mobile.pairing.error.noTicket": {
       "extractionState": "manual",
       "localizations": {
@@ -369521,55 +369698,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux's managed light and dark palettes follow the app appearance only when your Ghostty config has no settings. Existing Ghostty settings are never overlaid."
+            "value": "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 設定が空の場合のみ、cmux の管理するライト／ダークパレットがアプリの外観に追従します。既存の Ghostty 設定には重ねて適用しません。"
+            "value": "Ghostty のテーマやターミナルの色が設定されていない場合、外観に合わせたライト／ダークの既定色を使用します。フォントなどの設定は保持されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "仅当你的 Ghostty 配置没有任何设置时，cmux 托管的浅色与深色调色板才会跟随应用外观。已有的 Ghostty 设置永远不会被覆盖。"
+            "value": "未配置 Ghostty 主题或终端颜色时，使用随外观变化的浅色和深色默认终端配色。字体及其他设置会保留。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die von cmux verwalteten hellen und dunklen Paletten folgen dem Erscheinungsbild der App nur dann, wenn Ihre Ghostty-Konfiguration keine Einstellungen enthält. Bestehende Ghostty-Einstellungen werden niemals überschrieben."
+            "value": "Helle und dunkle Standardfarben für das Terminal verwenden, wenn kein Ghostty-Theme und keine Terminalfarben konfiguriert sind. Schrift- und andere Einstellungen bleiben erhalten."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les palettes claire et sombre gérées de cmux suivent l’apparence de l’application uniquement si votre configuration Ghostty ne contient aucun paramètre. Les paramètres Ghostty existants ne sont jamais écrasés."
+            "value": "Utilise les couleurs claires et sombres par défaut du terminal si aucun thème Ghostty ni couleur de terminal n’est configuré. La police et les autres paramètres sont conservés."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتبع لوحات الألوان الفاتحة والداكنة المدارة لـ cmux مظهر التطبيق فقط عندما لا يحتوي تكوين Ghostty على إعدادات. لا يتم تداخل إعدادات Ghostty الحالية مطلقًا."
+            "value": "استخدم ألوان الطرفية الافتراضية الفاتحة والداكنة عندما لا يتم تكوين سمة Ghostty أو ألوان الطرفية. يتم الاحتفاظ بإعدادات الخط والإعدادات الأخرى."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las paletas clara y oscura administradas de cmux siguen la apariencia de la aplicación solo cuando tu configuración de Ghostty no tiene ajustes. Los ajustes existentes de Ghostty nunca se sobrescriben."
+            "value": "Usa los colores claros y oscuros predeterminados del terminal cuando no hay ningún tema de Ghostty ni colores del terminal configurados. Se conservan la fuente y los demás ajustes."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "僅在您的 Ghostty 設定檔中沒有任何設定時，cmux 管理的淺色與深色調色盤才會隨軟體外觀變更。現有的 Ghostty 設定絕不會被覆蓋。"
+            "value": "未設定 Ghostty 主題或終端機顏色時，使用隨外觀變更的淺色和深色預設終端機配色。字體及其他設定會保留。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ghostty 설정에 아무런 설정이 없는 경우에만 cmux가 관리하는 라이트 및 다크 팔레트가 앱 외양을 따릅니다. 기존 Ghostty 설정은 절대로 덮어씌워지지 않습니다."
+            "value": "Ghostty 테마나 터미널 색상이 설정되지 않은 경우 모양에 따라 라이트 및 다크 기본 터미널 색상을 사용합니다. 글꼴 및 기타 설정은 유지됩니다."
           }
         }
       }
@@ -518599,6 +518776,20 @@
             "value": "Cloud リソースは利用できなくなりました。マシン一覧を更新してください。"
           }
         }
+      }
+    },
+    "cloud.operation.failure.placement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The Cloud terminal placement is unavailable. Refresh the machine, then retry."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-Terminalplatzierung ist nicht verfügbar. Aktualisieren Sie die Maschine und versuchen Sie es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "L’emplacement du terminal Cloud n’est pas disponible. Actualisez la machine, puis réessayez."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "موضع طرفية Cloud غير متاح. حدّث الجهاز ثم أعد المحاولة."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La ubicación del terminal de Cloud no está disponible. Actualiza la máquina y vuelve a intentarlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 終端機位置無法使用。請重新整理機器後再試一次。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 终端位置不可用。请刷新机器后重试。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 터미널 배치를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud ターミナルの配置を利用できません。マシンを更新して、もう一度お試しください。"}}
       }
     },
     "cloud.operation.failure.unsupported": {

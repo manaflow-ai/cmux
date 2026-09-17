@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
 import CmuxAuthRuntime
 import Testing
 import SwiftUI
@@ -49,7 +50,8 @@ import SwiftUI
         // Menu and palette callers use this fallback when the shared action says it failed.
         if !accepted { _ = manager.createSplit(direction: direction) }
         await provider.creationAttemptSignal.wait()
-        await waitForFailure(workspace.cloudPaneCreationFailureStore)
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
+        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
 
         #expect(accepted)
         #expect(provider.creationRequestCount == 1)
@@ -168,7 +170,9 @@ import SwiftUI
         } else {
             #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
         }
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
         await provider.creationAttemptSignal.wait()
+        let presentation = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
         let deadline = ContinuousClock.now + .seconds(2)
         while recorder.operations.first?.outcome == nil, ContinuousClock.now < deadline {
             await Task.yield()
@@ -180,7 +184,10 @@ import SwiftUI
         #expect(panelID != sourcePanelID)
         #expect(workspace.cloudMaterializationFailures.count == 1)
         let failure = try #require(workspace.cloudMaterializationFailures[panelID])
+        #expect(panelID == pendingPanelID)
+        #expect(workspace.cloudPendingCreations[panelID]?.machine == machine)
         #expect(failure.detail == error.errorDescription)
+        #expect(presentation.showsReconnectButton)
         let operation = try #require(recorder.operations.first)
         #expect(operation.operation == .terminal)
         #expect(operation.failure == .notFound)
@@ -193,6 +200,11 @@ import SwiftUI
         let retryRequest = await requestIterator.next()
         #expect(firstRequest != nil)
         #expect(retryRequest == firstRequest)
+        _ = try await waitForPaneFailure(workspace, panelID: panelID)
+        #expect(workspace.cloudPendingCreations.count == 1)
+        #expect(workspace.closePanel(panelID, force: true))
+        #expect(workspace.cloudPendingCreations[panelID] == nil)
+        #expect(workspace.panels[panelID] == nil)
         workspace.cloudPaneCreationFailureStore.cancelAll()
     }
 
@@ -200,10 +212,10 @@ import SwiftUI
     func knownCloudTerminalFailuresAreNotUnknown() {
         let errors: [(Error, CloudDiagnosticFailure)] = [
             (CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab"), .notFound),
-            (CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("machine"), .notFound),
+            (CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("machine"), .placement),
             (CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("machine"), .response),
-            (CmuxTuiSurfaceProvider.ProviderError.terminalExited("term"), .notFound),
-            (CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated("private response"), .response),
+            (CmuxTuiSurfaceProvider.ProviderError.terminalExited("term"), .process),
+            (CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated("private response"), .process),
             (SurfaceCatalogError.ambiguousRemotePlacement(.init(machine: .cloud("machine"), kind: .terminal, key: "term"), workspaceID: "private-workspace"), .conflict)
         ]
         for (error, expected) in errors {
@@ -284,6 +296,97 @@ import SwiftUI
         let size = host.fittingSize
         #expect(abs(size.width - width) < 1)
         #expect(size.height < 210, "The detail must not be squeezed into a side column")
+    }
+
+    @Test("A retained Cloud projection never falls back to a local terminal", arguments: ["split", "tab", "splitButton"])
+    func failedCloudRouteDoesNotCreateLocalPanel(action: String) throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("missing-provider-\(UUID().uuidString)")
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-missing-provider", name: "missing", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-missing-provider"),
+            title: "shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-missing-provider", workspace: remoteWorkspace)],
+            port: nil, url: nil
+        )
+        let catalog = SurfaceCatalog.shared
+        // A restored projection keeps its Cloud identity before the provider
+        // reconnects and publishes its resource graph.
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-missing-provider"
+        ))
+        defer {
+            catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
+        }
+        #expect(catalog.hasCloudProjection(panelID: sourcePanelID, workspaceID: workspace.id))
+        #expect(workspace.cloudProjectedResource(forPanel: sourcePanelID) == nil)
+
+        let panelCount = workspace.panels.count
+        switch action {
+        case "tab":
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: false).isAccepted)
+        case "splitButton":
+            workspace.bonsplitController.splitPane(paneID, orientation: .horizontal)
+        default:
+            #expect(!workspace.newTerminalSplitOutcome(
+                from: sourcePanelID, orientation: .horizontal, focus: false
+            ).isAccepted)
+        }
+        #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
+    }
+
+    @Test("Cloud placement errors have a specific diagnostic")
+    func cloudPlacementErrorHasSpecificDiagnostic() {
+        let error = CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("vm-placement")
+        #expect(CloudDiagnosticFailure.classify(error) == .placement)
+        #expect(CloudDiagnosticFailure.classify(error).label.contains("placement"))
+    }
+
+    @Test("Creation failure belongs to its visible workspace and detaches with its anchor")
+    func failureCardTracksWorkspaceVisibilityAndWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 720, height: 480),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let root = try #require(content.superview)
+        let source = NSView(frame: content.bounds)
+        content.addSubview(source)
+        let host = CloudPaneCreationFailurePresentation.NativeOverlay.AnchorView(frame: content.bounds)
+        let coordinator = CloudPaneCreationFailurePresentation.NativeOverlay.Coordinator()
+        coordinator.anchor = host
+        host.coordinator = coordinator
+        content.addSubview(host)
+        defer { coordinator.removeCard() }
+        let failure = CloudPaneCreationFailure(machine: .cloud("fixture"), error: URLError(.timedOut))
+        coordinator.update(failure: failure, layoutDirection: .leftToRight, colorScheme: .light,
+                           sourceView: source, style: .compact, onRetry: nil, onDismiss: { _ in })
+        func card() -> NSView? {
+            root.subviews.first { $0.identifier?.rawValue == "cmux.cloudPaneCreationFailure.card" }
+        }
+        let visibleCard = try #require(card())
+        #expect(!visibleCard.isDescendant(of: content))
+        #expect(visibleCard.frame.width > 0 && visibleCard.frame.height > 0)
+        #expect(content.convert(visibleCard.bounds, from: visibleCard).minX >= 0)
+        #expect(content.convert(visibleCard.bounds, from: visibleCard).maxX <= content.bounds.maxX)
+        #expect(host.hitTest(NSPoint(x: 5, y: 5)) == nil)
+        host.isHidden = true
+        #expect(card() == nil, "Switching workspaces must remove its window-level error")
+        host.isHidden = false
+        #expect(card() != nil)
+        host.removeFromSuperview()
+        #expect(card() == nil, "An unmounted workspace must not leave an orphan card")
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
@@ -514,9 +617,10 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
     }
 
-    private func waitForFailure(_ store: CloudPaneCreationFailureStore) async {
-        let deadline = ContinuousClock.now + .seconds(2)
-        while store.failure == nil, ContinuousClock.now < deadline { await Task.yield() }
+    private func waitForPaneFailure(_ workspace: Workspace, panelID: UUID) async throws -> CloudTerminalReconnectOverlayPolicy.Presentation {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while workspace.cloudMaterializationFailures[panelID] == nil, ContinuousClock.now < deadline { await Task.yield() }
+        return try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
     }
 
     @MainActor

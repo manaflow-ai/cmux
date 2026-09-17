@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToReadableStream } from "react-dom/server";
+import { renderSettled } from "./helpers/render-settled";
+import { readInitialMain } from "./helpers/render-stream";
 
 import { stripeSubscriptions } from "../db/schema";
 import { createNextNavigationMock } from "./helpers/next-navigation-mock";
@@ -46,8 +48,10 @@ const proUser = {
   update: mock(async () => undefined),
 };
 
+const getUser = mock(async () => currentUser);
+
 mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({ getUser: async () => currentUser }),
+  getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => stackConfigured,
   stackServerApp: stackConfigured ? { getUser: async () => currentUser } : null,
 }));
@@ -80,7 +84,7 @@ describe("app pricing page", () => {
 
   test("redirects to public pricing outside the cmux app", async () => {
     await expect(
-      AppPricingPage({ searchParams: Promise.resolve({}) }),
+      renderSettled(AppPricingPage({ searchParams: Promise.resolve({}) })),
     ).rejects.toMatchObject({ href: "/pricing" });
   });
 
@@ -91,7 +95,7 @@ describe("app pricing page", () => {
         cmux_scheme: "cmux-dev-test",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("/handler/native-sign-in?after_auth_return_to=");
     expect(html).toContain("plan%253Dpro");
@@ -128,6 +132,28 @@ describe("app pricing page", () => {
     expect(html).not.toContain("/api/billing/portal");
   });
 
+  test("streams prices before account state and keeps App Store fallback purchase-free", async () => {
+    stackConfigured = true;
+    let release!: () => void;
+    const pending = new Promise<unknown>((resolve) => { release = () => resolve(null); });
+    getUser.mockImplementation(() => pending);
+    const stream = await renderToReadableStream(AppPricingPage({
+      searchParams: Promise.resolve({ cmux_app: "1", cmux_distribution: "appstore" }),
+    }));
+    const reader = stream.getReader();
+    try {
+      const first = await readInitialMain(reader);
+      expect(first.includes("$50") && first.includes("$200")).toBe(true);
+      expect(first.includes("animate-pulse")).toBe(false);
+      expect(first.includes("/api/billing/checkout")).toBe(false);
+      expect(first.includes("/api/billing/portal")).toBe(false);
+    } finally {
+      release();
+      while (!(await reader.read()).done) { /* Drain the completed response. */ }
+      getUser.mockImplementation(async () => currentUser);
+    }
+  });
+
   test("forwards the Mac app's checkout attribution to every checkout link", async () => {
     const element = await AppPricingPage({
       searchParams: Promise.resolve({
@@ -140,7 +166,7 @@ describe("app pricing page", () => {
         cmux_app_build: "2026090101",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("plan%253Dpro");
     expect(html).toContain("plan%253Dteam");
@@ -158,7 +184,7 @@ describe("app pricing page", () => {
         interval: "year",
       }),
     });
-    const html = renderToStaticMarkup(element).replaceAll("&amp;", "&");
+    const html = (await renderSettled(element)).replaceAll("&amp;", "&");
 
     expect(html).toContain("not signed in.");
     expect(html).not.toContain("Current plan");
@@ -191,7 +217,7 @@ describe("app pricing page", () => {
         interval: "year",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain("$50");
     expect(html).toContain("$60");
@@ -233,7 +259,7 @@ describe("app pricing page", () => {
         interval: "month",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).not.toContain("Save 20%");
   });
@@ -246,7 +272,7 @@ describe("app pricing page", () => {
         cmux_scheme: "cmux-dev-test",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).not.toContain("/api/billing/checkout");
     expect(html).not.toContain("checkout.stripe.com");
@@ -264,7 +290,7 @@ describe("app pricing page", () => {
         cmux_scheme: "cmux-dev-test",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).not.toContain('href="/api/billing/portal"');
     expect(html).toContain(
@@ -286,7 +312,7 @@ describe("app pricing page", () => {
         cmux_scheme: "cmux-dev-test",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     // Apple 3.1.1: no external billing/purchase links inside App Store builds.
     expect(html).not.toContain("/api/billing/portal");
@@ -304,11 +330,14 @@ describe("app pricing page", () => {
         cmux_scheme: "cmux-dev-test",
       }),
     });
-    const html = renderToStaticMarkup(element);
+    const html = (await renderSettled(element));
 
     expect(html).toContain('href="/api/billing/portal"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Current plan");
+    const card = Array.from(html.matchAll(/aria-labelledby="individual-pricing-category"[\s\S]*?<\/section>/g), (match) => match[0]).find((section) => section.includes("Manage billing")) ?? "";
+    expect(card.match(/Current plan/g)).toHaveLength(1);
+    expect(card.includes("Manage billing")).toBe(true);
     // A Pro subscriber can still upgrade to Max from the app.
     expect(html).toContain("api/billing/portal?flow=switch_plan&amp;plan=max");
     expect(html).toContain("Get Max");
@@ -327,7 +356,7 @@ describe("app pricing page", () => {
           ...params,
         }),
       });
-      const html = renderToStaticMarkup(element);
+      const html = (await renderSettled(element));
 
       expect(html).toContain(message);
     });

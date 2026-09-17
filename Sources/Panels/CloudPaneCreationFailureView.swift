@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import SwiftUI
 
 /// Mounts the latest cloud pane creation failure above one workspace's content.
@@ -25,15 +26,15 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
                 failure: isWorkspaceVisible ? failureStore.failure : nil,
                 sourceView: sourceView,
                 style: style,
-                onRetry: failureStore.canRetry ? { id in failureStore.retry(id: id) } : nil,
-                onDismiss: { id in failureStore.dismiss(id: id) }
+                onRetry: failureStore.canRetry ? { [weak failureStore] id in failureStore?.retry(id: id) } : nil,
+                onDismiss: { [weak failureStore] id in failureStore?.dismiss(id: id) }
             )
         }
     }
 
     /// The anchor stays in the workspace layout; the interactive card is a
     /// native sibling above the terminal/browser portals, like the palette.
-    private struct NativeOverlay: NSViewRepresentable {
+    struct NativeOverlay: NSViewRepresentable {
         let failure: CloudPaneCreationFailure?
         let sourceView: NSView?
         let style: CloudPaneCreationFailureView.Style
@@ -69,6 +70,17 @@ struct CloudPaneCreationFailurePresentation: ViewModifier {
         @MainActor
         final class AnchorView: NSView {
             weak var coordinator: Coordinator?
+            override var isHidden: Bool {
+                didSet { coordinator?.synchronize() }
+            }
+            override func viewWillMove(toWindow newWindow: NSWindow?) {
+                if newWindow !== window { coordinator?.removeCard() }
+                super.viewWillMove(toWindow: newWindow)
+            }
+            override func viewWillMove(toSuperview newSuperview: NSView?) {
+                if newSuperview == nil { coordinator?.removeCard() }
+                super.viewWillMove(toSuperview: newSuperview)
+            }
             override func hitTest(_ point: NSPoint) -> NSView? { nil }
             override func viewDidMoveToWindow() {
                 super.viewDidMoveToWindow()
