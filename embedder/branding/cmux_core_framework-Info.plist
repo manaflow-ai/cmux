@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist for CmuxCore.framework. Mirrors upstream
+  chrome/app/framework-Info.plist with cmux substitution variables
+  declared in //cmux/BUILD.gn. Lands at
+  src/cmux/branding/cmux_core_framework-Info.plist in the fork.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleExecutable</key>
+	<string>${EXECUTABLE_NAME}</string>
+	<key>CFBundleIdentifier</key>
+	<string>${CMUX_CORE_FRAMEWORK_BUNDLE_ID}</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>CmuxCore</string>
+	<key>CFBundleShortVersionString</key>
+	<string>${CMUX_CORE_FRAMEWORK_VERSION}</string>
+	<key>CFBundleVersion</key>
+	<string>${CMUX_CORE_FRAMEWORK_VERSION}</string>
+	<key>CFBundlePackageType</key>
+	<string>FMWK</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+</dict>
+</plist>

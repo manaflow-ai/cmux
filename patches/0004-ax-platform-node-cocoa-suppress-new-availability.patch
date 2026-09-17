@@ -1,0 +1,44 @@
+From: cmux fork
+Subject: [PATCH] ui/accessibility: file-level suppress -Wunguarded-availability-new in ax_platform_node_cocoa.mm
+
+`ui/accessibility/platform/ax_platform_node_cocoa.mm` references
+several `NSAccessibility*` role and attribute constants that the
+macOS 26.2 SDK marks as introduced in macOS 26.0:
+
+    NSAccessibilityWebAreaRole
+    NSAccessibilityBlockQuoteLevelAttribute
+    NSAccessibilityVisitedAttribute
+
+Chromium's deployment target is macOS 11.0. The references span ~6
+lines across the file (943, 1505, 1518, 1623, 2918, 3512). Adding a
+function-scoped pragma to each would require six push/pop pairs, so a
+file-scoped suppression is the pragmatic choice: this file is OS-level
+accessibility plumbing and these new symbols just unblock the build.
+
+Companion to patch 0003 (which scoped the same suppression to a
+single function in `ax_inspect_utils_mac.mm`). Drop both when upstream
+chromium @available-gates these references or bumps the deployment
+target.
+
+--- a/ui/accessibility/platform/ax_platform_node_cocoa.mm
++++ b/ui/accessibility/platform/ax_platform_node_cocoa.mm
+@@ -1,3 +1,14 @@
++// cmux fork: macOS 26 SDK marks a number of NSAccessibility role and
++// attribute constants (WebAreaRole, BlockQuoteLevelAttribute,
++// VisitedAttribute, ...) as introduced in macOS 26.0. Chromium's
++// deployment target is macOS 11.0, so they fire
++// -Werror,-Wunguarded-availability-new across this file. File-level
++// suppression is the pragmatic choice: this file is OS-level
++// accessibility plumbing and the new symbols just unblock the build.
++// Drop when upstream chromium @available-gates these references or
++// bumps the deployment target.
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wunguarded-availability-new"
++
+ // Copyright 2018 The Chromium Authors
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+@@ -EOF,5 +EOF,7 @@
+ // end of file additions:
++
++#pragma clang diagnostic pop

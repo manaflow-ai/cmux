@@ -1,0 +1,47 @@
+From: cmux fork
+Subject: [PATCH] ui/accessibility: suppress -Wunguarded-availability-new in IsValidAXAttribute
+
+The macOS 26.2 SDK marks several `NSAccessibility*` string constants as
+introduced in macOS 26.0:
+
+    NSAccessibilityBlockQuoteLevelAttribute
+    NSAccessibilityVisitedAttribute
+
+`ui/accessibility/platform/inspect/ax_inspect_utils_mac.mm` builds a
+`NSSet` of all valid accessibility attribute names at file scope inside
+`IsValidAXAttribute()`. Chromium's deployment target is macOS 11.0, so
+the new availability annotations fire `-Werror,-Wunguarded-availability-new`.
+
+A proper fix would `@available`-gate each entry but Objective-C++ does
+not allow `@available` inside an array literal. The pragmatic patch
+wraps the function with a local clang diagnostic suppression. This
+function is dev-tools/inspection plumbing on the content_shell path,
+not on cmux's critical path. Drop the patch when upstream chromium
+bumps its deployment target or @available-gates these entries.
+
+--- a/ui/accessibility/platform/inspect/ax_inspect_utils_mac.mm
++++ b/ui/accessibility/platform/inspect/ax_inspect_utils_mac.mm
+@@ -62,6 +62,14 @@ static bool IDOrClassMatches(const ax::mojom::AXNode& node, NSString* nsIDOrCla
+
+ }  // namespace
+
++// cmux fork: macOS 26 SDK marks some NSAccessibility* constants as
++// introduced in macOS 26.0 only, but chromium's deployment target is
++// macOS 11.0. Since this function is dev-tools/inspection plumbing
++// gated by content_shell flags (not on cmux's critical path), suppress
++// the -Wunguarded-availability-new diagnostic locally. Drop when
++// upstream chromium bumps its deployment target or @available-gates
++// these entries.
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wunguarded-availability-new"
+ bool IsValidAXAttribute(const std::string& attribute) {
+   static NSSet<NSString*>* valid_attributes = [NSSet setWithArray:@[
+     NSAccessibilityAccessKeyAttribute,
+@@ -116,6 +124,7 @@ bool IsValidAXAttribute(const std::string& attribute) {
+
+   return [valid_attributes containsObject:base::SysUTF8ToNSString(attribute)];
+ }
++#pragma clang diagnostic pop
+
+ base::apple::ScopedCFTypeRef<AXUIElementRef> FindAXUIElement(
+     const AXUIElementRef node,

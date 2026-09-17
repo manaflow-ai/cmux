@@ -1,0 +1,35 @@
+From: cmux fork
+Subject: [PATCH] webnn/coreml: add default branch for new MLMultiArrayDataType values
+
+The macOS 26.2 SDK adds new enumerators to Apple's `MLMultiArrayDataType`
+(Int8, UInt8, etc.) which upstream Chromium HEAD has not enumerated yet
+in `services/webnn/coreml/utils_coreml.mm`. The switch in
+`GetDataTypeByteSize` has no `default:` case, so `-Werror,-Wswitch`
+fires and `-Wreturn-type` follows.
+
+Symptom on a content_shell build under macOS 15 + Xcode 26 (SDK
+MacOSX26.2.sdk):
+
+    services/webnn/coreml/utils_coreml.mm:27:11:
+    error: enumeration value 'MLMultiArrayDataTypeInt8' not handled in
+    switch [-Werror,-Wswitch]
+
+Fix adds a `default:` branch that returns 0. WebNN is not on cmux's
+critical path; a correct byte-size for the new types would just be
+future-rebase debt against upstream's own forthcoming fix. Drop this
+patch the moment upstream lands a fix.
+
+--- a/services/webnn/coreml/utils_coreml.mm
++++ b/services/webnn/coreml/utils_coreml.mm
+@@ -23,6 +23,12 @@ uint32_t GetDataTypeByteSize(MLMultiArrayDataType data_type) {
+       return 4;
+     case MLMultiArrayDataTypeFloat16:
+       return 2;
++    default:
++      // cmux fork: macOS 26 SDK introduced new MLMultiArrayDataType values
++      // (Int8, UInt8, etc.) that upstream Chromium has not enumerated yet.
++      // Treat unknown types conservatively; webnn is not on cmux's critical
++      // path so an exact byte-size here would just be future-rebase debt.
++      return 0;
+   }
+ }
