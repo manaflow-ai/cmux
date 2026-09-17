@@ -1,4 +1,5 @@
-import CMUXWorkstream
+import CmuxFoundation
+import CMUXAgentLaunch
 import Foundation
 import Observation
 import SwiftUI
@@ -57,8 +58,6 @@ struct FeedHistoryLoadMoreRow: View {
     let isLoading: Bool
     let action: () -> Void
 
-    @State private var isVisible = false
-
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
@@ -69,7 +68,7 @@ struct FeedHistoryLoadMoreRow: View {
                         .frame(width: 12, height: 12)
                 }
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity)
@@ -77,17 +76,6 @@ struct FeedHistoryLoadMoreRow: View {
         }
         .buttonStyle(.plain)
         .disabled(isLoading)
-        .onAppear {
-            isVisible = true
-            requestLoadIfVisible()
-        }
-        .onDisappear {
-            isVisible = false
-        }
-        .onChange(of: isLoading) { _, loading in
-            guard !loading else { return }
-            requestLoadIfVisible()
-        }
     }
 
     private var label: String {
@@ -97,8 +85,4 @@ struct FeedHistoryLoadMoreRow: View {
         return String(localized: "feed.history.loadOlder", defaultValue: "Load older activity")
     }
 
-    private func requestLoadIfVisible() {
-        guard isVisible, !isLoading else { return }
-        action()
-    }
 }

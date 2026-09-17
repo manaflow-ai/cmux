@@ -22,6 +22,7 @@ const getItem = mock(async () => ({
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getItem }),
   isStackConfigured: () => stackConfigured,
+  stackServerApp: { getItem, getUser: async () => null },
 }));
 
 beforeEach(() => {
@@ -33,7 +34,7 @@ beforeEach(() => {
 });
 
 describe("Stack VM billing gateway", () => {
-  test("does not resolve free-plan create-credit grants by default", () => {
+  test("does not resolve free-plan create credits by default", () => {
     const gateway = makeStackVmBillingGateway({});
 
     expect(gateway.resolveInitialCreateCreditGrant(createInput())).toEqual({ kind: "none" });
@@ -73,7 +74,7 @@ describe("Stack VM billing gateway", () => {
     expect(increaseQuantity).toHaveBeenCalledWith(20);
   });
 
-  test("does not require create credits for free plans by default", async () => {
+  test("does not consume a free-plan Stack Auth create-credit item by default", async () => {
     stackConfigured = false;
     const gateway = makeStackVmBillingGateway({});
 
@@ -83,7 +84,7 @@ describe("Stack VM billing gateway", () => {
     expect(getItem).not.toHaveBeenCalled();
   });
 
-  test("consumes configured free-plan Stack Auth create-credit items", async () => {
+  test("consumes a configured free-plan Stack Auth create-credit item", async () => {
     const gateway = makeStackVmBillingGateway({
       CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID: DEFAULT_FREE_CREATE_CREDIT_ITEM_ID,
     });
@@ -116,7 +117,7 @@ describe("Stack VM billing gateway", () => {
     expect(getItem).not.toHaveBeenCalled();
   });
 
-  test("allows configured free-plan create-credit items to be disabled", async () => {
+  test("allows the default free-plan create-credit item to be disabled", async () => {
     stackConfigured = false;
     const gateway = makeStackVmBillingGateway({
       CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID: "none",
@@ -128,21 +129,16 @@ describe("Stack VM billing gateway", () => {
     expect(getItem).not.toHaveBeenCalled();
   });
 
-  test("allows global Stack Auth create-credit items for free plans", async () => {
+  test("allows the global create-credit item to disable the free-plan default", async () => {
+    stackConfigured = false;
     const gateway = makeStackVmBillingGateway({
-      CMUX_VM_CREATE_CREDIT_ITEM_ID: "global-vm-create-credit",
+      CMUX_VM_CREATE_CREDIT_ITEM_ID: "disabled",
     });
 
     const reservation = await Effect.runPromise(gateway.reserveCreate(createInput()));
 
-    expect(getItem).toHaveBeenCalledWith({
-      teamId: "team-billing",
-      itemId: "global-vm-create-credit",
-    });
-    expect(reservation).toEqual(expect.objectContaining({
-      itemId: "global-vm-create-credit",
-      amount: 1,
-    }));
+    expect(reservation).toEqual({ kind: "none" });
+    expect(getItem).not.toHaveBeenCalled();
   });
 
   test("preserves global Stack Auth create-credit items for paid plans", async () => {
@@ -228,7 +224,7 @@ function createInput(overrides: Partial<ReserveCreateInput> = {}): ReserveCreate
     billingCustomerType: "team" as const,
     billingTeamId: "team-billing",
     billingPlanId: "free",
-    provider: "e2b" as const,
+    provider: "freestyle" as const,
     image: "cmuxd-ws:test",
     imageVersion: "test-version",
     vmId: "vm-billing",

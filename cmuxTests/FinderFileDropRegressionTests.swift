@@ -1,4 +1,5 @@
 import XCTest
+import CmuxTerminal
 import AppKit
 
 #if canImport(cmux_DEV)
@@ -18,6 +19,15 @@ final class FinderFileDropRegressionTests: XCTestCase {
         let tiffData = try XCTUnwrap(image.tiffRepresentation)
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
         return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    private func make1x1TIFF(color: NSColor) throws -> Data {
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        color.setFill()
+        NSRect(x: 0, y: 0, width: 1, height: 1).fill()
+        image.unlockFocus()
+        return try XCTUnwrap(image.tiffRepresentation)
     }
 
     func testOverlayCapturesFileURLDropsIncludingLocalPaneDrags() {
@@ -177,8 +187,8 @@ final class FinderFileDropRegressionTests: XCTestCase {
     func testLegacyFinderFilenameDropPlanInsertsEscapedLocalPath() throws {
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("finder legacy \(UUID().uuidString)")
-            .appendingPathExtension("png")
-        try make1x1PNG(color: .systemBlue).write(to: fileURL)
+            .appendingPathExtension("txt")
+        try "plain text".write(to: fileURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: fileURL) }
 
         let pasteboard = NSPasteboard(name: .init("cmux-test-legacy-filename-drop-\(UUID().uuidString)"))
@@ -198,6 +208,409 @@ final class FinderFileDropRegressionTests: XCTestCase {
         }
 
         XCTAssertEqual(text, TerminalImageTransferPlanner.escapeForShell(fileURL.path))
+    }
+
+    func testImageFileURLDropInsertsOriginalLocalImagePaths() throws {
+        let imageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux image file drop \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+        let firstURL = imageDirectory.appendingPathComponent("cmux ssh 2.png")
+        let secondURL = imageDirectory.appendingPathComponent("cmux ssh.png")
+        try make1x1PNG(color: .systemRed).write(to: firstURL)
+        try make1x1PNG(color: .systemGreen).write(to: secondURL)
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-file-url-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL, secondURL as NSURL]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected original local image path insertion, got \(plan)")
+        }
+
+        XCTAssertEqual(
+            text,
+            [firstURL, secondURL]
+                .map(\.path)
+                .map(TerminalImageTransferPlanner.escapeForShell)
+                .joined(separator: " ")
+        )
+        XCTAssertFalse(text.contains("/clipboard-"))
+    }
+
+    func testTransientImageFileURLDropGetsAnOwnedCopyBeforeInsertion() throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-drop-\(UUID().uuidString).png")
+        try make1x1PNG(color: .systemPurple).write(to: sourceURL)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let ownedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-drop-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: ownedDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: ownedDirectory) }
+
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-test-transient-image-drop-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([sourceURL as NSURL]))
+
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDirectory
+        )
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .drop,
+            pasteboardService: service
+        )
+
+        guard case .fileURLs(let fileURLs) = prepared,
+              let ownedURL = fileURLs.first else {
+            return XCTFail("expected a durable image file URL, got \(prepared)")
+        }
+        XCTAssertNotEqual(ownedURL.standardizedFileURL, sourceURL.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ownedURL.path))
+
+        try FileManager.default.removeItem(at: sourceURL)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: ownedURL.path),
+            "The terminal path must survive the source drag provider's cleanup"
+        )
+
+        service.cleanupTransferredTemporaryImageFiles([ownedURL])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ownedURL.path))
+    }
+
+    func testPromisedTransientImageURLGetsCopiedEvenWithoutCmuxDropName() throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("provider-image-\(UUID().uuidString).png")
+        try make1x1PNG(color: .systemOrange).write(to: sourceURL)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let ownedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-promised-drop-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: ownedDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: ownedDirectory) }
+
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-test-promised-image-drop-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setString(
+            sourceURL.absoluteString,
+            forType: PasteboardFileURLReader.promisedFileURLPasteboardType
+        )
+
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDirectory
+        )
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .drop,
+            pasteboardService: service
+        )
+
+        guard case .fileURLs(let fileURLs) = prepared,
+              let ownedURL = fileURLs.first else {
+            return XCTFail("expected a durable promised image URL, got \(prepared)")
+        }
+        XCTAssertNotEqual(ownedURL.standardizedFileURL, sourceURL.standardizedFileURL)
+        try FileManager.default.removeItem(at: sourceURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ownedURL.path))
+        service.cleanupTransferredTemporaryImageFiles([ownedURL])
+    }
+
+    func testMultiplePromisedFileURLItemsAreReadIndividually() throws {
+        let firstURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("promised-first-" + UUID().uuidString + ".png")
+        let secondURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("promised-second-" + UUID().uuidString + ".png")
+        try make1x1PNG(color: .systemPink).write(to: firstURL)
+        try make1x1PNG(color: .systemYellow).write(to: secondURL)
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-test-multiple-promised-file-urls-" + UUID().uuidString)
+        )
+        pasteboard.clearContents()
+        let firstItem = NSPasteboardItem()
+        firstItem.setString(
+            firstURL.absoluteString,
+            forType: PasteboardFileURLReader.promisedFileURLPasteboardType
+        )
+        let secondItem = NSPasteboardItem()
+        secondItem.setString(
+            secondURL.absoluteString,
+            forType: PasteboardFileURLReader.promisedFileURLPasteboardType
+        )
+        XCTAssertTrue(pasteboard.writeObjects([firstItem, secondItem]))
+
+        XCTAssertEqual(
+            PasteboardFileURLReader.fileURLs(from: pasteboard),
+            [firstURL.standardizedFileURL, secondURL.standardizedFileURL]
+        )
+
+        let ownedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-multiple-promised-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: ownedDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: ownedDirectory) }
+        let service = TerminalPasteboardService(temporaryDirectory: ownedDirectory)
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .drop,
+            pasteboardService: service
+        )
+        guard case .fileURLs(let durableURLs) = prepared else {
+            return XCTFail("expected both promised image items to be materialized")
+        }
+        XCTAssertEqual(durableURLs.count, 2)
+        XCTAssertTrue(
+            durableURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) }
+        )
+        service.cleanupTransferredTemporaryImageFiles(durableURLs)
+    }
+
+    func testTransientImageURLsUnderTmpAliasesGetOwnedCopies() throws {
+        let ownedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-alias-drop-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: ownedDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: ownedDirectory) }
+
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDirectory
+        )
+        for root in ["/tmp", "/private/tmp"] {
+            let sourceURL = URL(fileURLWithPath: root)
+                .appendingPathComponent("cmux-drop-" + UUID().uuidString + ".png")
+            try make1x1PNG(color: .systemTeal).write(to: sourceURL)
+            defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+            guard let durableURL = service.durableDroppedFileURLs([sourceURL])?.first else {
+                return XCTFail("expected a durable copy for " + sourceURL.path)
+            }
+            XCTAssertNotEqual(durableURL.standardizedFileURL, sourceURL.standardizedFileURL)
+            try FileManager.default.removeItem(at: sourceURL)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: durableURL.path))
+            service.cleanupTransferredTemporaryImageFiles([durableURL])
+            XCTAssertFalse(FileManager.default.fileExists(atPath: durableURL.path))
+        }
+    }
+
+    func testTransientCopyFailureRejectsMixedFileDrop() throws {
+        let regularURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mixed-drop-" + UUID().uuidString + ".txt")
+        try "plain text".write(to: regularURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: regularURL) }
+
+        let validTransientURL = URL(fileURLWithPath: "/tmp")
+            .appendingPathComponent("cmux-drop-" + UUID().uuidString + ".png")
+        try make1x1PNG(color: .systemBlue).write(to: validTransientURL)
+        defer { try? FileManager.default.removeItem(at: validTransientURL) }
+
+        let missingTransientURL = URL(fileURLWithPath: "/tmp")
+            .appendingPathComponent("cmux-drop-" + UUID().uuidString + ".png")
+        try? FileManager.default.removeItem(at: missingTransientURL)
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-test-mixed-transient-failure-" + UUID().uuidString)
+        )
+        pasteboard.clearContents()
+        pasteboard.setPropertyList(
+            [regularURL.path, missingTransientURL.path],
+            forType: PasteboardFileURLReader.legacyFilenamesPboardType
+        )
+
+        let ownedDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-owned-mixed-drop-" + UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: ownedDirectory,
+            withIntermediateDirectories: false
+        )
+        defer { try? FileManager.default.removeItem(at: ownedDirectory) }
+
+        let service = TerminalPasteboardService(
+            temporaryDirectory: ownedDirectory
+        )
+        let prepared = TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: .drop,
+            pasteboardService: service
+        )
+        guard case .reject = prepared else {
+            return XCTFail("a mixed drop must be rejected when a transient image cannot be retained")
+        }
+        XCTAssertTrue(
+            try FileManager.default
+                .contentsOfDirectory(at: ownedDirectory, includingPropertiesForKeys: nil)
+                .isEmpty,
+            "partially copied transient files must be rolled back when the drop is rejected"
+        )
+    }
+
+    func testImageFileURLDropUploadsOriginalFilesForRemoteTerminal() throws {
+        let imageDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux remote image file drop \(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: imageDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: imageDirectory) }
+
+        let firstURL = imageDirectory.appendingPathComponent("cmux ssh 2.png")
+        let secondURL = imageDirectory.appendingPathComponent("cmux ssh.png")
+        try make1x1PNG(color: .systemRed).write(to: firstURL)
+        try make1x1PNG(color: .systemGreen).write(to: secondURL)
+
+        let pasteboard = NSPasteboard(name: .init("cmux-test-remote-image-file-url-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([firstURL as NSURL, secondURL as NSURL]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true
+        )
+
+        guard case .uploadFiles(let urls) = plan else {
+            return XCTFail("expected remote upload plan, got \(plan)")
+        }
+
+        XCTAssertEqual(urls, [firstURL.standardizedFileURL, secondURL.standardizedFileURL])
+    }
+
+    func testImagePasteboardDropMaterializesEveryImageForLocalInsertion() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-multi-image-local-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let items = try [
+            makeImagePasteboardItem(color: .systemRed),
+            makeImagePasteboardItem(color: .systemGreen),
+        ]
+        XCTAssertTrue(pasteboard.writeObjects(items))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected local image path insertion, got \(plan)")
+        }
+
+        let paths = text
+            .split(separator: " ")
+            .map(String.init)
+        defer {
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(
+                paths.map { URL(fileURLWithPath: $0) }
+            )
+        }
+
+        XCTAssertEqual(paths.count, 2)
+        XCTAssertTrue(paths.allSatisfy { $0.contains("/clipboard-") && $0.hasSuffix(".png") })
+        XCTAssertTrue(paths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    func testImagePasteboardItemWithDirectImageAndRTFDAttachmentMaterializesOnce() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-rtfd-duplicate-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        XCTAssertTrue(pasteboard.writeObjects([try makeImagePasteboardItemWithRTFDAttachment(color: .systemRed)]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected local image path insertion, got \(plan)")
+        }
+
+        let paths = text
+            .split(separator: " ")
+            .map(String.init)
+        defer {
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(
+                paths.map { URL(fileURLWithPath: $0) }
+            )
+        }
+
+        XCTAssertEqual(paths.count, 1)
+        XCTAssertTrue(paths.allSatisfy { $0.contains("/clipboard-") && $0.hasSuffix(".png") })
+        XCTAssertTrue(paths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    func testImagePasteboardItemTIFFDropNormalizesToPNGForLocalInsertion() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-image-tiff-normalization-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let item = NSPasteboardItem()
+        item.setData(try make1x1TIFF(color: .systemBlue), forType: .tiff)
+        XCTAssertTrue(pasteboard.writeObjects([item]))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: false
+        )
+
+        guard case .insertText(let text) = plan else {
+            return XCTFail("expected local image path insertion, got \(plan)")
+        }
+
+        let paths = text
+            .split(separator: " ")
+            .map(String.init)
+        defer {
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(
+                paths.map { URL(fileURLWithPath: $0) }
+            )
+        }
+
+        XCTAssertEqual(paths.count, 1)
+        XCTAssertTrue(paths[0].contains("/clipboard-"))
+        XCTAssertEqual(URL(fileURLWithPath: paths[0]).pathExtension, "png")
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let materializedData = try Data(contentsOf: URL(fileURLWithPath: paths[0]))
+        XCTAssertEqual(Data(materializedData.prefix(pngSignature.count)), pngSignature)
+    }
+
+    func testImagePasteboardDropMaterializesEveryImageForRemoteUpload() throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-test-multi-image-remote-drop-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        let items = try [
+            makeImagePasteboardItem(color: .systemRed),
+            makeImagePasteboardItem(color: .systemGreen),
+        ]
+        XCTAssertTrue(pasteboard.writeObjects(items))
+
+        let plan = GhosttyNSView.dropPlanForTesting(
+            pasteboard: pasteboard,
+            isRemoteTerminalSurface: true
+        )
+
+        guard case .uploadFiles(let urls) = plan else {
+            return XCTFail("expected remote image upload plan, got \(plan)")
+        }
+        defer {
+            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(urls)
+        }
+
+        XCTAssertEqual(urls.count, 2)
+        XCTAssertTrue(urls.allSatisfy { $0.lastPathComponent.hasPrefix("clipboard-") && $0.pathExtension == "png" })
+        XCTAssertTrue(urls.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
     func testFileExplorerPathInsertionEscapesMultiplePathsLikeTerminalDrop() {
@@ -403,5 +816,28 @@ final class FinderFileDropRegressionTests: XCTestCase {
             ),
             "Sources/App.swift"
         )
+    }
+
+    private func makeImagePasteboardItem(color: NSColor) throws -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        item.setData(try make1x1PNG(color: color), forType: .png)
+        return item
+    }
+
+    private func makeImagePasteboardItemWithRTFDAttachment(color: NSColor) throws -> NSPasteboardItem {
+        let imageData = try make1x1PNG(color: color)
+        let wrapper = FileWrapper(regularFileWithContents: imageData)
+        wrapper.preferredFilename = "image.png"
+        let attachment = NSTextAttachment(fileWrapper: wrapper)
+        let attributed = NSAttributedString(attachment: attachment)
+        let rtfdData = try attributed.data(
+            from: NSRange(location: 0, length: attributed.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtfd]
+        )
+
+        let item = NSPasteboardItem()
+        item.setData(imageData, forType: .png)
+        item.setData(rtfdData, forType: .rtfd)
+        return item
     }
 }

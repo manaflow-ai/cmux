@@ -1,0 +1,209 @@
+import AppKit
+import CMUXAgentLaunch
+import CmuxNotifications
+import Foundation
+
+/// App-side adapter for notification delivery seams. The delivery coordinator
+/// stores this object strongly; the adapter keeps only a weak owner reference so
+/// `AppDelegate -> NotificationDeliveryCoordinator -> adapter -> AppDelegate`
+/// cannot become a retain cycle.
+@MainActor
+final class NotificationDeliverySeamAdapter: NotificationFeedReplying, NotificationTerminalReplying, NotificationApplicationActivating {
+    weak var owner: AppDelegate?
+
+    init(owner: AppDelegate) {
+        self.owner = owner
+    }
+
+    func deliverReply(requestId: String, decision: NotificationFeedDecision) {
+        owner?.notificationDeliveryDeliverFeedReply(requestId: requestId, decision: decision)
+    }
+
+    func permissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {
+        owner?.notificationDeliveryPermissionCapabilities(requestId: requestId)
+    }
+
+    func activateApplication() {
+        owner?.notificationDeliveryActivateApplication()
+    }
+
+    func sendReply(
+        text: String,
+        tabId: UUID,
+        surfaceId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) -> Bool {
+        owner?.notificationDeliverySendTerminalReply(
+            text: text,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
+        ) ?? false
+    }
+}
+
+extension AppDelegate {
+    /// Rewrites a parked phone reply to the surface's current workspace when
+    /// its notification explicitly permits live-owner retargeting.
+    ///
+    /// The reply inbox is already authenticated by ``PhoneReplyInboxClient``;
+    /// this helper is deliberately limited to that internal relay path. Direct
+    /// mobile RPCs retain their workspace/window authorization and routing
+    /// selectors, and must not use this global surface re-home. A confined
+    /// notification keeps its claimed workspace unchanged.
+    func phoneReplyTerminalInputParams(
+        _ params: [String: Any],
+        retargetsToLiveSurfaceOwner: Bool
+    ) -> [String: Any]? {
+        let controller = TerminalController.shared
+        guard let surfaceID = controller.v2UUID(params, "surface_id") else {
+            return nil
+        }
+        let hasWorkspaceID = controller.v2HasNonNullParam(params, "workspace_id")
+        let claimedWorkspaceID = controller.v2UUID(params, "workspace_id")
+        guard !hasWorkspaceID || claimedWorkspaceID != nil else {
+            return nil
+        }
+        guard retargetsToLiveSurfaceOwner else {
+            // Workspace-confined notifications keep their original claim. The
+            // generic mobile resolver will fail closed if that target moved.
+            return claimedWorkspaceID == nil ? nil : params
+        }
+        guard let owner = liveSurfaceOwner(
+            surfaceID: surfaceID,
+            preferredTabID: claimedWorkspaceID
+        ) else {
+            return nil
+        }
+
+        var routed = params
+        routed["workspace_id"] = owner.tabID.uuidString
+        routed["surface_id"] = owner.surfaceID.uuidString
+        return routed
+    }
+
+    func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
+        FeedCoordinator.shared.deliverReply(
+            requestId: requestId,
+            decision: Self.workstreamDecision(from: decision)
+        )
+    }
+
+    func notificationDeliveryPermissionCapabilities(requestId: String) -> NotificationFeedPermissionCapabilities? {
+        guard let item = FeedCoordinator.shared.snapshot(pendingOnly: false).reversed().first(where: { item in
+            guard case .permissionRequest(let itemRequestId, _, _, _) = item.payload else { return false }
+            return itemRequestId == requestId
+        }) else {
+            return nil
+        }
+        guard case .permissionRequest(_, _, let toolInputJSON, _) = item.payload else {
+            return nil
+        }
+
+        return NotificationFeedPermissionCapabilities(
+            supportsOnce: FeedPermissionActionPolicy.supportsOncePermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ),
+            supportsAlways: FeedPermissionActionPolicy.supportsAlwaysPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            ),
+            supportsAll: FeedPermissionActionPolicy.supportsAllPermissionMode(
+                source: item.source,
+                toolInputJSON: toolInputJSON
+            )
+        )
+    }
+
+    func notificationDeliveryActivateApplication() {
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func notificationDeliverySendTerminalReply(
+        text: String,
+        tabId: UUID,
+        surfaceId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) -> Bool {
+        guard let surfaceId else { return false }
+        // A reply follows the surface to its CURRENT workspace exactly like
+        // banner-open delivery does: a moved pane keeps its surface identity
+        // but may live under another window's tab manager, and terminal.paste
+        // routing needs the live workspace to select that manager. A gone
+        // target fails closed instead of typing into a stale claim.
+        let target: (tabId: UUID, surfaceId: UUID?)
+        if retargetsToLiveSurfaceOwner {
+            guard let liveTarget = agentNotificationDeliveryTarget(
+                claimedTabId: tabId,
+                surfaceId: surfaceId
+            ) else { return false }
+            target = liveTarget
+        } else {
+            target = (tabId, surfaceId)
+        }
+        // Use the dedicated paste path so the reply text and its submit key
+        // remain separate. `surface.send_text` plus a trailing carriage return
+        // writes a raw byte, which full-screen agent editors render as a
+        // newline instead of treating it as Return.
+        switch TerminalController.shared.v2MobileTerminalPaste(params: [
+            "workspace_id": target.tabId.uuidString,
+            "surface_id": surfaceId.uuidString,
+            "text": text,
+            "submit_key": "return",
+        ]) {
+        case .ok:
+            // The text is applied before the named key. A false `submitted`
+            // flag is still a successful paste, and returning false here would
+            // reopen the notification with text already sitting in the prompt.
+            // Treat a missing field as success for older hosts that only
+            // acknowledged the paste.
+            return true
+        case .err:
+            return false
+        }
+    }
+
+    private static func workstreamDecision(from decision: NotificationFeedDecision) -> WorkstreamDecision {
+        switch decision {
+        case .permission(let mode):
+            return .permission(workstreamPermissionMode(from: mode))
+        case .exitPlan(let mode, let feedback):
+            return .exitPlan(workstreamExitPlanMode(from: mode), feedback: feedback)
+        case .question(let selections):
+            return .question(selections: selections)
+        }
+    }
+
+    private static func workstreamPermissionMode(
+        from mode: NotificationFeedPermissionMode
+    ) -> WorkstreamPermissionMode {
+        switch mode {
+        case .once:
+            return .once
+        case .always:
+            return .always
+        case .all:
+            return .all
+        case .bypass:
+            return .bypass
+        case .deny:
+            return .deny
+        }
+    }
+
+    private static func workstreamExitPlanMode(from mode: NotificationFeedExitPlanMode) -> WorkstreamExitPlanMode {
+        switch mode {
+        case .ultraplan:
+            return .ultraplan
+        case .bypassPermissions:
+            return .bypassPermissions
+        case .autoAccept:
+            return .autoAccept
+        case .manual:
+            return .manual
+        case .deny:
+            return .deny
+        }
+    }
+}

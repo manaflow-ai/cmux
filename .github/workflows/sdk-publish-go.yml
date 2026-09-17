@@ -1,0 +1,279 @@
+name: sdk validate go
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "SDK version to validate or verify"
+        required: true
+        type: string
+      verify_tag:
+        description: "Resolve the coordinated public Go module tag"
+        required: false
+        default: false
+        type: boolean
+      release_ref:
+        description: "Exact coordinated Go module tag ref"
+        required: false
+        default: ""
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SDK version to validate, for example 0.1.0"
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: sdk-publish-go-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Validate tag and package versions
+        id: version
+        env:
+          CALLER_WORKFLOW_REF: ${{ github.workflow_ref }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+          RELEASE_REF: ${{ inputs.release_ref }}
+          VERIFY_TAG: ${{ inputs.verify_tag }}
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            [[ "$GITHUB_REF_NAME" =~ ^cmux-tui/bindings/go/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+              echo "tag must match cmux-tui/bindings/go/vX.Y.Z" >&2
+              exit 1
+            }
+            version="${GITHUB_REF_NAME#cmux-tui/bindings/go/v}"
+            [[ "$DISPATCH_VERSION" == "$version" ]] || {
+              echo "requested version $DISPATCH_VERSION does not match tag version $version" >&2
+              exit 1
+            }
+          else
+            version="$DISPATCH_VERSION"
+            [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+              echo "workflow_dispatch version must match X.Y.Z" >&2
+              exit 1
+            }
+          fi
+          python3 cmux-tui/bindings/validate_release_version.py \
+            --version "$version"
+          if [[ "$VERIFY_TAG" == "true" ]]; then
+            expected_caller="$GITHUB_REPOSITORY/.github/workflows/sdk-release-cut.yml@$GITHUB_REF"
+            [[ "$CALLER_WORKFLOW_REF" == "$expected_caller" ]] || {
+              echo "Public Go tag verification is only available through sdk-release-cut.yml." >&2
+              exit 1
+            }
+            tag="cmux-tui/bindings/go/v$version"
+            expected_ref="refs/tags/$tag"
+            [[ "$RELEASE_REF" == "$expected_ref" ]] || {
+              echo "Refusing to verify Go ref $RELEASE_REF; expected $expected_ref." >&2
+              exit 1
+            }
+            git fetch --force origin main --tags
+            git tag --list 'cmux-sdk-v*' | \
+              python3 cmux-tui/bindings/validate_release_version.py \
+                --version "$version" \
+                --require-latest-tag
+            release_sha="$(git rev-parse "refs/tags/$tag^{commit}")" || {
+              echo "release tag does not exist: $tag" >&2
+              exit 1
+            }
+            git merge-base --is-ancestor "$release_sha" origin/main || {
+              echo "release tag $tag is not an ancestor of protected main" >&2
+              exit 1
+            }
+            [[ "$release_sha" == "$GITHUB_SHA" ]] || {
+              echo "release tag $tag resolves to $release_sha, expected workflow commit $GITHUB_SHA" >&2
+              exit 1
+            }
+          fi
+          python3 - "$version" <<'PY'
+          import json
+          import pathlib
+          import sys
+          import tomllib
+
+          expected = sys.argv[1]
+          root = pathlib.Path.cwd()
+          versions = {
+              "typescript package.json": json.loads((root / "cmux-tui/bindings/typescript/package.json").read_text())["version"],
+              "python pyproject.toml": tomllib.loads((root / "cmux-tui/bindings/python/pyproject.toml").read_text())["project"]["version"],
+              "rust Cargo.toml": tomllib.loads((root / "cmux-tui/bindings/rust/Cargo.toml").read_text())["package"]["version"],
+          }
+          mismatches = {name: got for name, got in versions.items() if got != expected}
+          if mismatches:
+              for name, got in mismatches.items():
+                  print(f"{name}: expected {expected}, got {got}", file=sys.stderr)
+              raise SystemExit(1)
+          print(f"All package versions match {expected}")
+          PY
+          python3 cmux-tui/bindings/check-versions.py \
+            --published-only \
+            --expected "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  bindings-e2e-go:
+    if: inputs.verify_tag != true
+    needs: version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Rust version
+        run: |
+          rustc --version || true
+          if ! command -v cargo >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.22.x"
+
+      - name: Build cmux-tui server
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui --bin cmux-tui --locked
+
+      - name: Go SDK conformance
+        run: |
+          report="$RUNNER_TEMP/cmux-sdk-conformance-go.txt"
+          python3 cmux-tui/bindings/conformance/runner.py \
+            --language go \
+            --require go \
+            --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui" |
+            tee "$report"
+          grep -Eq '^PASS +go +live-creation-exit-restart-unix$' "$report"
+
+  validate-go-module:
+    if: inputs.verify_tag != true
+    needs: bindings-e2e-go
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.22.x"
+
+      - name: Validate Go module
+        working-directory: cmux-tui/bindings/go
+        run: |
+          go test ./...
+          go build ./...
+          go vet ./...
+
+  verify-versioned-go-module:
+    if: inputs.verify_tag == true
+    needs: version
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.22.x"
+          cache: false
+
+      - name: Resolve the public module tag from a clean consumer
+        env:
+          CMUX_SDK_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          module="github.com/manaflow-ai/cmux/cmux-tui/bindings/go"
+          expected="v$CMUX_SDK_VERSION"
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+          export GOENV=off
+          export GOFLAGS=""
+          export GOINSECURE=""
+          export GOPROXY=https://proxy.golang.org
+          export GOSUMDB=sum.golang.org
+          export GOPRIVATE=""
+          export GONOPROXY=none
+          export GONOSUMDB=none
+          export GOMODCACHE="$scratch/modcache"
+          export GOCACHE="$scratch/buildcache"
+          export GOWORK=off
+          mkdir "$scratch/consumer"
+          cd "$scratch/consumer"
+          go mod init cmux-release-consumer
+          python3 "$GITHUB_WORKSPACE/cmux-tui/bindings/wait_for_go_module.py" \
+            --module "$module" \
+            --version "$expected" \
+            --wait-seconds 1800 \
+            --retry-seconds 30
+          go get "$module@$expected"
+          go mod download "$module@$expected"
+          go mod verify
+          resolved="$(go list -m -f '{{.Version}}' "$module")"
+          [[ "$resolved" == "$expected" ]] || {
+            echo "resolved $module@$resolved, expected $expected" >&2
+            exit 1
+          }
+          module_dir="$(go list -m -f '{{.Dir}}' "$module")"
+          python3 "$GITHUB_WORKSPACE/cmux-tui/bindings/verify_go_module_source.py" \
+            --repository "$GITHUB_WORKSPACE" \
+            --commit "$GITHUB_SHA" \
+            --module-subdir cmux-tui/bindings/go \
+            --downloaded-root "$module_dir"
+          cat > release_test.go <<EOF
+          package consumer
+
+          import (
+              "testing"
+
+              cmux "$module"
+              raw "$module/raw"
+          )
+
+          func TestReleasedPackagesCompile(t *testing.T) {
+              _ = cmux.ClientOptions{}
+              _ = raw.Options{}
+          }
+          EOF
+          gofmt -w release_test.go
+          go test -mod=readonly ./...

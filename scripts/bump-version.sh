@@ -8,7 +8,7 @@ set -euo pipefail
 #   ./scripts/bump-version.sh patch     # Bump patch (0.15.0 -> 0.15.1)
 #   ./scripts/bump-version.sh major     # Bump major (0.15.0 -> 1.0.0)
 
-PROJECT_FILE="GhosttyTabs.xcodeproj/project.pbxproj"
+PROJECT_FILE="cmux.xcodeproj/project.pbxproj"
 
 if [[ ! -f "$PROJECT_FILE" ]]; then
   echo "Error: $PROJECT_FILE not found. Run from repo root." >&2

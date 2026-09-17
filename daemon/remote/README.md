@@ -6,12 +6,18 @@ Go remote daemon for `cmux ssh` bootstrap, capability negotiation, and remote pr
 
 1. `cmuxd-remote version`
 2. `cmuxd-remote serve --stdio`
-3. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
-4. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
+3. `cmuxd-remote serve --stdio --persistent --slot <slot> [--persistent-lease-port <port>]`
+4. `cmuxd-remote serve --persistent-stop --slot <slot>` — internal authenticated slot teardown
+5. `cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]`
+6. `cmuxd-remote cli <command> [args...]` — relay cmux commands to the local app over the reverse SSH forward
 
 `serve --ws` is explicit opt-in for cloud VM images only. The normal `cmux ssh`
-code path continues to use `serve --stdio` over an SSH exec channel and does not
-open a WebSocket listener.
+code path uses `serve --stdio --persistent --slot <slot>` over an SSH exec
+channel. That stdio process is only a proxy to an authenticated per-slot daemon
+with credentials and logs under `~/.cmux/daemon/<version>/<slot>/`, so remote PTY sessions
+can survive local surface close, local reconnect, and app relaunch. The persistent
+server never opens a public listener; it accepts only a per-user Unix socket under
+`/tmp/cmuxd-remote-<uid>/` and the slot token.
 
 When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the binary auto-dispatches to the `cli` subcommand. This is busybox-style argv[0] detection.
 
@@ -30,12 +36,39 @@ When invoked as `cmux` (via wrapper/symlink installed during bootstrap), the bin
 11. `session.resize`
 12. `session.detach`
 13. `session.status`
+14. `pty.attach`
+15. `pty.write`
+16. `pty.resize`
+17. `pty.detach`
+18. `pty.close`
+19. `pty.list`
 
 Current integration in cmux:
 1. `workspace.remote.configure` now bootstraps this binary over SSH when missing.
 2. Client sends `hello` before enabling remote proxy transport.
 3. Local workspace proxy broker serves SOCKS5 + HTTP CONNECT and tunnels stream traffic through `proxy.*` RPC over `serve --stdio`, using daemon-pushed stream events instead of polling reads.
 4. Daemon status/capabilities are exposed in `workspace.remote.status -> remote.daemon` (including `session.resize.min`).
+5. Persistent SSH terminals require the `pty.session.persistent_daemon` capability before cmux will restore a saved remote PTY session ID after relaunch.
+
+## Persistent SSH PTY daemon
+
+`cmux ssh` uses one persistent daemon slot per CLI-launched SSH workspace. The
+slot name is generated locally, validated as `[A-Za-z0-9._-]{1,128}`, and sent
+to the remote daemon bootstrap as `--slot`.
+
+Remote slot files:
+1. `/tmp/cmuxd-remote-<uid>/cmuxd-<slot-hash>.sock` authenticated Unix socket for stdio proxies.
+2. `~/.cmux/daemon/<version>/<slot>/auth.token` random 32-byte hex token, mode `0600`.
+3. `~/.cmux/daemon/<version>/<slot>/daemon.lock` single-owner lock.
+4. `~/.cmux/daemon/<version>/<slot>/daemon.log` startup and crash diagnostics.
+
+PTY lifecycle:
+1. A local attach creates or reuses a named `pty.*` session in the persistent daemon.
+2. If the local surface closes, the stdio proxy disconnects and its attachment detaches, but the PTY process and bounded scrollback remain in the daemon.
+3. `cmux ssh-session-list` calls `pty.list`; `cmux ssh-session-attach` creates a new local terminal whose startup script calls `ssh-pty-attach --require-existing`.
+4. `cmux ssh-session-cleanup` calls `pty.close` to terminate a persisted PTY session explicitly.
+5. Sessions with no attachments keep their last-known size and are reaped by the daemon idle TTL.
+6. Closing the owning workspace sends an authenticated slot-shutdown request, waits a bounded interval for the daemon lock to be released, and removes the relay's shell-state directory. As defense in depth, a daemon launched with `--persistent-lease-port` observes that exact `~/.cmux/relay/<port>.slot` lease, exits after the observed lease disappears and stdio disconnects, and removes the matching shell-state directory. Older callers that omit the flag retain the prior behavior without unsafe broad lease scanning.
 
 ## Cloud WebSocket PTY transport
 
@@ -102,7 +135,11 @@ The command prints the exact release asset URL, expected SHA-256, local cache st
 
 ## CLI relay
 
-The `cli` subcommand (or `cmux` wrapper/symlink) connects to the local cmux app through an SSH reverse forward and relays commands. It supports both v1 text protocol and v2 JSON-RPC commands.
+The `cli` subcommand (or `cmux` wrapper/symlink) connects to the local cmux app through an SSH reverse forward and relays commands using the v2 JSON-RPC protocol.
+
+Cloud VM images install `/usr/local/bin/cmux` as a symlink to `cmuxd-remote`,
+so `cmux --help` works before a user-specific SSH bootstrap has written
+`~/.cmux/bin/cmux`.
 
 Socket discovery order:
 1. `--socket <path>` flag
@@ -115,6 +152,7 @@ Authenticated relay details:
 1. Each SSH workspace gets its own relay ID and relay token.
 2. The app runs a local loopback relay server that requires an HMAC-SHA256 challenge-response before forwarding a command to the real local Unix socket.
 3. The remote shell never gets direct access to the local app socket. It only gets the reverse-forwarded relay port plus `~/.cmux/relay/<port>.auth`, which is written with `0600` permissions and removed when the relay stops.
+4. Authentication is not authorization. `RemoteRelayCommandPolicy` rejects unlisted methods, command-bearing startup parameters, invalid selectors, and every parameter outside the selected method’s explicit schema. The app then verifies a request HMAC binding the originating workspace and active local SSH controller generation, and validates targets against its live remote terminal identities (`RemoteRelayAuthorizationPolicy`); aliases translate IDs but do not grant ownership. Local/browser panels in a remote workspace are excluded. Dispatch rechecks the controller generation and live ownership before acting; replacing or retiring the controller invalidates previously admitted requests. Input, split, close, scrollback, and selection reads also recheck the actual terminal target, and relay reads bypass cached topology responses. `surface.split` requires explicit workspace and surface UUIDs, permits terminal splits only, and rejects local startup overrides. `surface.create`, `pane.create`, `surface.respawn`, `surface.send_key`, workspace/window/group creation, and global listing/navigation methods are denied. `surface.resume.set` is the command-metadata exception: its separate authenticated persistent-SSH registration and approval checks remain required. Relay-side denials return `remote_relay_denied`; app-side ownership denials return `remote_relay_*_denied` without executing the requested operation.
 
 Integration additions for the relay path:
 
@@ -122,3 +160,23 @@ Integration additions for the relay path:
 2. A background `ssh -N -R` process reverse-forwards a TCP port to the authenticated local relay server. The relay address is written to `~/.cmux/socket_addr` on the remote.
 3. Relay startup writes `~/.cmux/relay/<port>.daemon_path` so the wrapper can route each shell to the correct daemon binary when multiple local cmux instances or versions coexist.
 4. Relay startup writes `~/.cmux/relay/<port>.auth` with the relay ID and token needed for HMAC authentication.
+
+### Protocol and flags
+
+All relay commands use v2 JSON-RPC. Flags map to JSON params via `flagToParamKey` (e.g. `--workspace` → `workspace_id`). Boolean flags (`--focus`) accept `true`/`false`/`1`/`0`/`yes`/`no` and are sent as JSON booleans.
+
+Environment fallbacks:
+- `CMUX_WORKSPACE_ID` — used as `workspace_id` when `--workspace` is not provided
+- `CMUX_SURFACE_ID` — used as `surface_id` when `--surface` is not provided
+
+### Migration notes
+
+**`new-workspace`**: The flag `--working-directory` was removed. It was accepted by the old relay but sent the wrong param name (`working_directory` instead of `cwd`), so the server silently ignored it. Use `--cwd` for the working directory. The flag `--command` is now supported: it sends the command text to the new workspace's default surface after creation.
+
+**Relay authorization (GHSA-9vmv-3hjw-j28c)**: the remote CLI exposes only the authorization allowlist, even if a command appears in its command table. `new-workspace`, `new-window`, `new-surface`, `new-pane`, `send-key`, global workspace/window listing, and focus/navigation commands are denied. Allowed surface operations require the explicit live remote target consumed by that handler; adding an unrelated owned selector does not authorize a request. Use `new-split` with the owning workspace and terminal surface IDs for a remote terminal split.
+
+**`send` / `send-key`**: The `--text` and `--key` flags were removed. Both commands now take their argument positionally, matching the Mac CLI convention: `cmux send "hello world"` and `cmux send-key ctrl+c`.
+
+**Window commands**: Prior to this release, `list-windows`, `current-window`, `new-window`, `focus-window`, and `close-window` used a v1 text protocol and returned plain-text responses (e.g. `window:abc123` per line). They now use v2 JSON-RPC and return JSON. Scripts parsing that output will need updating.
+
+Browser and workspace group commands remain in the remote CLI command table for protocol compatibility, but all `browser.*` and `workspace.group.*` methods are denied through the reverse SSH relay. Their presence in the CLI help or command table does not grant access to local browser or workspace-group operations.

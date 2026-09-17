@@ -76,7 +76,13 @@ if ! validate_bridge_header "$PROJECT_DIR/ghostty.h"; then
 fi
 
 GHOSTTY_SHA="$(git -C ghostty rev-parse HEAD)"
-GHOSTTY_KEY="$GHOSTTY_SHA"
+GHOSTTYKIT_CRASH_REPORT_SUBDIR="${CMUX_GHOSTTYKIT_CRASH_REPORT_SUBDIR:-cmux/crash}"
+# cmux owns process-wide crash capture through Sentry Cocoa. Linking Ghostty's
+# native Sentry as well creates a second global crash handler and starts its
+# environment-reading init thread during Ghostty locale mutation.
+GHOSTTYKIT_BUILD_FLAVOR="crashsubdir-$(printf '%s' "$GHOSTTYKIT_CRASH_REPORT_SUBDIR" | tr '/=' '--')-sentry-off-noi18n-v2"
+GHOSTTY_CLEAN_KEY="${GHOSTTY_SHA}-${GHOSTTYKIT_BUILD_FLAVOR}"
+GHOSTTY_KEY="$GHOSTTY_CLEAN_KEY"
 UNTRACKED_FILES="$(git -C ghostty ls-files --others --exclude-standard)"
 if ! git -C ghostty diff --quiet --ignore-submodules=all HEAD -- || [[ -n "$UNTRACKED_FILES" ]]; then
   DIRTY_HASH="$(
@@ -93,7 +99,7 @@ if ! git -C ghostty diff --quiet --ignore-submodules=all HEAD -- || [[ -n "$UNTR
       fi
     } | hash_stdin
   )"
-  GHOSTTY_KEY="${GHOSTTY_SHA}-dirty-${DIRTY_HASH}"
+  GHOSTTY_KEY="${GHOSTTY_CLEAN_KEY}-dirty-${DIRTY_HASH}"
 fi
 
 CACHE_ROOT="${CMUX_GHOSTTYKIT_CACHE_DIR:-$HOME/.cache/cmux/ghosttykit}"
@@ -130,7 +136,7 @@ try_fetch_prebuilt_xcframework() {
   # Trust model: only install prebuilt artifacts whose SHA256 is pinned in the
   # reviewed checksum manifest for the current ghostty submodule commit.
   # Unpinned or mismatched artifacts fall back to a local ReleaseFast build.
-  if [[ "$GHOSTTY_KEY" != "$GHOSTTY_SHA" ]]; then
+  if [[ "$GHOSTTY_KEY" != "$GHOSTTY_CLEAN_KEY" ]]; then
     return 1
   fi
   if [[ "${CMUX_GHOSTTYKIT_NO_PREBUILT:-0}" == "1" ]]; then
@@ -140,7 +146,7 @@ try_fetch_prebuilt_xcframework() {
     return 1
   fi
 
-  local url="https://github.com/manaflow-ai/ghostty/releases/download/xcframework-${GHOSTTY_SHA}/GhosttyKit.xcframework.tar.gz"
+  local url="https://github.com/manaflow-ai/ghostty/releases/download/xcframework-${GHOSTTY_CLEAN_KEY}/GhosttyKit.xcframework.tar.gz"
   if [[ ! -f "$GHOSTTYKIT_CHECKSUMS_FILE" ]]; then
     echo "==> Missing GhosttyKit checksum manifest; falling back to local build." >&2
     return 1
@@ -219,7 +225,20 @@ else
     echo "==> Building GhosttyKit.xcframework (this may take a few minutes)..."
     (
       cd ghostty
-      zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
+      # -Di18n=false: compiling Ghostty's .po catalogs needs gettext's
+      # msgfmt, which not every builder has, and cmux never bundles the
+      # resulting .mo files (they only install into Ghostty's own app
+      # bundle, skipped by -Demit-macos-app=false). Runtime lookups are
+      # comptime-gated to return the msgid, which is what cmux shipped
+      # all along.
+      zig build \
+        -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" \
+        -Dsentry=false \
+        -Di18n=false \
+        -Demit-macos-app=false \
+        -Demit-xcframework=true \
+        -Dxcframework-target=universal \
+        -Doptimize=ReleaseFast
     )
     echo "$GHOSTTY_KEY" > "$LOCAL_KEY_STAMP"
     echo "$GHOSTTY_SHA" > "$LEGACY_LOCAL_SHA_STAMP"

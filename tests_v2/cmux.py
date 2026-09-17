@@ -28,6 +28,9 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+# Outer harness allowance above BrowserScreenshotTimingBudget's 41.5-second client deadline.
+BROWSER_SCREENSHOT_RESPONSE_TIMEOUT_S = 45.0
+
 
 class cmuxError(Exception):
     """Exception raised for cmux errors."""
@@ -979,6 +982,25 @@ class cmux:
         sid = self._resolve_surface_id(panel)
         res = self._call("debug.terminal.is_focused", {"surface_id": sid}) or {}
         return bool(res.get("focused"))
+
+    def simulate_terminal_file_drop(
+        self,
+        panel: Union[str, int],
+        paths: list[str],
+        route: str = "text_destination",
+        payload: str = "file_urls",
+    ) -> None:
+        sid = self._resolve_surface_id(panel)
+        self._call(
+            "debug.terminal.simulate_file_drop",
+            {
+                "surface_id": sid,
+                "paths": [str(path) for path in paths],
+                "route": route,
+                "payload": payload,
+            },
+            timeout_s=30.0,
+        )
 
     def read_terminal_text(self, panel: Union[str, int, None] = None) -> str:
         params: Dict[str, Any] = {}
