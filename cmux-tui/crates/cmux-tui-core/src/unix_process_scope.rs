@@ -1524,6 +1524,27 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn final_scan_retains_the_marker_until_ownership_checks_finish() {
+        let mut scope = UnixProcessScope::prepare().unwrap();
+        let marker_fd = scope._marker_fd.as_raw_fd();
+        let marker = scope.file_marker;
+        let (reached, resume) = scope.final_scan_gate_for_test();
+        let mut command = UnixProcessScope::suspended_command("/bin/sleep");
+        command.arg("30");
+        scope.configure(&mut command);
+        let mut child = command.spawn().unwrap();
+        scope.bind(child.id()).unwrap();
+        scope.terminate_until(Instant::now());
+        child.wait().unwrap();
+        reached.recv_timeout(Duration::from_secs(5)).unwrap();
+        drop(scope);
+        let retained = file_marker_for_fd(marker_fd).is_ok_and(|actual| actual == marker);
+        resume.send(()).unwrap();
+        assert!(retained, "an inactive scan must retain the inode it still uses as ownership evidence");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn close_on_exec_marker_does_not_claim_an_unrelated_process() {
         let scope = UnixProcessScope::prepare().unwrap();
         // A fork sees every parent's descriptor before exec closes CLOEXEC
