@@ -12154,6 +12154,7 @@ class TerminalController {
           sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
           terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)
+          quit                            - Request a normal application quit, like Cmd+Q (test-only)
           send_workspace <workspace_id> <text> - Send text to a workspace's selected terminal (test-only)
           is_terminal_focused <id|idx>    - Return true/false if terminal surface is first responder (test-only)
           read_terminal_text [id|idx]     - Read visible terminal text (base64, test-only)
@@ -12246,6 +12247,23 @@ class TerminalController {
     func activateApp() -> String {
         v2MainSync {
             _ = AppDelegate.shared?.activateMainWindowFromSocket()
+        }
+        return "OK"
+    }
+
+    /// Debug-only: requests a normal application quit, the same path as Cmd+Q
+    /// from the keyboard, so tests can exercise `applicationShouldTerminate`
+    /// and its terminate-later cleanup over the socket.
+    ///
+    /// The request is deliberately not made inside the synchronous socket
+    /// command frame: `NSApp.terminate` spins a nested run loop while the
+    /// delegate's `.terminateLater` cleanup runs, and a nested loop entered from
+    /// a main-queue block cannot drain main-actor tasks, so the cleanup (and its
+    /// watchdog) would never complete. Scheduling the terminate on the next
+    /// main run-loop turn keeps the socket reply immediate and the cleanup live.
+    func requestApplicationQuit() -> String {
+        DispatchQueue.main.async {
+            NSApp.terminate(nil)
         }
         return "OK"
     }
