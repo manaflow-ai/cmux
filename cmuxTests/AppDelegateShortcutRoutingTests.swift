@@ -6320,6 +6320,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             panel, at: .workspace(id: workspace.id, placement: .tab), focus: true, isLoading: false
         )
         focusHostedTerminalForRepairTesting(window: window, hostedView: panel.hostedView)
+        // Explicit input starts the runtime; a manual mirror has no child
+        // process or initial output to trigger background admission in this test.
+        panel.surface.attachToViewForInputDemand(panel.hostedView.surfaceView)
+        panel.surface.requestInputDemandSurfaceStartIfNeeded()
         waitUntil(timeout: 2) { panel.surface.hasLiveSurface }
         XCTAssertTrue(panel.surface.hasLiveSurface, "Manual surface must be live to observe actual key encoding")
 
