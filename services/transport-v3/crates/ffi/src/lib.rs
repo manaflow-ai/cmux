@@ -5,7 +5,7 @@ use cmux_v3_transport::{
     session::{self, Lane, LaneKind, Session, SessionSender},
 };
 use ed25519_dalek::VerifyingKey;
-use libp2p::{identity, PeerId};
+use libp2p::identity;
 use std::{collections::HashMap, future::Future, sync::Arc};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -233,8 +233,12 @@ impl NativeEndpoint {
     /// Apply only an authority-signed ordered update. Callers cannot inject
     /// raw revocation state or widen permissions.
     pub fn apply_revocation_update(&self, token: String) -> Result<(), NativeError> {
-        if token.len() > 8192 { return Err(NativeError::Invalid); }
-        self.endpoint.apply_revocation_token(&token).map_err(|_| NativeError::Denied)?;
+        if token.len() > 8192 {
+            return Err(NativeError::Invalid);
+        }
+        self.endpoint
+            .apply_revocation_token(&token)
+            .map_err(|_| NativeError::Denied)?;
         Ok(())
     }
 }

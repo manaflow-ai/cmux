@@ -17,7 +17,7 @@ class DeployTests(unittest.TestCase):
         with patch.object(deploy,'run',return_value=''):
             self.assertIsNone(deploy.az('acr','import'))
     def test_install_script_is_fail_closed_and_preserves_old_generation(self):
-        script=deploy.install_script('registry.azurecr.io/relay@sha256:123','registry.azurecr.io/caddy@sha256:456','node.eastus.cloudapp.azure.com','203.0.113.1',{'test':'aa'*32},'test-identity')
+        script=deploy.install_script('registry.azurecr.io/relay@sha256:123','registry.azurecr.io/caddy@sha256:456','node.eastus.cloudapp.azure.com','203.0.113.1',{'test':'aa'*32},'test-identity','bb'*32,None)
         with tempfile.NamedTemporaryFile('w') as f:
             f.write(script);f.flush()
             subprocess.run(['bash','-n',f.name],check=True)
@@ -33,7 +33,7 @@ class DeployTests(unittest.TestCase):
         self.assertNotIn('SIGNER_SEED',script)
     def test_remote_script_values_cannot_inject_shell(self):
         with self.assertRaises(ValueError):
-            deploy.install_script('image;bad','proxy','host','ip',{},'identity')
+            deploy.install_script('image;bad','proxy','host','ip',{},'identity','bb'*32,None)
     def test_labels_reject_shell_and_resource_scope_injection(self):
         for value in ['foo/bar','x;bad','../old','A','x'*26]:
             with self.assertRaises(Exception): deploy.label(value)

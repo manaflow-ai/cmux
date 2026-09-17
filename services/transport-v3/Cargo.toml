@@ -21,6 +21,7 @@ hex = "0.4"
 jsonwebtoken = "9.3"
 libp2p = { git = "https://github.com/manaflow-ai/rust-libp2p", rev = "a996f703a7586a72398ea58dcdd535acc5ae858e", default-features = false, features = ["tokio", "quic", "tcp", "dns", "websocket", "noise", "yamux", "relay", "dcutr", "identify", "ping", "macros", "request-response", "json", "ed25519"] }
 libp2p-identity = { version = "0.2", features = ["ed25519", "peerid", "rand"] }
+multiaddr = "0.18"
 libp2p-stream = { git = "https://github.com/manaflow-ai/rust-libp2p", rev = "a996f703a7586a72398ea58dcdd535acc5ae858e" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

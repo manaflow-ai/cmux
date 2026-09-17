@@ -267,7 +267,9 @@ impl Endpoint {
     /// Apply an authority-signed, ordered feed event. Raw peer lists are never
     /// accepted from application code.
     pub fn apply_revocation_token(&self, token: &str) -> Result<(), Error> {
-        let update = self.authority_keys.admit_revocation(token, &self.team, unix_now())
+        let update = self
+            .authority_keys
+            .admit_revocation(token, &self.team, unix_now())
             .map_err(|_| Error::Denied)?;
         let mut next = self.revocations.borrow().as_ref().clone();
         next.apply_update(&update).map_err(|_| Error::Denied)?;
@@ -277,5 +279,7 @@ impl Endpoint {
 }
 
 fn unix_now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }

@@ -13,6 +13,7 @@ cmux-v3-grants = { path = "../grants" }
 ed25519-dalek.workspace = true
 hex.workspace = true
 libp2p-identity.workspace = true
+multiaddr.workspace = true
 thiserror.workspace = true
 sha2 = "0.10"
 reqwest.workspace = true

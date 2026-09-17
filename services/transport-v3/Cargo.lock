@@ -795,6 +795,7 @@ dependencies = [
  "hex",
  "libp2p",
  "prometheus-client 0.23.1",
+ "reqwest",
  "serde",
  "serde_json",
  "subtle",

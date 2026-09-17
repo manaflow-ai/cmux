@@ -11,8 +11,11 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -40,10 +43,12 @@ def script_on_vm(group, node, script):
         raise RuntimeError('Remote operation did not produce a success receipt: '+messages[-4000:])
     return messages
 
-def install_script(image, proxy, hostname, address, keys, identity_client):
+def install_script(image, proxy, hostname, address, keys, identity_client, feed_token, control_url):
     # These interpolated values come from validated labels and Azure resource IDs.
-    for value in (image,proxy,hostname,address,identity_client):
+    for value in (image,proxy,hostname,address,identity_client,feed_token):
         if not re.fullmatch(r'[A-Za-z0-9.:/@_-]+',value): raise ValueError('invalid deployment value')
+    if control_url is not None and not re.fullmatch(r'https://[A-Za-z0-9._:/@_-]+', control_url.rstrip('/')):
+        raise ValueError('control URL must be HTTPS')
     public_bytes=json.dumps(keys,sort_keys=True).encode()
     public = base64.b64encode(public_bytes).decode()
     public_hash=hashlib.sha256(public_bytes).hexdigest()
@@ -89,6 +94,7 @@ umask 077
 [ -f /etc/cmux-v3/identity ] || openssl rand -out /etc/cmux-v3/identity 32
 [ -f /etc/cmux-v3/drain ] || openssl rand -out /etc/cmux-v3/drain 32
 printf '%s' '{public}' | base64 -d >/etc/cmux-v3/authority.json
+printf '%s' '{feed_token}' >/etc/cmux-v3/feed-token
 chown -R 10001:10001 /etc/cmux-v3
 cat >/etc/cmux-v3/Caddyfile <<'CADDY'
 {hostname} {{
@@ -102,7 +108,8 @@ docker run -d --name cmux-v3-relay --restart on-failure --network host \
  -v /etc/cmux-v3:/run/cmux-v3:ro {image} \
  --identity-file /run/cmux-v3/identity --authority-keys /run/cmux-v3/authority.json \
  --drain-token-file /run/cmux-v3/drain \
- --advertise /ip4/{address}/tcp/4001,/ip4/{address}/udp/4001/quic-v1,/dns4/{hostname}/tcp/443/wss >/dev/null
+ --advertise /ip4/{address}/tcp/4001,/ip4/{address}/udp/4001/quic-v1,/dns4/{hostname}/tcp/443/wss \
+ {('--control-url ' + control_url + ' --control-token-file /run/cmux-v3/feed-token') if control_url else ''} >/dev/null
 docker run -d --name cmux-v3-tls --restart on-failure --network host \
  --log-opt max-size=10m --log-opt max-file=3 \
  -v /etc/cmux-v3/Caddyfile:/etc/caddy/Caddyfile:ro \
@@ -110,7 +117,8 @@ docker run -d --name cmux-v3-tls --restart on-failure --network host \
 for attempt in $(seq 1 30); do
   if curl -fsS --max-time 2 http://127.0.0.1:8080/readyz >/dev/null; then
     printf '%s' '{image}' >/etc/cmux-v3/installed
-    curl -fsS --max-time 2 http://127.0.0.1:8080/healthz
+    health=$(curl -fsS --max-time 2 http://127.0.0.1:8080/healthz)
+    printf '%s\n' "$health"
     echo CMUX_V3_OK
     exit 0
   fi
@@ -168,9 +176,37 @@ def main():
                '--public-ip-address',node+'-ip','--nsg',node+'-nsg','--nsg-rule','NONE','--custom-data',f.name,
                '--tags','app=cmux-transport-v3',f'generation={ARGS.generation}',f'source={sha}')
         public=az('network','public-ip','show','-g',group,'-n',node+'-ip')
-        script=install_script(image,proxy,public['dnsSettings']['fqdn'],public['ipAddress'],keys,identity['clientId'])
+        feed_token = secrets.token_hex(32)
+        control_url = ARGS.control_url.rstrip('/') if ARGS.control_url else None
+        script=install_script(image,proxy,public['dnsSettings']['fqdn'],public['ipAddress'],keys,identity['clientId'],feed_token,control_url)
         result=script_on_vm(group,node,script)
-        receipt['nodes'].append({'group':group,'node':node,'region':region,'ip':public['ipAddress'],'hostname':public['dnsSettings']['fqdn'],'installation':result})
+        peer_match = re.search(r'\"peer_id\"\s*:\s*\"([^\"]+)\"', result)
+        if not peer_match:
+            raise RuntimeError('Relay did not return its authenticated peer id')
+        peer_id = peer_match.group(1)
+        addresses = [
+            f"/ip4/{public['ipAddress']}/tcp/4001/p2p/{peer_id}",
+            f"/ip4/{public['ipAddress']}/udp/4001/quic-v1/p2p/{peer_id}",
+            f"/dns4/{public['dnsSettings']['fqdn']}/tcp/443/wss/p2p/{peer_id}",
+        ]
+        registration = None
+        if ARGS.control_url:
+            token = ARGS.control_token_file.read_text().strip()
+            if not token or len(token) > 8192:
+                raise RuntimeError('control token file is empty or too large')
+            body = json.dumps({'team': ARGS.control_team, 'peer_id': peer_id, 'region': region, 'addresses': addresses, 'feed_token': feed_token}).encode()
+            request = urllib.request.Request(
+                control_url + '/v3/relays/register', data=body, method='POST',
+                headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    if response.status < 200 or response.status >= 300:
+                        raise RuntimeError(f'control relay registration returned HTTP {response.status}')
+                    registration = json.loads(response.read())
+            except (urllib.error.URLError, ValueError) as error:
+                raise RuntimeError(f'control relay registration failed: {error}') from error
+        receipt['nodes'].append({'group':group,'node':node,'region':region,'ip':public['ipAddress'],'hostname':public['dnsSettings']['fqdn'],'peer_id':peer_id,'addresses':addresses,'feed_token_sha256':hashlib.sha256(feed_token.encode()).hexdigest(),'registered':registration is not None,'installation':result})
         ARGS.receipt.write_text(json.dumps(receipt,indent=2)+'\n')
         print('INSTALLED',node,public['dnsSettings']['fqdn'],flush=True)
 
@@ -186,5 +222,10 @@ if __name__=='__main__':
     parser.add_argument('--authority-keys',required=True,type=Path)
     parser.add_argument('--ssh-key',required=True,type=Path)
     parser.add_argument('--receipt',required=True,type=Path)
+    parser.add_argument('--control-url', help='HTTPS v3 control service URL; registers relay feed credentials')
+    parser.add_argument('--control-token-file', type=Path, help='Stack admin bearer used with --control-url')
+    parser.add_argument('--control-team', default='transport-v3-ops', type=label)
     ARGS=parser.parse_args()
+    if bool(ARGS.control_url) != bool(ARGS.control_token_file):
+        parser.error('--control-url and --control-token-file must be supplied together')
     main()

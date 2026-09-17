@@ -244,8 +244,8 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   160 messages and exactly 327680 application bytes each direction, forged grant
   denied and renewal acknowledged. Receipts are {eastus,westus2}-session-*.json
   in HQ artifacts/transport-v3/azure-staging. These are relay paths, not NAT or
-  application UI verification. The deployed relay image is still g0916a and does
-  not yet contain the drain-renewal fix; that fix has process-test evidence only.
+  application UI verification. They were run against both g0916a and g0917b;
+  the deployed g0917b image contains the drain-renewal fix.
 - The default libp2p Identify behaviour emits observed-address candidates, and
   DCUtR consumes those events itself. No extra custom address-promotion logic is
   needed for that mechanism. Real NAT reachability remains to be demonstrated.
@@ -292,8 +292,9 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   explicitly invokes Bash and is building all Apple slices from 2436efaa279.
   Its native artifact and five Swift adapter tests passed. The mobile RPC and
   network packages compile. All 32 Rust tests and strict Clippy passed. The
-  returned archive SHA-256 was verified before extracting the native artifact. Earlier local Swift test invocations
-  did not follow the fleet execution rule; no further local builds are used.
+  returned archive SHA-256 was verified before extracting the native artifact.
+  Earlier local Swift test invocations did not follow the fleet execution rule;
+  no further local builds are used.
 - Added localized libp2p v3 labels to existing diagnostics/settings vocabulary.
   Labels contain no device identifiers. HIG writing page was requested but its
   content required JavaScript; no layout or interaction changes were designed.
@@ -311,9 +312,9 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
 - New ACR run ca2 succeeded for source 23b49a0e062a53660d268ad9b85317686a32ce8e:
   cmuxv3relaystaging.azurecr.io/relay@sha256:d9c6db7d6b07e1437aa7e6ed759aa2e88f85fb44c6b632dee1f03ae1690df966.
   The image has both abbreviated and full revision tags pointing to that digest.
-- Generation g0917b provisioning is running for East US and West US 2 with the
-  new image. Existing g0916a servers stay active. Do not drain/retire them before
-  new-generation public transport tests and application handover evidence exist.
+- Generation g0917b was provisioned for East US and West US 2 with the new image.
+  Both old g0916a nodes were then drained after replacement readiness and probe
+  checks. They exited cleanly and remain stopped for the observation window.
 - The current source adds cache receipts and build preparation after the tested
   controller revision. Shell/Python syntax, operation tests and workspace grouping
-  checks pass; the new cache-reuse path and full app builds remain unverified.
+  checks pass. The controller build of the current signed-feed source is pending.

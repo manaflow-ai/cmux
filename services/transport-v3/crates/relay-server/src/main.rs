@@ -259,7 +259,10 @@ async fn main() -> Result<()> {
     };
     let feed = match (&args.control_url, &args.control_token_file) {
         (Some(url), Some(path)) => Some(spawn_revocation_feed(
-            url.clone(), read_secret(path, 64)?, peer_id, gate.clone(),
+            url.clone(),
+            read_secret(path, 64)?,
+            peer_id,
+            gate.clone(),
         )),
         (None, None) => None,
         _ => bail!("control URL and control token file must be supplied together"),
@@ -328,7 +331,9 @@ async fn main() -> Result<()> {
     };
     state.listening.store(false, Ordering::Release);
     http.abort();
-    if let Some(feed) = feed { feed.abort(); }
+    if let Some(feed) = feed {
+        feed.abort();
+    }
     info!(
         remaining_circuits = swarm.behaviour().relay.num_circuits(),
         "relay stopped"
@@ -344,15 +349,25 @@ fn spawn_revocation_feed(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let url = url.trim_end_matches('/').to_owned();
-        if !(url.starts_with("https://") || url.starts_with("http://127.0.0.1") || url.starts_with("http://localhost")) {
+        if !(url.starts_with("https://")
+            || url.starts_with("http://127.0.0.1")
+            || url.starts_with("http://localhost"))
+        {
             warn!("refusing non-private revocation feed URL");
             return;
         }
-        let client = match reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(5)).build() {
+        let client = match reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+            .build()
+        {
             Ok(client) => client,
             Err(_) => return,
         };
-        let token = match String::from_utf8(token) { Ok(token) => token, Err(_) => return };
+        let token = match String::from_utf8(token) {
+            Ok(token) => token,
+            Err(_) => return,
+        };
         let mut sequence = 0_u64;
         let mut ticker = tokio::time::interval(Duration::from_secs(5));
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -363,12 +378,23 @@ fn spawn_revocation_feed(
                 .json(&serde_json::json!({"relay_peer":relay.to_string(),"team":"*","after_sequence":sequence,"limit":256}))
                 .send().await;
             let Ok(response) = response else { continue };
-            if !response.status().is_success() { continue; }
-            let Ok(body) = response.bytes().await else { continue };
-            if body.len() > 64 * 1024 { continue; }
-            let Ok(body) = serde_json::from_slice::<FeedResponse>(&body) else { continue };
+            if !response.status().is_success() {
+                continue;
+            }
+            let Ok(body) = response.bytes().await else {
+                continue;
+            };
+            if body.len() > 64 * 1024 {
+                continue;
+            }
+            let Ok(body) = serde_json::from_slice::<FeedResponse>(&body) else {
+                continue;
+            };
             for event in body.events {
-                if event.sequence <= sequence || gate.apply_revocation_token(&event.update).is_err() { break; }
+                if event.sequence <= sequence || gate.apply_revocation_token(&event.update).is_err()
+                {
+                    break;
+                }
                 sequence = event.sequence;
             }
         }
@@ -376,9 +402,14 @@ fn spawn_revocation_feed(
 }
 
 #[derive(serde::Deserialize)]
-struct FeedResponse { events: Vec<FeedEvent> }
+struct FeedResponse {
+    events: Vec<FeedEvent>,
+}
 #[derive(serde::Deserialize)]
-struct FeedEvent { sequence: u64, update: String }
+struct FeedEvent {
+    sequence: u64,
+    update: String,
+}
 
 fn router(state: AppState) -> Router {
     Router::new()

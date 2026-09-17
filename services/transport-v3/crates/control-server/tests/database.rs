@@ -2,13 +2,12 @@
 use cmux_v3_authority::DEFAULT_POLICY;
 use cmux_v3_control_server::{
     auth::Identity, now, proof::Proof, store::Store, Authorization, DeviceUpdate, Enrollment,
-    Error, PolicyUpdate, Revocation, Signed,
+    Error, PolicyUpdate, RelayRegistration, Revocation, Signed,
 };
 use cmux_v3_grants::{GrantSigner, LeasePolicy, OfflineAccess};
 use ed25519_dalek::SigningKey;
 use libp2p_identity::{Keypair, PeerId};
 use sqlx::postgres::PgPoolOptions;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 fn peer() -> PeerId {
@@ -198,10 +197,27 @@ async fn postgres_authorization_and_revocation_are_atomic_and_tenant_scoped() {
     .unwrap();
     assert_eq!(events, 1);
     let relay = peer();
-    let feed_token = "relay-feed-secret";
-    sqlx::query("INSERT INTO transport_v3_relays(peer_id,region,addresses,feed_token_hash) VALUES($1,'westus2','[]',$2)")
-        .bind(relay.to_string()).bind(Sha256::digest(feed_token.as_bytes()).to_vec()).execute(&db).await.unwrap();
-    assert!(store.relay_token_valid(&relay.to_string(), feed_token).await.unwrap());
-    assert!(!store.relay_token_valid(&relay.to_string(), "wrong").await.unwrap());
+    let feed_token = "r".repeat(64);
+    store
+        .register_relay(
+            &admin,
+            RelayRegistration {
+                team: team.clone(),
+                peer_id: relay.to_string(),
+                region: "westus2".into(),
+                addresses: vec![format!("/ip4/127.0.0.1/tcp/4001/p2p/{relay}")],
+                feed_token: feed_token.clone(),
+            },
+        )
+        .await
+        .unwrap();
+    assert!(store
+        .relay_token_valid(&relay.to_string(), feed_token)
+        .await
+        .unwrap());
+    assert!(!store
+        .relay_token_valid(&relay.to_string(), "wrong")
+        .await
+        .unwrap());
     assert!(!store.relay_events(&team, 0, 256).await.unwrap().is_empty());
 }

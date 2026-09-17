@@ -122,6 +122,15 @@ pub struct EventRequest {
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct RelayRegistration {
+    pub team: String,
+    pub peer_id: String,
+    pub region: String,
+    pub addresses: Vec<String>,
+    pub feed_token: String,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RelayEventRequest {
     pub relay_peer: String,
     #[serde(default = "all_teams")]
@@ -131,8 +140,12 @@ pub struct RelayEventRequest {
     #[serde(default = "event_limit")]
     pub limit: i64,
 }
-fn all_teams() -> String { "*".into() }
-fn event_limit() -> i64 { 256 }
+fn all_teams() -> String {
+    "*".into()
+}
+fn event_limit() -> i64 {
+    256
+}
 
 fn token(headers: &HeaderMap) -> Result<&str, Error> {
     headers
@@ -169,6 +182,7 @@ pub fn router(service: Service) -> Router {
         .route("/v3/directory", post(directory))
         .route("/v3/events", post(events))
         .route("/v3/relay-events", post(relay_events))
+        .route("/v3/relays/register", post(register_relay))
         .layer(DefaultBodyLimit::max(64 * 1024))
         .layer(axum::middleware::from_fn(
             move |request: axum::extract::Request, next: axum::middleware::Next| {
@@ -309,11 +323,18 @@ async fn events(
     headers: HeaderMap,
     Json(input): Json<EventRequest>,
 ) -> Result<Json<serde_json::Value>, Error> {
-    let identity = s.stack.authorize(token(&headers)?, &input.team, false).await?;
-    if input.team != identity.team || input.after_sequence < 0 || !(1..=256).contains(&input.limit) {
+    let identity = s
+        .stack
+        .authorize(token(&headers)?, &input.team, false)
+        .await?;
+    if input.team != identity.team || input.after_sequence < 0 || !(1..=256).contains(&input.limit)
+    {
         return Err(Error::Invalid);
     }
-    let rows = s.store.events(&identity, input.after_sequence, input.limit).await?;
+    let rows = s
+        .store
+        .events(&identity, input.after_sequence, input.limit)
+        .await?;
     let mut updates = Vec::with_capacity(rows.len());
     for row in rows {
         let revoked_peers = if row.action == "revoke" {
@@ -322,8 +343,12 @@ async fn events(
             Vec::new()
         };
         let update = RevocationUpdate {
-            key_id: String::new(), team_id: identity.team.clone(), sequence: row.sequence as u64,
-            policy_revision: row.revision as u64, revoked_peers, issued_at: now(),
+            key_id: String::new(),
+            team_id: identity.team.clone(),
+            sequence: row.sequence as u64,
+            policy_revision: row.revision as u64,
+            revoked_peers,
+            issued_at: now(),
         };
         updates.push(serde_json::json!({
             "sequence": update.sequence,
@@ -331,23 +356,58 @@ async fn events(
             "update": s.signer.sign_revocation(update, now()).map_err(|_| Error::Unavailable)?,
         }));
     }
-    Ok(Json(serde_json::json!({"team":identity.team,"events":updates})))
+    Ok(Json(
+        serde_json::json!({"team":identity.team,"events":updates}),
+    ))
 }
+async fn register_relay(
+    State(s): State<Service>,
+    headers: HeaderMap,
+    Json(input): Json<RelayRegistration>,
+) -> Result<Json<serde_json::Value>, Error> {
+    let identity = s
+        .stack
+        .authorize(token(&headers)?, &input.team, true)
+        .await?;
+    s.store.register_relay(&identity, input).await?;
+    Ok(Json(serde_json::json!({"registered":true})))
+}
+
 async fn relay_events(
-    State(s): State<Service>, headers: HeaderMap, Json(input): Json<RelayEventRequest>,
+    State(s): State<Service>,
+    headers: HeaderMap,
+    Json(input): Json<RelayEventRequest>,
 ) -> Result<Json<serde_json::Value>, Error> {
     let bearer = token(&headers)?;
     if input.relay_peer.parse::<libp2p_identity::PeerId>().is_err()
-        || input.team.len() > 256 || input.after_sequence < 0 || !(1..=256).contains(&input.limit)
-    { return Err(Error::Invalid); }
-    if !s.store.relay_token_valid(&input.relay_peer, bearer).await? { return Err(Error::Unauthorized); }
-    let rows = s.store.relay_events(&input.team, input.after_sequence, input.limit).await?;
+        || input.team.len() > 256
+        || input.after_sequence < 0
+        || !(1..=256).contains(&input.limit)
+    {
+        return Err(Error::Invalid);
+    }
+    if !s.store.relay_token_valid(&input.relay_peer, bearer).await? {
+        return Err(Error::Unauthorized);
+    }
+    let rows = s
+        .store
+        .relay_events(&input.team, input.after_sequence, input.limit)
+        .await?;
     let mut updates = Vec::with_capacity(rows.len());
     for row in rows {
-        let revoked_peers = if row.action == "revoke" { row.peer_id.into_iter().collect() } else { Vec::new() };
-        let update = RevocationUpdate { key_id: String::new(), team_id: row.team_id,
-            sequence: row.sequence as u64, policy_revision: row.revision as u64,
-            revoked_peers, issued_at: now() };
+        let revoked_peers = if row.action == "revoke" {
+            row.peer_id.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+        let update = RevocationUpdate {
+            key_id: String::new(),
+            team_id: row.team_id,
+            sequence: row.sequence as u64,
+            policy_revision: row.revision as u64,
+            revoked_peers,
+            issued_at: now(),
+        };
         updates.push(serde_json::json!({"sequence":update.sequence,
             "policy_revision":update.policy_revision,
             "update":s.signer.sign_revocation(update, now()).map_err(|_| Error::Unavailable)?}));

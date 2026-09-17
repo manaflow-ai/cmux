@@ -117,11 +117,22 @@ pub struct RevocationUpdate {
 }
 impl RevocationUpdate {
     fn validate(&self, now: u64) -> Result<(), Error> {
-        if self.key_id.is_empty() || self.key_id.len() > 128 || self.team_id.is_empty()
-            || self.team_id.len() > 256 || self.sequence == 0 || self.policy_revision == 0
-            || self.issued_at > now || now - self.issued_at > 300 || self.revoked_peers.len() > 10000
-            || self.revoked_peers.iter().any(|peer| peer.parse::<PeerId>().is_err())
-        { return Err(Error::InvalidGrant); }
+        if self.key_id.is_empty()
+            || self.key_id.len() > 128
+            || self.team_id.is_empty()
+            || self.team_id.len() > 256
+            || self.sequence == 0
+            || self.policy_revision == 0
+            || self.issued_at > now
+            || now - self.issued_at > 300
+            || self.revoked_peers.len() > 10000
+            || self
+                .revoked_peers
+                .iter()
+                .any(|peer| peer.parse::<PeerId>().is_err())
+        {
+            return Err(Error::InvalidGrant);
+        }
         Ok(())
     }
 }
@@ -265,17 +276,34 @@ impl AuthorityKeys {
         Ok(admission)
     }
 
-    pub fn admit_revocation(&self, token: &str, team: &str, now: u64) -> Result<RevocationUpdate, Error> {
-        if token.len() > MAX_TOKEN_BYTES || team.len() > 256 { return Err(Error::InvalidGrant); }
+    pub fn admit_revocation(
+        &self,
+        token: &str,
+        team: &str,
+        now: u64,
+    ) -> Result<RevocationUpdate, Error> {
+        if token.len() > MAX_TOKEN_BYTES || team.len() > 256 {
+            return Err(Error::InvalidGrant);
+        }
         let header = jsonwebtoken::decode_header(token).map_err(|_| Error::InvalidGrant)?;
-        if header.alg != Algorithm::EdDSA || header.typ.as_deref() != Some(REVOCATION_TOKEN_TYPE) { return Err(Error::InvalidGrant); }
-        let key = header.kid.as_ref().and_then(|id| self.0.get(id)).ok_or(Error::UnknownSigner)?;
+        if header.alg != Algorithm::EdDSA || header.typ.as_deref() != Some(REVOCATION_TOKEN_TYPE) {
+            return Err(Error::InvalidGrant);
+        }
+        let key = header
+            .kid
+            .as_ref()
+            .and_then(|id| self.0.get(id))
+            .ok_or(Error::UnknownSigner)?;
         let mut validation = Validation::new(Algorithm::EdDSA);
         validation.validate_exp = false;
         validation.leeway = 0;
+        validation.required_spec_claims.clear();
         let update = jsonwebtoken::decode::<RevocationUpdate>(token, key, &validation)
-            .map_err(|_| Error::InvalidGrant)?.claims;
-        if !team.is_empty() && update.team_id != team { return Err(Error::WrongScope); }
+            .map_err(|_| Error::InvalidGrant)?
+            .claims;
+        if !team.is_empty() && update.team_id != team {
+            return Err(Error::WrongScope);
+        }
         update.validate(now)?;
         Ok(update)
     }
@@ -299,11 +327,19 @@ impl Revocations {
     }
     pub fn apply_update(&mut self, update: &RevocationUpdate) -> Result<(), Error> {
         if let Some(previous) = self.sequences.get(&update.team_id) {
-            if update.sequence != previous.saturating_add(1) { return Err(Error::InvalidGrant); }
+            if update.sequence != previous.saturating_add(1) {
+                return Err(Error::InvalidGrant);
+            }
         }
-        self.sequences.insert(update.team_id.clone(), update.sequence);
+        self.sequences
+            .insert(update.team_id.clone(), update.sequence);
         self.advance_policy(update.team_id.clone(), update.policy_revision);
-        for peer in &update.revoked_peers { self.revoke_device(update.team_id.clone(), peer.parse().map_err(|_| Error::InvalidGrant)?); }
+        for peer in &update.revoked_peers {
+            self.revoke_device(
+                update.team_id.clone(),
+                peer.parse().map_err(|_| Error::InvalidGrant)?,
+            );
+        }
         Ok(())
     }
 }

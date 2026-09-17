@@ -3,6 +3,7 @@ use crate::Error;
 use ed25519_dalek::{Signature, VerifyingKey};
 use libp2p_identity::{ed25519, PeerId, PublicKey};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use uuid::Uuid;
 
 #[derive(Deserialize, Serialize)]
@@ -21,7 +22,9 @@ impl Proof {
         path: &str,
         payload: &T,
     ) -> Result<Vec<u8>, Error> {
-        // Typed JSON avoids delimiter ambiguity. Bind identity, endpoint and exact request.
+        // Typed JSON avoids delimiter ambiguity. Sort object keys recursively so
+        // Swift/Foundation and Rust agree on one canonical proof representation.
+        let payload = canonical_json(serde_json::to_value(payload).map_err(|_| Error::Invalid)?);
         serde_json::to_vec(&(
             "cmux-v3-device-proof",
             audience,
@@ -34,6 +37,7 @@ impl Proof {
         ))
         .map_err(|_| Error::Invalid)
     }
+
     pub fn verify<T: Serialize>(
         &self,
         audience: &str,
@@ -62,5 +66,21 @@ impl Proof {
             .map_err(|_| Error::Unauthorized)?;
         let key = ed25519::PublicKey::try_from_bytes(&bytes).map_err(|_| Error::Unauthorized)?;
         Ok(PublicKey::from(key).to_peer_id())
+    }
+}
+
+fn canonical_json(value: Value) -> Value {
+    match value {
+        Value::Object(object) => {
+            let mut entries: Vec<_> = object.into_iter().collect();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            let mut sorted = Map::new();
+            for (key, value) in entries {
+                sorted.insert(key, canonical_json(value));
+            }
+            Value::Object(sorted)
+        }
+        Value::Array(values) => Value::Array(values.into_iter().map(canonical_json).collect()),
+        other => other,
     }
 }

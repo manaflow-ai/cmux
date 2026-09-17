@@ -118,9 +118,18 @@ async fn native_owner_supports_full_duplex_cancellation_and_revocation() {
             );
         };
         tokio::join!(writes, reads);
-        let update = cmux_v3_grants::RevocationUpdate { key_id: String::new(), team_id: "a".into(), sequence: 1,
-            policy_revision: 2, revoked_peers: vec![a.peer_id()] , issued_at: now() };
-        let revoke = GrantSigner::new("test".into(), &signer).unwrap().sign_revocation(update, now()).unwrap();
+        let update = cmux_v3_grants::RevocationUpdate {
+            key_id: String::new(),
+            team_id: "a".into(),
+            sequence: 1,
+            policy_revision: 2,
+            revoked_peers: vec![a.peer_id()],
+            issued_at: now(),
+        };
+        let revoke = GrantSigner::new("test".into(), &signer)
+            .unwrap()
+            .sign_revocation(update, now())
+            .unwrap();
         b.apply_revocation_update(revoke).unwrap();
         assert_eq!(
             receiving.receive(Operation::new()).await,

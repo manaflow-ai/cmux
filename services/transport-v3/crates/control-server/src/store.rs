@@ -1,6 +1,6 @@
 use crate::{
     auth::Identity, identifier, now, Authorization, DeviceUpdate, Enrollment, Error, PolicyUpdate,
-    Revocation, Signed,
+    RelayRegistration, Revocation, Signed,
 };
 use cmux_v3_authority::{Device, TeamPolicy, DEFAULT_POLICY};
 use cmux_v3_grants::{Grant, GrantSigner, LeasePolicy, Scope};
@@ -351,21 +351,71 @@ impl Store {
         tx.commit().await?;
         Ok(serde_json::json!({"team":identity.team,"revision":team.revision,"devices":rows}))
     }
-    pub async fn events(&self, identity: &Identity, after: i64, limit: i64) -> Result<Vec<EventRecord>, Error> {
-        if after < 0 || !(1..=256).contains(&limit) { return Err(Error::Invalid); }
+    pub async fn events(
+        &self,
+        identity: &Identity,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<EventRecord>, Error> {
+        if after < 0 || !(1..=256).contains(&limit) {
+            return Err(Error::Invalid);
+        }
         sqlx::query_as::<_, EventRecord>(
             "SELECT team_id,sequence,revision,action,peer_id FROM transport_v3_events WHERE team_id=$1 AND sequence>$2 ORDER BY sequence LIMIT $3"
         )
         .bind(&identity.team).bind(after).bind(limit).fetch_all(&self.0).await.map_err(Into::into)
     }
+    pub async fn register_relay(
+        &self,
+        identity: &Identity,
+        input: RelayRegistration,
+    ) -> Result<(), Error> {
+        if !identity.admin
+            || input.team != identity.team
+            || !identifier(&input.team)
+            || input.region.is_empty()
+            || input.region.len() > 64
+            || input.feed_token.len() < 32
+            || input.feed_token.len() > 256
+            || input.addresses.is_empty()
+            || input.addresses.len() > 16
+            || input.addresses.iter().any(|address| {
+                address.len() > 2048 || address.parse::<multiaddr::Multiaddr>().is_err()
+            })
+        {
+            return Err(Error::Invalid);
+        }
+        let peer: PeerId = input.peer_id.parse().map_err(|_| Error::Invalid)?;
+        let hash = Sha256::digest(input.feed_token.as_bytes()).to_vec();
+        sqlx::query(
+            "INSERT INTO transport_v3_relays(peer_id,region,addresses,feed_token_hash) VALUES($1,$2,$3,$4) ON CONFLICT(peer_id) DO UPDATE SET region=EXCLUDED.region,addresses=EXCLUDED.addresses,feed_token_hash=EXCLUDED.feed_token_hash,active=true",
+        )
+        .bind(peer.to_string())
+        .bind(input.region)
+        .bind(serde_json::to_value(input.addresses).map_err(|_| Error::Invalid)?)
+        .bind(hash)
+        .execute(&self.0)
+        .await?;
+        Ok(())
+    }
+
     pub async fn relay_token_valid(&self, relay: &str, token: &str) -> Result<bool, Error> {
-        if relay.parse::<PeerId>().is_err() || token.is_empty() || token.len() > 8192 { return Ok(false); }
+        if relay.parse::<PeerId>().is_err() || token.is_empty() || token.len() > 8192 {
+            return Ok(false);
+        }
         let hash = Sha256::digest(token.as_bytes()).to_vec();
         Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM transport_v3_relays WHERE peer_id=$1 AND active AND feed_token_hash=$2)")
             .bind(relay).bind(hash).fetch_one(&self.0).await?)
     }
-    pub async fn relay_events(&self, team: &str, after: i64, limit: i64) -> Result<Vec<EventRecord>, Error> {
-        if team.len() > 256 || !(1..=256).contains(&limit) || after < 0 { return Err(Error::Invalid); }
+    pub async fn relay_events(
+        &self,
+        team: &str,
+        after: i64,
+        limit: i64,
+    ) -> Result<Vec<EventRecord>, Error> {
+        if team.len() > 256 || !(1..=256).contains(&limit) || after < 0 {
+            return Err(Error::Invalid);
+        }
         sqlx::query_as::<_, EventRecord>(
             "SELECT team_id,sequence,revision,action,peer_id FROM transport_v3_events WHERE ($1='*' OR team_id=$1) AND sequence>$2 ORDER BY sequence LIMIT $3"
         ).bind(team).bind(after).bind(limit).fetch_all(&self.0).await.map_err(Into::into)

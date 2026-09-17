@@ -48,10 +48,10 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
 
     private func proof<T: Encodable>(path: String, payload: T) async throws -> CmxV3DeviceProof {
         let nonce = UUID(); let issued = UInt64(Date().timeIntervalSince1970)
-        let user = try await configuration.userID
+        let user = try await configuration.userID()
         let message = try ProofMessage(audience: configuration.audience, user: user, path: path, nonce: nonce, issuedAt: issued, payload: payload).encoded()
         return CmxV3DeviceProof(publicKey: configuration.signingKey.publicKeyHex,
-            nonce: nonce, issuedAt: issued, signature: configuration.signingKey.sign(message))
+            nonce: nonce, issuedAt: issued, signature: try configuration.signingKey.sign(message))
     }
 
     private func post<Body: Encodable, Response: Decodable>(_ path: String, body: Body) async throws -> Response {
@@ -59,7 +59,9 @@ public struct CmxV3HTTPGrantProvider: CmxV3GrantProviding, Sendable {
         var request = URLRequest(url: url); request.httpMethod = "POST"; request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(try await configuration.accessToken())", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONEncoder().encode(body)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        request.httpBody = try encoder.encode(body)
         let (data, response) = try await session.data(for: request)
         guard data.count <= 64 * 1024, let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw CmxV3HTTPGrantError.requestFailed }
         return try JSONDecoder().decode(Response.self, from: data)
@@ -73,12 +75,36 @@ public struct CmxV3SigningKey: Sendable {
         catch { throw CmxV3HTTPGrantError.invalidConfiguration }
     }
     fileprivate var publicKeyHex: String { key.publicKey.rawRepresentation.map { String(format: "%02x", $0) }.joined() }
-    fileprivate func sign(_ message: Data) -> String { (try? key.signature(for: message).map { String(format: "%02x", $0) }.joined()) ?? "" }
+    fileprivate func sign(_ message: Data) throws -> String {
+        do {
+            return try key.signature(for: message).map { String(format: "%02x", $0) }.joined()
+        } catch {
+            throw CmxV3HTTPGrantError.signingFailed
+        }
+    }
 }
 
-public enum CmxV3HTTPGrantError: Error, Equatable, Sendable { case insecureOrigin, invalidConfiguration, unknownPeer, requestFailed }
+public enum CmxV3HTTPGrantError: Error, Equatable, Sendable {
+    case insecureOrigin
+    case invalidConfiguration
+    case unknownPeer
+    case requestFailed
+    case signingFailed
+}
 private struct DirectoryRequest: Encodable { let team: String }
-private struct AuthorizationPayload: Codable { let team: String; let destination: String; let action: String }
+private struct AuthorizationPayload: Codable {
+    let team: String
+    let destination: String
+    let action: String
+
+    enum CodingKeys: String, CodingKey { case team, destination, action }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(team, forKey: .team)
+        try container.encode(destination, forKey: .destination)
+        try container.encode(action, forKey: .action)
+    }
+}
 private struct Signed<Request: Encodable>: Encodable { let request: Request; let proof: CmxV3DeviceProof }
 private struct CmxV3DeviceProof: Codable { let publicKey: String; let nonce: UUID; let issuedAt: UInt64; let signature: String; enum CodingKeys: String, CodingKey { case publicKey = "public_key"; case nonce; case issuedAt = "issued_at"; case signature } }
 private struct GrantResponse: Decodable { let grant: String }
@@ -90,7 +116,11 @@ private struct ProofMessage<Payload: Encodable>: Encodable {
         var container = encoder.unkeyedContainer()
         try container.encode("cmux-v3-device-proof"); try container.encode(audience); try container.encode(user); try container.encode("POST"); try container.encode(path); try container.encode(nonce); try container.encode(issuedAt); try container.encode(payload)
     }
-    func encoded() throws -> Data { try JSONEncoder().encode(self) }
+    func encoded() throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(self)
+    }
 }
 
 private extension CmxAttachRoute {
