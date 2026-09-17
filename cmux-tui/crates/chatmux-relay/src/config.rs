@@ -242,7 +242,7 @@ pub fn save_config(path: &Path, config: &Config) -> std::io::Result<()> {
         path.file_name().and_then(|name| name.to_str()).unwrap_or("config.json"),
         std::process::id(),
     ));
-    let mut options = std::fs::OpenOptions::new();
+    let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     {
