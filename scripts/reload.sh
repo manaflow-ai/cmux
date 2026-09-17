@@ -1422,6 +1422,18 @@ XCODEBUILD_ARGS=(
   -configuration Debug
   -destination 'platform=macOS'
 )
+# The HQ Blacksmith builder is Apple Silicon, while some dogfood targets remain
+# Intel Macs. Keep the normal build unchanged and opt into a universal artifact
+# only for the cloud reload path used to seed those machines.
+if [[ "${CMUX_RELOAD_CLOUD:-0}" == "1" ]]; then
+  XCODEBUILD_ARGS+=(ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO)
+  # Cloud reloads can restore a cache produced by an arm64-only build. Clear
+  # that tag-specific DerivedData before requesting a universal product so an
+  # Intel dogfood Mac never receives a stale single-architecture app.
+  if [[ -n "$DERIVED_DATA" ]]; then
+    rm -rf "$DERIVED_DATA"
+  fi
+fi
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
