@@ -204,7 +204,7 @@ def error_contract(cli, directory, limiter):
         ]:
             error = {"code": code, "message": "sentinel", "data": {"retry_after_ms": hint}}
             with serve(directory, limiter, lambda _: error) as (server, path):
-                result = run(cli, path, directory, ["rpc", method], timeout=0.1)
+                result = run(cli, path, directory, ["rpc", method], timeout=5)
                 assert result.returncode != 0, result.stdout
                 assert code in result.stderr and "sentinel" in result.stderr, result.stderr
                 assert len(server.requests) == 1, server.requests
@@ -214,13 +214,33 @@ def error_contract(cli, directory, limiter):
         result = run(cli, path, directory, ["rpc", "surface.split"])
         assert result.returncode != 0 and "mutation sentinel" in result.stderr
         assert len(server.requests) == 1
-    # A permanently limited peer gets one total deadline, not a fresh timeout per attempt.
-    error = {"code": "rate_limited", "message": "deadline sentinel", "data": {"retry_after_ms": 20}}
+    # Deadlines below bound only the failure path, so load can slow a pass but never fail it.
+    # One rejection then success: the read is replayed verbatim, once, on the same connection.
+    error = {"code": "rate_limited", "message": "retry sentinel", "data": {"retry_after_ms": 20}}
+    rejected = []
+    def limited_once(request):
+        rejected.append(request)
+        return error if len(rejected) == 1 else None
+    with serve(directory, limiter, limited_once) as (server, path):
+        result = run(cli, path, directory, ["rpc", "pane.list", json.dumps({"workspace_id": WORKSPACE_ID})])
+        assert result.returncode == 0 and not result.stderr.strip(), result.stderr
+        assert len(server.requests) == 2, server.requests
+        assert server.requests[0] == server.requests[1], server.requests
+        assert not server.early_retries
+    # A hint longer than the whole deadline fails at once instead of waiting it out.
+    error = {"code": "rate_limited", "message": "deadline sentinel", "data": {"retry_after_ms": 5_000}}
     with serve(directory, limiter, lambda _: error) as (server, path):
-        result = run(cli, path, directory, ["rpc", "pane.list"], timeout=0.15)
+        result = run(cli, path, directory, ["rpc", "pane.list"], timeout=2)
         assert result.returncode != 0 and "deadline sentinel" in result.stderr, result.stderr
-        assert 1 < len(server.requests) <= 9, server.requests
-        assert len({connection for connection, _ in server.requests}) == 1
+        assert len(server.requests) == 1, server.requests
+    # A permanently limited peer gets one total deadline, not a fresh timeout per attempt:
+    # every retry follows a 400 ms wait, so at most three requests fit in one second.
+    error = {"code": "rate_limited", "message": "deadline sentinel", "data": {"retry_after_ms": 400}}
+    with serve(directory, limiter, lambda _: error) as (server, path):
+        result = run(cli, path, directory, ["rpc", "pane.list"], timeout=1)
+        assert result.returncode != 0 and result.stderr.strip(), result.stderr
+        assert len(server.requests) <= 3, server.requests
+        assert all(entry == server.requests[0] for entry in server.requests), server.requests
         assert not server.early_retries
     for wire_reply in (
         lambda _, response: {**response, "id": "unrelated"},
