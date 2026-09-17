@@ -11,21 +11,9 @@ import Testing
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererCallbackTests {
     @Test func registeredPresentationCallbackAcknowledgesThePendingToken() {
-        let fixture = PresentedSurfaceFixture(installRendererCallbacks: false)
+        let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = fixture.callbackContext
-
-        #expect(ghostty_surface_set_render_presented_callback(
-            fixture.runtimeSurface,
-            terminalRendererPresentedCallback,
-            context.toOpaque()
-        ))
-        #expect(ghostty_surface_set_render_failed_callback(
-            fixture.runtimeSurface,
-            terminalRendererFailedCallback,
-            context.toOpaque()
-        ))
 
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         #expect(surface.renderHealth == .awaitingFrame)
@@ -35,20 +23,9 @@ import Testing
     }
 
     @Test func registeredFailureCallbackForwardsTokenAndTriggersOneRecoveryProbe() {
-        let fixture = PresentedSurfaceFixture(installRendererCallbacks: false)
+        let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = fixture.callbackContext
-        #expect(ghostty_surface_set_render_presented_callback(
-            fixture.runtimeSurface,
-            terminalRendererPresentedCallback,
-            context.toOpaque()
-        ))
-        #expect(ghostty_surface_set_render_failed_callback(
-            fixture.runtimeSurface,
-            terminalRendererFailedCallback,
-            context.toOpaque()
-        ))
 
         surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
         #expect(cmux_test_ghostty_renderer_fail(
@@ -64,20 +41,9 @@ import Testing
     }
 
     @Test func shellExitHealthSurvivesRendererRebuildAndPresentation() {
-        let fixture = PresentedSurfaceFixture(installRendererCallbacks: false)
+        let fixture = PresentedSurfaceFixture()
         defer { fixture.tearDown() }
         let surface = fixture.surface
-        let context = fixture.callbackContext
-        #expect(ghostty_surface_set_render_presented_callback(
-            fixture.runtimeSurface,
-            terminalRendererPresentedCallback,
-            context.toOpaque()
-        ))
-        #expect(ghostty_surface_set_render_failed_callback(
-            fixture.runtimeSurface,
-            terminalRendererFailedCallback,
-            context.toOpaque()
-        ))
 
         surface.markShellExited()
         surface.setRendererWindowVisible(false)

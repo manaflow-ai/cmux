@@ -86,11 +86,18 @@ extension Workspace {
             return
         }
         guard !blockingCleanupFailed else {
-            remoteControllerConnectionState = .error
-            remoteControllerConnectionDetail = remoteConnectionDetail
-            remoteConnectionState = .error
-            applyBrowserRemoteWorkspaceStatusToPanels()
+            // No replacement controller starts, so nothing else will ever
+            // explain this state: say why here, and release any attach that
+            // is already waiting for a controller (#12813).
+            applyRemoteConnectionStateUpdate(
+                .error,
+                detail: remoteSessionCleanupBlockedDetail,
+                target: remoteDisplayTarget ?? "remote host"
+            )
             postRemoteConnectionPresentationDidChange()
+            // The waiter re-reads workspace state on the main actor, which it
+            // reaches only after this transition (and its `defer`) finished.
+            TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged()
             return
         }
 

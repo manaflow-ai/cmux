@@ -1,6 +1,8 @@
 import AppKit
 import CmuxTerminalCore
 import GhosttyKit
+import GhosttyRuntimeTestStubs
+import Testing
 @testable import CmuxTerminal
 
 @_silgen_name("cmux_test_ghostty_renderer_realized_begin")
@@ -17,9 +19,8 @@ struct PresentedSurfaceFixture {
     let surface: TerminalSurface
     let window: NSWindow
     let runtimeSurface: UnsafeMutableRawPointer
-    let callbackContext: Unmanaged<GhosttySurfaceCallbackContext>
 
-    init(windowVisibleAtCreation: Bool = true, installRendererCallbacks: Bool = true) {
+    init(windowVisibleAtCreation: Bool = true) {
         registry = TerminalSurfaceRegistry()
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -74,14 +75,13 @@ struct PresentedSurfaceFixture {
         if !windowVisibleAtCreation {
             surface.setRendererWindowVisible(false)
         }
-        callbackContext = surface.installRendererCallbackContextForTesting()
-        if installRendererCallbacks {
-            surface.installRendererRuntimeSurfaceForTesting(runtimeSurface)
-        } else {
-            surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        }
+        _ = makeRendererCallbackContextForTesting(on: surface)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
         surface.rendererRuntimeSurfaceDidCreate()
-        surface.acknowledgeRendererPresentationForTesting()
+        if surface.rendererPresentationState.inFlightToken != nil {
+            acknowledgePendingPresentation()
+        }
     }
 
     func tearDown() {
@@ -93,6 +93,6 @@ struct PresentedSurfaceFixture {
     }
 
     func acknowledgePendingPresentation() {
-        surface.acknowledgeRendererPresentationForTesting()
+        #expect(cmux_test_ghostty_renderer_present(runtimeSurface))
     }
 }
