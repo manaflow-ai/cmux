@@ -139,6 +139,33 @@ struct TerminalLocalImageTransferFileLifetimeTests {
         ) == .fileURLs([source.standardizedFileURL]))
     }
 
+    @Test("Finder file URLs take precedence over their TIFF preview", arguments: [TerminalImageTransferMode.paste, .drop])
+    func finderFileWithPreviewKeepsOriginal(mode: TerminalImageTransferMode) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-finder-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("original.png")
+        let png = try #require(Data(base64Encoded: Self.onePixelPNGBase64))
+        try png.write(to: source)
+        let preview = try #require(NSImage(data: png)?.tiffRepresentation)
+        let pasteboard = NSPasteboard(name: .init("cmux-finder-preview-\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        let item = NSPasteboardItem()
+        #expect(item.setString(source.absoluteString, forType: .fileURL))
+        #expect(item.setString(source.lastPathComponent, forType: .string))
+        #expect(item.setData(preview, forType: .tiff))
+        #expect(pasteboard.writeObjects([item]))
+
+        let service = TerminalPasteboardService(temporaryDirectory: directory)
+        #expect(TerminalImageTransferPlanner.prepareSynchronously(
+            pasteboard: pasteboard,
+            mode: mode,
+            pasteboardService: service
+        ) == .fileURLs([source.standardizedFileURL]))
+        #expect(try Data(contentsOf: source) == png)
+    }
+
     @Test("An image drop reaches the TUI as one bracketed paste", arguments: [false, true])
     func imageDropDeliversBracketedPaste(throughDropController: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory
