@@ -1,3 +1,4 @@
+import { accountAccessForIdentity } from "./accountAccess";
 import {
   authenticateRouteToken,
   markAccountCooldown,
@@ -24,6 +25,7 @@ import {
   recordCoderouterSpan,
 } from "./requestTelemetry";
 import {
+  authenticateCoderouterCredential,
   authenticateRequestRouteToken,
   type RouteTokenAuthFailure,
   type RouteTokenIdentity,
@@ -156,7 +158,7 @@ export function createCodexResponsesProxy(
 }
 
 export const proxyCodexRequest = createCodexResponsesProxy({
-  authenticate: authenticateRouteToken,
+  authenticate: authenticateCoderouterCredential,
   select: selectAccountForSession,
   credential: freshCredential,
   cooldown: markAccountCooldown,
@@ -234,6 +236,7 @@ async function proxyCodexRequestWith(
         runtime.now,
         (signal) => dependencies.select({
           teamId: identity.teamId,
+          access: accountAccessForIdentity(identity),
           provider: RESPONSES_PROVIDERS,
           sessionKey,
           excludedAccountIds: attempted,
@@ -556,6 +559,8 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         identity.teamId,
         RESPONSES_PROVIDERS,
         attempted,
+        request.signal,
+        accountAccessForIdentity(identity),
       );
       recordCoderouterSpan({
         name: "account_selection",
@@ -667,7 +672,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
 }
 
 export const proxyCodexModels = createCodexModelsProxy({
-  authenticate: authenticateRouteToken,
+  authenticate: authenticateCoderouterCredential,
   select: selectAccountForRequest,
   credential: freshCredential,
   cooldown: markAccountCooldown,
@@ -879,7 +884,7 @@ function jsonError(
 
 function captureRouteHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">;
   readonly request: Request;
   readonly startedAt: number;
   readonly status: number;
@@ -934,6 +939,7 @@ function captureRouteHealth(input: {
     requestId: input.requestId,
     teamId: input.identity?.teamId,
     stackUserId: input.identity?.stackUserId,
+    apiKeyId: input.identity?.apiKeyId,
     vmId: input.identity?.vmId ?? null,
     provider: "codex",
     agent,
@@ -948,7 +954,7 @@ function captureRouteHealth(input: {
 }
 
 function captureModelUsage(
-  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">,
+  identity: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId" | "apiKeyId">,
   usage: ModelUsage | null,
   ledger: {
     readonly requestId: string;
@@ -965,6 +971,7 @@ function captureModelUsage(
     requestId: ledger.requestId,
     teamId: identity.teamId,
     stackUserId: identity.stackUserId,
+    apiKeyId: identity.apiKeyId,
     vmId: identity.vmId,
     provider: "codex",
     agent: ledger.agent,

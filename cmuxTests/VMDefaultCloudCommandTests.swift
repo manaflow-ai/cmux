@@ -130,7 +130,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             case "workspace.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["initial_command"] as? String, "sleep 60")
-                XCTAssertEqual(params["title"] as? String, "vm:\(vmID)")
+                XCTAssertEqual(params["title"] as? String, "Cloud VM")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -144,7 +144,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
                 XCTAssertEqual(params["vm_id"] as? String, vmID)
-                XCTAssertEqual(params["base"] as? Bool, false)
+                XCTAssertEqual(params["base"] as? Bool, false); XCTAssertEqual(params["generated_title"] as? String, "Cloud VM")
                 return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             case "surface.catalog":
                 let params = payload["params"] as? [String: Any] ?? [:]

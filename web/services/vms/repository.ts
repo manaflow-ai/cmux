@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -27,6 +27,7 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
 import { allocateVmSlug } from "./vmNaming";
+import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
 import {
   VmCreateDisabledError,
   VmCreateInProgressError,
@@ -255,6 +256,13 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly patch: Readonly<Record<string, unknown>>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /** Atomically coalesce advisory samples; false also covers a replaced VM. */
+  readonly recordResourceUsage?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly usage: VmResourceUsage;
+    readonly receivedAt: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly claimBillingGrant: (input: {
     readonly billingCustomerType: string;
     readonly billingCustomerId: string;
@@ -675,14 +683,7 @@ function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
 }) {
-  const billingTeamId = input.billingTeamId?.trim();
-  if (!billingTeamId) {
-    return and(
-      eq(cloudVms.userId, input.userId),
-      or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, input.userId)),
-    );
-  }
-  return eq(cloudVms.billingTeamId, billingTeamId);
+  return eq(cloudVms.ownerTeamId, input.billingTeamId?.trim() || input.userId);
 }
 
 function positiveReservationInteger(value: unknown): number | null {
@@ -1294,6 +1295,27 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));
+    }),
+
+  recordResourceUsage: (input) =>
+    dbEffect("recordResourceUsage", async () => {
+      const sample = sql`${cloudVms.providerMetadata} -> ${VM_RESOURCE_USAGE_KEY}::text`;
+      const previousTime = sql`case when jsonb_typeof(${sample} -> 'receivedAt') = 'number'
+        then (${sample} ->> 'receivedAt')::numeric else null end`;
+      const patch = { [VM_RESOURCE_USAGE_KEY]: { ...input.usage, receivedAt: input.receivedAt, providerVmId: input.providerVmId } };
+      const rows = await cloudDb().update(cloudVms).set({
+        // Samples have their own timestamp; they are not lifecycle mutations.
+        providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(patch)}::jsonb`,
+      }).where(and(
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        or(
+          sql`(${sample} ->> 'providerVmId') is distinct from ${input.providerVmId}`,
+          isNull(previousTime),
+          lte(previousTime, input.receivedAt - VM_RESOURCE_USAGE_MIN_INTERVAL_MS),
+        ),
+      )).returning({ id: cloudVms.id });
+      return rows.length > 0;
     }),
 
   listUserVms: (userId, billingTeamId) =>
@@ -2607,7 +2629,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const db = cloudDb();
       const updated = await db
         .update(cloudVms)
-        .set({ displayName: input.displayName, updatedAt: new Date() })
+        .set({
+          displayName: input.displayName,
+          // Date exposes milliseconds. Keep renames strictly ordered even
+          // when two writers arrive within the same millisecond.
+          updatedAt: sql`greatest(${cloudVms.updatedAt} + interval '1 millisecond', clock_timestamp())`,
+        })
         .where(and(eq(cloudVms.id, input.id), ne(cloudVms.status, "destroyed")))
         .returning({ id: cloudVms.id });
       return updated.length > 0;

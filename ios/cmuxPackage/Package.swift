@@ -11,7 +11,7 @@ import PackageDescription
 let package = Package(
     name: "cmuxFeature",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [

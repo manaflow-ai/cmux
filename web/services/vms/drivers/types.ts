@@ -2,6 +2,8 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
+import type { GuestPromptIdentity } from "../guestPrompt";
+
 export type ProviderId = "freestyle";
 
 const PROVIDER_IDS: readonly ProviderId[] = ["freestyle"];
@@ -17,6 +19,8 @@ export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
   readonly sampledAt: number;
+  /** Timestamp of the latest guest reporter sample, even when it is stale. */
+  readonly resourceSampledAt?: number;
   readonly cpus?: number;
   readonly cpuPercent?: number;
   readonly loadAverage1m?: number;
@@ -68,8 +72,12 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** Provider-enforced lifetime runtime allowance for this allocation. */
+  runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
   displayName?: string;
+  /** Current prompt name, written into the guest rather than a shell environment. */
+  promptIdentity?: GuestPromptIdentity;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
@@ -130,6 +138,16 @@ export type VmEdgeRule = {
 export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
+};
+
+/** Private guest SSH, with the host key read through the authenticated provider API.
+ * The client keeps its private key; only its public key reaches the control plane. */
+export type SCPEndpoint = {
+  host: string;
+  port: number;
+  username: string;
+  hostPublicKey: string;
+  expiresAtUnix: number;
 };
 
 export type SSHEndpoint = {
@@ -232,6 +250,8 @@ export type CmuxRemoteEndpoint = {
 };
 
 export type CmuxRemoteAttachOptions = {
+  /** Authoritative display name and revision, refreshed before returning the terminal. */
+  promptIdentity?: GuestPromptIdentity;
   /**
    * The caller's cmux-tui device fingerprint, when it already enrolled with this
    * VM's daemon. Lets the provider skip minting an invitation.
@@ -455,6 +475,7 @@ export interface VMProvider {
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
+  setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 
@@ -514,6 +535,7 @@ export interface VMProvider {
   // ensuring sshd is running (some providers need an explicit start step). Only drivers
   // listing `ssh` in attachTransports implement this.
   openSSH?(vmId: string): Promise<SSHEndpoint>;
+  prepareSCP?(vmId: string, publicKey: string): Promise<SCPEndpoint>;
 
   // Best-effort revocation of an identity handle that `openSSH` previously returned. No-op
   // if the driver doesn't mint revocable credentials, must not throw on unknown

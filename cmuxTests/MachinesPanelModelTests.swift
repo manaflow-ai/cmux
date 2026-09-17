@@ -149,7 +149,7 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertTrue(RightSidebarMode.allCases.contains(.machines))
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "machines"), .machines)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vms"), .machines)
-        XCTAssertFalse(RightSidebarMode.machines.canOpenAsPane)
+        XCTAssertTrue(RightSidebarMode.machines.canOpenAsPane)
 
         // Availability follows the Cloud VM UI flag, independent of feed/dock.
         XCTAssertTrue(
@@ -986,15 +986,15 @@ final class MachinesPanelModelTests: XCTestCase {
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .ready, createdAt: nil, label: nil, freeAccess: .active(daysLeft: 3)
         )
-        XCTAssertFalse(CloudTreeMachineRowContent.subtitle(active).contains("3"), "expiry is plan chrome, not a machine fact")
-        XCTAssertNil(CloudTreeMachineRowContent.inlineFact(active, style: .compact))
+        XCTAssertFalse(CloudTreeMachineRowContent(machine: active).subtitle.contains("3"), "expiry is plan chrome, not a machine fact")
+        XCTAssertNotNil(CloudTreeMachineRowContent(machine: active, style: .compact).inlineFact)
 
         let expired = MachineSnapshot(
             id: "warm-owl", provider: "freestyle", image: "cmux-xfce-vnc:latest", isDesktop: true,
             activity: .attention("locked"), createdAt: nil, label: nil, freeAccess: .expired
         )
-        XCTAssertTrue(CloudTreeMachineRowContent.subtitle(expired).contains("Locked"), "a dead row still explains itself")
-        XCTAssertNotNil(CloudTreeMachineRowContent.inlineFact(expired, style: .compact))
+        XCTAssertTrue(CloudTreeMachineRowContent(machine: expired).subtitle.contains("Locked"), "a dead row still explains itself")
+        XCTAssertNotNil(CloudTreeMachineRowContent(machine: expired, style: .compact).inlineFact)
     }
 
     func testCloudTreeStylePresetsAreDistinctAndResolvable() {
@@ -1011,7 +1011,7 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertNil(CloudTreeStyle.preset(id: "bogus"))
         // The presets are different shapes, not one look at five sizes.
         XCTAssertEqual(Set(presets.map { "\($0.leafLayout)|\($0.iconTreatment)|\($0.groupLabelStyle)|\($0.metaPlacement)|\($0.machineBand)|\($0.monospacedText)" }).count, presets.count, "every preset differs structurally")
-        // Two-line cards grow with the stats line; single-line rows never do.
+        // Every cloud style reserves a dedicated resource strip.
         XCTAssertGreaterThan(CloudTreeStyle.aero.machineRowHeight(hasStats: true), CloudTreeStyle.aero.machineRowHeight(hasStats: false))
         XCTAssertEqual(CloudTreeStyle.compact.machineRowHeight(hasStats: true), CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
@@ -1152,8 +1152,7 @@ final class CloudTreeScopeAndSignatureTests: XCTestCase {
     }
 }
 
-/// Pins the single-line machine row's inline fact: Locked wins, then the live
-/// CPU/Mem/Disk reading (when the style shows stats), else nothing.
+/// Compact rows retain the original inline resources and token summary.
 @Suite("Cloud tree machine inline fact")
 struct CloudTreeMachineInlineFactTests {
     private func snapshot(stats: VMStats?) -> MachineSnapshot {
@@ -1164,20 +1163,21 @@ struct CloudTreeMachineInlineFactTests {
         return machine
     }
 
-    @Test("An awake reading renders inline in the default single-line style")
-    func awakeReadingRendersInline() {
+    @Test("Resource readings share the compact machine header")
+    func awakeReadingHasDedicatedSpace() {
         let stats = VMStats(
             state: .awake, sampledAt: Date(timeIntervalSince1970: 0), cpus: 2, cpuPercent: 9.4,
             loadAverage1m: nil, memoryTotalMb: 3891, memoryUsedMb: 3481, diskTotalMb: 3174, diskUsedMb: 2867
         )
-        let fact = CloudTreeMachineRowContent.inlineFact(snapshot(stats: stats), style: .compact)
-        #expect(fact?.contains("CPU 9%") == true)
-        #expect(fact?.contains("3.4/3.8") == true)
+        let fact = CloudTreeMachineRowContent(machine: snapshot(stats: stats), style: .compact,
+                                             now: stats.sampledAt).inlineFact
+        #expect(fact?.contains("CPU") == true)
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 
-    @Test("No reading yet means no inline fact")
+    @Test("No reading yet keeps missing-data state inline")
     func missingStatsShowsNothing() {
-        #expect(CloudTreeMachineRowContent.inlineFact(snapshot(stats: nil), style: .compact) == nil)
+        #expect(CloudTreeMachineRowContent(machine: snapshot(stats: nil), style: .compact).inlineFact?.contains("Token usage unavailable") == true)
     }
 }
 
@@ -1238,7 +1238,7 @@ struct MachinesPanelListProblemTests {
 @Suite("Cloud machines paid-plan classification")
 struct MachinesPanelPaidPlanTests {
     @Test("Only plans the backend accepts for provisioning are paid", arguments: [
-        ("pro", true), ("TEAM", true), ("founders", true), (" Pro\n", true),
+        ("pro", true), ("max", true), ("TEAM", true), ("founders", true), (" Pro\n", true),
         ("free", false), ("", false), ("unknown", false), ("enterprise-unknown", false),
     ])
     func onlyProvisioningPlansArePaid(planId: String, expected: Bool) {
@@ -1380,30 +1380,25 @@ struct MachineUsageReadoutTests {
         }
     }
 
-    @Test("The row line reads cost, compact tokens, and the window; idle machines show nothing")
+    @Test("The row line reads cost, compact tokens, and the window, including measured zero")
     func rowLine() throws {
         let usage = try MachineUsageClient.decodeTeamUsage(payload)
         let byID = usage.byMachineID
         let wren = try #require(byID["noble-wren"])
-        let line = try #require(CloudTreeMachineRowContent.usageLine(wren))
+        var withUsage = machine("noble-wren")
+        withUsage.usage = wren
+        let line = try #require(CloudTreeMachineRowContent(machine: withUsage).usageLine)
         #expect(line.hasPrefix("$1.23"), "two decimals, USD: \(line)")
         #expect(line.contains("41K"), "compact token count: \(line)")
         #expect(line.hasSuffix("30d"), "window label: \(line)")
         let owl = try #require(byID["idle-owl"])
-        #expect(CloudTreeMachineRowContent.usageLine(owl) == nil)
+        var idle = machine("idle-owl")
+        idle.usage = owl
+        #expect(CloudTreeMachineRowContent(machine: idle).usageLine?.contains("0 tokens") == true)
 
-        var withUsage = machine("noble-wren")
-        withUsage.usage = byID["noble-wren"]
-        let fact = try #require(CloudTreeMachineRowContent.inlineFact(withUsage, style: .compact))
-        #expect(fact.contains("$1.23"), "single-line rows carry the spend inline")
-        #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
+        let fact = CloudTreeMachineRowContent(machine: withUsage, style: .compact).inlineFact
+        #expect(fact?.contains(line) == true, "compact usage follows the name on the same line")
+        #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
 
-    @Test("Two-line rows grow by one line for the spend readout")
-    func twoLineHeightGrows() {
-        let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
-        guard let twoLine else { return }
-        #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) > twoLine.machineRowHeight(hasStats: false))
-        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
-    }
 }

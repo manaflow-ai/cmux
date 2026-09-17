@@ -269,11 +269,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// or a `cmux.json` reload), but only while this viewer still matches the
     /// default it was tracking — i.e. the user has not customized it.
     private func observeTypographyDefaults() {
-        typographyDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: UserDefaults.standard,
-            queue: .main
-        ) { [weak self] _ in
+        typographyDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: UserDefaults.standard) { [weak self] in
             Task { @MainActor in
                 self?.adoptTypographyDefaultsIfFollowing()
             }

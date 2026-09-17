@@ -33,76 +33,9 @@ extension URLError.Code {
     }
 }
 
-enum VMClientError: Error, CustomStringConvertible {
-    case notSignedIn
-    case sessionRefreshFailed
-    case backendUnreachable(url: String, detail: String)
-    case httpStatus(Int, String)
-    case malformedResponse(String)
-    /// An MDM profile forces `DisableCloud`; no request was attempted.
-    case disabledByManagedPolicy
-    /// The control plane answered 501 to `pause`/`resume`: this provider has no such operation.
-    case lifecycleUnsupported(action: String)
 
-    var description: String {
-        switch self {
-        case .notSignedIn:
-            return """
-                You are not signed in to cmux.
 
-                What to do:
-                  cmux auth login
-                  cmux auth status
-                """
-        case .sessionRefreshFailed:
-            return """
-                You are signed in, but cmux could not refresh your session (network or server issue).
-
-                What to do:
-                  Retry in a moment.
-                  If it keeps failing, run `cmux auth status` to check your session.
-                """
-        case .backendUnreachable(let url, let detail):
-            return """
-                Cannot reach the cmux Cloud VM service at \(url).
-
-                What to do:
-                  Start the cmux web server, then retry.
-                  If you are using a local development build, check its Cloud VM service URL before launching cmux.
-
-                Details:
-                  \(detail)
-                """
-        case .httpStatus(let code, let body):
-            return formattedCloudVMHTTPError(status: code, body: body)
-        case .lifecycleUnsupported(let action):
-            return """
-                This provider cannot \(action) machines.
-
-                What to do:
-                  Machines here stay available until you delete them; `cmux vm rm <id>` when the work is done.
-                """
-        case .disabledByManagedPolicy:
-            return String(
-                localized: "cloud.managed.disabled",
-                defaultValue: "Cloud Machines are disabled by your administrator."
-            )
-        case .malformedResponse(let message):
-            return """
-                The cmux Cloud VM backend returned a response this client could not read.
-
-                What to do:
-                  Update cmux to the latest build and retry.
-                  If this keeps happening, copy the details below and contact support.
-
-                Details:
-                  \(message)
-                """
-        }
-    }
-}
-
-private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
+func formattedCloudVMHTTPError(status: Int, body: String) -> String {
     let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let data = trimmedBody.data(using: .utf8),
           let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
@@ -110,10 +43,10 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
             Cloud VM request failed (HTTP \(status)).
 
             What to do:
-              Retry the command. If it keeps failing, copy the response body and contact support.
+              Retry the command. If it keeps failing, copy the HTTP status and contact support.
 
             Response body:
-              \(limitedSingleLine(trimmedBody.isEmpty ? "<empty>" : trimmedBody))
+              <unreadable response omitted>
             """
     }
 
@@ -125,7 +58,7 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         ?? defaultCloudVMMessage(status: status)
     let displayMessage = cloudVMString(ui?["message"]) ?? message
     let action = cloudVMString(object["action"])
-        ?? defaultCloudVMAction(status: status, errorCode: errorCode)
+        ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
@@ -184,7 +117,7 @@ private func defaultCloudVMMessage(status: Int) -> String {
     }
 }
 
-func defaultCloudVMAction(status: Int, errorCode: String) -> String {
+func defaultCloudVMAction(status: Int, errorCode: String, response: [String: Any] = [:]) -> String {
     switch errorCode {
     case "vm_active_limit_exceeded":
         return "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before retrying."
@@ -197,6 +130,21 @@ func defaultCloudVMAction(status: Int, errorCode: String) -> String {
             localized: "cloudVM.error.requiresPro.action",
             defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
+    case "vm_memory_requires_plan":
+        let details = response["details"] as? [String: Any]
+        let planId = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) ?? "max"
+        let plan: CheckoutPlan = planId == CheckoutPlan.pro.rawValue ? .pro : .max
+        let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
+        if plan == .pro {
+            return String(format: String(
+                localized: "cloudVM.error.memoryRequiresPlan.proAction",
+                defaultValue: "Larger machines need cmux Pro. Upgrade at %@, or choose a smaller machine."
+            ), checkout.absoluteString)
+        }
+        return String(format: String(
+            localized: "cloudVM.error.memoryRequiresPlan.action",
+            defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
+        ), checkout.absoluteString)
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:
@@ -370,6 +318,14 @@ struct VMPlanLimits {
     var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
+    /// Ladder sizes the plan cannot start (`[32768, 65536]` on Pro, `[]` on
+    /// Max); nil when the control plane predates the field and the client
+    /// mirror decides.
+    var lockedMemoryOptionsMb: [Int]? = nil
+    /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
+    var memoryUpgradePlanId: String? = nil
+    var memoryUpgradePlansByMb: [String: String]? = nil
+    var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
@@ -378,27 +334,6 @@ struct VMPlanLimits {
 struct VMListPage {
     let vms: [VMSummary]
     let limits: VMPlanLimits?
-}
-
-/// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
-/// Sleeping machines are never woken for a reading: they come back `asleep` with
-/// only their provisioned memory.
-struct VMStats: Equatable {
-    enum State: String, Equatable {
-        case awake
-        case asleep
-        case unknown
-    }
-
-    let state: State
-    let sampledAt: Date
-    let cpus: Int?
-    let cpuPercent: Double?
-    let loadAverage1m: Double?
-    let memoryTotalMb: Int?
-    let memoryUsedMb: Int?
-    let diskTotalMb: Int?
-    let diskUsedMb: Int?
 }
 
 struct VMBaseSummary {
@@ -619,12 +554,6 @@ struct VMPublicationDomain: Equatable, Sendable {
 }
 
 
-struct VMSnapshotResult {
-    let id: String
-    let name: String?
-    let createdAt: Int64
-}
-
 /// One reflection read (`GET /api/vm/<id>/reflection[/<path>]`): the HTTP status and the
 /// JSON body as sent. A 404 with `{error: "not_found", paths: […]}` is a normal result
 /// (an unknown reflection path), so the CLI can print the paths that do exist.
@@ -643,6 +572,14 @@ struct VMSnapshotSummary: Sendable, Equatable {
     let id: String
     let name: String?
     let createdAt: String
+}
+
+struct VMSCPEndpoint: Sendable {
+    let host: String
+    let port: Int
+    let username: String
+    let hostPublicKey: String
+    let expiresAtUnix: Int
 }
 
 struct VMSSHEndpoint {
@@ -777,7 +714,7 @@ actor VMClient {
     /// the composition root.
     @MainActor
     static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) {
-        shared = VMClient(session: session, auth: auth, operations: operations)
+        shared = VMClient(session: session, auth: auth, checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() })
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -816,24 +753,30 @@ actor VMClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
     nonisolated let operations: CloudOperationRecorder?
     private let machineCache: CloudMachineCache
+    private let isCloudEnabled: @Sendable () -> Bool
     private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
+        checkpointRenames: CloudRenameCoordinator,
         telemetry: VMClientTelemetry = .shared,
         operations: CloudOperationRecorder? = nil,
         machineCache: CloudMachineCache = CloudMachineCache(),
-        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil
+        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true }
     ) {
         self.session = session
         self.auth = auth
+        self.checkpointRenames = checkpointRenames
         self.telemetry = telemetry
         self.operations = operations
         self.machineCache = machineCache
+        self.isCloudEnabled = isCloudEnabled
         self.isDisabledByManagedPolicy = isDisabledByManagedPolicy
     }
 
@@ -865,6 +808,11 @@ actor VMClient {
                     freeAccessWindowDays: freeAccessWindowDays,
                     freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                     memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                    lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
+                    memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
+                        .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                    memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
                 )
             }
@@ -1247,6 +1195,22 @@ actor VMClient {
 
     /// Creates a machine. `kind` asks the backend for its desktop or shell image;
     /// `image` is the explicit override (`vm new --image`) and wins server-side.
+    /// Creates a payment confirmation URL for the signed-in app account.
+    func billingCheckout(plan: String) async throws -> [String: Any] {
+        let (data, http) = try await request("POST", path: "/api/billing/checkout", jsonBody: [
+            "plan": plan
+        ])
+        try ensureOK(http, data: data)
+        let result = try decodeJSONObject(data)
+        guard let rawURL = result["url"] as? String,
+              let url = URL(string: rawURL),
+              url.scheme == "https",
+              url.host?.isEmpty == false else {
+            throw VMClientError.malformedResponse("Checkout URL is missing. Open https://cmux.com/pricing.")
+        }
+        return result
+    }
+
     func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
@@ -1504,6 +1468,7 @@ actor VMClient {
 
     func snapshot(id: String, name: String? = nil) async throws -> VMSnapshotResult {
         return try await withOperation(.snapshot, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
             var body: [String: Any] = [:]
             if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["name"] = name
@@ -1531,6 +1496,7 @@ actor VMClient {
 
     func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult?, vm: VMSummary) {
         return try await withOperation(.fork, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
             var body: [String: Any] = [:]
             if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 body["name"] = name
@@ -1608,6 +1574,23 @@ actor VMClient {
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             return try decodeSSHEndpoint(obj)
+        }
+    }
+
+    func prepareSCP(id: String, publicKey: String) async throws -> VMSCPEndpoint {
+        try await withOperation(.open, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/scp-endpoint", jsonBody: ["publicKey": publicKey])
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let host = obj["host"] as? String, IPNetworkPrefix.isPrivateAddress(host),
+                  let port = obj["port"] as? Int, port == 22,
+                  let username = obj["username"] as? String, username == "cmux",
+                  let hostPublicKey = obj["hostPublicKey"] as? String,
+                  let expiresAtUnix = obj["expiresAtUnix"] as? Int else {
+                throw VMClientError.malformedResponse("Cloud SCP response was missing its private route or host key.")
+            }
+            return VMSCPEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey, expiresAtUnix: expiresAtUnix)
         }
     }
 
@@ -1968,29 +1951,28 @@ actor VMClient {
             let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
-            let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-            func int(_ key: String) -> Int? {
-                if let v = obj[key] as? Int { return v }
-                if let v = obj[key] as? Double { return Int(v) }
-                return nil
-            }
-            func double(_ key: String) -> Double? {
-                if let v = obj[key] as? Double { return v }
-                if let v = obj[key] as? Int { return Double(v) }
-                return nil
-            }
-            let sampledAtMs = double("sampledAt") ?? Date().timeIntervalSince1970 * 1000
-            return VMStats(
-                state: state,
-                sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
-                cpus: int("cpus"),
-                cpuPercent: double("cpuPercent"),
-                loadAverage1m: double("loadAverage1m"),
-                memoryTotalMb: int("memoryTotalMb"),
-                memoryUsedMb: int("memoryUsedMb"),
-                diskTotalMb: int("diskTotalMb"),
-                diskUsedMb: int("diskUsedMb")
+            return VMStats(json: obj)
+        }
+    }
+
+    /// Grow a machine's disk and return the provider-confirmed post-resize reading.
+    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
+        try await resize(id: id, cpu: nil, memoryMb: nil, diskMb: diskMb)
+    }
+
+    /// Grow one or more machine resources and return provider-confirmed stats.
+    func resize(id: String, cpu: Int?, memoryMb: Int?, diskMb: Int?) async throws -> VMStats {
+        return try await withOperation(.resize, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/resize",
+                jsonBody: ["cpu": cpu as Any, "memoryMb": memoryMb as Any, "storageMb": diskMb as Any].compactMapValues { value in value is NSNull ? nil : value },
+                timeoutSeconds: 120
             )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            return VMStats(json: obj)
         }
     }
 
@@ -2001,7 +1983,7 @@ actor VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/open-port",
                 jsonBody: ["port": port],
-                timeoutSeconds: 60
+                timeoutSeconds: 120
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2070,17 +2052,10 @@ actor VMClient {
         do {
             _ = try await session.data(for: request)
         } catch {
-            // Local key deletion still ends access from this Mac. A remote
-            // revoke remains available on cmux.com if the provider is offline.
         }
     }
 
-    // MARK: - HTTP
 
-    /// Every Cloud VM API call goes through here. Mints the trace context,
-    /// sends the client identity headers, measures wall-clock latency and
-    /// records the outcome (success, HTTP error with the server's code and
-    /// trace id, or transport failure) with `VMClientTelemetry`.
     private func withOperation<T>(
         _ kind: CloudOperationKind, foreground: Bool,
         _ work: () async throws -> T
@@ -2120,6 +2095,9 @@ actor VMClient {
         if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
             throw VMClientError.disabledByManagedPolicy
         }
+        if !allowedUnderManagedPolicy, !isCloudEnabled() {
+            throw VMClientError.cloudMachinesDisabled
+        }
         let minted = VMRequestTraceContext.mint()
         let trace = CloudOperationContext.current.map {
             VMRequestTraceContext(traceId: $0.traceID, spanId: $0.spanID, clientRequestId: minted.clientRequestId)
@@ -2155,6 +2133,7 @@ actor VMClient {
                 extraHeaders: headers,
                 timeoutSeconds: timeoutSeconds,
                 retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+                allowedWhenCloudDisabled: allowedUnderManagedPolicy,
                 onRetry: { retryCount += 1 }
             )
             record(.response(
@@ -2184,7 +2163,7 @@ actor VMClient {
         case .sessionRefreshFailed: return .sessionRefreshFailed
         case .backendUnreachable: return .backendUnreachable
         case .malformedResponse: return .malformedResponse
-        case .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy: return .unknown
+        case .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return .unknown
         }
     }
 
@@ -2192,11 +2171,10 @@ actor VMClient {
         switch error {
         case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
         case .malformedResponse(let message): return message
-        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy: return ""
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return ""
         }
     }
 
-    /// The server's `x-cmux-vm-error` header, else the body's `error` field.
     private static func cloudVMErrorCode(http: HTTPURLResponse, data: Data) -> String? {
         if let header = http.value(forHTTPHeaderField: "x-cmux-vm-error"), !header.isEmpty {
             return header
@@ -2228,6 +2206,7 @@ actor VMClient {
         extraHeaders: [String: String],
         timeoutSeconds: TimeInterval?,
         retryTransientServiceUnavailable: Bool,
+        allowedWhenCloudDisabled: Bool,
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
@@ -2281,6 +2260,8 @@ actor VMClient {
         // instead of a dead-end error dialog.
         var retriesLeft = 2
         while true {
+            try Task.checkCancellation()
+            if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
             let response: URLResponse
             let attempt = 3 - retriesLeft
@@ -2309,6 +2290,8 @@ actor VMClient {
                 }
                 throw error
             }
+            try Task.checkCancellation()
+            if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             guard let http = response as? HTTPURLResponse else {
                 throw VMClientError.malformedResponse("non-HTTP response")
             }
@@ -2357,7 +2340,7 @@ actor VMClient {
         progress.setValue(nil, forHTTPHeaderField: "X-Cmux-Operation-Id")
         // Fast requests make no progress reads. Slow requests expose actual server steps.
         do { try await Task.sleep(for: .seconds(1)) } catch { return }
-        while !Task.isCancelled {
+        while !Task.isCancelled, isCloudEnabled() {
             guard let identity = context.identity, await auth.isAuthenticatedSessionIdentityCurrent(identity) else { return }
             do {
                 let (data, response) = try await session.data(for: progress)

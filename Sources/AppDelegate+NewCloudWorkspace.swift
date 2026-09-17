@@ -17,7 +17,9 @@ extension AppDelegate {
         let context = preferredWindow.flatMap { contextForMainWindow($0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
         let focus = context?.tabManager.selectedTabId != nil
-        return operationController.start {
+        // Cmd+Y is one logical create-and-open intent. Coalesce repeated key
+        // events while the remote receipt is still being discovered/attached.
+        return operationController.start(key: "new-cloud-workspace.default") {
             guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
                   !Task.isCancelled,
                   coordinator.isAvailable else { return }

@@ -1,0 +1,79 @@
+[0/1] Planning build
+Building for debugging...
+[0/3] Write sources
+[1/3] Write swift-version--58304C5D6DBC2206.txt
+[3/6] Compiling CmuxIrxTransport IrxConnection.swift
+[4/6] Compiling CmuxIrxTransport IrxAdmission.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxAdmission.swift:1:8: warning: public import of 'Foundation' was not used in public declarations or inlinable code
+  1 | public import Foundation
+    |        `- warning: public import of 'Foundation' was not used in public declarations or inlinable code
+  2 | public import IrohLib
+  3 | 
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/IrxAdmission.swift:2:8: warning: public import of 'IrohLib' was not used in public declarations or inlinable code
+  1 | public import Foundation
+  2 | public import IrohLib
+    |        `- warning: public import of 'IrohLib' was not used in public declarations or inlinable code
+  3 | 
+  4 | /// Admission outcome carried into the host: the peer tuple the grant proved,
+[5/6] Emitting module CmuxIrxTransport
+[6/10] Compiling CmuxIrxTransportTests IrxLivenessTests.swift
+[7/10] Compiling CmuxIrxTransportTests IrxLiveQUICTests.swift
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxLiveQUICTests.swift:299:32: warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+297 |                     )
+298 |                 else { continue }
+299 |                 await registry.admit(
+    |                                `- warning: result of call to 'admit(deviceID:sessionID:connection:stillAuthorized:)' is unused [#no-usage]
+300 |                     deviceID: peer.deviceID, sessionID: sessionID, connection: irx)
+301 |                 Task {
+[8/10] Emitting module CmuxIrxTransportTests
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxControlPlaneTests.swift:26:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 24 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 25 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 26 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 27 |                 throw DecodingError.dataCorrupted(.init(
+ 28 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+/Users/cmux/cmux-runners/iroh-v2-integration-20260910211351-8258-9168/Packages/Shared/CmuxIrxTransport/Tests/CmuxIrxTransportTests/IrxCtlListAuthTests.swift:15:30: warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 13 |         decoder.dateDecodingStrategy = .custom { decoder in
+ 14 |             let raw = try decoder.singleValueContainer().decode(String.self)
+ 15 |             guard let date = iso.date(from: raw) else {
+    |                              `- warning: capture of 'iso' with non-Sendable type 'ISO8601DateFormatter' in a '@Sendable' closure [#SendableClosureCaptures]
+ 16 |                 throw DecodingError.dataCorrupted(.init(
+ 17 |                     codingPath: decoder.codingPath,
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/System/Library/Frameworks/Foundation.framework/Headers/NSISO8601DateFormatter.h:46:12: note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+44 | 
+45 | API_AVAILABLE(macosx(10.12), ios(10.0), watchos(3.0), tvos(10.0))
+46 | @interface NSISO8601DateFormatter : NSFormatter <NSSecureCoding> {
+   |            `- note: class 'ISO8601DateFormatter' does not conform to the 'Sendable' protocol
+47 | @private
+48 |     CFDateFormatterRef _formatter;
+
+[#SendableClosureCaptures]: <https://docs.swift.org/compiler/documentation/diagnostics/sendable-closure-captures>
+[8/10] Write Objects.LinkFileList
+[9/10] Linking CmuxIrxTransportPackageTests
+Build complete! (4.17s)
+Test Suite 'Selected tests' started at 2026-09-10 22:24:42.580.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' started at 2026-09-10 22:24:42.582.
+Test Suite 'CmuxIrxTransportPackageTests.xctest' passed at 2026-09-10 22:24:42.582.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-09-10 22:24:42.582.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.002) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite "live QUIC" started.
+◇ Test "a denied grant surfaces its machine-readable code via the termination" started.
+✔ Test "a denied grant surfaces its machine-readable code via the termination" passed after 0.039 seconds.
+✔ Suite "live QUIC" passed after 0.040 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.040 seconds.
