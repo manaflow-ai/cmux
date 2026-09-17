@@ -43,31 +43,35 @@ public struct CloudFlowView: View {
 
     public var body: some View {
         NavigationStack(path: $path) {
-            CloudSectionView(controller: controller)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button(L10n.string("mobile.cloud.onboarding.title", defaultValue: "Cloud basics")) {
-                            showsCloudOnboarding = true
+            if cloudOnboardingCompleted {
+                CloudSectionView(controller: controller)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(L10n.string("mobile.cloud.onboarding.title", defaultValue: "Cloud basics")) {
+                                showsCloudOnboarding = true
+                            }
+                            .accessibilityIdentifier("CloudBasicsButton")
                         }
-                        .accessibilityIdentifier("CloudBasicsButton")
                     }
-                }
-                .navigationDestination(for: CloudMachine.self) { machine in
-                    CloudTerminalCatalogView(machine: machine, controller: controller)
-                }
-                .navigationDestination(for: CloudTerminalRoute.self) { route in
-                    CloudTerminalScreen(machine: route.machine, terminal: route.terminal, controller: controller)
-                }
-                .navigationDestination(for: CloudWorkspaceRoute.self) { route in
-                    CloudWorkspaceDetailView(machine: route.machine, workspace: route.workspace, controller: controller)
-                }
-        }
-        .task { await controller.systemVPN?.refresh() }
-        .onAppear {
-            if !cloudOnboardingCompleted {
-                showsCloudOnboarding = true
+            } else {
+                CloudOnboardingView(
+                    controller: controller,
+                    onComplete: { cloudOnboardingCompleted = true },
+                    showsNavigationChrome: false
+                )
+                .accessibilityIdentifier("CloudInlineOnboarding")
+            }
+            .navigationDestination(for: CloudMachine.self) { machine in
+                CloudTerminalCatalogView(machine: machine, controller: controller)
+            }
+            .navigationDestination(for: CloudTerminalRoute.self) { route in
+                CloudTerminalScreen(machine: route.machine, terminal: route.terminal, controller: controller)
+            }
+            .navigationDestination(for: CloudWorkspaceRoute.self) { route in
+                CloudWorkspaceDetailView(machine: route.machine, workspace: route.workspace, controller: controller)
             }
         }
+        .task { await controller.systemVPN?.refresh() }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
@@ -77,9 +81,7 @@ public struct CloudFlowView: View {
             default: break
             }
         }
-        .sheet(isPresented: $showsCloudOnboarding, onDismiss: {
-            cloudOnboardingCompleted = true
-        }) {
+        .sheet(isPresented: $showsCloudOnboarding) {
             CloudOnboardingView(controller: controller)
         }
     }
