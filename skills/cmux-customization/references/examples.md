@@ -171,6 +171,7 @@ Reusable text pasted into the focused terminal, iTerm2-snippet style. `type: "te
   "actions": {
     "review-prompt": {
       "type": "text",
+      "category": "Prompts",
       "title": "Review Prompt",
       "keywords": ["review", "snippet"],
       "shortcut": "cmd+shift+r",
@@ -186,7 +187,7 @@ Reusable text pasted into the focused terminal, iTerm2-snippet style. `type: "te
 }
 ```
 
-Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action.
+Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action. They also appear under **Snippets** in the terminal right-click menu; entries with a `category` are grouped into a sub-submenu named after it, uncategorised ones sit at the top.
 
 ## CI Watch
 
