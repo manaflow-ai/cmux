@@ -11,8 +11,8 @@ struct DockSplitContentView: View {
     let appearance: PanelAppearance
     let appearanceRevision: UInt
     let windowAppearance: WindowAppearanceSnapshot
-    let usesTransparentBackground: Bool
-    let onKeyboardFocusIntent: (() -> Void)?
+    var usesTransparentBackground: Bool = false
+    var onKeyboardFocusIntent: (() -> Void)? = nil
     let rightSidebarOwnsInputFocus: Bool
     let unreadPanelIDs: Set<UUID>
 

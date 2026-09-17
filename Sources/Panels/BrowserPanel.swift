@@ -4528,6 +4528,7 @@ final class BrowserPanel: Panel, ObservableObject {
             pageZoom: Double(currentPageZoomFactor()),
             developerToolsVisible: isDeveloperToolsVisible(),
             isMuted: isMuted,
+            chromeVisibility: chromeVisibility,
             omnibarVisible: isOmnibarVisible,
             backHistoryURLStrings: history.backHistoryURLStrings,
             forwardHistoryURLStrings: history.forwardHistoryURLStrings,

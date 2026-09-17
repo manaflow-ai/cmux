@@ -16,7 +16,8 @@ struct WorkspaceFloatingDockContentView: View {
             rightSidebarOwnsInputFocus: dock.ownsInputFocus,
             onKeyboardFocusIntent: {},
             usesTransparentBackground: true,
-            tabBarLeadingInset: WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset
+            tabBarLeadingInset: WorkspaceFloatingDockChromeMetrics.tabBarLeadingInset,
+            unreadSource: TerminalNotificationStore.shared.sidebarUnread
         )
         .frame(minWidth: 320, minHeight: 220)
         .ignoresSafeArea(.container, edges: .top)

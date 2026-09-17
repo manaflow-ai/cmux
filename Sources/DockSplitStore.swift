@@ -736,8 +736,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             panel,
             surfaceKind: normalizedSurfaceKind,
             title: panel.displayTitle,
-            inPane: paneId,
-            tracksTerminalTitle: true
+            inPane: paneId
         ) else { return nil }
         recordExplicitPanelCreation()
         if focus {
@@ -767,7 +766,6 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         tmuxStartCommand: String? = nil,
         noteFilePath: String? = nil,
         noteTitle: String? = nil,
-        preferredProfileID: UUID? = nil,
         initialInput: String? = nil,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
         initialDividerPosition: CGFloat? = nil,
@@ -1134,7 +1132,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
                 filePath: noteFilePath,
                 presentation: .note(
                     title: noteTitle ?? String(localized: "floatingDock.note.title", defaultValue: "Notes")
-                )
+                ),
+                fileContentChangeCoordinator: fileContentChangeCoordinator
             )
         }
     }
@@ -1243,8 +1242,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
             panel,
             surfaceKind: tabKindRaw(kind),
             title: title,
-            inPane: paneId,
-            tracksTerminalTitle: tracksTerminalTitle
+            inPane: paneId
         )
     }
 
@@ -1253,8 +1251,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         _ panel: any Panel,
         surfaceKind: String,
         title: String,
-        inPane paneId: PaneID?,
-        tracksTerminalTitle: Bool
+        inPane paneId: PaneID?
     ) -> TabID? {
         guard !isRetired else {
             panel.close()

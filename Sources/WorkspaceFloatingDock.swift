@@ -1,3 +1,4 @@
+import Bonsplit
 import CoreGraphics
 import Foundation
 import Observation
@@ -42,7 +43,9 @@ final class WorkspaceFloatingDock: Identifiable {
         noteFilePath: String?,
         seedsDefaultNote: Bool = true,
         baseDirectoryProvider: @escaping () -> String?,
-        remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings
+        remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings,
+        tabDragTransferRegistry: TabDragTransferRegistry? = nil,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
     ) {
         self.id = id
         self.workspaceId = workspaceId
@@ -59,7 +62,9 @@ final class WorkspaceFloatingDock: Identifiable {
             loadsConfiguration: false,
             contentPolicy: contentPolicy,
             baseDirectoryProvider: baseDirectoryProvider,
-            remoteBrowserSettingsProvider: remoteBrowserSettingsProvider
+            remoteBrowserSettingsProvider: remoteBrowserSettingsProvider,
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
         )
 
         if seedsDefaultNote {
@@ -104,6 +109,6 @@ final class WorkspaceFloatingDock: Identifiable {
 
     func close() {
         ownsInputFocus = false
-        store.closeAllPanels()
+        store.retire()
     }
 }

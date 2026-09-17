@@ -36,6 +36,9 @@ struct DockPanelView: View {
         rootDirectory: String?,
         windowAppearance: WindowAppearanceSnapshot,
         rightSidebarOwnsInputFocus: Bool = false,
+        onKeyboardFocusIntent: (() -> Void)? = nil,
+        usesTransparentBackground: Bool = false,
+        tabBarLeadingInset: CGFloat = 0,
         unreadSource: SidebarUnreadModel
     ) {
         self.store = store
@@ -44,6 +47,9 @@ struct DockPanelView: View {
         self.rootDirectory = rootDirectory
         self.windowAppearance = windowAppearance
         self.rightSidebarOwnsInputFocus = rightSidebarOwnsInputFocus
+        self.onKeyboardFocusIntent = onKeyboardFocusIntent
+        self.usesTransparentBackground = usesTransparentBackground
+        self.tabBarLeadingInset = tabBarLeadingInset
         _unreadProjection = State(initialValue: DockUnreadPanelProjection(
             source: unreadSource,
             workspaceID: store.workspaceId,

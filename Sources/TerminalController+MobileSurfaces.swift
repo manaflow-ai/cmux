@@ -28,6 +28,8 @@ extension TerminalController {
             return .extensionBrowser
         case .workspaceTodo:
             return .todo
+        case .workspaceShareChat:
+            return MobileSurfaceKind(rawValue: "workspaceShareChat")
         case .notifications:
             // Notifications use the open-vocabulary fallback until the phone
             // provides a native renderer for this panel kind.

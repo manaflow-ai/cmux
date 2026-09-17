@@ -41,7 +41,9 @@ extension Workspace {
             baseDirectoryProvider: { [weak self] in self?.currentDirectory },
             remoteBrowserSettingsProvider: { [weak self] in
                 self?.dockRemoteBrowserSettingsSnapshot() ?? .local
-            }
+            },
+            tabDragTransferRegistry: tabDragTransferRegistry,
+            fileContentChangeCoordinator: fileContentChangeCoordinator
         )
         if let sessionContent {
             dock.restoreSessionContent(sessionContent)
@@ -367,8 +369,8 @@ extension DockSplitStore {
                 tmuxStartCommand: snapshot.terminal?.tmuxStartCommand,
                 noteFilePath: snapshot.kind == .note ? noteFilePath : nil,
                 noteTitle: snapshot.kind == .note ? noteTitle : nil,
-                preferredProfileID: snapshot.browser?.profileID,
                 initialDividerPosition: dividerPosition,
+                preferredProfileID: snapshot.browser?.profileID,
                 focus: false
             )
         }
