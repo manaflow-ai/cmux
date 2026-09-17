@@ -39,7 +39,11 @@ There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gate
 
 Public callers only use `/api/vm/*`. Each route calls Stack Auth first and returns `401` before any Postgres or provider operation when the caller is unauthenticated.
 
-Ownership checks happen inside the Effect workflow by loading the VM row with both `user_id` and `provider_vm_id`. A user cannot destroy, exec, attach, or mint SSH credentials for a VM owned by another Stack Auth user.
+Ownership checks load the VM under its immutable `owner_team_id`, validated
+against the caller's current Stack team membership. The creator's user id and
+billing attribution do not independently grant access. Personal machines use
+the user's personal scope. Model credentials are further constrained by the
+machine's coderouter pool; see `services/coderouter/README.md`.
 
 Cookie-authenticated browser mutations also require a same-origin browser request. Native macOS
 calls use `Authorization: Bearer` plus `X-Stack-Refresh-Token` and are not subject to browser CSRF.
