@@ -249,8 +249,9 @@ public final class PullRequestPollService: PullRequestProbing {
         }
 
         let cacheBySlug = workspacePullRequestRepoCacheBySlug
-        let allowCachedResults = allowCachedResultsOverride
-            ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason)
+        let allowCachedResults = (allowCachedResultsOverride
+            ?? PullRequestProbeService.refreshAllowsRepoCache(reason: reason))
+            && !requiresFreshPullRequestChecks(for: requestedKeys)
         let includePullRequestChecks = host.pullRequestChecksEnabled
         let gitMetadataService = gitMetadataService
         let probeService = probeService
@@ -275,7 +276,7 @@ public final class PullRequestPollService: PullRequestProbing {
             )
             var rateLimitRetryDate = repoFetch.rateLimitRetryDate
             if includePullRequestChecks {
-                let enriched = await probeService.enrichPullRequestChecks(results)
+                let enriched = await probeService.enrichPullRequestChecks(results, allowCachedResults: allowCachedResults)
                 results = enriched.results
                 rateLimitRetryDate = enriched.rateLimitRetryDate ?? rateLimitRetryDate
             }

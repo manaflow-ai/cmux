@@ -8,12 +8,15 @@ struct SidebarPullRequestChecksIcon: View {
 
     var body: some View {
         let display = SidebarPullRequestChecksDisplay(checks: checks)
-        CmuxSystemSymbolImage(
-            magnified: display.iconName,
-            pointSize: pointSize,
-            weight: .semibold,
-            tint: display.tint.map(Color.init(nsColor:)) ?? neutralColor
-        )
+        ZStack {
+            CmuxSystemSymbolImage(
+                magnified: display.iconName,
+                pointSize: pointSize,
+                weight: .semibold,
+                tint: display.tint.map(Color.init(nsColor:)) ?? neutralColor
+            )
+        }
+        .accessibilityElement(children: .ignore)
         .frame(width: pointSize * 4 / 3, height: pointSize * 4 / 3)
         .safeHelp(display.tooltip)
         .accessibilityLabel(display.tooltip)

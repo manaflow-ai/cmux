@@ -6,8 +6,10 @@ extension PullRequestProbeService {
 #if compiler(>=6.2)
     @concurrent
 #endif
+    /// Runs optional checks work with caller-controlled cache reuse.
     public nonisolated func enrichPullRequestChecks(
-        _ results: [WorkspacePullRequestRefreshResult]
+        _ results: [WorkspacePullRequestRefreshResult],
+        allowCachedResults: Bool = true
     ) async -> (results: [WorkspacePullRequestRefreshResult], rateLimitRetryDate: Date?) {
         let summaries = await withTaskGroup(
             of: (Int, PullRequestChecksSummary?).self,
@@ -20,7 +22,8 @@ extension PullRequestProbeService {
                     let checks = await self.fetchPullRequestChecks(
                         repoSlug: item.repoSlug,
                         pullRequestNumber: item.number,
-                        headSHA: item.headSHA
+                        headSHA: item.headSHA,
+                        allowCachedResults: allowCachedResults
                     )
                     return (index, checks ?? PullRequestChecksSummary(status: .unavailable, checks: [], mergeStatus: .unknown))
                 }

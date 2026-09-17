@@ -39,6 +39,27 @@ import CmuxGit
         service.resetWorkspacePullRequestRefreshState()
     }
 
+    @Test func clearedProjectionRequiresFreshAssociationAndChecks() {
+        let host = RecordingSidebarGitHost()
+        host.pullRequestChecksEnabled = true
+        let (workspace, panel) = host.addWorkspace(panelDirectory: nil)
+        let service = PullRequestPollService(
+            gitMetadataService: GitMetadataService(),
+            probeService: PullRequestProbeService(commandRunner: ForbiddenCommandRunner()),
+            clock: ManualGitPollClock()
+        )
+        service.attach(host: host)
+        let key = WorkspaceGitProbeKey(workspaceId: workspace, panelId: panel)
+        #expect(service.requiresFreshPullRequestChecks(for: [key]))
+        host.updatePanelPullRequest(workspaceId: workspace, panelId: panel, badge: SidebarPullRequestBadge(
+            number: 1, label: "PR", url: URL(string: "https://github.com/o/r/pull/1")!, status: .open,
+            checks: PullRequestChecksSummary(status: .success, checks: [], mergeStatus: .ready)
+        ))
+        #expect(!service.requiresFreshPullRequestChecks(for: [key]))
+        host.pullRequestChecksEnabled = false
+        #expect(!service.requiresFreshPullRequestChecks(for: [key]))
+    }
+
     @Test func enablingChecksMakesAlreadyTrackedPullRequestsDue() {
         let host = RecordingSidebarGitHost()
         host.pollingEnabled = true

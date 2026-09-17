@@ -7,10 +7,12 @@ extension PullRequestProbeService {
 #if compiler(>=6.2)
     @concurrent
 #endif
+    /// Runs optional checks work with caller-controlled cache reuse.
     public nonisolated func fetchPullRequestChecks(
         repoSlug: String,
         pullRequestNumber: Int,
-        headSHA: String?
+        headSHA: String?,
+        allowCachedResults: Bool = true
     ) async -> PullRequestChecksSummary? {
         guard !Task.isCancelled, pullRequestNumber > 0,
               let headSHA, !headSHA.isEmpty,
@@ -18,7 +20,7 @@ extension PullRequestProbeService {
               let authHeader = await authHeaderValue() else { return nil }
         let identity = Data(SHA256.hash(data: Data(authHeader.utf8))).base64EncodedString()
         let key = "\(identity)|\(repoSlug)#\(pullRequestNumber)|\(headSHA)"
-        if let cached = await checksCache.value(for: key, now: Date()) { return cached }
+        if allowCachedResults, let cached = await checksCache.value(for: key, now: Date()) { return cached }
         let slug = repoSlug.split(separator: "/")
         guard slug.count == 2 else { return nil }
         var currentSHA: String?

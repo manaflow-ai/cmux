@@ -297,6 +297,21 @@ struct PullRequestProbeServiceFetchTests {
         #expect(await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123") == nil)
     }
 
+    @Test func invalidatedProjectionCannotRestoreCachedPassingChecks() async throws {
+        PullRequestProbeStubURLProtocol.reset(stubs: [
+            try checksStub(nodes: [checkNode()]),
+            try checksStub(sha: "def456", nodes: [])
+        ])
+        let service = makeService()
+        let initial = await service.fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(initial?.status == .success)
+        let invalidated = await service.fetchPullRequestChecks(
+            repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123", allowCachedResults: false
+        )
+        #expect(invalidated == nil)
+        #expect(requestURLStrings().count == 2)
+    }
+
     @Test func partialGraphQLErrorsCannotBecomeSuccess() async throws {
         PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 200, data: Data("{\"errors\":[{\"message\":\"unavailable\"}]}".utf8))])
         let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
