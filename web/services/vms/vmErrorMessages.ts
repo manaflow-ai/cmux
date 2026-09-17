@@ -88,6 +88,20 @@ export type VmRequiresProCopy = {
   readonly action: string;
 };
 
+/** Localized setup guidance for unavailable runtime artifacts, without operator diagnostics. */
+export async function vmArtifactUnavailableCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.artifactUnavailable",
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
+
 /** Load and translate the `vm_requires_pro` response copy for the request locale. */
 export async function vmRequiresProCopy(
   locale: Locale,
@@ -103,6 +117,29 @@ export async function vmRequiresProCopy(
     message: translator("message"),
     action: translator("action", { upgradeUrl: values.upgradeUrl }),
   };
+}
+
+export async function vmMemoryErrorCopy(
+  kind: "memoryPlan" | "memoryUnknown" | "memoryUnavailable",
+  locale: Locale,
+  values: Record<string, string | number> = {},
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: `vmErrors.${kind}` }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  return { title: kind === "memoryPlan" ? t("title", values) : t("message", values),
+    message: t("message", values), action: t("action", values) };
+}
+
+/** Localized copy for the Go plan's hard limits. */
+export async function vmGoLimitCopy(
+  kind: "saved" | "active" | "hours" | "shape",
+  locale: Locale,
+): Promise<{ readonly message: string; readonly action: string }> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.goLimit",
+  }) as unknown as (key: string) => string;
+  return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
 }
 
 /** Copy returned when an account's shared Cloud VM resource pool is full. */

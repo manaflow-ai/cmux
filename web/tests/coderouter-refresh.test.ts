@@ -14,7 +14,7 @@ const expired: CodexCredential = {
   provider: "codex",
   accessToken: "old-access",
   refreshToken: "old-refresh",
-  idToken: "old-id",
+  idToken: "header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJwcm92aWRlci1hY2NvdW50In19.signature",
   accountId: "provider-account",
   email: "person@example.com",
   expiresAt: 1,
@@ -159,7 +159,7 @@ describe("coderouter provider refresh responses", () => {
       Response.json({
         access_token: "rotated-access",
         refresh_token: "rotated-refresh",
-        id_token: "rotated-id",
+        id_token: "header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJwcm92aWRlci1hY2NvdW50In19.signature",
         expires_in: 3600,
       })) as typeof fetch;
     try {
@@ -167,7 +167,7 @@ describe("coderouter provider refresh responses", () => {
       if (result.provider !== "codex") throw new Error("unexpected provider");
       expect(result.accessToken).toBe("rotated-access");
       expect(result.refreshToken).toBe("rotated-refresh");
-      expect(result.idToken).toBe("rotated-id");
+      expect(result.idToken).toBe("header.eyJlbWFpbCI6ICJwZXJzb25AZXhhbXBsZS5jb20iLCAiaHR0cHM6Ly9hcGkub3BlbmFpLmNvbS9hdXRoIjogeyJjaGF0Z3B0X3VzZXJfaWQiOiAiZml4dHVyZS11c2VyIiwgImNoYXRncHRfYWNjb3VudF9pZCI6ICJwcm92aWRlci1hY2NvdW50In19.signature");
     } finally {
       globalThis.fetch = originalFetch;
     }

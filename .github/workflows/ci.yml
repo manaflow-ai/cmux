@@ -159,6 +159,12 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Test macOS localization catalog tooling
+        run: python3 tests/test_localization_catalog.py
+
+      - name: Validate macOS localization parity
+        run: python3 scripts/localization_catalog.py check
+
       - name: Validate cmux-cloud-vm skill covers the vm CLI
         run: python3 tests/test_cloud_vm_skill_coverage.py
 
@@ -224,6 +230,9 @@ jobs:
 
       - name: Validate xcodebuild noninteractive crash prompt guard
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
+
+      - name: Validate xcodebuild failure diagnostics
+        run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
       - name: Validate app-host xcodebuild retry guard
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
@@ -1596,6 +1605,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
@@ -1604,6 +1614,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
           python3 tests/test_codex_wrapper_resume_hooks.py
+          python3 tests/test_codex_autoresume_chain.py
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_codex_wrapper_computer_use_mcp.py
           python3 tests/test_cmux_cua_mcp_smoke.py

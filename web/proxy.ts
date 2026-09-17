@@ -12,7 +12,7 @@ import {
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
-import { requestOrigin, requestWithOrigin } from "./app/lib/request-origin";
+import { requestOrigin, requestWithOrigin, responseWithInternalRewrite } from "./app/lib/request-origin";
 import {
   DASHBOARD_RETURN_PATH_HEADER,
   dashboardReturnPathForRequest,
@@ -28,6 +28,10 @@ const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
+  return responseWithInternalRewrite(routeRequest(incomingRequest), incomingRequest);
+}
+
+function routeRequest(incomingRequest: NextRequest) {
   const request = requestWithOrigin(incomingRequest);
   const dashboardReturnPath = dashboardReturnPathForRequest(
     request.nextUrl.pathname,
@@ -126,6 +130,12 @@ function handleHostAndMachineRoutes(
   // the page deliberately lives outside the localized cmux site tree.
   if (isCoderouterLandingPath(pathname)) {
     return NextResponse.next();
+  }
+
+  if (pathname === "/coderouter/auth/complete" || pathname === "/coderouter/auth/complete/") {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-next-intl-locale", preferredAppRouteLocale(request));
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // cmux consumes this marker before navigation. If an ordinary browser

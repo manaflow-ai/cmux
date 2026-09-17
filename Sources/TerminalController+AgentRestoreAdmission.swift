@@ -83,7 +83,8 @@ extension TerminalController {
         let admissionStart = ContinuousClock.now
 
         let targetMatchesBeforeScan = await v2MainAsync {
-            self.agentRestoreTargetMatches(inputs)
+            self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil
+                && self.agentRestoreTargetMatches(inputs)
         }
         guard targetMatchesBeforeScan else {
             return Self.agentRestoreAdmissionResponse(
@@ -138,7 +139,8 @@ extension TerminalController {
             }
         )
         let decision = await v2MainAsync { () -> AgentRestoreAdmissionDecision in
-            guard self.agentRestoreTargetMatches(inputs) else {
+            guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil,
+                  self.agentRestoreTargetMatches(inputs) else {
                 return .targetChanged
             }
             if let liveOwner {
@@ -200,7 +202,8 @@ extension TerminalController {
             )
         }
         let released = await v2MainAsync {
-            AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+            guard self.controlRemoteRelayDispatchError(method: request.method, params: request.params) == nil else { return false }
+            return AgentResumeLaunchGuard.shared.releaseResumeLaunch(
                 kind: kind,
                 sessionId: sessionID,
                 claim: AgentResumeLaunchGuard.Claim(id: claimID)

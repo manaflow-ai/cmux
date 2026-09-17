@@ -48,8 +48,10 @@ extension RemoteSessionCoordinator {
             relayToken: relayToken,
             persistentDaemonSlot: configuration.persistentDaemonSlot
         )
-        let metadataProbeCommand =
-            "sh -c \(probeScript.shellSingleQuoted)"
+        // Keep the relay token out of SSH argv and process/debug logs. The
+        // ownership probe receives its script over stdin instead.
+        let metadataProbeCommand = "sh -s"
+        let metadataProbeStdin = Data(probeScript.utf8)
         let token = UUID()
         let configuration = self.configuration
         let connectionBroker = self.connectionBroker
@@ -108,7 +110,8 @@ extension RemoteSessionCoordinator {
                 await connectionBroker.reapInheritedControlMaster(
                     for: configuration,
                     resolvedControlPath: effectiveControlPath,
-                    metadataProbeCommand: metadataProbeCommand
+                    metadataProbeCommand: metadataProbeCommand,
+                    metadataProbeStdin: metadataProbeStdin
                 )
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in

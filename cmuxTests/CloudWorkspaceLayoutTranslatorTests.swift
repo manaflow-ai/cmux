@@ -103,10 +103,19 @@ import Testing
 
     static func keys(_ placements: [SurfaceResourcePlacement]) -> [String] { placements.map(\.resource.key) }
 
+    static func primaryScreen(_ layout: SurfaceProjectionLayout) throws -> SurfaceProjectionLayout {
+        guard case .split(.right, _, let first, _) = layout else {
+            Issue.record("Expected the workspace's two screens side by side")
+            return layout
+        }
+        return first
+    }
+
     // MARK: - Geometry
 
-    @Test func focusedScreenBecomesTheTreeWithDirectionsRatiosAndTabs() throws {
-        let layout = try #require(Self.translate(Self.snapshot()))
+    @Test func screensRetainTheirGeometryInDaemonOrder() throws {
+        let fullLayout = try #require(Self.translate(Self.snapshot()))
+        let layout = try Self.primaryScreen(fullLayout)
         guard case .split(let direction, let ratio, let first, let second) = layout else {
             Issue.record("expected a split at the root, got \(layout)")
             return
@@ -114,19 +123,17 @@ import Testing
         #expect(direction == .right, "daemon `horizontal` is side by side")
         #expect(ratio == 0.6)
 
-        // First pane: the two tabs of pane_1 in daemon tab order (index, not array order),
-        // then the other screen's terminal appended as a tab.
+        // The first screen retains its own panes and tab order.
         guard case .leaf(let firstPlacements) = first else {
             Issue.record("expected the left half to be one pane, got \(first)")
             return
         }
-        #expect(Self.keys(firstPlacements) == ["term_a", "browser_1", "term_d"])
+        #expect(Self.keys(firstPlacements) == ["term_a", "browser_1"])
         let agent = try #require(firstPlacements.first)
         #expect(agent.resource == SurfaceResourceID(machine: Self.machine, kind: .terminal, key: "term_a"))
         #expect(agent.remoteTabID == "tab_a")
         #expect(agent.remoteWorkspaceID == "ws_main")
-        let appended = try #require(firstPlacements.last)
-        #expect(appended.remoteTabID == "tab_d", "other screens' tabs ride along as tabs of the first pane")
+        #expect(fullLayout.placements.last?.remoteTabID == "tab_d", "the second screen follows the first screen")
 
         guard case .split(let innerDirection, let innerRatio, let top, let bottom) = second else {
             Issue.record("expected the right half to be a vertical split, got \(second)")
@@ -137,7 +144,7 @@ import Testing
         #expect(Self.keys(top.placements) == ["term_b"])
         #expect(Self.keys(bottom.placements) == ["term_c"], "a tab whose resource the catalog does not know is dropped")
 
-        #expect(Self.keys(layout.placements) == ["term_a", "browser_1", "term_d", "term_b", "term_c"], "document order")
+        #expect(Self.keys(fullLayout.placements) == ["term_a", "browser_1", "term_b", "term_c", "term_d"], "document order")
     }
 
     @Test func placementsCarryTheExactRemoteView() throws {
@@ -147,14 +154,14 @@ import Testing
         let views = layout.placements.compactMap { placement -> (String, String?, String?)? in
             (placement.resource.key, placement.remoteTabID, placement.remoteWorkspaceID)
         }
-        #expect(views.map { $0.1 } == ["tab_a", "tab_b1", "tab_d", "tab_b", "tab_c"])
+        #expect(views.map { $0.1 } == ["tab_a", "tab_b1", "tab_b", "tab_c", "tab_d"])
         #expect(views.allSatisfy { $0.2 == "ws_main" })
     }
 
     @Test func ratiosAreClampedToWhatALocalDividerAccepts() throws {
         func rootRatio(_ ratio: Any?) throws -> Double {
             let root = Self.split("horizontal", ratio, Self.leaf("pane_1", ["tab_a"]), Self.leaf("pane_2", ["tab_b"]))
-            let layout = try #require(Self.translate(Self.snapshot(root: root)))
+            let layout = try Self.primaryScreen(#require(Self.translate(Self.snapshot(root: root))))
             guard case .split(_, let value, _, _) = layout else {
                 Issue.record("expected a split")
                 return -1
@@ -170,7 +177,7 @@ import Testing
 
     @Test func stackBecomesStackedPanesWithEqualShares() throws {
         let root: [String: Any] = ["kind": "stack", "pane_ids": ["pane_1", "pane_2", "pane_3"], "expanded_pane_id": "pane_2"]
-        let layout = try #require(Self.translate(Self.snapshot(root: root)))
+        let layout = try Self.primaryScreen(#require(Self.translate(Self.snapshot(root: root))))
         guard case .split(let direction, let ratio, let first, let rest) = layout,
               case .split(let innerDirection, let innerRatio, let middle, let last) = rest else {
             Issue.record("expected two nested splits, got \(layout)")
@@ -179,7 +186,7 @@ import Testing
         #expect(direction == .down && innerDirection == .down)
         #expect(abs(ratio - 1.0 / 3.0) < 0.0001, "the first of three panes takes a third")
         #expect(innerRatio == 0.5, "the remaining two share the rest evenly")
-        #expect(Self.keys(first.placements) == ["term_a", "browser_1", "term_d"])
+        #expect(Self.keys(first.placements) == ["term_a", "browser_1"])
         #expect(Self.keys(middle.placements) == ["term_b"])
         #expect(Self.keys(last.placements) == ["term_c"])
     }
@@ -194,7 +201,7 @@ import Testing
                 ["column_id": "split_c3", "width": 0.25, "root": Self.leaf("pane_3", ["tab_c"])],
             ],
         ]
-        let layout = try #require(Self.translate(Self.snapshot(root: root)))
+        let layout = try Self.primaryScreen(#require(Self.translate(Self.snapshot(root: root))))
         guard case .split(let direction, let ratio, _, let rest) = layout,
               case .split(let innerDirection, let innerRatio, _, _) = rest else {
             Issue.record("expected two nested splits, got \(layout)")
@@ -209,20 +216,19 @@ import Testing
 
     @Test func aPaneWithOnlyUnknownResourcesCollapsesIntoItsSibling() throws {
         let root = Self.split("horizontal", 0.7, Self.leaf("pane_3", ["tab_ghost"]), Self.leaf("pane_2", ["tab_b"]))
-        let layout = try #require(Self.translate(Self.snapshot(root: root)))
-        // No split survives: the ghost pane is gone and the other screen's tab still lands
-        // in the first pane that exists.
+        let layout = try Self.primaryScreen(#require(Self.translate(Self.snapshot(root: root))))
+        // Only the surviving pane remains on the first screen.
         guard case .leaf(let placements) = layout else {
             Issue.record("expected the surviving pane alone, got \(layout)")
             return
         }
-        #expect(Self.keys(placements) == ["term_b", "term_d"])
+        #expect(Self.keys(placements) == ["term_b"])
     }
 
     @Test func leafFallsBackToTheTabsTableWhenTheDocumentListsNoTabs() throws {
         let root = Self.split("vertical", 0.5, Self.leaf("pane_1", []), Self.leaf("pane_2", []))
-        let layout = try #require(Self.translate(Self.snapshot(root: root)))
-        #expect(Self.keys(layout.placements) == ["term_a", "browser_1", "term_d", "term_b"])
+        let layout = try Self.primaryScreen(#require(Self.translate(Self.snapshot(root: root))))
+        #expect(Self.keys(layout.placements) == ["term_a", "browser_1", "term_b"])
     }
 
     @Test func nothingUsableYieldsNil() {
@@ -231,7 +237,9 @@ import Testing
         let noLayout: [[String: Any]] = [["id": "screen_1", "workspace_id": "ws_main", "index": 0, "focused": true]]
         #expect(Self.translate(Self.snapshot(screens: noLayout)) == nil, "an older daemon without layout documents")
         let ghostOnly = Self.leaf("pane_3", ["tab_ghost"])
-        #expect(Self.translate(Self.snapshot(root: ghostOnly)) == nil, "every pane empty after dropping unknowns")
+        let onlyGhost: [[String: Any]] = [["id": "screen_1", "workspace_id": "ws_main", "layout": ghostOnly]]
+        #expect(Self.translate(Self.snapshot(screens: onlyGhost)) == nil, "every pane empty after dropping unknowns")
+        #expect(Self.translate(Self.snapshot(root: ghostOnly))?.placements.map(\.resource.key) == ["term_d"], "another screen remains usable")
     }
 
     @Test func anUnreadableDocumentIsDiscardedWhole() {

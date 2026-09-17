@@ -2,6 +2,7 @@
 // provider credentials stay behind server-side ownership checks.
 
 import type { Span } from "@opentelemetry/api";
+import { preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
@@ -14,6 +15,7 @@ import {
   type ProviderId,
   vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
+import type { VmCapabilities } from "../../../services/vms/drivers/types";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
 import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
@@ -22,10 +24,12 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  lockedMemoryOptionsMbForPlan,
   memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
+  upgradePlanForMemory,
   resolveVmEntitlements,
   type VmEntitlements,
   vmFreeAccessWindowDays,
@@ -50,6 +54,8 @@ import {
   vmErrorResponse,
   withAuthedVmApiRoute,
   vmActiveLimitExceededResponse,
+  vmMemoryRequiresPlanResponse,
+  vmMemoryUnavailableResponse,
   resolveVmProvisioningAccountScope,
   runAfterResponse,
   type VmWorkflowErrorOverrides,
@@ -68,6 +74,7 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
+import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 
 
 // Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
@@ -155,8 +162,16 @@ export async function GET(request: Request): Promise<Response> {
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
+          activeVmCount: entries.filter((vm) => vm.status === "running" || vm.status === "provisioning").length,
           planId: listEntitlements.planId,
           freeAccessWindowDays,
+          ...(listEntitlements.planId === "go" ? {
+            vmHoursIncluded: 40,
+            vmHoursUsed: await getGoVmUsage(user.id)
+              .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
+              .catch(() => null),
+            savedVmLimit: GO_SAVED_VM_LIMIT,
+          } : {}),
           // The earliest expiry across the caller's machines: what a fleet header
           // counts down to. Null when nothing is on a window.
           freeAccessExpiresAt: vms.reduce<number | null>(
@@ -166,6 +181,16 @@ export async function GET(request: Request): Promise<Response> {
             null,
           ),
           memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+          // Ladder sizes the plan does not include, and the plan that sells
+          // them, so a "new machine" dialog shows them locked with an upgrade
+          // instead of hiding that larger machines exist.
+          lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
+          memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).upgradePlanId,
+          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb
+            .flatMap((mb) => {
+              const plan = upgradePlanForMemory(mb, listEntitlements.planId);
+              return plan ? [[String(mb), plan]] : [];
+            })),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -179,8 +204,9 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  // Warm the Freestyle connection while the caller is being verified.
+  // Warm the Freestyle and database connections while the caller is being verified.
   preconnectFreestyle();
+  preconnectCloudDb();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -209,7 +235,9 @@ export async function POST(request: Request): Promise<Response> {
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
 
-      const memoryMb = resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined);
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
+      if (!memory.ok) return memory.response;
+      const memoryMb = memory.memoryMb;
 
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
@@ -224,8 +252,13 @@ export async function POST(request: Request): Promise<Response> {
       const image = imageSelection.image;
       const unsupportedOption = await unsupportedCreateOptionResponse(provider, candidate, request);
       if (unsupportedOption) return unsupportedOption;
+      const optionPolicy = createOptionPolicy(vmCapabilitiesFor(provider), candidate);
+      const homeVolumeRequested = optionPolicy.kind === "accept" && optionPolicy.ignoredFields.length === 0;
       setSpanAttributes(span, {
         "cmux.vm.provider": provider,
+        "cmux.vm.home_volume_requested": candidate.persistentHome === true || candidate.perMachineHome === true,
+        "cmux.vm.home_volume_dropped": optionPolicy.kind === "accept" && optionPolicy.ignoredFields.length > 0,
+        "cmux.vm.ignored_create_fields": optionPolicy.kind === "accept" ? optionPolicy.ignoredFields.join(",") : "",
         "cmux.vm.image_set": image.length > 0,
         "cmux.vm.image_version": imageSelection.imageVersion,
         "cmux.vm.image_manifest": !!imageSelection.manifestEntry,
@@ -252,7 +285,8 @@ export async function POST(request: Request): Promise<Response> {
         imageVersion: imageSelection.imageVersion,
         provider,
         idempotencyKey,
-        ...homeVolumeOptionsFor(provider, candidate, span),
+        persistentHome: homeVolumeRequested && candidate.persistentHome === true,
+        perMachineHome: homeVolumeRequested && candidate.perMachineHome === true,
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
@@ -281,27 +315,31 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 /**
- * The home-volume flags the workflow receives. A provider that does not honor
- * `CreateOptions.homeVolume` gets neither flag, so the row never claims a
- * volume it does not have; the span records the drop for operators.
+ * How a create request's optional flags meet the resolved provider's capabilities.
+ *
+ * `memoryMb` on a provider without sizing is rejected: the caller paid for a size it
+ * would not get. `persistentHome`/`perMachineHome` on a provider without home volumes
+ * are ignored, not rejected: every shipped CLI sends them on the default create (the
+ * "each machine is its own persistent computer" contract, PR 10478), a Freestyle
+ * machine already is durable without a volume, and rejecting them took `cmux vm new`
+ * down for every installed client on 2026-09-10 (8 of 9 creates 400 after PR 11609).
+ * The ignored fields are reported so the span and the response can say so.
  */
-function homeVolumeOptionsFor(
-  provider: ProviderId,
+export function createOptionPolicy(
+  capabilities: Pick<VmCapabilities, "sizing" | "persistentHome">,
   candidate: Record<string, unknown>,
-  span: Span,
-): { readonly persistentHome: boolean; readonly perMachineHome: boolean } {
-  const requested = {
-    persistentHome: candidate.persistentHome === true,
-    perMachineHome: candidate.perMachineHome === true,
-  };
-  const supported = vmCapabilitiesFor(provider).persistentHome;
-  const anyRequested = requested.persistentHome || requested.perMachineHome;
-  setSpanAttributes(span, {
-    "cmux.vm.home_volume_requested": anyRequested,
-    "cmux.vm.home_volume_dropped": anyRequested && !supported,
-  });
-  if (supported) return requested;
-  return { persistentHome: false, perMachineHome: false };
+):
+  | { readonly kind: "reject"; readonly operation: "sizing"; readonly field: "memoryMb" }
+  | { readonly kind: "accept"; readonly ignoredFields: readonly ("persistentHome" | "perMachineHome")[] } {
+  if (candidate.memoryMb !== undefined && !capabilities.sizing) {
+    return { kind: "reject", operation: "sizing", field: "memoryMb" };
+  }
+  const ignoredFields: ("persistentHome" | "perMachineHome")[] = [];
+  if (!capabilities.persistentHome) {
+    if (candidate.persistentHome === true) ignoredFields.push("persistentHome");
+    if (candidate.perMachineHome === true) ignoredFields.push("perMachineHome");
+  }
+  return { kind: "accept", ignoredFields };
 }
 
 async function unsupportedCreateOptionResponse(
@@ -309,16 +347,9 @@ async function unsupportedCreateOptionResponse(
   candidate: Record<string, unknown>,
   request: Request,
 ): Promise<Response | null> {
-  const capabilities = vmCapabilitiesFor(provider);
-  // Only an explicit, user-chosen option is rejected here. `persistentHome` and
-  // `perMachineHome` are sent by every shipped `cmux vm new` (they are the
-  // client's default for a fresh machine, not a person's choice), so a provider
-  // that ignores home volumes must still create the machine; the route drops
-  // the flags and records that instead (see `homeVolumeOptionsFor`).
-  const unsupported = candidate.memoryMb !== undefined && !capabilities.sizing
-    ? { operation: "sizing" as const, field: "memoryMb" }
-    : null;
-  if (!unsupported) return null;
+  const policy = createOptionPolicy(vmCapabilitiesFor(provider), candidate);
+  if (policy.kind !== "reject") return null;
+  const unsupported = policy;
   const copy = await vmUnsupportedCopy(unsupported.operation, vmRequestLocale(request));
   return vmErrorResponse({
     error: "vm_operation_unsupported",
@@ -589,11 +620,43 @@ async function resolveCreateAccount(input: {
  * with `vm_memory_exceeds_plan` until the next nightly published. The
  * server owns the machine spec, so a stale client must still get a
  * machine; the mismatch is recorded on the span for Axiom.
+ *
+ * A size that IS on the ladder but above the plan's ceiling is different:
+ * the person chose it, and it is what Max sells. Coercing it to 8 GB would
+ * silently hand them a smaller machine, so it is refused with the upgrade.
  */
-function resolveCreateMemory(span: Span, planId: string, requestedMemoryMb: number | undefined): number {
+async function resolveCreateMemory(
+  span: Span,
+  planId: string,
+  requestedMemoryMb: number | undefined,
+  request: Request,
+): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
   const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
   const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
+  const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
+  if (
+    requestedMemoryMb !== undefined &&
+    locked.memoryOptionsMb.includes(requestedMemoryMb)
+  ) {
+    const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
+    if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
+    setSpanAttributes(span, {
+      "cmux.vm.memory_mb": requestedMemoryMb,
+      "cmux.vm.max_memory_mb": maxMemoryMb,
+      "cmux.vm.memory_requested_mb": requestedMemoryMb,
+      "cmux.vm.memory_requires_plan": upgradePlanId,
+    });
+    return {
+      ok: false,
+      response: await vmMemoryRequiresPlanResponse({
+        memoryMb: requestedMemoryMb,
+        maxMemoryMb,
+        planId,
+        upgradePlanId,
+      }, vmRequestLocale(request)),
+    };
+  }
   const memoryMb =
     requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
       ? requestedMemoryMb ?? planMemoryMb
@@ -604,7 +667,7 @@ function resolveCreateMemory(span: Span, planId: string, requestedMemoryMb: numb
     "cmux.vm.memory_requested_mb": requestedMemoryMb,
     "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
   });
-  return memoryMb;
+  return { ok: true, memoryMb };
 }
 
 type CreateImageSelection =
@@ -709,8 +772,9 @@ function createErrorResponders(entitlements: {
           failureMessage: error.message,
         },
       }),
-    VmLimitExceededError: (error) =>
+    VmLimitExceededError: (error, context) =>
       vmActiveLimitExceededResponse({
+        locale: context.locale,
         limit: error.limit,
         planId: entitlements.planId,
         retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",

@@ -3,6 +3,19 @@ import { NextRequest } from "next/server";
 import middleware from "../proxy";
 
 describe("coderouter middleware", () => {
+  test.each(["en", "ja"])("serves the OAuth handoff in %s without a locale rewrite or sign-in", (locale) => {
+    const response = middleware(
+      new NextRequest("https://cmux.com/coderouter/auth/complete", {
+        headers: { host: "cmux.com", "accept-language": locale },
+      }),
+    );
+
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-request-x-next-intl-locale")).toBe(locale);
+  });
+
   test("serves the same dedicated landing page on cmux.com/coderouter", () => {
     const response = middleware(
       new NextRequest("https://cmux.com/coderouter", {

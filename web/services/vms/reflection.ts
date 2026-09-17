@@ -116,10 +116,9 @@ export function reflectionIsLive(row: Pick<ReflectionRow, "status">): boolean {
   return (VM_PRINCIPAL_LIVE_STATUSES as readonly string[]).includes(row.status);
 }
 
-/** Same owner as `self`: the billing team when there is one, else the creating user. */
+/** Resource ownership is independent of the creator and payer. */
 export function reflectionSharesOwner(self: ReflectionRow, other: ReflectionRow): boolean {
-  if (self.billingTeamId) return other.billingTeamId === self.billingTeamId;
-  return other.billingTeamId === null && other.userId === self.userId;
+  return other.ownerTeamId === self.ownerTeamId;
 }
 
 export function reflectionUrls(context: Pick<ReflectionContext, "aliasOrigin" | "reflectionOrigin">): string[] {
@@ -308,7 +307,7 @@ export function reflectionIntegrations(context: ReflectionContext): { integratio
       type: "llm",
       name: "coderouter",
       help: "cmux coderouter models",
-      comment: "Model credentials are injected by the platform edge; agents authenticate with the placeholder key already in the environment.",
+      comment: "Model credentials are injected by the platform edge; agents authenticate with the placeholder key already in the environment. Spend readout: cmux coderouter usage (--json for the contract, --tsv for the day table).",
     },
     ...REFLECTION_AGENTS.map((agent): ReflectionIntegration => ({
       type: "agent",

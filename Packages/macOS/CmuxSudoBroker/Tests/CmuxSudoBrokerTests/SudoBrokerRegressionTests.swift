@@ -665,7 +665,6 @@ struct SudoBrokerRegressionTests {
         await broker.stop()
     }
 }
-
 private struct ImmediateRequesterExitObserver: SudoProcessExitObserving {
     func events(for identity: SudoProcessIdentity) -> AsyncStream<Void> {
         AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
@@ -674,4 +673,3 @@ private struct ImmediateRequesterExitObserver: SudoProcessExitObserving {
         }
     }
 }
-

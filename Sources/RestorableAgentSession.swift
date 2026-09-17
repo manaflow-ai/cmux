@@ -2168,11 +2168,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 for: detected.processIDs,
                 processIdentityProvider: processIdentityProvider
             )
-            let hibernationScope = hibernationProcessScopes[key] ?? (
-                detected.processIDs,
-                detected.agentProcessIDs,
-                !detected.processIDs.isSubset(of: detected.agentProcessIDs)
-            )
+            // Detection establishes liveness, not exclusive ownership of a complete process tree.
+            let hibernationScope = hibernationProcessScopes[key] ?? ([], [], true)
             let terminationProcessIdentities = Self.processIdentities(
                 for: hibernationScope.terminationProcessIDs,
                 processIdentityProvider: processIdentityProvider
