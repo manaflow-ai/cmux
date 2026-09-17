@@ -46,7 +46,10 @@ is covered. Never replace a failed operation with an optional action or retry
 that erases the original failure.
 
 The app reports workload version, elapsed time, completed cycles, action counts,
-maximum cycle duration, and the last operation. The runner rejects missing
+maximum cycle duration, the last operation, and compact per-operation latency
+summaries containing count, total, minimum, maximum, and last duration. The
+monitor merges those summaries into one bounded `latency-stats.json` file; it
+does not retain one sample per cycle. The runner rejects missing
 coverage (at least 50 basic or 300 stress cycles), old schemas, shortened
 windows and non-Iroh routes. If the contract changes, bump `planVersion` and
 update both validators in this repository and
