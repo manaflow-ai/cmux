@@ -2159,3 +2159,17 @@ export const coderouterPoolAccounts = pgTable("coderouter_pool_accounts", {
   uniqueIndex("coderouter_pool_accounts_claude_unique").on(table.poolId, table.claudeAccountId),
   check("coderouter_pool_accounts_one_account", sql`num_nonnulls(${table.accountId}, ${table.claudeAccountId}) = 1`),
 ]);
+
+export const cloudVmProbeState = pgTable(
+  "cloud_vm_probe_state",
+  {
+    key: text("key").primaryKey(),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);

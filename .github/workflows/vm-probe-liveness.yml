@@ -1,0 +1,26 @@
+name: Cloud VM probe liveness
+
+on:
+  schedule:
+    - cron: "13,43 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Check production probe freshness
+        run: |
+          set -euo pipefail
+          endpoint="https://cmux.com/api/cron/vm-probe?mode=freshness"
+          body="$(curl --fail --silent --show-error --max-time 20 "$endpoint")"
+          echo "Freshness response: $body"
+          stale="$(printf '%s' "$body" | jq -r 'if has("stale") then .stale else "missing" end')"
+          last_success="$(printf '%s' "$body" | jq -r '.lastSuccessAt // "null"')"
+          if [ "$stale" != "false" ]; then
+            echo "::error::Cloud VM synthetic probe is stale or freshness payload is invalid. lastSuccessAt=$last_success stale=$stale"
+            exit 1
+          fi
