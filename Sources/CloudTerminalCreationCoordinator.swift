@@ -11,6 +11,7 @@ final class CloudTerminalCreationCoordinator {
     typealias Project = @MainActor (SurfaceResource) async throws -> (projection: SurfaceProjection, reused: Bool)
     typealias DiscardProjection = @MainActor (SurfaceProjection) -> Void
 
+    private let operations: CloudOperationRecorder?
     private let create: Create
     private let project: Project
     private let discardProjection: DiscardProjection
@@ -30,8 +31,10 @@ final class CloudTerminalCreationCoordinator {
         onFailure: @escaping @MainActor (Error) -> Void,
         onCancel: @escaping @MainActor () -> Void = {},
         onSuccess: @escaping @MainActor () -> Void,
-        discardProjection: @escaping DiscardProjection = { _ in }
+        discardProjection: @escaping DiscardProjection = { _ in },
+        operations: CloudOperationRecorder? = nil
     ) {
+        self.operations = operations
         self.create = create
         self.project = project
         self.onStart = onStart
@@ -55,16 +58,24 @@ final class CloudTerminalCreationCoordinator {
                 if self.generation == operationGeneration { self.task = nil }
             }
             do {
-                let resource: SurfaceResource
-                if let createdResource = self.createdResource {
-                    resource = createdResource
-                } else {
-                    resource = try await self.create()
-                    guard self.generation == operationGeneration else { return }
-                    self.createdResource = resource
+                let work = { @MainActor in
+                    let resource: SurfaceResource
+                    if let createdResource = self.createdResource {
+                        resource = createdResource
+                    } else {
+                        resource = try await self.create()
+                        guard self.generation == operationGeneration else { throw CancellationError() }
+                        self.createdResource = resource
+                    }
+                    try Task.checkCancellation()
+                    return try await self.project(resource)
                 }
-                try Task.checkCancellation()
-                let projectionResult = try await self.project(resource)
+                let projectionResult: (projection: SurfaceProjection, reused: Bool)
+                if let operations = self.operations {
+                    projectionResult = try await operations.perform(.terminal, foreground: false, work)
+                } else {
+                    projectionResult = try await work()
+                }
                 guard self.generation == operationGeneration,
                       !Task.isCancelled else {
                     if !projectionResult.reused {

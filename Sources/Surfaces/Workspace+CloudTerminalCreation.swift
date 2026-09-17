@@ -230,11 +230,6 @@ extension Workspace {
     ) {
         let catalog = SurfaceCatalog.shared
         let store = cloudPaneCreationFailureStore
-        // Shortcut-created Cloud terminals were previously invisible to the
-        // operation recorder, so a slow Cmd+D/Cmd+T had no attributable timing.
-        // Create one logical operation here and let CloudOperationContext flow
-        // through the coordinator task into the remote command and projection.
-        let operation = AppDelegate.shared?.cloudOperations?.begin(.terminal)
         let project: CloudTerminalCreationCoordinator.Project = { [weak self, reservation] created in
             guard let self, !self.isRetiredFromOwningTabManager,
                   self.cloudPendingCreations[reservation.panelID] === reservation else {
@@ -259,8 +254,7 @@ extension Workspace {
         }
         reservation.retry = { [weak store] in store?.retry(requestID: requestID) }
         reservation.cancel = { [weak store] in store?.cancel(requestID: requestID) }
-        let run = {
-            store.run(
+        store.run(
                 machine: reservation.machine,
                 requestID: requestID,
                 create: create,
@@ -269,23 +263,15 @@ extension Workspace {
                     onStart()
                     self?.restartReservedCloudTerminalPane(reservation)
                 },
-                onFinish: {
-                    onFinish()
-                    if let operation { Task { await operation.recorder.finish(operation) } }
-                },
+                onFinish: onFinish,
                 inlineFailure: { [weak self, reservation] error in
                     self?.failReservedCloudTerminalPane(reservation, error: error)
                 },
                 discardProjection: { projection in
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-                }
-            )
-        }
-        if let operation {
-            CloudOperationContext.$current.withValue(operation) { run() }
-        } else {
-            run()
-        }
+                },
+                operations: AppDelegate.shared?.cloudOperations
+        )
     }
 
     /// Removes a pane a split created that never received a tab.

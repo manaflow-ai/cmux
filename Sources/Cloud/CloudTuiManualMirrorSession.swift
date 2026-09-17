@@ -740,6 +740,7 @@ final class CloudTuiManualMirrorSession {
                 return
             }
             attachResponseReceived = true
+            if diagnosticReplayReceived { finishDiagnostics() }
             remoteLease = lease
             transition(to: .attached)
             watchdog.armLiveness(
