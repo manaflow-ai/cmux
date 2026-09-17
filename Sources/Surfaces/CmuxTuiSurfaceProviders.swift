@@ -50,6 +50,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var stateRecoveryCount = 0
     private static let stateRecoveryLimit = 5
     private var changeWatcher: Task<Void, Never>?
+    /// Consumes the link's `machine-stats` feed for the life of the link.
+    private var statsWatcher: Task<Void, Never>?
+    private var statsWatcherSocketPath: String?
+    private weak var statsWatcherLink: CloudMachineLink?
+    private var statsWatcherLinkGeneration: Int?
+    private var statsWatcherGeneration = 0
+    /// The newest host sample the daemon sent; nil without a live link or sampler.
+    private var latestStats: VMStats?
     /// Identity of the link owned by `changeWatcher`. A provider can replace a
     /// dead link during refresh; the old stream must not clear or restart the
     /// watcher for the new link.
@@ -149,6 +157,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !supportsPortPreviews {
             portsCache = nil
         }
+        if summary.status != "running" || info.linkState != .connected { latestStats = nil }
         let shouldMarkStale = summary.status != "running" && cloudState != nil
         let linkState: SurfaceLinkState = shouldMarkStale ? .asleep : info.linkState
         let linkError: String? = shouldMarkStale ? nil : info.linkError
@@ -156,7 +165,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             from: summary,
             linkState: linkState,
             linkError: linkError,
-            stats: nil,
+            stats: latestStats,
             remoteWorkspaces: info.remoteWorkspaces
         )
         if shouldMarkStale {
@@ -188,6 +197,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         changeWatcher?.cancel()
         changeWatcher = nil
+        statsWatcher?.cancel()
+        statsWatcher = nil
+        applyStats(nil)
+        statsWatcherSocketPath = nil
+        statsWatcherLink = nil
+        statsWatcherLinkGeneration = nil
+        statsWatcherGeneration += 1
         watchedLink = nil
         changeWatcherID = nil
         scheduledRefresh?.cancel()
@@ -278,7 +294,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if hasDesktop, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources([desktopDisplayResource()], on: machine, info: info, from: self)
         }
-        async let stats = try? client.stats(id: machineID)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         // A decoded snapshot is not automatically an authorization boundary. It
@@ -310,6 +325,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 currentPorts = refreshedPorts
             }
             watchChanges(link: link, generation: lifecycle)
+            if info.linkState != .connected { latestStats = nil }
+            await watchStats(link: link, socketPath: connected.socketPath)
+            guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             let data = try await snapshotData
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -350,6 +368,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             ) else { return false }
         } catch {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
+            latestStats = nil
             let status = await links.status(machineID: machineID)
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
@@ -368,7 +387,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             from: summary,
             linkState: linkState,
             linkError: linkError,
-            stats: await stats,
+            stats: latestStats,
             remoteWorkspaces: remoteWorkspaces
         )
         if let cloudState {
@@ -1213,22 +1232,83 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     // MARK: - internals
 
     private static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(
+        var info = SurfaceMachineInfo(
             id: .cloud(summary.id),
             name: summary.preferredName,
             status: summary.status,
             image: summary.image,
             hasDesktop: summary.resolvedKind.hasDesktop,
-            memoryMb: stats?.memoryTotalMb,
-            diskMb: stats?.diskTotalMb,
+            memoryMb: nil,
+            diskMb: nil,
             linkState: linkState,
             linkError: linkError,
-            cpuPercent: stats?.cpuPercent,
-            memoryUsedMb: stats?.memoryUsedMb,
-            diskUsedMb: stats?.diskUsedMb,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil,
             remoteWorkspaces: remoteWorkspaces,
             privateAddress: summary.preferredPrivateAddress
         )
+        Self.apply(stats: stats, to: &info)
+        return info
+    }
+
+    /// The daemon's host sample as the catalog carries it; nil clears every reading.
+    static func apply(stats: VMStats?, to info: inout SurfaceMachineInfo) {
+        info.memoryMb = stats?.memoryTotalMb
+        info.diskMb = stats?.diskTotalMb
+        info.cpuPercent = stats?.cpuPercent
+        info.memoryUsedMb = stats?.memoryUsedMb
+        info.diskUsedMb = stats?.diskUsedMb
+        info.statsSampledAt = stats?.sampledAt
+        info.cpus = stats?.cpus
+        info.loadAverage1m = stats?.loadAverage1m
+    }
+
+    /// Each sample lands on the catalog's machine info directly (no session re-read);
+    /// the Machines panel re-derives the row from the catalog change notification.
+    private func watchStats(link: CloudMachineLink, socketPath: String) async {
+        let lifecycle = lifecycleGeneration
+        let statsStream = await link.currentStatsStream()
+        guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog() else { return }
+        if statsWatcher != nil,
+           statsWatcherSocketPath == socketPath,
+           statsWatcherLink === link,
+           statsWatcherLinkGeneration == statsStream.generation { return }
+        let identityChanged = statsWatcherSocketPath != socketPath || statsWatcherLink !== link
+        if identityChanged {
+            // A new link lifecycle must not display a sample produced by the
+            // old child while its replacement is still warming up, even when
+            // the previous watcher already ended.
+            applyStats(nil)
+        }
+        statsWatcher?.cancel()
+        statsWatcherGeneration += 1
+        let generation = statsWatcherGeneration
+        statsWatcherSocketPath = socketPath
+        statsWatcherLink = link
+        statsWatcherLinkGeneration = statsStream.generation
+        statsWatcher = Task { [weak self] in
+            for await sample in statsStream.stream {
+                guard !Task.isCancelled, let self else { return }
+                guard self.statsWatcherGeneration == generation, self.statsWatcherLink === link else { return }
+                self.applyStats(sample)
+            }
+            guard let self else { return }
+            guard self.statsWatcherGeneration == generation else { return }
+            self.statsWatcher = nil
+            self.statsWatcherSocketPath = nil
+            self.statsWatcherLink = nil
+            self.statsWatcherLinkGeneration = nil
+            self.applyStats(nil)
+        }
+    }
+
+    private func applyStats(_ sample: VMStats?) {
+        latestStats = sample
+        var current = catalog.machineInfo(for: machine) ?? info
+        Self.apply(stats: sample, to: &current)
+        info = current
+        catalog.updateMachine(current, from: self)
     }
 
     /// Appends preserved resources without repeatedly scanning the growing

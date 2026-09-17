@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -31,6 +32,7 @@ struct StreamState {
     std::atomic<bool> terminal_seen{false};
     std::size_t max_buffered_events;
     std::string terminal_event;
+    std::optional<Json> initial_response;
 };
 
 }  // namespace detail
@@ -134,6 +136,10 @@ public:
 
     [[nodiscard]] bool closed() const noexcept {
         return !state_ || state_->closed.load(std::memory_order_acquire);
+    }
+
+    [[nodiscard]] const Json* initial_response() const noexcept {
+        return state_ && state_->initial_response ? &*state_->initial_response : nullptr;
     }
 
     template <typename U>

@@ -73,11 +73,11 @@ use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
-    SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineStats, MachineUsage,
+    Mux, MuxEvent, Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame,
+    RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceNotification, SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -116,6 +116,9 @@ pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
 pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
+/// The daemon answers `machine-stats` (with an optional follow stream) and
+/// emits `machine-stats-changed`.
+pub const MACHINE_STATS_CAPABILITY: &str = "machine-stats-v1";
 /// The daemon reads the host's listening TCP sockets for an authenticated
 /// client. Cloud clients use this over the private cmux-tui link, so routine
 /// port inventory never needs a provider or web control-plane call.
@@ -151,6 +154,24 @@ fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
             "total_tokens": usage.total_tokens,
             "api_equivalent_usd": usage.api_equivalent_usd,
             "as_of": usage.as_of,
+        })),
+    })
+}
+
+/// `machine-stats` result and `machine-stats-changed` payload body: `stats`
+/// is null when this daemon runs no host sampler.
+fn machine_stats_json(stats: Option<&MachineStats>) -> Value {
+    json!({
+        "stats": stats.map(|stats| json!({
+            "sampled_at_ms": stats.sampled_at_ms,
+            "cpus": stats.cpus,
+            "cpu_percent": stats.cpu_percent,
+            "load_average_1m": stats.load_average_1m,
+            "memory_total_mb": stats.memory_total_mb,
+            "memory_used_mb": stats.memory_used_mb,
+            "disk_total_mb": stats.disk_total_mb,
+            "disk_used_mb": stats.disk_used_mb,
+            "disk_path": stats.disk_path,
         })),
     })
 }
@@ -219,6 +240,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         MACHINE_USAGE_CAPABILITY,
         MACHINE_LISTENING_TCP_CAPABILITY,
         SERVER_STATS_CAPABILITY,
+        MACHINE_STATS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -718,6 +740,10 @@ enum Command {
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
     MachineUsage,
+    MachineStats {
+        #[serde(default)]
+        follow: bool,
+    },
     /// Read listening TCP sockets on this host. The fixed command has no
     /// caller-controlled arguments and returns only the socket listing.
     MachineListeningTcp,
@@ -9171,6 +9197,7 @@ fn handle_request_with_cancellation(
 
     let detach_self = matches!(&cmd, Command::DetachClient { client: target } if *target == client);
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
+    let machine_stats_follow = matches!(&cmd, Command::MachineStats { follow: true });
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -9196,6 +9223,12 @@ fn handle_request_with_cancellation(
     };
     let response_ok = response.ok;
     let sent = send_response(writer, response);
+    if machine_stats_follow && sent {
+        // The initial command response must reach the client before any
+        // machine-stats-changed event. Start the producer only after the
+        // response write has completed to preserve that protocol ordering.
+        let _ = start_machine_stats_stream(mux, writer);
+    }
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
@@ -11247,6 +11280,26 @@ fn terminal_renderer_grant_json(
     })
 }
 
+fn start_machine_stats_stream(mux: &Arc<Mux>, writer: &MessageWriter) -> anyhow::Result<()> {
+    let events = mux.subscribe_machine_stats();
+    let writer = writer.clone();
+    let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
+    std::thread::Builder::new().name("mux-machine-stats-out".into()).spawn(move || {
+        while writer.is_open() && outbound_stream.is_open() {
+            let event = match events.recv_timeout(STREAM_DISCONNECT_POLL) {
+                Ok(event) => event,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            let value = subscribed_event_json(&event);
+            if writer.send_stream_backpressured(&value, &outbound_stream).is_err() {
+                break;
+            }
+        }
+    })?;
+    Ok(())
+}
+
 fn handle_command_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
@@ -11327,6 +11380,7 @@ fn handle_command_with_cancellation(
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
         Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
+        Command::MachineStats { .. } => Ok(machine_stats_json(mux.machine_stats().as_ref())),
         Command::MachineListeningTcp => machine_listening_tcp_json(),
         Command::RegisterBrowserProvider {
             provider_id,
@@ -13302,6 +13356,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::MachineUsageChanged(usage) => {
             let mut payload = machine_usage_json(usage.as_ref());
             payload["event"] = json!("machine-usage-changed");
+            payload
+        }
+        MuxEvent::MachineStatsChanged(stats) => {
+            let mut payload = machine_stats_json(stats.as_ref());
+            payload["event"] = json!("machine-stats-changed");
             payload
         }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
@@ -22619,6 +22678,67 @@ mod tests {
             assert_eq!(state.workspaces[0].name, "managed");
             assert_eq!(state.workspace_revision, 1);
         });
+    }
+
+    #[test]
+    fn machine_stats_answers_the_command_and_feeds_only_its_own_event() {
+        let mux = test_mux();
+        let before =
+            handle_command(&mux, 0, Command::MachineStats { follow: false }, &test_writer())
+                .unwrap();
+        assert_eq!(before["stats"], Value::Null);
+
+        let sample = MachineStats {
+            sampled_at_ms: 1_756_800_000_000,
+            cpus: 4,
+            cpu_percent: Some(12.5),
+            load_average_1m: 0.42,
+            memory_total_mb: 7937,
+            memory_used_mb: 2210,
+            disk_total_mb: Some(65536),
+            disk_used_mb: Some(18342),
+            disk_path: "/home/cmux".into(),
+        };
+        let follower = mux.subscribe_machine_stats();
+        mux.set_machine_stats(Some(sample.clone()));
+        let after =
+            handle_command(&mux, 0, Command::MachineStats { follow: false }, &test_writer())
+                .unwrap();
+        assert_eq!(after["stats"]["cpus"], 4);
+        assert_eq!(after["stats"]["cpu_percent"], 12.5);
+        assert_eq!(after["stats"]["memory_used_mb"], 2210);
+        assert_eq!(after["stats"]["disk_path"], "/home/cmux");
+
+        let event = follower.try_recv().expect("the sample reaches a follower");
+        let payload = subscribed_event_json(&event);
+        assert_eq!(payload["event"], "machine-stats-changed");
+        assert_eq!(payload["stats"], after["stats"]);
+
+        // A repeated identical sample is silent and other mux traffic never
+        // reaches a stats follower.
+        mux.set_machine_stats(Some(sample));
+        mux.emit(MuxEvent::TreeChanged);
+        assert!(follower.try_recv().is_err());
+
+        // Losing the sampler is announced as null.
+        mux.set_machine_stats(None);
+        let cleared = subscribed_event_json(&follower.try_recv().expect("null sample event"));
+        assert_eq!(cleared, json!({"event": "machine-stats-changed", "stats": Value::Null}));
+
+        let parsed: Command = serde_json::from_str(r#"{"cmd":"machine-stats"}"#).unwrap();
+        assert!(matches!(parsed, Command::MachineStats { follow: false }));
+        let parsed: Command =
+            serde_json::from_str(r#"{"cmd":"machine-stats","follow":true}"#).unwrap();
+        assert!(matches!(parsed, Command::MachineStats { follow: true }));
+
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        assert!(
+            identity["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|capability| capability == MACHINE_STATS_CAPABILITY)
+        );
     }
 
     #[test]

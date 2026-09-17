@@ -278,6 +278,45 @@ class GoEmitterTests(unittest.TestCase):
 
         self.assertIn("FieldSince: nil, FieldCapabilities: nil", metadata)
 
+    def test_conditional_follow_stream_preserves_unary_and_stream_methods(self) -> None:
+        document = schema_document()
+        document["types"]["StatsResult"] = {
+            "kind": "object",
+            "fields": {},
+            "additional_properties": False,
+        }
+        document["commands"]["machine-stats"] = {
+            "authority": "control",
+            "since": 10,
+            "capability": "stats-v1",
+            "request": {
+                "kind": "object",
+                "fields": {
+                    "follow": {
+                        "type": {"kind": "scalar", "name": "boolean"},
+                        "presence": "optional",
+                        "nullable": False,
+                        "default": False,
+                    }
+                },
+                "additional_properties": False,
+            },
+            "result": {"kind": "ref", "name": "StatsResult"},
+            "stream": {
+                "kind": "subscribe",
+                "event_names": ["workspace-created"],
+                "mode_field": "follow",
+                "modes": {"false": [], "true": ["workspace-created"]},
+                "ordering": "response then events",
+                "terminal_event": None,
+            },
+            "constraints": [],
+        }
+        generated = emit(load_ir_document(document))["generated_commands.go"]
+        self.assertIn("func (c *Client) MachineStats(ctx context.Context, options MachineStatsOptions)", generated)
+        self.assertIn("func (c *Client) MachineStatsFollow(ctx context.Context, options MachineStatsOptions)", generated)
+        self.assertIn("openGeneratedStreamWithResult", generated)
+
 
 if __name__ == "__main__":
     unittest.main()

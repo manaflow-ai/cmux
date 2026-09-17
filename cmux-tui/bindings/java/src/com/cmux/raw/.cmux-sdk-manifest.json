@@ -317,8 +317,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "05c137a6a094881540f68fdb9a3ea7492f64b8a3c539ec226ec080a94a27f3a3",
-      "size": 25934
+      "sha256": "eaf76ab0e23ff6b3e04da6640bc2733b37a41dd44a4211551795d6f3b0e84a52",
+      "size": 26165
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -432,8 +432,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "1712b8e31182f51af62764c98d007c9c032c28ef43c7ea890818090ee3c5ac9d",
-      "size": 9451
+      "sha256": "e5e3e4e08cc313e9c739e10847548b7eb3b59677f4550ae37915590dd6f1e320",
+      "size": 9677
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -507,8 +507,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "862f2757a98563e53792581c2b23288edadb464a0101d0f4164209d6c73a37a4",
-      "size": 25033
+      "sha256": "6400c25d28e1862943afb86638862713d6fa8d1943232c4aeed1e44155132df3",
+      "size": 25972
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -679,6 +679,31 @@
       "path": "MachineListeningTcpResult.java",
       "sha256": "979c7e04483fcddfe320c86f74b6255fe5f6ec1d7633e33f2278ecc12d0fb380",
       "size": 2004
+    },
+    {
+      "path": "MachineStats.java",
+      "sha256": "513165cba67f4117c16cec0b2d94ccd953c9a308fa34a7816f05c61005d68bec",
+      "size": 8118
+    },
+    {
+      "path": "MachineStatsChangedEvent.java",
+      "sha256": "197c8b4847cfa70786ff19e5950930e326cf2a2b2da0c477e8003e464905df5b",
+      "size": 2354
+    },
+    {
+      "path": "MachineStatsRequest.java",
+      "sha256": "c09d798fbaca764a1b32c9dbe70090cab1367b69206169a4966a8306f6d019fe",
+      "size": 1947
+    },
+    {
+      "path": "MachineStatsResult.java",
+      "sha256": "52ec27a5fd6f509b16db6f12e1f1eccf32742ac0ccec6600217162bf58f8d746",
+      "size": 1927
+    },
+    {
+      "path": "MachineStatsStream.java",
+      "sha256": "3b35e8f432de48127c5045871ad09c66a8805206eea165d689287efca9a6f1dd",
+      "size": 687
     },
     {
       "path": "MachineUsage.java",
@@ -882,8 +907,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "b7035dbad0b52cb1fa3ea059d5b7eed8d48a3309ccd5f11fbd3df21bc02933d2",
-      "size": 4199
+      "sha256": "38c4c2a2c41aa013543b25b328c3186848b2b604a371199210b0f665088248ca",
+      "size": 4285
     },
     {
       "path": "ProtocolEvent.java",
@@ -1572,7 +1597,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25",
+  "ir_sha256": "94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

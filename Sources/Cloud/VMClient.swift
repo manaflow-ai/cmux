@@ -1945,16 +1945,6 @@ actor VMClient {
         }
     }
 
-    func stats(id: String) async throws -> VMStats {
-        return try await withOperation(.stats, foreground: false) {
-            let encodedID = try pathSegment(id, fieldName: "vm id")
-            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
-            try ensureOK(http, data: data)
-            let obj = try decodeJSONObject(data)
-            return VMStats(json: obj)
-        }
-    }
-
     /// Grow a machine's disk and return the provider-confirmed post-resize reading.
     func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
         try await resize(id: id, cpu: nil, memoryMb: nil, diskMb: diskMb)

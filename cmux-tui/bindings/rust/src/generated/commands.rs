@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25.
+// cmux-tui mux protocol 12, IR 94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -584,6 +584,13 @@ pub type ListWorkspacesResult = T::Tree;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MachineListeningTcpRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MachineStatsRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub follow: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -1348,6 +1355,11 @@ pub struct ZoomPaneRequest {
     pub pane: Optional<T::Id>,
 }
 
+pub struct MachineStatsFollowResult {
+    pub initial_result: T::MachineStatsResult,
+    pub stream: CmuxStream,
+}
+
 #[rustfmt::skip]
 impl CmuxClient {
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
@@ -1559,6 +1571,18 @@ impl CmuxClient {
 
     pub fn machine_listening_tcp(&mut self, request: MachineListeningTcpRequest) -> Result<T::MachineListeningTcpResult> {
         self.execute(&MACHINE_LISTENING_TCP_METADATA, &request)
+    }
+
+    pub fn machine_stats(&mut self, request: MachineStatsRequest) -> Result<T::MachineStatsResult> {
+        let mut request = request;
+        request.follow = Some(false);
+        self.execute(&MACHINE_STATS_METADATA, &request)
+    }
+
+    pub fn machine_stats_follow(&mut self, mut request: MachineStatsRequest) -> Result<MachineStatsFollowResult> {
+        request.follow = Some(true);
+        let (initial_result, stream) = self.execute_stream_with_result(&MACHINE_STATS_METADATA, &request)?;
+        Ok(MachineStatsFollowResult { initial_result, stream })
     }
 
     pub fn machine_usage(&mut self, request: MachineUsageRequest) -> Result<T::MachineUsageResult> {

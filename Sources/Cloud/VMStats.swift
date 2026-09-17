@@ -1,9 +1,9 @@
 import Foundation
 
-/// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
+/// A point-in-time reading from the machine daemon or a resource resize reply.
 /// Sleeping machines are never woken for a reading: they come back `asleep` with
 /// only their provisioned memory.
-struct VMStats: Equatable {
+struct VMStats: Equatable, Sendable {
     let state: State
     let sampledAt: Date
     var resourceSampledAt: Date? = nil

@@ -63,6 +63,7 @@ struct CloudTreeMachineResourcesTests {
         #expect(missing.disk.percent == nil)
         snapshot = machine()
         snapshot.capabilities.stats = false
+        snapshot.stats = nil
         let unsupported = CloudMachineResourcePresentation(machine: snapshot, now: Self.sampleTime)
         #expect(unsupported.cpu.percent == nil)
         #expect(unsupported.memory.percent == nil)

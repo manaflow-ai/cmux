@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
+/* cmux-tui mux protocol 12, IR 94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed. */
 
 
 import type * as T from "./types.js";
@@ -405,6 +405,12 @@ export type ListWorkspacesResult = T.Tree;
 /** Protocol v12; authority: control. */
 export interface MachineListeningTcpRequest extends CmuxRequestBase {
   cmd: "machine-listening-tcp";
+}
+
+/** Protocol v12; authority: control. */
+export interface MachineStatsRequest extends CmuxRequestBase {
+  cmd: "machine-stats";
+  "follow"?: boolean;
 }
 
 /** Protocol v12; authority: control. */
@@ -1010,6 +1016,7 @@ export type CmuxRequest =
   | ListTerminalsRequest
   | ListWorkspacesRequest
   | MachineListeningTcpRequest
+  | MachineStatsRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
@@ -1427,6 +1434,14 @@ export interface CmuxCommandDefinitionMap {
     since: 12;
     capability: "machine-listening-tcp-v1";
     stream: null;
+  };
+  "machine-stats": {
+    request: MachineStatsRequest;
+    result: T.MachineStatsResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-stats-v1";
+    stream: "subscribe";
   };
   "machine-usage": {
     request: MachineUsageRequest;

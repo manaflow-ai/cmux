@@ -644,6 +644,18 @@ class CppEmitter:
             "",
             "[[nodiscard]] std::span<const CommandMetadata> command_metadata() noexcept;",
             "",
+        ]
+        for wire_name, command in self.ir.commands.items():
+            if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+                result = self.result_names[wire_name]
+                lines.extend([
+                    f"struct {_cpp_type_name(wire_name)}Stream {{",
+                    f"    {result} initial_result;",
+                    "    EventStream events;",
+                    "};",
+                    "",
+                ])
+        lines.extend([
             "class Client {",
             "public:",
             "    Client(const Client&) = delete;",
@@ -656,17 +668,23 @@ class CppEmitter:
             "    void close() noexcept { core_.close(); }",
             "    [[nodiscard]] bool closed() const noexcept { return core_.closed(); }",
             "",
-        ]
+        ])
         for wire_name, command in self.ir.commands.items():
             request = self.request_names[wire_name]
             result = self.result_names[wire_name]
             method = _cpp_field(wire_name)
             default_request = " = {}" if not self._request_has_required_fields(request) else ""
-            if command["stream"] is None:
+            streaming = command["stream"] is not None and command["stream"].get("mode_field") != "follow"
+            if not streaming:
                 lines.append(
                     f"    [[nodiscard]] Result<{result}> {method}("
                     f"const {request}& request{default_request}, RequestOptions options = {{}});"
                 )
+                if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+                    lines.append(
+                        f"    [[nodiscard]] Result<{_cpp_type_name(wire_name)}Stream> {method}_follow("
+                        f"const {request}& request{default_request}, RequestOptions options = {{}});"
+                    )
             else:
                 lines.append(
                     f"    [[nodiscard]] Result<EventStream> {method}("
@@ -1113,11 +1131,23 @@ class CppEmitter:
         request = self.request_names[wire_name]
         result = self.result_names[wire_name]
         method = _cpp_field(wire_name)
-        if command["stream"] is None:
-            return [
+        streaming = command["stream"] is not None and command["stream"].get("mode_field") != "follow"
+        if not streaming:
+            conditional_stream = command["stream"] is not None and command["stream"].get("mode_field") == "follow"
+            mode_field = command["stream"]["mode_field"] if conditional_stream else None
+            lines = [
                 f"Result<{result}> Client::{method}(",
                 f"    const {request}& request, RequestOptions options) {{",
-                "    auto encoded = encode_value(request);",
+            ]
+            if mode_field is not None:
+                lines.extend([
+                    "    auto unary_request = request;",
+                    f"    unary_request.{mode_field} = false;",
+                    "    auto encoded = encode_value(unary_request);",
+                ])
+            else:
+                lines.append("    auto encoded = encode_value(request);")
+            lines.extend([
                 "    if (!encoded) return std::move(encoded).error();",
                 "    auto parameters = encoded.value().as_object();",
                 "    if (!parameters) return std::move(parameters).error();",
@@ -1126,7 +1156,36 @@ class CppEmitter:
                 f"    return decode_value<{result}>(response.value());",
                 "}",
                 "",
-            ]
+            ])
+            if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+                stream = command["stream"]
+                terminal = stream["terminal_event"]
+                terminal_text = "" if terminal is None else str(terminal)
+                lines.extend(
+                    [
+                        f"Result<{_cpp_type_name(wire_name)}Stream> Client::{method}_follow(",
+                        f"    const {request}& request, RequestOptions options) {{",
+                        f"    auto follow_request = request;",
+                        "    follow_request.follow = true;",
+                        "    auto encoded = encode_value(follow_request);",
+                        "    if (!encoded) return std::move(encoded).error();",
+                        "    auto parameters = encoded.value().as_object();",
+                        "    if (!parameters) return std::move(parameters).error();",
+                        f'    auto opened = core_.open_stream("{wire_name}", *parameters.value(), '
+                        f'"{terminal_text}", options.timeout);',
+                        "    if (!opened) return std::move(opened).error();",
+                        "    const Json* initial = opened.value().initial_response();",
+                        '    if (!initial) return make_error(ErrorCode::protocol, "stream response missing initial result");',
+                        f"    auto initial_result = decode_value<{result}>(*initial);",
+                        "    if (!initial_result) return std::move(initial_result).error();",
+                        "    auto events = std::move(opened).value().map<Event>(",
+                        "        [](const Json& event) { return decode_value<Event>(event); });",
+                        f"    return {_cpp_type_name(wire_name)}Stream{{std::move(initial_result).value(), std::move(events)}};",
+                        "}",
+                        "",
+                    ]
+                )
+            return lines
         stream = command["stream"]
         assert isinstance(stream, Mapping)
         terminal = stream["terminal_event"]

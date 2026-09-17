@@ -481,13 +481,16 @@ pub const Client = struct {
         while (true) {
             var message = try self.readMessage();
             if (try responseMatches(message.value, id)) {
-                _ = try self.responseData(message.value);
-                message.deinit();
+                _ = self.responseData(message.value) catch |err| {
+                    message.deinit();
+                    return err;
+                };
                 self.streaming = true;
                 return .{
                     .client = self,
                     .pending = pending,
                     .terminal_event = terminal_event,
+                    .initial_response = message,
                 };
             }
             if (message.value != .object or
@@ -661,6 +664,7 @@ pub const Stream = struct {
     client: *Client,
     pending: std.ArrayList(Pending),
     terminal_event: ?[]const u8,
+    initial_response: ?wire.OwnedValue = null,
     ended: bool = false,
     closed: bool = false,
 
@@ -692,8 +696,18 @@ pub const Stream = struct {
         self.close();
         for (self.pending.items) |*item| item.message.deinit();
         self.pending.deinit(self.client.allocator);
+        if (self.initial_response) |*response| response.deinit();
         self.client.streaming = false;
         self.* = undefined;
+    }
+
+    /// Decodes and consumes the successful response that opened this stream.
+    pub fn initialResult(self: *Stream, comptime Result: type) !wire.Decoded(Result) {
+        var response = self.initial_response orelse return error.MissingResponseData;
+        self.initial_response = null;
+        defer response.deinit();
+        const data = try self.client.responseData(response.value);
+        return wire.decode(Result, self.client.allocator, data);
     }
 };
 

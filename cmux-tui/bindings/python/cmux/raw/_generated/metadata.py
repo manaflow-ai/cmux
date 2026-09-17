@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'd9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25'
+IR_SHA256 = '94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed'
 
 
 @dataclass(frozen=True)
@@ -602,6 +602,17 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'machine-stats': CommandMetadata(
+        'machine-stats',
+        'control',
+        12,
+        'machine-stats-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        'subscribe',
+        {
+            'follow': CommandFieldMetadata(None, None),
         },
     ),
     'machine-usage': CommandMetadata(
@@ -1445,6 +1456,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
+    'machine-stats-changed': EventMetadata('machine-stats-changed', 12, 'machine-stats-v1', ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),

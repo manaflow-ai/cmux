@@ -203,7 +203,9 @@ public final class CmuxClient extends GeneratedCmuxClient implements AutoCloseab
         CommandMetadata metadata,
         Map<String, Object> params
     ) throws CmuxException {
-        if (metadata.streamKind() != StreamKind.NONE) {
+        if (metadata.streamKind() != StreamKind.NONE
+            && !("machine-stats".equals(metadata.wireName())
+                && !Boolean.TRUE.equals(params.get("follow")))) {
             throw new IllegalArgumentException(metadata.wireName() + " is a stream command");
         }
         checkAuthority(metadata);

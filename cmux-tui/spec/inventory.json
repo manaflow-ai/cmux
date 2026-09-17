@@ -165,6 +165,7 @@
       "list-terminals",
       "list-workspaces",
       "machine-listening-tcp",
+      "machine-stats",
       "machine-usage",
       "move-tab",
       "move-terminal",
@@ -350,6 +351,12 @@
     },
     {
       "name": "layout-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "machine-stats-changed",
       "streams": [
         "subscribe"
       ]

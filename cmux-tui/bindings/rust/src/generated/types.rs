@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25.
+// cmux-tui mux protocol 12, IR 94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -527,6 +527,26 @@ pub struct LivePane {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MachineListeningTcpResult {
     pub stdout: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineStats {
+    pub cpu_percent: Nullable<f64>,
+    pub cpus: u32,
+    pub disk_path: String,
+    pub disk_total_mb: Nullable<u64>,
+    pub disk_used_mb: Nullable<u64>,
+    pub load_average_1m: f64,
+    pub memory_total_mb: u64,
+    pub memory_used_mb: u64,
+    pub sampled_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineStatsResult {
+    pub stats: Nullable<MachineStats>,
 }
 
 #[rustfmt::skip]

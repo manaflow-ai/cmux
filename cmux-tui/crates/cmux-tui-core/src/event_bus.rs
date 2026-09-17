@@ -23,6 +23,7 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+    MachineStats,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -58,6 +59,7 @@ struct MuxEventMailboxState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum CoalescedEventKey {
     ConfigReload,
+    MachineStats,
     Agent(SurfaceId),
     Title(SurfaceId),
     SurfaceOutput(SurfaceId),
@@ -71,6 +73,10 @@ impl MuxEventBroadcaster {
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
+    }
+
+    pub fn subscribe_machine_stats(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::MachineStats)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -137,6 +143,7 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::MachineStats => matches!(event, MuxEvent::MachineStatsChanged(_)),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -183,6 +190,7 @@ impl SurfaceSessionScope {
             | MuxEvent::PairingRequested(_)
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
+            | MuxEvent::MachineStatsChanged(_)
             | MuxEvent::Empty => true,
         }
     }
@@ -251,6 +259,10 @@ impl MuxEventMailbox {
                 CoalescedEventKey::ConfigReload,
                 MuxEvent::ConfigReloadRequested,
             ),
+            // A slow subscriber only ever needs the newest sample.
+            event @ MuxEvent::MachineStatsChanged(_) => {
+                state.push_coalesced(sequence, CoalescedEventKey::MachineStats, event)
+            }
             MuxEvent::SurfaceExited(surface) => {
                 state.discard_surface_state(surface);
                 if !state.reserve_pending_slot() {

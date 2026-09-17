@@ -770,9 +770,32 @@ func (c *Client) openGeneratedStream(
 	return c.openStream(ctx, request)
 }
 
+func (c *Client) openGeneratedStreamWithResult(
+	ctx context.Context,
+	metadata CommandMetadata,
+	request map[string]any,
+	out any,
+) (*Stream, error) {
+	if err := c.checkAuthority(metadata); err != nil {
+		return nil, err
+	}
+	if err := c.requireGeneratedCompatibility(ctx, metadata, request); err != nil {
+		return nil, err
+	}
+	return c.openStreamWithResult(ctx, request, out)
+}
+
 func (c *Client) openStream(
 	ctx context.Context,
 	request map[string]any,
+) (*Stream, error) {
+	return c.openStreamWithResult(ctx, request, nil)
+}
+
+func (c *Client) openStreamWithResult(
+	ctx context.Context,
+	request map[string]any,
+	out any,
 ) (*Stream, error) {
 	conn, _, err := dialJSONWithFallback(
 		c.socketPath,
@@ -813,6 +836,17 @@ func (c *Client) openStream(
 			continue
 		}
 		if ok, _ := response["ok"].(bool); ok {
+			if out != nil {
+				encoded, err := json.Marshal(response["data"])
+				if err != nil {
+					_ = conn.Close()
+					return nil, &decodeError{msg: err.Error()}
+				}
+				if err := decodeJSON(encoded, out); err != nil {
+					_ = conn.Close()
+					return nil, &decodeError{msg: err.Error()}
+				}
+			}
 			return &Stream{conn: conn, timeout: c.timeout, buffered: buffered}, nil
 		}
 		message, _ := response["error"].(string)

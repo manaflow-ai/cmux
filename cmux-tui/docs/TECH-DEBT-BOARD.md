@@ -306,6 +306,7 @@ tail then adds protocol v7 operational PTY error gating (`29145d800c`,
 | Preferred editor launch | P2 open in [#10681](https://github.com/manaflow-ai/cmux/pull/10681). The wrapper and quoting fixes are at `ff7685ddcd`, but `env -S "nvim --clean"` still fails the existing detector path. | Re-tokenize the `env -S` payload, then run focused Swift tests and exact-head review. |
 | Remote upload marker cleanup | P2 open. Exact-head autoreview found PID reuse and malformed marker values can preserve stale payloads forever when cleanup trusts `kill -0`. | Use a fresh heartbeat marker and conservative stale-age reclaim without signaling marker PIDs, then add behavior tests for fresh, stale, malformed, and reused-PID cases. |
 | `run_spec` cancellation reaping | P2 remains open in [#10746](https://github.com/manaflow-ai/cmux/pull/10746). A detached raw `waitpid` thread can accumulate and a narrow armed-guard window can target a reused PID. | Disarm immediately after normal wait, use an owned cleanup supervisor, and add a cancellation/reap behavior test. |
+| Machines panel stats publishing | P2 open in [#11792](https://github.com/manaflow-ai/cmux/pull/11792). Indexed lookup removes repeated scans, but mutating a published Swift value array can still copy all rows. | Measure a large fleet update first. If copies are material, move row ownership to reference-backed indexed storage while keeping one published snapshot boundary. |
 
 ### Wave 45 audit residuals
 

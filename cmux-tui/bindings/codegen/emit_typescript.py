@@ -211,9 +211,8 @@ def _render_commands(ir: Any, document: Mapping[str, Any]) -> str:
         if result in named_types:
             result = f"T.{result}"
         capability = _literal(command["capability"])
-        stream_kind = (
-            _literal(command["stream"]["kind"]) if command["stream"] is not None else "null"
-        )
+        stream = command["stream"]
+        stream_kind = _literal(stream["kind"]) if stream is not None else "null"
         lines.append(f"  {_property(wire_name)}: {{")
         lines.append(f"    request: {request_names[wire_name]};")
         lines.append(f"    result: {result};")

@@ -6,7 +6,8 @@ extension CloudMachineResourcePresentation {
     init(machine: MachineSnapshot, now: Date = .now) {
         let stats = machine.stats
         let availability: Availability
-        if !machine.capabilities.stats {
+        // A daemon sample proves support independently of the provider API.
+        if !machine.capabilities.stats && stats == nil {
             availability = .unavailable
         } else if stats == nil {
             availability = .loading

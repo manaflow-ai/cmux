@@ -468,9 +468,20 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
         "",
         definitions.render().rstrip(),
         "",
+    ]
+    for wire_name, command in document["commands"].items():
+        if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+            lines.extend([
+                f"pub struct {_pascal(str(wire_name))}FollowResult {{",
+                f"    pub initial_result: {result_names[str(wire_name)]},",
+                "    pub stream: CmuxStream,",
+                "}",
+                "",
+            ])
+    lines.extend([
         "#[rustfmt::skip]",
         "impl CmuxClient {",
-    ]
+    ])
     for wire_name, command in document["commands"].items():
         wire_name = str(wire_name)
         method = _snake(wire_name)
@@ -515,7 +526,7 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
                     "    }",
                 ]
             )
-        elif command["stream"] is not None:
+        elif command["stream"] is not None and command["stream"].get("mode_field") != "follow":
             lines.extend(
                 [
                     f"    pub fn {method}(&mut self, request: {request_name}) -> Result<CmuxStream> {{",
@@ -526,11 +537,26 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
             )
         else:
             result_name = result_names[wire_name]
+            conditional_stream = command["stream"] is not None and command["stream"].get("mode_field") == "follow"
             lines.extend(
                 [
                     f"    pub fn {method}(&mut self, request: {request_name}) -> Result<{result_name}> {{",
                     *guards,
+                    *(["        let mut request = request;", "        request.follow = Some(false);"] if conditional_stream else []),
                     f"        self.execute(&{metadata_name}, &request)",
+                    "    }",
+                ]
+            )
+        if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+            follow_result = f"{_pascal(wire_name)}FollowResult"
+            lines.extend(
+                [
+                    "",
+                    f"    pub fn {method}_follow(&mut self, mut request: {request_name}) -> Result<{follow_result}> {{",
+                    *guards,
+                    f"        request.{command['stream']['mode_field']} = Some(true);",
+                    f"        let (initial_result, stream) = self.execute_stream_with_result(&{metadata_name}, &request)?;",
+                    f"        Ok({follow_result} {{ initial_result, stream }})",
                     "    }",
                 ]
             )

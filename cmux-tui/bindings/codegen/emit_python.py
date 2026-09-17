@@ -956,7 +956,10 @@ __all__ = [
             "from __future__ import annotations",
             "",
             "import base64",
-            "from typing import Any, Dict, List, Literal, Union",
+            "from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union",
+            "",
+            "if TYPE_CHECKING:",
+            "    from ..client import EventStream",
             "",
             "from .metadata import COMMANDS",
             "from .models import *",
@@ -1010,7 +1013,8 @@ __all__ = [
                     annotation = f"Union[{annotation}, bytes]"
                 parameters.append(f"{_snake(name)}: {annotation} = MISSING")
             result = self.annotation(command["result"], f"commands/{wire_name}/result")
-            if command.get("stream") is not None:
+            streaming = command.get("stream") is not None and command["stream"].get("mode_field") != "follow"
+            if streaming:
                 result = "Any"
             lines.extend(
                 [
@@ -1019,10 +1023,16 @@ __all__ = [
                 ]
             )
             request_name = self.models[f"commands/{wire_name}/request"].name
+            conditional_stream = command.get("stream") is not None and command["stream"].get("mode_field") == "follow"
             arguments = []
             for name, _field in required + positional_optional + optional:
                 python_name = _snake(name)
                 value = python_name
+                if conditional_stream and name == command["stream"]["mode_field"]:
+                    # The unary entrypoint must not opt into the follow stream.
+                    # Omitting the optional mode field preserves the protocol's
+                    # default false value and keeps default requests minimal.
+                    value = "MISSING"
                 if name == "bytes":
                     value = (
                         "(base64.b64encode(bytes_data).decode('ascii') "
@@ -1030,13 +1040,29 @@ __all__ = [
                     )
                 arguments.append(f"{python_name}={value}")
             constructed = f"{request_name}({', '.join(arguments)})"
-            if command.get("stream") is not None:
+            if streaming:
                 lines.append(
                     f"        return self._open_command_stream({_quote(wire_name)}, {constructed})"
                 )
             else:
                 lines.append(
                     f"        return self._invoke_command({_quote(wire_name)}, {constructed})"
+                )
+            if conditional_stream:
+                follow_arguments = []
+                for name, _field in required + positional_optional + optional:
+                    python_name = _snake(name)
+                    follow_arguments.append(
+                        f"{python_name}={'True' if name == command['stream']['mode_field'] else python_name}"
+                    )
+                follow_constructed = f"{request_name}({', '.join(follow_arguments)})"
+                lines.extend(
+                    [
+                        "",
+                        f"    def {method_name}_follow({', '.join(parameters)}) -> Tuple[{result}, EventStream]:",
+                        f"        \"\"\"Open the {wire_name} follow stream with typed events.\"\"\"",
+                        f"        return self._open_command_stream_with_result({_quote(wire_name)}, {follow_constructed})",
+                    ]
                 )
 
         lines.extend(["", ""])

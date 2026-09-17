@@ -318,7 +318,7 @@ final class SurfaceCatalog {
     func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: info.id, from: source) else { return }
         machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
-        notifyChange()
+        notifyChange(machine: info.id)
     }
 
     /// Retains the last accepted graph while recording that the transport no
@@ -1389,14 +1389,29 @@ final class SurfaceCatalog {
     /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
     private var changeNotificationPending = false
+    private var pendingMachineChanges: Set<SurfaceMachineID> = []
+    private var pendingBroadChange = false
 
     private func notifyChange() {
+        pendingBroadChange = true
+        notifyChange(machine: nil)
+    }
+
+    private func notifyChange(machine: SurfaceMachineID?) {
+        if let machine { pendingMachineChanges.insert(machine) }
         guard !changeNotificationPending else { return }
         changeNotificationPending = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.changeNotificationPending = false
-            NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+            let machineChanges = self.pendingMachineChanges
+            self.pendingMachineChanges.removeAll()
+            let broadChange = self.pendingBroadChange
+            self.pendingBroadChange = false
+            let userInfo: [AnyHashable: Any]? = !broadChange && !machineChanges.isEmpty
+                ? ["machines": Array(machineChanges)]
+                : nil
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: self, userInfo: userInfo)
         }
     }
 }

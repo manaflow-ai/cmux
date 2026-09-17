@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
+/* cmux-tui mux protocol 12, IR 94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25" as const;
+export const SDK_IR_SHA256 = "94595fb83fab424042e34edf28c82fab5a2bd5c6ede2c0f23b9d25e4691355ed" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -546,6 +546,30 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Routine Cloud port inventory uses this command over the authenticated private cmux-tui link."
+    ]
+  },
+  "machine-stats": {
+    "authority": "control",
+    "since": 12,
+    "capability": "machine-stats-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "machine-stats-changed"
+      ],
+      "kind": "subscribe",
+      "mode_field": "follow",
+      "modes": {
+        "false": [],
+        "true": [
+          "machine-stats-changed"
+        ]
+      },
+      "ordering": "The initial response precedes machine-stats-changed events. Events preserve enqueue order until the connection closes.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "follow:true keeps the connection open after the response and delivers machine-stats-changed event lines on it until the connection closes."
     ]
   },
   "machine-usage": {
@@ -1174,6 +1198,7 @@ export const COMMAND_METADATA = {
         "empty",
         "frontend-projection-changed",
         "layout-changed",
+        "machine-stats-changed",
         "notification",
         "overflow",
         "pairing-requested",
@@ -1424,6 +1449,14 @@ export const EVENT_METADATA = {
   "layout-changed": {
     "since": 6,
     "capability": null,
+    "streams": [
+      "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "machine-stats-changed": {
+    "since": 12,
+    "capability": "machine-stats-v1",
     "streams": [
       "subscribe"
     ],
@@ -3569,6 +3602,107 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineStats": {
+    "additional_properties": false,
+    "constraints": [
+      "sampled_at_ms is the host clock (Unix epoch milliseconds) when the sample was taken.",
+      "cpu_percent is whole-machine busy CPU over the previous sampling interval (0..=100) and is null on the first sample.",
+      "memory_used_mb is MemTotal minus MemAvailable.",
+      "disk_total_mb and disk_used_mb describe the filesystem holding disk_path (the daemon's home) and are null when it could not be read."
+    ],
+    "fields": {
+      "cpu_percent": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "cpus": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "disk_path": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "disk_total_mb": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "disk_used_mb": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "load_average_1m": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "memory_total_mb": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "memory_used_mb": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sampled_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineStatsResult": {
+    "additional_properties": false,
+    "constraints": [
+      "stats is null when this daemon runs no host sampler (non-Linux hosts, or the sample could not be read)."
+    ],
+    "fields": {
+      "stats": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineStats"
         }
       }
     },
@@ -8658,6 +8792,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "MachineListeningTcpResult"
     }
   },
+  "machine-stats": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "follow": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "MachineStatsResult"
+    }
+  },
   "machine-usage": {
     "request": {
       "additional_properties": false,
@@ -12022,6 +12177,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "machine-stats-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "machine-stats-changed"
+        }
+      },
+      "stats": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineStats"
         }
       }
     },

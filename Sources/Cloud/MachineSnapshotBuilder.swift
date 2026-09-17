@@ -140,6 +140,41 @@ enum MachineSnapshotBuilder {
         }
     }
 
+    /// The row's live reading, from what the machine's own daemon sent over the
+    /// link (`SurfaceMachineInfo`): an awake sample when one has arrived, the
+    /// asleep line while the link reports the machine sleeping, else nothing.
+    /// Never wakes a machine and never asks the web tier.
+    static func linkStats(from info: SurfaceMachineInfo) -> VMStats? {
+        if info.linkState == .asleep {
+            return VMStats(
+                state: .asleep, sampledAt: info.statsSampledAt ?? .distantPast, cpus: info.cpus, cpuPercent: nil,
+                loadAverage1m: nil, memoryTotalMb: info.memoryMb, memoryUsedMb: nil, diskTotalMb: info.diskMb, diskUsedMb: nil
+            )
+        }
+        guard info.status == "running",
+              info.linkState == .connected,
+              let sampledAt = info.statsSampledAt else { return nil }
+        return VMStats(
+            state: .awake, sampledAt: sampledAt, resourceSampledAt: sampledAt, cpus: info.cpus, cpuPercent: info.cpuPercent,
+            loadAverage1m: info.loadAverage1m, memoryTotalMb: info.memoryMb, memoryUsedMb: info.memoryUsedMb,
+            diskTotalMb: info.diskMb, diskUsedMb: info.diskUsedMb
+        )
+    }
+
+    /// Stamps every row with its machine's link reading; rows the catalog does
+    /// not know keep no reading.
+    static func applyingLinkStats(
+        to snapshots: [MachineSnapshot],
+        catalog: SurfaceCatalogSnapshot
+    ) -> [MachineSnapshot] {
+        let infoByMachine = Dictionary(catalog.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return snapshots.map { snapshot in
+            var next = snapshot
+            next.stats = infoByMachine[.cloud(snapshot.id)].flatMap(linkStats(from:))
+            return next
+        }
+    }
+
     /// Recomputes only the free-access facet of existing snapshots against a
     /// fresh clock — no network, stats and identity preserved.
     static func applyingFreeAccess(
