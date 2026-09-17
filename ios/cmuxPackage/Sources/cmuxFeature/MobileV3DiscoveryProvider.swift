@@ -10,11 +10,14 @@ import Foundation
 public final class MobileV3DiscoveryProvider: MobileIrohMacDiscovering {
     private let runtime: MobileV3RuntimeComposition
     private let preferredTag: String
+    private let routeCatalog: MobileIrohRouteCatalog?
+    private var scope: UInt64 = 0
     private var observers: [UUID: AsyncStream<Void>.Continuation] = [:]
 
-    public init(runtime: MobileV3RuntimeComposition, preferredTag: String = "default") {
+    public init(runtime: MobileV3RuntimeComposition, preferredTag: String = "default", routeCatalog: MobileIrohRouteCatalog? = nil) {
         self.runtime = runtime
         self.preferredTag = preferredTag
+        self.routeCatalog = routeCatalog
     }
 
     public func directoryUpdates() -> AsyncStream<Void> {
@@ -31,6 +34,11 @@ public final class MobileV3DiscoveryProvider: MobileIrohMacDiscovering {
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
         guard let directory = try? await runtime.directory() else { return [] }
         let candidates = Self.candidates(from: directory, preferredTag: preferredTag)
+        scope &+= 1
+        if let routeCatalog {
+            await routeCatalog.activate(scope: scope)
+            _ = await routeCatalog.replaceV3(with: directory, scope: scope)
+        }
         for observer in observers.values { observer.yield(()) }
         return candidates
     }
