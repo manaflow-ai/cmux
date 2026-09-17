@@ -104,8 +104,10 @@ final class CloudBrowserAccessState {
             if ["http", "https"].contains(url.scheme?.lowercased() ?? "") { leave() }
             return
         }
-        remoteURL = url
-        navigationURL = url
+        if model?.usesBrowserProxy == true {
+            remoteURL = url
+            navigationURL = url
+        }
         hasCommittedNavigation = true
     }
 

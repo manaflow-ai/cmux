@@ -177,7 +177,6 @@ struct CloudBrowserProxyIntegrationTests {
 
     private func model(server: CloudBrowserProxyTestServer) -> CloudPortAccessModel {
         CloudPortAccessModel(
-            machineID: server.marker,
             target: CloudPortForwardTarget(host: server.address, port: 8000),
             coordinator: nil,
             wake: {},

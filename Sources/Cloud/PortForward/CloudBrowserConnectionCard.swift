@@ -1,8 +1,8 @@
 import SwiftUI
 
+/// Inline progress and retry UI for a private Cloud browser connection.
 struct CloudBrowserConnectionCard: View {
     let address: String
-    let phase: CloudPortAccessModel.Phase
     let message: String?
     let onRetry: (() -> Void)?
 
@@ -16,13 +16,12 @@ struct CloudBrowserConnectionCard: View {
                 if let message {
                     Text(message).foregroundStyle(.secondary).textSelection(.enabled)
                 }
-                HStack {
-                    if let onRetry {
-                        Button(String(localized: "browser.error.reload", defaultValue: "Reload"), action: onRetry)
-                            .buttonStyle(.bordered)
-                    }
+                if let onRetry {
+                    Button(String(localized: "browser.error.reload", defaultValue: "Reload"), action: onRetry)
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("CloudBrowserRetryButton")
                 }
-                if message == nil && (phase == .connecting || phase == .direct || { if case .forwarded = phase { return true }; if case .proxied = phase { return true }; return false }()) {
+                if message == nil {
                     ProgressView(String(localized: "cloud.ports.loading", defaultValue: "Loading Cloud page…"))
                 }
             }

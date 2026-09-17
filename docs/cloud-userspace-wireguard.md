@@ -11,13 +11,15 @@ a peer unless it later becomes a direct Cloud network client.
 
 | role | traffic | implementation | first user action |
 | --- | --- | --- | --- |
-| terminal | cmux-tui terminal and metadata; in-app browser pages and forwarded ports | user-space WireGuard hub | none |
+| terminal | cmux-tui terminal and in-app HTTP browser/Desktop traffic | user-space WireGuard hub | none |
 | browser | a system-wide route for other apps on this Mac (`cmux vpn up`) | Apple Network Extension | allow the cmux network extension |
 
 The terminal role does not create a system interface or require macOS VPN
-approval. The browser role starts only when the user connects Cloud VPN.
-In-app Browser and Desktop pages connect automatically through the terminal hub.
-The system VPN remains an explicit option for other apps on the Mac.
+approval. In-app HTTP browser and Desktop pages use an authenticated loopback
+forward over the same hub, so they work with the optional system VPN off. The
+system VPN remains the path for other Mac apps that need the VM private address.
+Browser and Desktop show inline connection errors with a Reload action.
+They never offer VPN setup.
 
 ## Terminal path
 
@@ -79,15 +81,12 @@ remain separate from the browser's stable private-IP URL.
 
 ## System-wide route (`cmux vpn up`)
 
-The Machines panel has an optional **Set Up cmux VPN…** entry. The same action
-is available in the workspace plus-button menu, the command palette, and the
-context menus for Cloud machines and private port URLs. Each opens the same
-native setup pane, like iPhone pairing. Opening it only reads connection status;
-**Connect Cloud VPN** explicitly starts and pins the existing tunnel coordinator.
-The pane explains extension approval and VPN configuration permission, follows
-approval automatically, reports errors, and supports cancellation and disconnect.
-It reports builds without a signed extension as unavailable without prompting.
-Automation can open it through `workspace.action {action: "cloud_vpn_setup"}`.
+The system VPN is controlled explicitly through `cmux vpn up`, `cmux vpn down`,
+and `cmux vpn status`. These commands retain the existing authenticated tunnel
+coordinator, macOS extension approval, and cancellation behavior. There are no
+VPN setup rows, buttons, menu items, Settings entries, or setup panes in the app.
+HTTP Desktop uses the userspace hub regardless of system VPN state. HTTPS retains
+its original private host and requires a private network connection.
 
 
 `cmux vpn up` creates a separate browser peer through `POST /api/vm/tunnel`,
@@ -220,20 +219,13 @@ so its TCP maximum segment size stays within the tunnel packet size.
 - `cargo test -p cmux-tui`: hub command and required capability.
 - Web tests: one physical Mac with two role peers, multiple Stack sessions,
   rename, sign-out revoke, remote revoke, and no iOS registry coupling.
-- Tagged Mac build: with system VPN off, command-click localhost and 0.0.0.0
-  links in two VMs serving distinct content on port 8000. Both right-side browsers
-  retain their respective private-IP origins, render the correct content, and
-  support reload, relative assets, POST, and WebSocket echo. Repeat with a server
-  bound only to VM loopback; a Mac-local port 8000 sentinel must never be loaded.
-- `CloudBrowserProxyIntegrationTests`: two real WebKit pages use isolated stores
-  and authenticated CONNECT proxies while preserving origin, Host, assets, and
-  POST content; carrier exit and explicit stop release the hub claim once.
-- `tests_v2/test_cloud_browser_userspace_e2e.py`: installs the two VM fixtures and
-  validates pages after real Computer Use command-click interactions.
+- Tagged Mac build: with system VPN off, HTTP Desktop and browser ports use
+  `http://127.0.0.1:<port>` through the shared hub. noVNC assets and websockify
+  share that listener; private URLs remain the copied link metadata.
 - `CloudLoopbackPortForwardTests`: a loopback client, the real forward, and a
   fake SOCKS5 hub; bytes relay both ways, a refused CONNECT closes the client,
   the hub lease follows each connection, and one machine port keeps one local
   port across a private-address change.
-- Signed Nightly build: opening a Ports or Desktop row connects through userspace
-  WireGuard without Network Extension approval; `cmux vpn up` does, the Machines panel shows the wait
+- Signed Nightly build: opening a Ports or Desktop row never asks for Network
+  Extension approval; `cmux vpn up` does, the Machines panel shows the wait
   with an Open System Settings button, and revoke ends both paths.

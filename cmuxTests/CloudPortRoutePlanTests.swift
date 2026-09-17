@@ -227,7 +227,7 @@ struct CloudPortRoutePlanTests {
         var starts = 0
         let endpoint = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 42001, username: "fixture", password: "secret")
         let model = CloudPortAccessModel(
-            machineID: "vm-userspace", target: CloudPortForwardTarget(host: "10.16.0.7", port: 8000),
+            target: CloudPortForwardTarget(host: "10.16.0.7", port: 8000),
             coordinator: nil, wake: {}, startForward: { _ in Issue.record("Browser opened explicit forward"); return 42002 },
             stopForward: {}, startBrowserProxy: { starts += 1; return endpoint }
         )
