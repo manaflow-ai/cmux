@@ -1,4 +1,5 @@
 import CmuxMobilePairedMac
+import CmuxMobileRPC
 import CmuxMobileShell
 
 /// Resolves workspace-provided labels before the paired-Mac cache loads.
