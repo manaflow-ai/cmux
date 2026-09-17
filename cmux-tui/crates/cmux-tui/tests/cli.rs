@@ -4300,8 +4300,26 @@ fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
 #[cfg(unix)]
 #[test]
 fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    use base64::Engine;
+
     let dir = TestTempDir::create("wg-hub");
-    let config = write_wg_hub_config(dir.path(), 0o600);
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let (contents, peer) = runtime.block_on(async {
+        let cmux_wg::testing::LoopbackPair { client, server, server_socket, .. } =
+            cmux_wg::testing::loopback_pair().await.unwrap();
+        let peer = cmux_wg::WgNet::start(server, server_socket).await.unwrap();
+        let encoder = base64::engine::general_purpose::STANDARD;
+        let contents = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 10.200.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.200.0.0/24, fdcc::/64\nEndpoint = {}\nPersistentKeepalive = 5\n",
+            encoder.encode(client.private_key.as_ref()),
+            encoder.encode(client.peer_public_key),
+            client.endpoint.unwrap(),
+        );
+        (contents, peer)
+    });
+    let config = dir.path().join("wg.conf");
+    fs::write(&config, contents).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
     let socket = dir.path().join("hub").join("wg.sock");
     let mut child = Command::new(bin())
         .args(["wg", "hub", "--config"])
@@ -4325,7 +4343,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(ready["event"], "hub-ready", "{line}");
     assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
-    assert_eq!(ready["routes"], serde_json::json!(["10.0.0.0/8", "fd00::/8"]), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.200.0.0/24", "fdcc::/64"]), "{line}");
 
     let socket_meta = fs::metadata(&socket).unwrap();
     assert!(socket_meta.file_type().is_socket());
@@ -4356,6 +4374,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     };
     assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
     assert!(!socket.exists(), "hub must remove its socket on exit");
+    runtime.block_on(peer.shutdown());
 }
 
 #[cfg(unix)]
