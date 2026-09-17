@@ -28,9 +28,16 @@ private struct TestGrants: CmxV3GrantProviding {
     let key: Curve25519.Signing.PrivateKey
     let deviceID: String
     let peerID: String
+    let addresses: [String]
+    init(key: Curve25519.Signing.PrivateKey, deviceID: String, peerID: String, addresses: [String] = []) {
+        self.key = key
+        self.deviceID = deviceID
+        self.peerID = peerID
+        self.addresses = addresses
+    }
     func authorization(for request: CmxByteTransportRequest, source: String) async throws -> CmxV3Authorization {
         CmxV3Authorization(deviceID: deviceID, peerID: peerID,
-            grant: try grant(source: source, destination: peerID, key: key))
+            grant: try grant(source: source, destination: peerID, key: key), addresses: addresses)
     }
 }
 
@@ -43,9 +50,9 @@ func factoryChecksEnrollmentBindingAndUsesRealNativeStream() async throws {
     defer { a.close(); b.close() }
     let address = try await b.listen(address: "/ip4/127.0.0.1/udp/0/quic-v1", operation: CmuxV3Native.Operation())
     let route = try CmxAttachRoute(id: "v3", kind: .v3, endpoint: .v3Peer(CmxV3PeerIdentity(
-        peerID: b.peerId(), addresses: ["\(address)/p2p/\(b.peerId())"])))
+        peerID: b.peerId(), addresses: ["/ip4/203.0.113.1/udp/9/quic-v1/p2p/\(b.peerId())"])))
     let request = CmxByteTransportRequest(route: route, expectedPeerDeviceID: "device-uuid", authorizationMode: .transportAdmission)
-    let factory = CmxV3ByteTransportFactory(endpoint: a, grants: TestGrants(key: key, deviceID: "device-uuid", peerID: b.peerId()))
+    let factory = CmxV3ByteTransportFactory(endpoint: a, grants: TestGrants(key: key, deviceID: "device-uuid", peerID: b.peerId(), addresses: ["\(address)/p2p/\(b.peerId())"]))
     let transport = try factory.makeTransport(for: request)
     async let accepting = b.accept(operation: CmuxV3Native.Operation())
     try await transport.connect()
