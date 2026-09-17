@@ -1,9 +1,9 @@
 package main
 
 import (
+	"io"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
