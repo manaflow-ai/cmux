@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxPanes
 import Testing
 
 #if canImport(cmux_DEV)
@@ -16,6 +17,44 @@ import Testing
 /// appears behind the current one and Cmd+T looks like it did nothing.
 @MainActor
 @Suite(.serialized) struct SurfacePaneFactoryFocusTests {
+    @Test(arguments: ["right", "down"])
+    func routedCloudSplitIsAcceptedBeforeItsPanelExists(directionName: String) async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let window = try #require(NSApp.windows.first { $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)" })
+        let machine = SurfaceMachineID.cloud("split-action-\(UUID().uuidString)")
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: nil, creationError: CloudDiagnosticFailure.network)
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+        let remote = SurfaceRemoteWorkspace(id: "ws-source", name: "source", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
+            title: "shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remote, remoteViews: [SurfaceRemoteView(tabID: "tab-source", workspace: remote)],
+            port: nil, url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(
+            resource: resource.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: remote.id, remoteTabID: "tab-source"
+        ))
+        let direction: SplitDirection = directionName == "right" ? .right : .down
+
+        let accepted = harness.appDelegate.performSplitShortcut(direction: direction, preferredWindow: window)
+        // Menu and palette callers use this fallback when the shared action says it failed.
+        if !accepted { _ = manager.createSplit(direction: direction) }
+        await provider.creationAttemptSignal.wait()
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
+        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
+
+        #expect(accepted)
+        #expect(provider.creationRequestCount == 1)
+    }
+
     @Test func focusedTabIsSelectedOutsideASocketCommand() throws {
         let harness = try Harness()
         defer { harness.tearDown() }
@@ -36,6 +75,366 @@ import Testing
         #expect(workspace.focusedPanelId == created.panelID)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
+    }
+
+    @Test("Cloud shortcut inheritance uses the live remote foreground cwd")
+    func cloudShortcutInheritanceUsesLiveRemoteForegroundCwd() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("cwd-\(UUID().uuidString)")
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: "/remote/project-a")
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-project", name: "project", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
+            title: "shell",
+            // The public snapshot cwd is the spawn directory. The provider's live
+            // process query below is deliberately different.
+            detail: "/remote/home",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-source", workspace: remoteWorkspace)],
+            port: nil,
+            url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-source"
+        ))
+
+        #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        for _ in 0..<20 where provider.createdWorkingDirectory == nil {
+            await Task.yield()
+        }
+        #expect(provider.createdWorkingDirectory == "/remote/project-a")
+        #expect(provider.createdRemoteWorkspaceID == remoteWorkspace.id)
+    }
+
+    /// Exercises the cloud shortcut failure route and verifies it stays non-modal.
+    @Test("Failed cloud pane creation does not enter a process-modal run loop")
+    func failedCloudPaneCreationStaysInWorkspaceState() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("failed-pane-\(UUID().uuidString)")
+        let error = NSError(
+            domain: "CloudPaneCreationFailureTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "connection refused"]
+        )
+        let provider = CloudCreationProvider(machine: machine, workingDirectory: nil, creationError: error)
+        let catalog = SurfaceCatalog.shared
+        catalog.register(provider)
+        defer { catalog.unregister(machine: machine) }
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-failure", name: "failure", index: 0, focused: true)
+
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-source"),
+            title: "shell",
+            detail: "/remote/home",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-failure", workspace: remoteWorkspace)],
+            port: nil,
+            url: nil
+        )
+        catalog.upsert(resource, from: provider)
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-failure"
+        ))
+
+        #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
+        await provider.creationAttemptSignal.wait()
+        let failure = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
+
+        #expect(NSApp.modalWindow == nil)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+        #expect(workspace.cloudPendingCreations[pendingPanelID]?.machine == machine)
+        #expect(!failure.detail.isEmpty)
+        #expect(!failure.detail.contains("connection refused"))
+        #expect(failure.showsReconnectButton)
+        var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
+        let firstRequest = await requestIterator.next()
+        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: pendingPanelID))
+        let retryRequest = await requestIterator.next()
+        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
+        #expect(firstRequest != nil)
+        #expect(retryRequest == firstRequest)
+        #expect(workspace.cloudPendingCreations.count == 1)
+
+        #expect(workspace.closePanel(pendingPanelID, force: true))
+        #expect(workspace.cloudPendingCreations[pendingPanelID] == nil)
+        #expect(workspace.panels[pendingPanelID] == nil)
+    }
+
+    @Test("A retained Cloud projection never falls back to a local terminal", arguments: ["split", "tab", "splitButton"])
+    func failedCloudRouteDoesNotCreateLocalPanel(action: String) throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.cloud("missing-provider-\(UUID().uuidString)")
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-missing-provider", name: "missing", index: 0, focused: true)
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-missing-provider"),
+            title: "shell", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(tabID: "tab-missing-provider", workspace: remoteWorkspace)],
+            port: nil, url: nil
+        )
+        let catalog = SurfaceCatalog.shared
+        // A restored projection keeps its Cloud identity before the provider
+        // reconnects and publishes its resource graph.
+        catalog.record(SurfaceProjection(
+            resource: resource.id,
+            workspaceID: workspace.id,
+            panelID: sourcePanelID,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab-missing-provider"
+        ))
+        defer {
+            catalog.endProjections(panelID: sourcePanelID, reason: .replaced)
+        }
+        #expect(catalog.hasCloudProjection(panelID: sourcePanelID, workspaceID: workspace.id))
+        #expect(workspace.cloudProjectedResource(forPanel: sourcePanelID) == nil)
+
+        let panelCount = workspace.panels.count
+        switch action {
+        case "tab":
+            #expect(!workspace.newTerminalSurfaceOutcome(inPane: paneID, focus: false).isAccepted)
+        case "splitButton":
+            workspace.bonsplitController.splitPane(paneID, orientation: .horizontal)
+        default:
+            #expect(!workspace.newTerminalSplitOutcome(
+                from: sourcePanelID, orientation: .horizontal, focus: false
+            ).isAccepted)
+        }
+        #expect(workspace.panels.count == panelCount)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+        #expect(workspace.bonsplitController.tabs(inPane: paneID).count == 1)
+    }
+
+    @Test("Cloud placement errors have a specific diagnostic")
+    func cloudPlacementErrorHasSpecificDiagnostic() {
+        let error = CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("vm-placement")
+        #expect(CloudDiagnosticFailure.classify(error) == .placement)
+        #expect(CloudDiagnosticFailure.classify(error).label.contains("placement"))
+    }
+
+    @Test("Creation failure belongs to its visible workspace and stays above native content")
+    func failureCardTracksWorkspaceVisibilityAndWindow() throws {
+        let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 720, height: 480),
+                              styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let root = try #require(content.superview)
+        let host = CloudPaneCreationFailureOverlayHostView(frame: content.bounds)
+        host.translatesAutoresizingMaskIntoConstraints = true
+        host.autoresizingMask = [.width, .height]
+        content.addSubview(host)
+        defer { host.detach() }
+        // Like WindowTerminalHostView, this sibling is above SwiftUI content.
+        let terminal = NSView(frame: content.frame)
+        root.addSubview(terminal, positioned: .above, relativeTo: content)
+        let failure = CloudPaneCreationFailure(machine: .cloud("fixture"), error: URLError(.timedOut))
+        var retriedIDs: [UUID] = []
+        var dismissedIDs: [UUID] = []
+        host.update(
+            failure: failure,
+            onRetry: { retriedIDs.append($0) },
+            onDismiss: { dismissedIDs.append($0) }
+        )
+        root.layoutSubtreeIfNeeded()
+        let card = try #require(root.subviews.compactMap { $0 as? CloudPaneCreationFailureOverlayView }.first)
+        #expect(!card.isDescendant(of: content))
+        let cardIndex = try #require(root.subviews.firstIndex(of: card))
+        let terminalIndex = try #require(root.subviews.firstIndex(of: terminal))
+        #expect(cardIndex > terminalIndex)
+        #expect(card.frame.width > 0 && card.frame.height > 0)
+        #expect(content.convert(card.bounds, from: card).minX >= 0)
+        #expect(content.convert(card.bounds, from: card).maxX <= content.bounds.maxX)
+        #expect(host.hitTest(NSPoint(x: 5, y: 5)) == nil, "The bridge must not intercept terminal input")
+        let buttons = card.subviews
+            .compactMap { $0 as? NSStackView }
+            .flatMap { $0.arrangedSubviews.compactMap { $0 as? NSButton } }
+        let retry = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureRetry" })
+        retry.performClick(nil)
+        #expect(retriedIDs == [failure.id])
+        let dismiss = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureDismiss" })
+        dismiss.performClick(nil)
+        #expect(dismissedIDs == [failure.id])
+
+        host.isHidden = true
+        host.layoutSubtreeIfNeeded()
+        #expect(card.superview == nil, "Switching workspaces must remove its window-level error")
+        host.isHidden = false
+        host.layoutSubtreeIfNeeded()
+        #expect(card.superview === root)
+        host.removeFromSuperview()
+        #expect(card.superview == nil, "An unmounted workspace must not leave an orphan card")
+    }
+
+    /// Ensures a suspended older request cannot replace a newer request's failure.
+    @Test("Superseded cloud pane failures are ignored")
+    func supersededCloudPaneFailureDoesNotReplaceCurrentRequest() throws {
+        let store = CloudPaneCreationFailureStore()
+        let first = store.beginRequest()
+        let second = store.beginRequest()
+        let error = NSError(domain: "CloudPaneCreationFailureTests", code: 1)
+
+        store.present(machine: .cloud("old"), error: error, requestID: first)
+        #expect(store.failure == nil)
+        store.present(machine: .cloud("new"), error: error, requestID: second)
+        #expect(store.failure?.machine == .cloud("new"))
+    }
+
+    @Test("Cloud placement failures remain inline and dismissible")
+    func cloudPlacementFailureDoesNotOpenAModal() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let machine = SurfaceMachineID.cloud("placement-fixture")
+
+        workspace.presentCloudPlacementFailure(CloudDiagnosticFailure.network, machine: machine)
+
+        #expect(NSApp.modalWindow == nil)
+        let failure = try #require(workspace.cloudPaneCreationFailureStore.failure)
+        #expect(failure.machine == machine)
+        #expect(failure.title == String(localized: "cloudPane.layoutSyncFailed.title", defaultValue: "Couldn’t update the machine workspace"))
+        workspace.cloudPaneCreationFailureStore.dismiss(id: failure.id)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
+    }
+
+    @Test("Cloud process cwd parsing ignores the recorded spawn directory")
+    func cloudProcessCwdParsingIgnoresSpawnDirectory() {
+        #expect(CloudTuiCommandLine.processInfoArguments(socketPath: "/tmp/cloud.sock", terminalID: "term-source") == [
+            "--socket", "/tmp/cloud.sock", "--json", "terminal", "term-source", "process", "show"
+        ])
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "cwd": "/remote/home",
+            "foreground_cwd": "/remote/project-a"
+        ]) == "/remote/project-a")
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "cwd": "/remote/home",
+            "foreground_cwd": ""
+        ]) == nil)
+    }
+
+    @MainActor
+    private final class CloudCreationProvider: SurfaceProvider {
+        let machine: SurfaceMachineID
+        let info: SurfaceMachineInfo
+        let workingDirectory: String?
+        private(set) var createdWorkingDirectory: String?
+        private(set) var createdRemoteWorkspaceID: String?
+
+        let creationError: Error?
+        let creationAttemptSignal = CreationAttemptSignal()
+        let creationRequests = AsyncStream<UUID>.makeStream()
+        private(set) var creationRequestCount = 0
+
+        /// Creates a provider fixture with optional deterministic creation failure.
+        init(machine: SurfaceMachineID, workingDirectory: String?, creationError: Error? = nil) {
+            self.machine = machine
+            self.workingDirectory = workingDirectory
+            self.creationError = creationError
+            info = SurfaceMachineInfo(
+                id: machine, name: machine.rawValue, status: "running", image: nil,
+                hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+                linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+            )
+        }
+
+        /// Satisfies the provider refresh contract without touching the network.
+        func refresh() async {}
+
+        /// Returns the fixture's configured foreground directory.
+        func currentWorkingDirectory(of _: SurfaceResource) async -> String? {
+            workingDirectory
+        }
+
+        /// Signals and throws the configured failure, or returns a fixture resource.
+        func createTerminal(command _: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
+            if let creationError {
+                creationAttemptSignal.signal()
+                throw creationError
+            }
+            createdWorkingDirectory = cwd
+            createdRemoteWorkspaceID = remoteWorkspaceID
+            return SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term-created"),
+                title: name ?? "shell",
+                detail: cwd,
+                lifecycle: .launching,
+                agent: nil,
+                remoteWorkspace: nil,
+                port: nil,
+                url: nil
+            )
+        }
+
+        func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+            creationRequestCount += 1
+            creationRequests.continuation.yield(request.id)
+            return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
+        }
+
+        @MainActor
+        final class CreationAttemptSignal {
+            private var didSignal = false
+            private var waiters: [CheckedContinuation<Void, Never>] = []
+
+            /// Waits for the provider to enter its throwing create path.
+            func wait() async {
+                if didSignal { return }
+                await withCheckedContinuation { continuation in
+                    if didSignal {
+                        continuation.resume()
+                    } else {
+                        waiters.append(continuation)
+                    }
+                }
+            }
+
+            /// Completes all waiters exactly once when creation starts.
+            func signal() {
+                didSignal = true
+                let pending = waiters
+                waiters.removeAll()
+                for waiter in pending {
+                    waiter.resume()
+                }
+            }
+        }
+
+        /// Returns a projection fixture for unrelated provider protocol calls.
+        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus _: Bool) async throws -> SurfaceProjection {
+            SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        }
+
+        /// Records no state when the test projection ends.
+        func projectionDidEnd(_: SurfaceProjection) {}
     }
 
     @Test func unfocusedTabStaysBehindTheCurrentOne() throws {
@@ -122,6 +521,12 @@ import Testing
         #expect(workspace.focusedPanelId == before)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == before)
+    }
+
+    private func waitForPaneFailure(_ workspace: Workspace, panelID: UUID) async throws -> CloudTerminalReconnectOverlayPolicy.Presentation {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while workspace.cloudMaterializationFailures[panelID] == nil, ContinuousClock.now < deadline { await Task.yield() }
+        return try #require(workspace.cloudTerminalReconnectOverlayPresentation(forSurfaceId: panelID))
     }
 
     @MainActor

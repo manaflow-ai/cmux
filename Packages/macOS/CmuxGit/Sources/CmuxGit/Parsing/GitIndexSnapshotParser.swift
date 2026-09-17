@@ -2,7 +2,7 @@ import Dispatch
 import Foundation
 
 /// Parses bounded Git index bytes without performing filesystem I/O.
-nonisolated struct GitIndexSnapshotParser: Sendable {
+struct GitIndexSnapshotParser: Sendable {
     private static let hexAlphabet = Array("0123456789abcdef".utf8)
 
     /// Summarizes the index header when its version and size are valid.

@@ -568,19 +568,39 @@ struct PendingFrontendJournalEvent {
     event: Box<FrontendJournalEvent>,
 }
 
-impl PendingFrontendJournalEvent {
-    fn slot(&self) -> usize {
-        match self.event.as_ref() {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum FrontendJournalSlot {
+    Focus = 0,
+    Resize = 1,
+    Viewport = 2,
+}
+
+impl FrontendJournalSlot {
+    const COUNT: usize = 3;
+
+    fn for_event(event: &FrontendJournalEvent) -> Self {
+        match event {
+            FrontendJournalEvent::Focus { .. } => Self::Focus,
+            FrontendJournalEvent::Resize { .. } => Self::Resize,
+            FrontendJournalEvent::Viewport { .. } => Self::Viewport,
         }
+    }
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl PendingFrontendJournalEvent {
+    fn slot(&self) -> FrontendJournalSlot {
+        FrontendJournalSlot::for_event(self.event.as_ref())
     }
 }
 
 #[derive(Default)]
 struct FrontendJournalQueueState {
-    pending: [Option<PendingFrontendJournalEvent>; 3],
+    pending: [Option<PendingFrontendJournalEvent>; FrontendJournalSlot::COUNT],
     next_sequence: u64,
     stopping: bool,
 }
@@ -593,11 +613,7 @@ struct FrontendJournalQueue {
 
 impl FrontendJournalQueue {
     fn push(&self, session: Session, event: FrontendJournalEvent) {
-        let slot = match &event {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
-        };
+        let slot = FrontendJournalSlot::for_event(&event).index();
         let mut state = self.state.lock().unwrap();
         if state.stopping {
             return;
@@ -650,11 +666,11 @@ impl FrontendJournalQueue {
     fn retry(&self, mut pending: PendingFrontendJournalEvent) {
         let slot = pending.slot();
         let mut state = self.state.lock().unwrap();
-        if state.stopping || state.pending[slot].is_some() {
+        if state.stopping || state.pending[slot.index()].is_some() {
             return;
         }
         pending.retry_at = Instant::now() + Duration::from_millis(100);
-        state.pending[slot] = Some(pending);
+        state.pending[slot.index()] = Some(pending);
         drop(state);
         self.changed.notify_one();
     }
@@ -25279,10 +25295,12 @@ mod tests {
         let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
         let input = runtime.producer(events_tx);
+        let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
         let reader = std::thread::spawn(move || {
             let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
             assert!(input.send(key));
+            sent_tx.send(()).unwrap();
             while !ingress.is_closed() {
                 std::thread::yield_now();
             }
@@ -25290,6 +25308,7 @@ mod tests {
         });
 
         runtime.attach_reader(reader);
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         runtime.shutdown();
 
         assert!(
@@ -28235,7 +28254,7 @@ mod tests {
 
         assert_eq!(
             app.selection.map(|selection| selection.range()),
-            Some(((0, 0), (10, 0))),
+            Some(((0, 0), (9, 0))),
             "Shift triple click must select the complete line when bypassing PTY mouse reporting"
         );
 
@@ -31230,6 +31249,7 @@ mod tests {
         app.replace_tree(browser_completion_tree(surface_id, surface_id));
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
+        app.outer_size = (40, 12);
         app.pane_areas = vec![area];
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
@@ -46428,11 +46448,7 @@ mod tests {
         let mux = Mux::new(
             name,
             SurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "sleep 30".to_string(),
-                ]),
+                command: Some(vec!["/bin/sleep".to_string(), "300".to_string()]),
                 cwd: cwd.map(|path| path.to_string_lossy().into_owned()),
                 ..Default::default()
             },

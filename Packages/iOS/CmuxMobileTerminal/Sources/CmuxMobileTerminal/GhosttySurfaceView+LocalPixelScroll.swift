@@ -89,7 +89,7 @@ extension GhosttySurfaceView {
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
         #endif
-        workQueue.async { [weak self] in
+        workQueue.asyncPriority { [weak self] in
             #if DEBUG
             let batchStartedAt = CACurrentMediaTime()
             #endif
@@ -308,7 +308,7 @@ extension GhosttySurfaceView {
 }
 
 /// One generation-bound pointer used only on its serial Ghostty surface queue.
-private nonisolated struct LocalPixelScrollSurfaceOperation: @unchecked Sendable {
+private struct LocalPixelScrollSurfaceOperation: @unchecked Sendable {
     // Safety: the surface stays owned by GhosttySurfaceView, and every C call
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t
