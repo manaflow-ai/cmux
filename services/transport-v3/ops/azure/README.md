@@ -48,6 +48,14 @@ until the observation window ends. If a node already drained and exited, run a
 new generation from the previous digest instead of reviving stale reservations.
 No destructive cleanup is automated by these scripts.
 
+`upgrade.py plan` validates distinct immutable images, node identities and
+region coverage, then prints the handover order. `upgrade.py drain` executes
+the same readiness recheck and private authenticated drain one old node at a
+time, waiting for a clean exit. It never stops a container, restarts a node,
+or deletes a VM. The operator retires old VMs only after client session
+handover and the observation window. This is a process-level handover proof;
+application replay cursors and UI session continuity still require client tests.
+
 ## Observability contract
 
 The relay emits private OpenMetrics at `/metrics`, health at `/healthz`, and
