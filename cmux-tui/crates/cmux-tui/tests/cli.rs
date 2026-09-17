@@ -4300,25 +4300,27 @@ fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
 #[cfg(unix)]
 #[test]
 fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
-    use base64::Engine as _;
+    use base64::Engine;
 
+    let dir = TestTempDir::create("wg-hub");
     let runtime =
         tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
-    let pair = runtime.block_on(cmux_wg::testing::loopback_pair()).unwrap();
-    let endpoint = pair.client.endpoint.as_ref().unwrap();
-    let dir = TestTempDir::create("wg-hub");
+    let (contents, peer) = runtime.block_on(async {
+        let cmux_wg::testing::LoopbackPair { client, server, server_socket, .. } =
+            cmux_wg::testing::loopback_pair().await.unwrap();
+        let peer = cmux_wg::WgNet::start(server, server_socket).await.unwrap();
+        let encoder = base64::engine::general_purpose::STANDARD;
+        let contents = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 10.200.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.200.0.0/24, fdcc::/64\nEndpoint = {}\nPersistentKeepalive = 5\n",
+            encoder.encode(client.private_key.as_ref()),
+            encoder.encode(client.peer_public_key),
+            client.endpoint.unwrap(),
+        );
+        (contents, peer)
+    });
     let config = dir.path().join("wg.conf");
-    fs::write(&config, format!(
-        "[Interface]\nPrivateKey = {}\nAddress = {}/32\nMTU = 1200\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.0.0.0/8, fd00::/8\nEndpoint = {}:{}\n",
-        base64::engine::general_purpose::STANDARD.encode(*pair.client.private_key),
-        pair.client_v4,
-        base64::engine::general_purpose::STANDARD.encode(pair.client.peer_public_key),
-        endpoint.host, endpoint.port,
-    )).unwrap();
+    fs::write(&config, contents).unwrap();
     fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
-    // Readiness now requires authenticated WireGuard, so keep a real loopback
-    // peer alive instead of pointing the hub at the discard port.
-    let peer = runtime.block_on(cmux_wg::WgNet::start(pair.server, pair.server_socket)).unwrap();
     let socket = dir.path().join("hub").join("wg.sock");
     let mut child = Command::new(bin())
         .args(["wg", "hub", "--config"])
@@ -4342,7 +4344,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(ready["event"], "hub-ready", "{line}");
     assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
-    assert_eq!(ready["routes"], serde_json::json!(["10.0.0.0/8", "fd00::/8"]), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.200.0.0/24", "fdcc::/64"]), "{line}");
 
     let socket_meta = fs::metadata(&socket).unwrap();
     assert!(socket_meta.file_type().is_socket());
