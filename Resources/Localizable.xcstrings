@@ -363449,23 +363449,6 @@
         }
       }
     },
-    "settings.search.clear": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear Search"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索をクリア"
-          }
-        }
-      }
-    },
     "settings.search.noResults": {
       "extractionState": "manual",
       "localizations": {

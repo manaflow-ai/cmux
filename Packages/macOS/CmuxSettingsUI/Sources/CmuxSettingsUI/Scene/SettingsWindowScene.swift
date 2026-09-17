@@ -1,3 +1,4 @@
+import AppKit
 import CmuxSettings
 import SwiftUI
 
@@ -359,42 +360,39 @@ private struct SettingsPaneSidebarRow: View {
     }
 }
 
-/// The embedded sidebar's search field: a plain field in a soft capsule, no
-/// window toolbar, so it sits in the column like a native inline filter.
-private struct SettingsPaneSearchField: View {
+/// The embedded sidebar's search field: the real AppKit search field, so it
+/// gets the native rounded bezel, magnifier, clear button, and focus ring
+/// instead of a hand-drawn capsule.
+private struct SettingsPaneSearchField: NSViewRepresentable {
     @Binding var text: String
-    @FocusState private var isFocused: Bool
 
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(.secondary)
-            TextField(String(localized: "settings.search.prompt", defaultValue: "Search"), text: $text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .focused($isFocused)
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(Text(String(localized: "settings.search.clear", defaultValue: "Clear Search")))
-            }
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = String(localized: "settings.search.prompt", defaultValue: "Search")
+        field.controlSize = .regular
+        field.font = .systemFont(ofSize: 13)
+        field.sendsSearchStringImmediately = true
+        field.sendsWholeSearchString = false
+        field.delegate = context.coordinator
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        if field.stringValue != text {
+            field.stringValue = text
         }
-        .padding(.horizontal, 8)
-        .frame(height: 28)
-        .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .strokeBorder(isFocused ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.08), lineWidth: 1)
-        )
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        @Binding var text: String
+        init(text: Binding<String>) { _text = text }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            if text != field.stringValue { text = field.stringValue }
+        }
     }
 }
