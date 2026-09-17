@@ -24,6 +24,7 @@
 use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
@@ -31,7 +32,7 @@ use cmux_tui_core::resource::TerminalPublicId;
 
 use crate::session::{
     PipeIoEvent, PipeIoQueue, PipeIoQueuePushError, RemoteSession, Session, SurfaceAttach,
-    SurfaceHandle, is_remote_surface_unavailable, is_remote_transport_failure,
+    SurfaceHandle, is_remote_surface_unavailable,
 };
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
@@ -53,6 +54,7 @@ const MAX_PIPE_IO_INPUT_BASE64_BYTES: usize = MAX_PIPE_IO_INPUT_BYTES.div_ceil(3
 /// reset plus erase-scrollback, so the replacement replay does not stack on
 /// top of the embedder's previous terminal state.
 const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
+const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipeIoExitReason {
@@ -176,14 +178,8 @@ pub fn run(
         Ok(SurfaceAttach::Retired | SurfaceAttach::Missing) => {
             return Ok(PipeIoExitReason::TerminalEnded);
         }
-        Ok(SurfaceAttach::Deferred) => anyhow::bail!("terminal attach was deferred by the server"),
-        Err(error) if is_remote_transport_failure(&error) => {
-            return Ok(PipeIoExitReason::DaemonLost);
-        }
-        Err(error) if is_remote_surface_unavailable(&error, surface) => {
-            return Ok(PipeIoExitReason::TerminalEnded);
-        }
-        Err(error) => return Err(error),
+        Ok(SurfaceAttach::Deferred) => return Ok(PipeIoExitReason::DaemonLost),
+        Err(error) => return Ok(attach_failure_exit_reason(&error, surface)),
     };
     // The daemon resizes a terminal's PTY only for its geometry-authority
     // client (the full TUI client claims this for its active surface). The
@@ -206,6 +202,18 @@ pub fn run(
     Ok(reason)
 }
 
+fn attach_failure_exit_reason(error: &anyhow::Error, surface: SurfaceId) -> PipeIoExitReason {
+    // A rejected attach naming this exact surface means the terminal ended
+    // between the tree lookup and the attach request. Every other failure is
+    // reported as retryable daemon loss so the embedder receives the normal
+    // final JSON record and exit code.
+    if is_remote_surface_unavailable(error, surface) {
+        PipeIoExitReason::TerminalEnded
+    } else {
+        PipeIoExitReason::DaemonLost
+    }
+}
+
 /// The stream ended without a terminal-exit event, but "stream lost" covers
 /// two situations the embedder must tell apart: the daemon really is
 /// unreachable (respawn until it returns), or the terminal was closed and
@@ -218,14 +226,17 @@ fn classify_daemon_loss(
     socket_path: &Path,
     terminal: &TerminalPublicId,
 ) -> PipeIoExitReason {
-    let terminal_still_exists =
-        remote.refresh_tree().ok().map(|tree| tree.resolve_terminal(terminal).is_some()).or_else(
-            || {
-                let probe = RemoteSession::connect_for_terminal_attach(socket_path).ok()?;
-                let tree = probe.refresh_tree().ok()?;
-                Some(tree.resolve_terminal(terminal).is_some())
-            },
-        );
+    let deadline = Instant::now() + DAEMON_LOSS_PROBE_TIMEOUT;
+    let terminal_still_exists = remote
+        .refresh_tree_until(deadline)
+        .ok()
+        .map(|tree| tree.resolve_terminal(terminal).is_some())
+        .or_else(|| {
+            let probe =
+                RemoteSession::connect_for_terminal_attach_until(socket_path, deadline).ok()?;
+            let tree = probe.refresh_tree_until(deadline).ok()?;
+            Some(tree.resolve_terminal(terminal).is_some())
+        });
     match terminal_still_exists {
         Some(false) => PipeIoExitReason::TerminalEnded,
         Some(true) | None => PipeIoExitReason::DaemonLost,
@@ -247,6 +258,27 @@ fn spawn_stdin_pump(
             let mut reader = stdin.lock();
             let mut line = String::new();
             let mut transport_lost = false;
+            // One worker and one pending request preserve non-blocking input
+            // without letting a hostile parent spawn an unbounded thread pool.
+            let (claim_sender, claim_receiver) = crossbeam_channel::bounded::<()>(1);
+            let claim_session = session.clone();
+            std::thread::Builder::new()
+                .name("pipe-io-claim".into())
+                .spawn(move || {
+                    for () in claim_receiver {
+                        match claim_session.claim_terminal_geometry(surface) {
+                            Ok(()) => eprintln!(
+                                "{}",
+                                serde_json::json!({"diag": {"claim": {"accepted": true}}})
+                            ),
+                            Err(_) => eprintln!(
+                                "{}",
+                                serde_json::json!({"diag": {"claim": {"code": "claim_failed"}}})
+                            ),
+                        }
+                    }
+                })
+                .expect("spawn pipe-io claim worker");
             loop {
                 let Ok(has_line) = read_request_line(&mut reader, &mut line) else { break };
                 if !has_line {
@@ -286,20 +318,9 @@ fn spawn_stdin_pump(
                         }
                     }
                     Ok(PipeIoRequest::ClaimGeometry) => {
-                        // Same diag discipline as resize: diagnostics only,
-                        // the exit JSON stays the final stderr line.
-                        match session.claim_terminal_geometry(surface) {
-                            Ok(()) => eprintln!(
-                                "{}",
-                                serde_json::json!({"diag": {"claim": {"accepted": true}}})
-                            ),
-                            Err(_error) => eprintln!(
-                                "{}",
-                                serde_json::json!({
-                                    "diag": {"claim": {"code": "claim_failed"}}
-                                })
-                            ),
-                        }
+                        // A claim must not delay the next keystroke by a
+                        // daemon round trip. Repeated pending claims coalesce.
+                        let _ = claim_sender.try_send(());
                     }
                     Ok(PipeIoRequest::Unknown) => {}
                     // A malformed line means the embedder side is broken;
@@ -307,8 +328,7 @@ fn spawn_stdin_pump(
                     Err(_) => break,
                 }
             }
-            // Blocking send: the queue is drained until the main loop
-            // returns, and a dropped receiver just ends this thread.
+            // Parent EOF is orderly; failed input must retain its loss reason.
             if !transport_lost {
                 let _ = queue.push(PipeIoEvent::StdinClosed);
             }
@@ -464,5 +484,18 @@ mod tests {
         queue.close();
         assert_eq!(queue.recv(), Some(PipeIoEvent::TransportLost));
         assert!(queue.recv().is_none());
+    }
+
+    #[test]
+    fn attach_failures_preserve_terminal_and_daemon_exit_contracts() {
+        let terminal_ended =
+            crate::session::test_remote_rejected_error_with_message("unknown surface 7");
+        assert_eq!(attach_failure_exit_reason(&terminal_ended, 7), PipeIoExitReason::TerminalEnded);
+
+        let daemon_lost = crate::session::test_remote_transport_error();
+        assert_eq!(attach_failure_exit_reason(&daemon_lost, 7), PipeIoExitReason::DaemonLost);
+
+        let unexpected = anyhow::anyhow!("attach capability negotiation failed");
+        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::DaemonLost);
     }
 }

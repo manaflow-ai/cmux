@@ -503,8 +503,9 @@ final class MobileHostIrxRuntime {
 /// the per-bundle, per-broker state directory computed at activation so
 /// admission never reads another build's (or another environment's) cache.
 enum IrxDiskCacheTrustReader {
+    /// Reads the trust snapshot from the state directory selected at activation.
     nonisolated static func read(stateDirectory: URL) -> IrxTrustSnapshot? {
-        IrxDiskCache<IrxTrustSnapshot>(
+        return IrxDiskCache<IrxTrustSnapshot>(
             fileURL: stateDirectory.appendingPathComponent("trust.json")
         ).load()
     }

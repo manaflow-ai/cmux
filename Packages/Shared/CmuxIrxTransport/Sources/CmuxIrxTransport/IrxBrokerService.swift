@@ -331,6 +331,19 @@ public actor IrxBrokerService {
         return response
     }
 
+    /// Drops the in-memory discovery snapshot after a presence push proves it
+    /// stale, so the next discovery-consuming call refetches.
+    public func invalidateDiscoverySnapshot() {
+        lastDiscovery = nil
+        lastDiscoveryAt = nil
+    }
+
+    /// Revokes one account-owned binding (the "forget computer" server leg).
+    public func revoke(bindingID: String) async throws {
+        try await client.revoke(bindingID: bindingID)
+        journal.record("broker", "binding-revoked", ["binding": bindingID])
+    }
+
     // MARK: - Relay credentials
 
     public func cachedRelayCredentials() -> [IrxRelayCredential] {

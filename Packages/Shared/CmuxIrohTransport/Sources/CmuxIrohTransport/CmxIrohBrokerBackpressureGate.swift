@@ -285,8 +285,12 @@ public actor CmxIrohBrokerBackpressureGate {
         let remaining = Self.remainingSeconds(floor: floor, now: now())
         switch floor.errorKind {
         case let .brokerRateLimit(code):
+            // "cooldown:" marks a LOCAL fail-fast waiting out a prior 429;
+            // without it these are indistinguishable from real server
+            // rejections in journals (08-27: hundreds of countdown lines
+            // read as a server hammer that never happened).
             throw CmxIrohTrustBrokerClientError.rateLimited(
-                code: code,
+                code: "cooldown:" + (code ?? "rate_limited"),
                 retryAfterSeconds: remaining
             )
         case .cooldown:

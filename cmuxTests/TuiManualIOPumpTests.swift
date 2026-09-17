@@ -232,13 +232,16 @@ struct TuiManualIOPumpTests {
         // relay, so stale keystrokes cannot replay into a resynced shell.
         channel.setHandle(nil)
         channel.send(Data("dropped\n".utf8))
-        channel.setHandle(pipe.fileHandleForWriting)
+        let replacement = Pipe()
+        channel.setHandle(replacement.fileHandleForWriting)
         channel.send(Data("second\n".utf8))
         channel.waitForTesting()
         channel.closeHandle()
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        #expect(String(decoding: data, as: UTF8.self) == "first\nsecond\n")
+        let first = pipe.fileHandleForReading.readDataToEndOfFile()
+        let second = replacement.fileHandleForReading.readDataToEndOfFile()
+        #expect(String(decoding: first, as: UTF8.self) == "first\n")
+        #expect(String(decoding: second, as: UTF8.self) == "second\n")
     }
 
     @Test
