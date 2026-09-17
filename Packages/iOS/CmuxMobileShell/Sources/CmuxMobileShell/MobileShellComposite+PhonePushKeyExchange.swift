@@ -32,21 +32,27 @@ extension MobileShellComposite {
             return
         }
         phonePushKeyExchangeRetryTask = Task { @MainActor [weak self, client] in
-            guard !Task.isCancelled, let self else { return }
-            let exchanged = await self.performPhonePushKeyExchange(
-                client: client,
-                accountID: accountID,
-                macDeviceID: macDeviceID,
-                macInstanceTag: macInstanceTag,
-                macBuildID: macBuildID
-            )
-            guard !Task.isCancelled, self.identityProvider?.currentUserID == accountID else { return }
-            if exchanged {
-                self.diagnosticLog?.recordAppEvent(.pushKeyExchangeSucceeded)
-            } else {
-                self.diagnosticLog?.recordAppEvent(.pushKeyExchangeFailed, failure: .unknown)
-                phonePushKeyExchangeLog.error("key exchange failed; reopen the app to retry secure push setup")
+            for retry in 0..<3 {
+                guard !Task.isCancelled, let self,
+                      self.identityProvider?.currentUserID == accountID else { return }
+                let exchanged = await self.performPhonePushKeyExchange(
+                    client: client,
+                    accountID: accountID,
+                    macDeviceID: macDeviceID,
+                    macInstanceTag: macInstanceTag,
+                    macBuildID: macBuildID
+                )
+                guard !Task.isCancelled, self.identityProvider?.currentUserID == accountID else { return }
+                if exchanged {
+                    self.diagnosticLog?.recordAppEvent(.pushKeyExchangeSucceeded)
+                    return
+                }
+                guard retry < 2 else { break }
+                try? await Task.sleep(for: .seconds(1 << retry))
             }
+            guard !Task.isCancelled, let self else { return }
+            self.diagnosticLog?.recordAppEvent(.pushKeyExchangeFailed, failure: .secureChannelFailed)
+            phonePushKeyExchangeLog.error("key exchange failed; reconnect or reopen the app to retry secure push setup")
         }
     }
 

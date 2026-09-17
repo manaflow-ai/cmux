@@ -80,6 +80,30 @@ describe("device token route", () => {
     });
   });
 
+  test("rejects a registration without an E2E push key", async () => {
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.app.internal",
+        },
+        body: JSON.stringify({
+          deviceToken: "c".repeat(64),
+          bundleId: "dev.cmux.app.internal",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_push_key",
+      action: "complete_secure_pairing",
+    });
+  });
+
   dbTest("allows a released legacy client to unregister its unique token", async () => {
     if (!sql) throw new Error("test database not initialized");
     const token = "b".repeat(64);
