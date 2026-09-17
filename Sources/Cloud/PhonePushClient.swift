@@ -837,7 +837,7 @@ final class PhonePushClient {
                     return response.result
                 }
                 pendingPayloadsByCorrelationID[reencrypted.correlationID] = payload
-                guard deliveryQueue.enqueue(reencrypted) else {
+                if !deliveryQueue.enqueue(reencrypted) {
                     pendingPayloadsByCorrelationID.removeValue(forKey: reencrypted.correlationID)
                     logQueueStage(
                         "recipient_key_changed_requeue_failed",
