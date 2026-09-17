@@ -7,13 +7,17 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+bytes.workspace = true
 cmux-v3-grants = { path = "../grants" }
 futures.workspace = true
 libp2p.workspace = true
+libp2p-stream.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 
 [dev-dependencies]
 cmux-v3-authority = { path = "../authority" }
 ed25519-dalek.workspace = true
-serde_json.workspace = true

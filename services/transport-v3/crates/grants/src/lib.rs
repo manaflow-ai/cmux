@@ -252,6 +252,9 @@ impl Revocations {
 pub struct Admission(Grant);
 
 impl Admission {
+    pub fn version(&self) -> (u64, u64) {
+        (self.0.policy_revision, self.0.iat)
+    }
     pub fn expires_at(&self) -> Option<u64> {
         self.0.exp
     }

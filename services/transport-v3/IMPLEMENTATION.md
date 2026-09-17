@@ -175,7 +175,7 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   Notification routing is not configured. Stopping East US reporting produced
   a real cmux-v3-health alert at 2026-09-17T06:12:11Z. Reporting was restored
   at 06:13:10Z. Fresh central records from both regions show readiness=1 after
-  restoration. Automatic alert resolution remains unverified.
+  restoration. Azure subsequently marked the alert Resolved; receipt retained.
 - The live relay continues exchanging authenticated QUIC messages while its
   telemetry timer is stopped. This is monitoring isolation evidence, not session
   handover or relay-upgrade proof. Receipts remain in HQ artifacts/transport-v3/
@@ -213,3 +213,38 @@ seamless upgrades, observability, security audit, and real end-to-end proof.
   Cache-Control: no-store. Freshness still depends on ingestion; timestamps are
   checked explicitly. The monitoring drill did not expose any public management
   port, restart a relay, or send notifications to anyone.
+
+## Native application stream checkpoint
+
+- Added /cmux/transport/3/session using libp2p-stream pinned to the same reviewed
+  fork revision. It exposes bounded bidirectional lanes and concurrent sender
+  handles without a custom libp2p connection handler. Maximum admission is 16 KiB,
+  data frame 64 KiB, queues eight frames, with bounded context session capacity.
+- Admission binds team, transport-authenticated source/destination and lane
+  action. Terminal read/input require terminal_read/terminal_write respectively;
+  initiating data on a read lane is rejected at both API and receiving wire path.
+- A separate authorization future cancels both stream halves even when a peer
+  stops reading or application queues fill. Reads recheck permission before
+  returning buffered bytes. Renewal is receiver-acknowledged, cannot roll policy
+  revision/issue time backward, and cannot revive expired or revoked sessions.
+- Five real QUIC session tests pass: deadline renewal, full-buffer expiry and
+  capacity release, unlimited revocation with an offline initiator, malformed/
+  oversized/forged headers, and read permission refusing terminal input.
+- Drain regression failed before the fix (2030ea063bc) and passes after
+  b6180ac5c66. Draining now refreshes only still-live cached permissions while
+  continuing to refuse every new HOP circuit/reservation. The real relay-process
+  test now carries the application stream itself through renewal past its old
+  deadline and verifies clean exit after the encrypted circuit closes.
+- 30 Rust tests pass across the workspace/focused additions; strict Clippy and
+  Apple device/simulator target checks pass. The unchanged explicit PostgreSQL
+  test was not rerun this turn. Application replay, input execution acknowledgment,
+  endpoint lifecycle, grant-fetch scheduling and Swift bindings remain incomplete.
+- Six live Azure application-stream probes pass, TCP/QUIC/WSS in both regions:
+  160 messages and exactly 327680 application bytes each direction, forged grant
+  denied and renewal acknowledged. Receipts are {eastus,westus2}-session-*.json
+  in HQ artifacts/transport-v3/azure-staging. These are relay paths, not NAT or
+  application UI verification. The deployed relay image is still g0916a and does
+  not yet contain the drain-renewal fix; that fix has process-test evidence only.
+- The default libp2p Identify behaviour emits observed-address candidates, and
+  DCUtR consumes those events itself. No extra custom address-promotion logic is
+  needed for that mechanism. Real NAT reachability remains to be demonstrated.

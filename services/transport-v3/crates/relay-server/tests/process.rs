@@ -2,9 +2,7 @@
 use cmux_v3_grants::{
     AuthorityKeys, Grant, GrantSigner, LeasePolicy, OfflineAccess, Revocations, Scope,
 };
-use cmux_v3_transport::{
-    authorize_probe, peer, relay_auth, PeerBehaviour, PeerBehaviourEvent, Probe, ProbeReply,
-};
+use cmux_v3_transport::{peer, relay_auth, session, PeerBehaviour, PeerBehaviourEvent};
 use ed25519_dalek::SigningKey;
 use futures::StreamExt;
 use libp2p::{
@@ -17,6 +15,7 @@ use std::{
     net::{TcpListener, TcpStream},
     os::unix::fs::OpenOptionsExt,
     process::{Child, Command, Stdio},
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -27,7 +26,7 @@ struct Server {
     relay: Multiaddr,
     peer: PeerId,
     signer: GrantSigner,
-    keys: AuthorityKeys,
+    keys: Arc<AuthorityKeys>,
 }
 impl Drop for Server {
     fn drop(&mut self) {
@@ -138,7 +137,7 @@ impl Server {
             relay,
             peer,
             signer: GrantSigner::new("test".into(), &signing).unwrap(),
-            keys,
+            keys: Arc::new(keys),
         };
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -214,37 +213,24 @@ async fn authorize(
     }
 }
 
-async fn exchange(
+async fn pump<T>(
     a: &mut Swarm<PeerBehaviour>,
     b: &mut Swarm<PeerBehaviour>,
-    server: &Server,
-    grant: &str,
-) {
-    let target = *b.local_peer_id();
-    a.behaviour_mut().probe.send_request(
-        &target,
-        Probe {
-            grant: grant.into(),
-            message: "alive".into(),
-        },
-    );
+    future: impl std::future::Future<Output = T>,
+) -> T {
+    tokio::pin!(future);
     loop {
         tokio::select! {
-            event = a.select_next_some() => match event {
-                SwarmEvent::Behaviour(PeerBehaviourEvent::Probe(request_response::Event::Message {
-                    message: request_response::Message::Response { response, .. }, ..
-                })) => { assert_eq!(response, ProbeReply::Accepted { message: "alive".into() }); return; },
-                SwarmEvent::Behaviour(PeerBehaviourEvent::Probe(request_response::Event::OutboundFailure { error, .. })) => panic!("probe failed: {error}"),
-                _ => {}
-            },
-            event = b.select_next_some() => if let SwarmEvent::Behaviour(PeerBehaviourEvent::Probe(request_response::Event::Message {
-                peer, message: request_response::Message::Request { request, channel, .. }, ..
-            })) = event {
-                let reply = authorize_probe(&server.keys, Scope { team: "a", source: peer, destination: target, action: "connect" }, request, now(), &Revocations::default());
-                b.behaviour_mut().probe.send_response(channel, reply).unwrap();
-            }
+            result = &mut future => return result,
+            _ = a.select_next_some() => {},
+            _ = b.select_next_some() => {},
         }
     }
+}
+
+async fn exchange(a: &session::Session, b: &mut session::Session) {
+    a.send(b"alive"[..].into()).await.unwrap();
+    assert_eq!(b.receive().await.unwrap(), b"alive"[..]);
 }
 
 #[tokio::test]
@@ -311,7 +297,44 @@ async fn real_server_authenticates_and_drains_without_cutting_an_existing_circui
         client
             .dial(reservation.with(Protocol::P2p(destination)))
             .unwrap();
-        exchange(&mut client, &mut host, &server, &grant).await;
+        let (_, updates) = tokio::sync::watch::channel(Arc::new(Revocations::default()));
+        let client_context =
+            session::Context::new("a".into(), source, server.keys.clone(), updates.clone(), 4)
+                .unwrap();
+        let host_context =
+            session::Context::new("a".into(), destination, server.keys.clone(), updates, 4)
+                .unwrap();
+        let mut control = client.behaviour().streams.new_control();
+        let mut incoming = host
+            .behaviour()
+            .streams
+            .new_control()
+            .accept(session::PROTOCOL)
+            .unwrap();
+        let lane = session::Lane {
+            kind: session::LaneKind::Control,
+            resource: None,
+            cursor: None,
+        };
+        let (client_stream, mut host_stream) = pump(&mut client, &mut host, async {
+            let accept = async {
+                let (peer, stream) = incoming.next().await.unwrap();
+                assert_eq!(peer, source);
+                host_context.accept(peer, stream).await.unwrap().1
+            };
+            let (client, host) = tokio::join!(
+                client_context.open(&mut control, destination, grant.clone(), lane),
+                accept
+            );
+            (client.unwrap(), host)
+        })
+        .await;
+        pump(
+            &mut client,
+            &mut host,
+            exchange(&client_stream, &mut host_stream),
+        )
+        .await;
         let (_, body) = http(server.http, "/metrics", None);
         assert!(body.contains("cmux_v3_circuits 1"));
         assert!(body.ends_with("# EOF\n"));
@@ -347,6 +370,9 @@ async fn real_server_authenticates_and_drains_without_cutting_an_existing_circui
             .await,
             relay_auth::Response::Accepted
         );
+        pump(&mut client, &mut host, client_stream.renew(grant))
+            .await
+            .unwrap();
         while now() <= original_expired_at {
             tokio::select! {
                 _ = client.select_next_some() => {},
@@ -354,7 +380,12 @@ async fn real_server_authenticates_and_drains_without_cutting_an_existing_circui
                 _ = tokio::time::sleep(Duration::from_millis(50)) => {},
             }
         }
-        exchange(&mut client, &mut host, &server, &grant).await;
+        pump(
+            &mut client,
+            &mut host,
+            exchange(&client_stream, &mut host_stream),
+        )
+        .await;
         assert!(server.child.try_wait().unwrap().is_none());
         client.disconnect_peer_id(destination).unwrap();
         loop {

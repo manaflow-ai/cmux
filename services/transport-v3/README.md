@@ -1,9 +1,9 @@
 # Transport v3 foundation
 
-Independent Rust workspace for replacing iroh. This first slice proves native
-and browser interoperability and server-issued authorization. A private relay
-process now gates reservations and circuits using signed grants. It is not wired
-into either app or deployed. See IMPLEMENTATION.md for the remaining requirements.
+Independent Rust workspace for replacing iroh. Azure staging relays in East US
+and West US 2 pass authenticated application-stream tests over TCP, QUIC and WSS.
+The Rust control service and native stream core are implemented but not wired
+into either app. See IMPLEMENTATION.md for evidence and remaining requirements.
 
 ## Boundaries
 
@@ -13,11 +13,16 @@ into either app or deployed. See IMPLEMENTATION.md for the remaining requirement
   snapshot. All device records, tags, membership, and timing come from trusted
   storage. The caller must supply an authenticated source key.
 - `cmux-v3-transport`: native libp2p QUIC, Noise/Yamux over TCP/WebSocket,
-  Circuit Relay v2, and DCUtR composition. The probe validates permissions
-  before echoing data. There are no legacy transport dependencies.
+  Circuit Relay v2, DCUtR and generic streams. The session protocol bounds
+  admission to 16 KiB, application frames to 64 KiB and queues to eight frames.
+  Signed renewal requires receiver acknowledgment; expiry and revocation cancel
+  blocked I/O. Terminal read and input lanes require their corresponding grants;
+  a read lane cannot carry initiating-peer data. There are no legacy dependencies.
+- `cmux-v3-control-server`: Stack identity/team/admin verification, signed device
+  proofs, enrollment, Cedar policy and device timing, and atomic PostgreSQL writes.
 - `cmux-v3-relay-server`: signed-grant admission for reservations and device pairs,
   bounded grant cache, private management credentials, readiness/metrics, and
-  draining that refuses new circuits but waits for existing circuits to finish.
+  draining that refuses new circuits while renewing still-live cached permissions.
   The process test exercises a real encrypted circuit through the actual binary.
 - `interop`: Chromium using JS libp2p through a loopback Rust relay to a Rust
   host, with both an allowed exchange and an invalid-grant rejection.
@@ -94,25 +99,24 @@ verified by this fixture.
 
 ## Remaining integration
 
-1. Rust HTTP service with Stack access-token verification, device-key proof,
-   server-verified team membership, enrollment, and administrator policy writes.
+1. Deploy and connect the Rust HTTP authority to Stack and persistent storage.
    Current cmux Cloud storage is PlanetScale Postgres; no Azure database has
    been provisioned and no production/staging schema has been changed.
 2. Durable, tenant-scoped records and a recoverable authorization update feed.
    Cache freshness must include membership and device revocations, not just
    ACL text. Persist known revocations and signer trust across app restarts.
-3. Per-team active bandwidth/circuit quotas, public TLS, revocation delivery,
-   and sustained relay transfer tests. Destination-aware admission now uses the
+3. Per-team active bandwidth/circuit quotas, revocation delivery, and sustained
+   load tests. Public TLS and authenticated application transfer are verified.
+   Destination-aware admission uses the
    small in-org fork hook in https://github.com/manaflow-ai/rust-libp2p/pull/1
    (author lawrencecchen). Do not deploy the laboratory relay or untested scripts.
-4. A stream/session owner that refreshes grants without reconnecting, schedules
-   finite expiry even on idle streams, cancels active streams on revocation,
-   and checks authorization before every operation. `Admission::check` is the
-   enforcement primitive; it does not own a timer. Use a trusted time anchor and
-   an elapsed-time clock across sleep, and refuse unsafe restored deadlines.
+4. Endpoint lifecycle, grant-fetch scheduling, relay selection and handover.
+   The stream owner now enforces expiry/revocation independently of blocked I/O,
+   accepts acknowledged renewal and rejects permission rollback. Application
+   acknowledgments, replay and safe restored deadlines remain separate work.
 5. Swift bindings, Keychain identity, iOS lifecycle, reconnect/replay and input
    acknowledgment. Target compilation is not iPhone runtime verification.
-6. Azure regional relay addresses, backup reservations, deployment/draining,
+6. Backup reservations, overlapping-generation handover and rollback proof,
    cross-region revocation tests, and the selected database failure model.
 7. Real NAT hole-punch tests, blocked UDP, network switching, and suspended-app
    recovery. DCUtR is composed but not proven by loopback tests. Direct browser

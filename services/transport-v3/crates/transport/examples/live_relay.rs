@@ -1,10 +1,8 @@
 //! Live relay acceptance probe. Grants are supplied by an external signing authority
 //! over stdin; private authority keys never enter the probe process.
 use anyhow::{bail, Context, Result};
-use cmux_v3_grants::{AuthorityKeys, Revocations, Scope};
-use cmux_v3_transport::{
-    authorize_probe, peer, relay_auth, PeerBehaviour, PeerBehaviourEvent, Probe, ProbeReply,
-};
+use cmux_v3_grants::{AuthorityKeys, Revocations};
+use cmux_v3_transport::{peer, relay_auth, session, PeerBehaviour, PeerBehaviourEvent};
 use ed25519_dalek::VerifyingKey;
 use futures::StreamExt;
 use libp2p::{
@@ -15,7 +13,8 @@ use serde::Deserialize;
 use std::{
     collections::BTreeMap,
     io::{BufRead, Write},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    sync::Arc,
+    time::{Duration, Instant},
 };
 #[derive(Deserialize)]
 struct Input {
@@ -25,12 +24,21 @@ struct Input {
     connect: String,
     keys: BTreeMap<String, String>,
 }
-fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+async fn pump<T>(
+    a: &mut Swarm<PeerBehaviour>,
+    b: &mut Swarm<PeerBehaviour>,
+    future: impl std::future::Future<Output = T>,
+) -> T {
+    tokio::pin!(future);
+    loop {
+        tokio::select! {
+            value = &mut future => return value,
+            _ = a.select_next_some() => {},
+            _ = b.select_next_some() => {},
+        }
+    }
 }
+
 async fn auth(
     peer: &mut Swarm<PeerBehaviour>,
     relay: PeerId,
@@ -92,23 +100,37 @@ async fn main() -> Result<()> {
         client.dial(input.relay.parse::<Multiaddr>()?)?;
         if auth(&mut client,relay,relay_auth::Request::Connect{team:input.team.clone(),destination:destination.to_string(),grant:input.connect.clone()}).await?!=relay_auth::Response::Accepted{bail!("valid connection denied")}
         client.dial(reservation.with(Protocol::P2p(destination)))?;
-        let start=Instant::now();
-        for index in 0..160 {
-            let message=format!("{index}:{}","x".repeat(2048));
-            client.behaviour_mut().probe.send_request(&destination,Probe{grant:input.connect.clone(),message:message.clone()});
-            loop {tokio::select! {
-                event=client.select_next_some()=>match event {
-                    SwarmEvent::Behaviour(PeerBehaviourEvent::Probe(request_response::Event::Message{message:request_response::Message::Response{response,..},..}))=>{if response!=(ProbeReply::Accepted{message:message.clone()}){bail!("incorrect response")};break;},
-                    SwarmEvent::Behaviour(PeerBehaviourEvent::Probe(request_response::Event::OutboundFailure{error,..}))=>bail!("probe failed: {error}"),
-                    _=>{}
-                },
-                event=host.select_next_some()=>if let SwarmEvent::Behaviour(PeerBehaviourEvent::Probe(request_response::Event::Message{peer,message:request_response::Message::Request{request,channel,..},..}))=event {
-                    let response=authorize_probe(&keys,Scope{team:&input.team,source:peer,destination,action:"connect"},request,now(),&Revocations::default());
-                    host.behaviour_mut().probe.send_response(channel,response).map_err(|_|anyhow::anyhow!("response channel closed"))?;
-                }
-            }}
-        }
-        println!("{}",serde_json::json!({"passed":true,"messages":160,"payload_bytes_each_way":160*2048,"elapsed_ms":start.elapsed().as_millis(),"relay":input.relay,"forged_grant":"denied"}));
+        let start = Instant::now();
+        let keys = Arc::new(keys);
+        let (_, updates) = tokio::sync::watch::channel(Arc::new(Revocations::default()));
+        let client_context = session::Context::new(input.team.clone(), source, keys.clone(), updates.clone(), 4)?;
+        let host_context = session::Context::new(input.team.clone(), destination, keys, updates, 4)?;
+        let mut control = client.behaviour().streams.new_control();
+        let mut incoming = host.behaviour().streams.new_control().accept(session::PROTOCOL)?;
+        let lane = session::Lane { kind: session::LaneKind::Control, resource: None, cursor: None };
+        let (mut sending, mut receiving) = pump(&mut client, &mut host, async {
+            let accept = async {
+                let (peer, stream) = incoming.next().await.context("stream listener closed")?;
+                anyhow::ensure!(peer == source, "unexpected source identity");
+                Ok::<_, anyhow::Error>(host_context.accept(peer, stream).await?.1)
+            };
+            let (client, host) = tokio::join!(client_context.open(&mut control, destination, input.connect.clone(), lane), accept);
+            Ok::<_, anyhow::Error>((client?, host?))
+        }).await?;
+        pump(&mut client, &mut host, sending.renew(input.connect)).await?;
+        pump(&mut client, &mut host, async {
+            for index in 0_u64..160 {
+                let mut message = vec![b'x'; 2048];
+                message[..8].copy_from_slice(&index.to_be_bytes());
+                sending.send(message.clone().into()).await?;
+                let received = receiving.receive().await?;
+                anyhow::ensure!(received.as_ref() == message, "incorrect request bytes");
+                receiving.send(received).await?;
+                anyhow::ensure!(sending.receive().await?.as_ref() == message, "incorrect response bytes");
+            }
+            Ok::<_, anyhow::Error>(())
+        }).await?;
+        println!("{}",serde_json::json!({"passed":true,"protocol":"/cmux/transport/3/session","messages":160,"payload_bytes_each_way":160*2048,"elapsed_ms":start.elapsed().as_millis(),"relay":input.relay,"forged_grant":"denied","renewal":"acknowledged"}));
         Ok::<_,anyhow::Error>(())
     }).await.context("live relay deadline exceeded")??;
     Ok(())

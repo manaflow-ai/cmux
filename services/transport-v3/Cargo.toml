@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+bytes = "1"
 axum = "0.8"
 base64 = "0.22"
 cedar-policy = { version = "4.12", default-features = false }
@@ -20,11 +21,13 @@ hex = "0.4"
 jsonwebtoken = "9.3"
 libp2p = { git = "https://github.com/manaflow-ai/rust-libp2p", rev = "5e889629590ae4b52a0213a2ab85a28cb1ffeb3b", default-features = false, features = ["tokio", "quic", "tcp", "dns", "websocket", "noise", "yamux", "relay", "dcutr", "identify", "ping", "macros", "request-response", "json", "ed25519"] }
 libp2p-identity = { version = "0.2", features = ["ed25519", "peerid", "rand"] }
+libp2p-stream = { git = "https://github.com/manaflow-ai/rust-libp2p", rev = "5e889629590ae4b52a0213a2ab85a28cb1ffeb3b" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 subtle = "2"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
+tokio-util = { version = "0.7", features = ["codec", "compat"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 prometheus-client = "0.23"

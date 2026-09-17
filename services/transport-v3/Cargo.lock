@@ -699,14 +699,18 @@ name = "cmux-v3-transport"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "cmux-v3-authority",
  "cmux-v3-grants",
  "ed25519-dalek",
  "futures",
  "libp2p",
+ "libp2p-stream",
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2430,6 +2434,19 @@ dependencies = [
  "serde",
  "serde_json",
  "smallvec",
+ "tracing",
+]
+
+[[package]]
+name = "libp2p-stream"
+version = "0.4.0-alpha"
+source = "git+https://github.com/manaflow-ai/rust-libp2p?rev=5e889629590ae4b52a0213a2ab85a28cb1ffeb3b#5e889629590ae4b52a0213a2ab85a28cb1ffeb3b"
+dependencies = [
+ "futures",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "rand 0.8.8",
  "tracing",
 ]
 
@@ -4652,6 +4669,7 @@ checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "libc",
  "pin-project-lite",
@@ -5076,7 +5094,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
