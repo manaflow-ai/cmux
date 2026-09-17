@@ -273,7 +273,7 @@ impl Context {
         cursor: Option<u64>,
         slot: OwnedSemaphorePermit,
     ) -> Session {
-        wire.codec_mut().set_max_frame_length(MAX_DATA + 1);
+        wire.codec_mut().set_max_frame_length(MAX_DATA + 9);
         let (out_tx, out_rx) = mpsc::channel(QUEUE);
         let (in_tx, in_rx) = mpsc::channel(QUEUE);
         let (closed_tx, closed_rx) = watch::channel(None);

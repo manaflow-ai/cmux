@@ -330,7 +330,9 @@ async fn read_permission_cannot_open_or_send_terminal_input() {
         raw.write_all(&body).await.unwrap();
         let (source, incoming) = pair.inbound.next().await.unwrap();
         let (_, server) = pair.server.accept(source, incoming).await.unwrap();
-        raw.write_all(&[0, 0, 0, 2, 0, b'x']).await.unwrap();
+        raw.write_all(&[0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 1, b'x'])
+            .await
+            .unwrap();
         assert_eq!(server.closed().await, Error::Denied);
     })
     .await
