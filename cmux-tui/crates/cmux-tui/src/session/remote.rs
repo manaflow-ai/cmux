@@ -8,7 +8,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -1245,8 +1245,126 @@ struct InteractiveWriterShared {
     state: Mutex<InteractiveWriteQueueState>,
     changed: Condvar,
     metrics: InteractiveWriteMetrics,
+    worker_completion: Arc<WorkerCompletion>,
     #[cfg(test)]
     wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
+}
+
+struct WorkerCompletion {
+    done: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl WorkerCompletion {
+    fn new() -> Self {
+        Self { done: Mutex::new(false), changed: Condvar::new() }
+    }
+
+    fn mark_done(&self) {
+        *self.done.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
+        self.changed.notify_all();
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut done = self.done.lock().unwrap_or_else(|poison| poison.into_inner());
+        while !*done {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let (next, timeout) = self
+                .changed
+                .wait_timeout(done, remaining)
+                .unwrap_or_else(|poison| poison.into_inner());
+            done = next;
+            if timeout.timed_out() {
+                break;
+            }
+        }
+        *done
+    }
+
+    fn is_done(&self) -> bool {
+        *self.done.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn wait_forever(&self) {
+        let mut done = self.done.lock().unwrap_or_else(|poison| poison.into_inner());
+        while !*done {
+            done = self.changed.wait(done).unwrap_or_else(|poison| poison.into_inner());
+        }
+    }
+}
+
+fn enqueue_worker_reap(
+    handle: std::thread::JoinHandle<()>,
+    completion: Arc<WorkerCompletion>,
+) -> Result<(), std::thread::JoinHandle<()>> {
+    type ReapRequest = (std::thread::JoinHandle<()>, Arc<WorkerCompletion>);
+    static REAPER: OnceLock<std::sync::mpsc::SyncSender<ReapRequest>> = OnceLock::new();
+    let sender = REAPER.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::sync_channel::<ReapRequest>(64);
+        let Ok(_) =
+            std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
+                let mut pending = Vec::new();
+                loop {
+                    while let Ok(request) = receiver.try_recv() {
+                        pending.push(request);
+                    }
+                    let mut index = pending.len();
+                    while index > 0 {
+                        index -= 1;
+                        if pending[index].1.is_done() {
+                            let (handle, _) = pending.swap_remove(index);
+                            let _ = handle.join();
+                        }
+                    }
+                    if pending.is_empty() {
+                        match receiver.recv() {
+                            Ok(request) => pending.push(request),
+                            Err(_) => break,
+                        }
+                    } else {
+                        match receiver.recv_timeout(Duration::from_millis(50)) {
+                            Ok(request) => pending.push(request),
+                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                                for (handle, completion) in pending.drain(..) {
+                                    completion.wait_forever();
+                                    let _ = handle.join();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            })
+        else {
+            return sender;
+        };
+        sender
+    });
+    try_enqueue_worker_reap(sender, handle, completion)
+}
+
+fn try_enqueue_worker_reap(
+    sender: &std::sync::mpsc::SyncSender<(std::thread::JoinHandle<()>, Arc<WorkerCompletion>)>,
+    handle: std::thread::JoinHandle<()>,
+    completion: Arc<WorkerCompletion>,
+) -> Result<(), std::thread::JoinHandle<()>> {
+    sender.try_send((handle, completion)).map_err(|error| match error {
+        std::sync::mpsc::TrySendError::Full((handle, _))
+        | std::sync::mpsc::TrySendError::Disconnected((handle, _)) => handle,
+    })
+}
+
+struct WorkerCompletionGuard(Arc<WorkerCompletion>);
+
+impl Drop for WorkerCompletionGuard {
+    fn drop(&mut self) {
+        self.0.mark_done();
+    }
 }
 
 #[cfg(test)]
@@ -1258,6 +1376,7 @@ struct InteractiveWaitUntilWrittenGate {
 struct InteractiveWriter {
     shared: Arc<InteractiveWriterShared>,
     abort: Arc<dyn RemoteTransportAbort>,
+    worker: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
 impl InteractiveWriter {
@@ -1271,14 +1390,16 @@ impl InteractiveWriter {
             state: Mutex::new(InteractiveWriteQueueState::default()),
             changed: Condvar::new(),
             metrics: InteractiveWriteMetrics::default(),
+            worker_completion: Arc::new(WorkerCompletion::new()),
             #[cfg(test)]
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
-        std::thread::Builder::new()
+        let worker_completion = shared.worker_completion.clone();
+        let worker = std::thread::Builder::new()
             .name("remote-input-writer".into())
-            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
-        Ok(Self { shared, abort })
+            .spawn(move || interactive_writer_worker(worker_shared, writer, worker_completion))?;
+        Ok(Self { shared, abort, worker: Mutex::new(Some(worker)) })
     }
 
     fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
@@ -1414,9 +1535,69 @@ impl InteractiveWriter {
         let _ = self.abort.abort();
     }
 
+    fn abort_transport(&self) {
+        let _ = self.abort.abort();
+    }
+
+    fn join_worker(&self) {
+        self.join_worker_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn join_worker_until(&self, deadline: Instant) {
+        let current = std::thread::current().id();
+        let handle = {
+            let mut worker = self.worker.lock().unwrap_or_else(|poison| poison.into_inner());
+            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                return;
+            }
+            worker.take()
+        };
+        if let Some(handle) = handle {
+            if self
+                .shared
+                .worker_completion
+                .wait(deadline.saturating_duration_since(Instant::now()))
+            {
+                let _ = handle.join();
+            } else if let Err(handle) =
+                enqueue_worker_reap(handle, self.shared.worker_completion.clone())
+            {
+                *self.worker.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
+            }
+        }
+    }
+
+    fn join_worker_if_done(&self) {
+        let current = std::thread::current().id();
+        let handle = {
+            let mut worker = self.worker.lock().unwrap_or_else(|poison| poison.into_inner());
+            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                return;
+            }
+            let Some(handle) = worker.take() else {
+                return;
+            };
+            if !self.shared.worker_completion.is_done() {
+                if let Err(handle) =
+                    enqueue_worker_reap(handle, self.shared.worker_completion.clone())
+                {
+                    *worker = Some(handle);
+                }
+                return;
+            }
+            Some(handle)
+        };
+        if let Some(handle) = handle {
+            let _ = handle.join();
+        }
+    }
+
     fn close(&self) {
+        self.close_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn close_until(&self, deadline: Instant) {
         self.request_close();
-        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1455,13 +1636,16 @@ impl Drop for InteractiveWriter {
                 "remote writer owner was dropped",
             ));
         }
+        self.join_worker_if_done();
     }
 }
 
 fn interactive_writer_worker(
     shared: Arc<InteractiveWriterShared>,
     mut writer: Box<dyn RemoteMessageWriter>,
+    worker_completion: Arc<WorkerCompletion>,
 ) {
+    let _completion = WorkerCompletionGuard(worker_completion);
     loop {
         let write = {
             let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -1573,6 +1757,8 @@ enum DisconnectState {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    reader_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
+    reader_completion: Arc<WorkerCompletion>,
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
@@ -1934,6 +2120,8 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            reader_worker: Mutex::new(None),
+            reader_completion: Arc::new(WorkerCompletion::new()),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -1966,39 +2154,45 @@ impl RemoteSession {
         });
 
         let reader_session = Arc::downgrade(&session);
-        std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            let mut report_progress = |partial: &[u8]| {
-                if let Some(session) = reader_session.upgrade() {
-                    session.report_read_progress(partial);
-                }
-            };
-            let reason = loop {
-                let received = reader.receive_with_progress(&mut report_progress);
-                if let Some(reason) = remote_reader_end_reason(&received) {
-                    break Some(reason);
-                }
-                let Ok(Some(mut message)) = received else { unreachable!("end reason handled") };
-                if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
-                    break Some(remote_reader_message_too_large(&mut message));
-                }
-                let value = match serde_json::from_str::<Value>(&message) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        let reason = format!("remote JSON decode failed: {error}");
-                        zeroize_string(&mut message);
-                        break Some(reason);
+        let reader_completion = session.reader_completion.clone();
+        let reader_worker =
+            std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
+                let _completion = WorkerCompletionGuard(reader_completion);
+                let mut report_progress = |partial: &[u8]| {
+                    if let Some(session) = reader_session.upgrade() {
+                        session.report_read_progress(partial);
                     }
                 };
-                zeroize_string(&mut message);
-                let Some(session) = reader_session.upgrade() else { break None };
-                session.handle_line(value);
-            };
-            // Connection lost: retain the reason before telling the app to quit.
-            if let Some(session) = reader_session.upgrade() {
-                session.disconnect_transport_with_reason(reason);
-                session.emit(MuxEvent::Empty);
-            }
-        })?;
+                let reason = loop {
+                    let received = reader.receive_with_progress(&mut report_progress);
+                    if let Some(reason) = remote_reader_end_reason(&received) {
+                        break Some(reason);
+                    }
+                    let Ok(Some(mut message)) = received else {
+                        unreachable!("end reason handled")
+                    };
+                    if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
+                        break Some(remote_reader_message_too_large(&mut message));
+                    }
+                    let value = match serde_json::from_str::<Value>(&message) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            let reason = format!("remote JSON decode failed: {error}");
+                            zeroize_string(&mut message);
+                            break Some(reason);
+                        }
+                    };
+                    zeroize_string(&mut message);
+                    let Some(session) = reader_session.upgrade() else { break None };
+                    session.handle_line(value);
+                };
+                // Connection lost: retain the reason before telling the app to quit.
+                if let Some(session) = reader_session.upgrade() {
+                    session.disconnect_transport_with_reason(reason);
+                    session.emit(MuxEvent::Empty);
+                }
+            })?;
+        *session.reader_worker.lock().unwrap() = Some(reader_worker);
 
         if let Err(error) = session.initialize(subscribe) {
             session.disconnect_transport();
@@ -2993,6 +3187,10 @@ impl RemoteSession {
     }
 
     pub fn begin_shutdown(&self) {
+        self.begin_shutdown_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn begin_shutdown_until(&self, deadline: Instant) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
@@ -3000,12 +3198,19 @@ impl RemoteSession {
             let _ = request.response.send(json!({"shutdown": true}));
         }
         if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
-            let _ = self.wait_for_ordered_write(sequence);
+            let _ = self.wait_for_ordered_write_until(sequence, deadline);
         }
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
+        self.wait_for_ordered_write_until(sequence, Instant::now() + remote_write_timeout())
+    }
+
+    fn wait_for_ordered_write_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
+        match self
+            .interactive_writer
+            .wait_until_written(sequence, deadline.saturating_duration_since(Instant::now()))
+        {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -3021,6 +3226,7 @@ impl RemoteSession {
     }
 
     pub(super) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
+        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.disconnect_state.lock().unwrap();
         if matches!(&*state, DisconnectState::Active) {
             *state = match reason {
@@ -3029,8 +3235,36 @@ impl RemoteSession {
             };
         }
         drop(state);
-        self.begin_shutdown();
-        self.interactive_writer.close();
+        self.begin_shutdown_until(deadline);
+        self.interactive_writer.close_until(deadline);
+        self.interactive_writer.abort_transport();
+        self.interactive_writer.join_worker_until(deadline);
+        self.join_reader_worker_until(deadline);
+    }
+
+    fn join_reader_worker(&self) {
+        self.join_reader_worker_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn join_reader_worker_until(&self, deadline: Instant) {
+        let current = std::thread::current().id();
+        let handle = {
+            let mut worker = self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner());
+            if worker.as_ref().is_some_and(|handle| handle.thread().id() == current) {
+                worker.take();
+                return;
+            }
+            worker.take()
+        };
+        if let Some(handle) = handle {
+            if self.reader_completion.wait(deadline.saturating_duration_since(Instant::now())) {
+                let _ = handle.join();
+            } else if let Err(handle) = enqueue_worker_reap(handle, self.reader_completion.clone())
+            {
+                *self.reader_worker.lock().unwrap_or_else(|poison| poison.into_inner()) =
+                    Some(handle);
+            }
+        }
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -3640,6 +3874,10 @@ fn local_hostname() -> Option<String> {
 
 impl Drop for RemoteSession {
     fn drop(&mut self) {
+        self.interactive_writer.request_close();
+        self.interactive_writer.abort_transport();
+        self.join_reader_worker();
+        self.interactive_writer.join_worker_if_done();
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
@@ -3946,6 +4184,8 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        reader_worker: Mutex::new(None),
+        reader_completion: Arc::new(WorkerCompletion::new()),
         disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
@@ -5188,6 +5428,8 @@ mod tests {
     ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
+            reader_worker: Mutex::new(None),
+            reader_completion: Arc::new(WorkerCompletion::new()),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -6375,6 +6617,251 @@ mod tests {
         assert!(closed.load(Ordering::Acquire));
     }
 
+    struct LifecycleReader {
+        responses: Receiver<String>,
+        remaining_responses: usize,
+        release: Arc<(Mutex<bool>, Condvar)>,
+        exited: Sender<()>,
+        entered: Option<Sender<()>>,
+        exit_delay: Duration,
+    }
+
+    impl RemoteMessageReader for LifecycleReader {
+        fn receive(&mut self) -> io::Result<Option<String>> {
+            if self.remaining_responses > 0 {
+                self.remaining_responses -= 1;
+                return self.responses.recv().map(Some).map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle response channel closed")
+                });
+            }
+
+            let (released, changed) = &*self.release;
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            if !self.exit_delay.is_zero() {
+                std::thread::sleep(self.exit_delay);
+            }
+            self.exited.send(()).unwrap();
+            Ok(None)
+        }
+    }
+
+    struct LifecycleWriter {
+        responses: Sender<String>,
+        closed: Arc<AtomicBool>,
+        exited: Sender<()>,
+    }
+
+    impl RemoteMessageWriter for LifecycleWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("lifecycle request omitted its id"))?;
+            let data = (request.get("cmd").and_then(Value::as_str) == Some("identify"))
+                .then(|| json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION}))
+                .unwrap_or(Value::Null);
+            self.responses
+                .send(json!({"id": id, "ok": true, "data": data}).to_string())
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle reader exited"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    impl Drop for LifecycleWriter {
+        fn drop(&mut self) {
+            let _ = self.exited.send(());
+        }
+    }
+
+    struct LifecycleAbort {
+        release: Arc<(Mutex<bool>, Condvar)>,
+    }
+
+    impl RemoteTransportAbort for LifecycleAbort {
+        fn abort(&self) -> io::Result<()> {
+            let (released, changed) = &*self.release;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn transport_disconnect_cancels_and_joins_reader_and_writer_workers() {
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: None,
+                exit_delay: Duration::ZERO,
+            }),
+            Box::new(LifecycleWriter { responses, closed: closed.clone(), exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+
+        session.disconnect_transport();
+
+        assert!(closed.load(Ordering::Acquire));
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must cancel the blocked reader");
+        writer_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must join the writer");
+    }
+
+    #[test]
+    fn dropping_session_waits_for_blocked_reader_worker() {
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_entered, reader_entered_rx) = channel();
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, _writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: Some(reader_entered),
+                exit_delay: Duration::from_millis(50),
+            }),
+            Box::new(LifecycleWriter { responses, closed, exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+        reader_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader did not reach its blocked receive");
+
+        let started = Instant::now();
+        drop(session);
+        assert!(
+            started.elapsed() >= Duration::from_millis(40),
+            "dropping the session returned before the reader worker exited"
+        );
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("reader worker did not exit before session drop returned");
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_saturated() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a zero-capacity queue must return the handle");
+        drop(receiver);
+        returned.join().expect("returned worker handle remains joinable");
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_disconnected() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        drop(receiver);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a disconnected queue must return the handle");
+        returned.join().expect("returned worker handle remains joinable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-malformed");
+            peer.get_mut().write_all(b"not-json\n").unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                release_tx.send(()).unwrap();
+                peer.join().unwrap();
+                panic!("malformed JSON did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after malformed JSON canceled the request, got {error:?}"
+        );
+        assert!(
+            session
+                .transport_disconnect_reason()
+                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
+            "malformed JSON decode reason was not preserved: {:?}",
+            session.transport_disconnect_reason()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn transport_disconnect_reason_is_first_writer_wins() {
         let session = test_session(Box::new(CloseTrackingWriter {
@@ -7058,81 +7545,6 @@ mod tests {
         );
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(session.shutdown.load(Ordering::Acquire));
-        assert!(session.pending.lock().unwrap().is_empty());
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
-        let (client, server) = UnixStream::pair().unwrap();
-        let (release_tx, release_rx) = channel();
-        let peer = std::thread::spawn(move || {
-            let mut peer = BufReader::new(server);
-            for expected_command in ["identify", "set-client-info", "subscribe"] {
-                let mut line = String::new();
-                peer.read_line(&mut line).unwrap();
-                let request: Value = serde_json::from_str(&line).unwrap();
-                assert_eq!(request["cmd"], expected_command);
-                let data = if expected_command == "identify" {
-                    json!({
-                        "app": "cmux-tui",
-                        "protocol": SUPPORTED_PROTOCOL_VERSION,
-                        "capabilities": ["browser-pointer-frame-guard-v1"],
-                    })
-                } else {
-                    Value::Null
-                };
-                writeln!(
-                    peer.get_mut(),
-                    "{}",
-                    json!({"id": request["id"], "ok": true, "data": data})
-                )
-                .unwrap();
-            }
-
-            let mut line = String::new();
-            peer.read_line(&mut line).unwrap();
-            let request: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["cmd"], "wait-for-malformed");
-            peer.get_mut().write_all(b"not-json\n").unwrap();
-            release_rx.recv().unwrap();
-        });
-        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
-        let request_session = session.clone();
-        let (done_tx, done_rx) = channel();
-        let request = std::thread::spawn(move || {
-            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
-        });
-
-        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(result) => result,
-            Err(error) => {
-                session.begin_shutdown();
-                request.join().unwrap();
-                release_tx.send(()).unwrap();
-                peer.join().unwrap();
-                panic!("malformed JSON did not cancel the request promptly: {error}");
-            }
-        };
-        request.join().unwrap();
-        release_tx.send(()).unwrap();
-        peer.join().unwrap();
-
-        let error = result.unwrap_err();
-        assert!(
-            matches!(
-                error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
-            ),
-            "expected shutdown after malformed JSON canceled the request, got {error:?}"
-        );
-        assert!(
-            session
-                .transport_disconnect_reason()
-                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
-            "malformed JSON decode reason was not preserved: {:?}",
-            session.transport_disconnect_reason()
-        );
         assert!(session.pending.lock().unwrap().is_empty());
     }
 
