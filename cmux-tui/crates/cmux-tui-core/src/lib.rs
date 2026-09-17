@@ -11,7 +11,18 @@
 mod agent_hooks;
 mod browser;
 mod browser_provider;
+pub mod diagnostics;
 mod event_bus;
+#[cfg(unix)]
+mod image_paste;
+#[cfg(unix)]
+mod image_paste_file;
+#[cfg(unix)]
+mod image_paste_ownership;
+#[cfg(unix)]
+mod image_paste_recovery;
+#[cfg(unix)]
+mod image_paste_storage;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
@@ -20,11 +31,15 @@ mod model;
 mod mux;
 mod pairing;
 pub mod provider_management;
+#[cfg(unix)]
+mod pty_write;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
+pub mod resource_name;
 mod resource_router;
 mod resource_selector;
+mod resource_tab;
 mod short_id;
 mod sidebar_resource;
 mod surface;
@@ -56,8 +71,8 @@ pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent,
-    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
+    Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,
@@ -67,17 +82,17 @@ pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
 pub use short_id::assign_short_ids;
-pub use surface::apply_terminal_color_overrides;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,
     BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
     CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
     CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
-    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
-    PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
-    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    ClearHistoryFailure, DEFAULT_SCROLLBACK_LIMIT_BYTES, DefaultColors, GuardedMouseEncode,
+    PointerSemanticProbe, PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface,
+    SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
+pub use surface::{apply_terminal_color_overrides, default_child_term};
 pub use workspace_registry::{
     FrontendProjection, JournalAppendCommit, JournalAuthority, JournalCheckpoint, JournalClass,
     JournalContentRef, JournalEventSchema, JournalHookDeliveryPolicy, JournalHookExec,

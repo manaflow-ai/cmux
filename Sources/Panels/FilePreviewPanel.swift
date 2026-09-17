@@ -509,7 +509,7 @@ final class FilePreviewDragRegistry {
 }
 
 @MainActor
-final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPasteboardWriting {
+final class FilePreviewDragPasteboardWriter: NSPasteboardItem {
     private struct MirrorTabItem: Codable {
         let id: UUID
         let title: String
@@ -534,19 +534,71 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
     private let filePath: String
     private let displayTitle: String
     private let tabDragTransferRegistry: TabDragTransferRegistry?
+    private let dragID: UUID
+    // AppKit asks for this writer before it delivers the table/outline
+    // `willBeginAt` callback. Retain the native source graph through that
+    // provisional interval so a SwiftUI reconstruction cannot drop the only
+    // delegate that receives `endedAt`.
+    private var nativeSourceView: NSView?
+    private var nativeSourceOwner: AnyObject?
+    let provisionalToken: ProvisionalDragWriterOwnership.Token?
     private var transferData: Data?
     private var bonsplitRegistration: TabDragTransferRegistration?
-    private var didMirrorTransferDataToDragPasteboard = false
+    private var didRegisterNativeDrag = false
+    private var onNativeDragOwnershipPrepared:
+        (@MainActor (FilePreviewDragPasteboardWriter, FilePreviewNativeDragOwnership) -> Void)?
 
     init(
         filePath: String,
         displayTitle: String,
-        tabDragTransferRegistry: TabDragTransferRegistry? = nil
+        tabDragTransferRegistry: TabDragTransferRegistry? = nil,
+        nativeSourceView: NSView? = nil,
+        nativeSourceOwner: AnyObject? = nil,
+        provisionalToken: ProvisionalDragWriterOwnership.Token? = nil
     ) {
         self.filePath = filePath
         self.displayTitle = displayTitle
         self.tabDragTransferRegistry = tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
+        self.dragID = UUID()
+        self.nativeSourceView = nativeSourceView
+        self.nativeSourceOwner = nativeSourceOwner
+        self.provisionalToken = provisionalToken
         super.init()
+        materializePayload()
+    }
+
+    @available(*, unavailable)
+    required init(
+        pasteboardPropertyList _: Any,
+        ofType _: NSPasteboard.PasteboardType
+    ) {
+        fatalError("init(pasteboardPropertyList:ofType:) is not supported")
+    }
+
+    /// Releases the retained source graph once the native session reaches its
+    /// terminal boundary; the pasteboard item itself may remain cached by macOS.
+    func releaseSourceGraph() {
+        nativeSourceView = nil
+        nativeSourceOwner = nil
+    }
+
+    /// The exact table or outline that requested this writer.
+    var sourceViewForDrag: NSView? { nativeSourceView }
+
+    /// Installs the pending-owner hook used when AppKit consumes this writer
+    /// before promotion.
+    func setNativeDragOwnershipHandler(
+        _ handler: @escaping @MainActor (
+            FilePreviewDragPasteboardWriter,
+            FilePreviewNativeDragOwnership
+        ) -> Void
+    ) {
+        onNativeDragOwnershipPrepared = handler
+    }
+
+    /// Removes the pending-owner hook after promotion or revocation.
+    func clearNativeDragOwnershipHandler() {
+        onNativeDragOwnershipPrepared = nil
     }
 
     static func dragID(from transferData: Data) -> UUID? {
@@ -566,6 +618,50 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         return AppDelegate.shared?.liveTabDragCapabilityResolver
             .resolve(from: pasteboard)?
             .tab.id.uuid
+    }
+
+    /// Captures this writer's exact native cleanup identity after AppKit has
+    /// selected it for a session. Registry entries are created when AppKit
+    /// consumes the writer or at this promotion boundary, never in the
+    /// initializer.
+    func nativeDragOwnership() -> FilePreviewNativeDragOwnership? {
+        let data = transferDataForDrag()
+        guard let resolvedDragID = Self.dragID(from: data) else { return nil }
+        if !didRegisterNativeDrag {
+            _ = FilePreviewDragRegistry.shared.register(
+                FilePreviewDragEntry(filePath: filePath, displayTitle: displayTitle),
+                id: resolvedDragID
+            )
+            didRegisterNativeDrag = true
+        }
+        if bonsplitRegistration == nil {
+            bonsplitRegistration = tabDragTransferRegistry?.register(
+                TabDragTransfer(
+                    tab: Bonsplit.Tab(
+                        id: TabID(uuid: resolvedDragID),
+                        title: displayTitle,
+                        icon: FilePreviewKindResolver.initialTabIconName(
+                            for: URL(fileURLWithPath: filePath)
+                        ),
+                        kind: "filePreview"
+                    ),
+                    sourcePaneId: PaneID()
+                )
+            )
+        }
+        // Keep the concrete item in sync with the lease. AppKit may retain and
+        // read an NSPasteboardItem directly after this promotion, bypassing
+        // the explicit session-pasteboard materialization below.
+        materializeBonsplitCapability()
+        let ownership = FilePreviewNativeDragOwnership(
+            dragID: resolvedDragID,
+            filePreviewData: data,
+            fileURL: URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString,
+            transferRegistration: bonsplitRegistration,
+            transferRegistry: tabDragTransferRegistry
+        )
+        onNativeDragOwnershipPrepared?(self, ownership)
+        return ownership
     }
 
     /// Resolves a file-preview payload through the process-local preview
@@ -729,15 +825,12 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             return transferData
         }
 
-        let dragId = FilePreviewDragRegistry.shared.register(
-            FilePreviewDragEntry(filePath: filePath, displayTitle: displayTitle)
-        )
         let icon = FilePreviewKindResolver.initialTabIconName(
             for: URL(fileURLWithPath: filePath)
         )
         let transfer = MirrorTabTransferData(
             tab: MirrorTabItem(
-                id: dragId,
+                id: dragID,
                 title: displayTitle,
                 hasCustomTitle: false,
                 icon: icon,
@@ -752,57 +845,45 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
         )
         let data = (try? JSONEncoder().encode(transfer)) ?? Data()
-        bonsplitRegistration = tabDragTransferRegistry?.register(
-            TabDragTransfer(
-                tab: Bonsplit.Tab(
-                    id: TabID(uuid: dragId),
-                    title: displayTitle,
-                    icon: icon,
-                    kind: "filePreview"
-                ),
-                sourcePaneId: PaneID()
-            )
-        )
         transferData = data
         return data
     }
 
-    func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
-        let data = transferDataForDrag()
-        mirrorTransferDataToDragPasteboard(data)
-        var types: [NSPasteboard.PasteboardType] = [
+    override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
+        _ = pasteboard
+        // This is a read-only capability query. Registration happens only
+        // when the owner promotes a writer at willBeginAt; after promotion the
+        // leased Bonsplit representation is exposed on this same item too.
+        var types = [
             DragOverlayRoutingPolicy.filePreviewTransferType,
             .fileURL
         ]
-        if bonsplitRegistration != nil {
-            types.insert(Self.bonsplitTransferType, at: 1)
+        if bonsplitRegistration?.pasteboardItem.string(forType: Self.bonsplitTransferType) != nil {
+            types.append(Self.bonsplitTransferType)
         }
         return types
     }
 
-    func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        if type == Self.bonsplitTransferType {
-            let data = transferDataForDrag()
-            mirrorTransferDataToDragPasteboard(data)
-            return bonsplitRegistration?.pasteboardItem.string(forType: Self.bonsplitTransferType)
-        }
+    override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
         if type == DragOverlayRoutingPolicy.filePreviewTransferType {
-            let data = transferDataForDrag()
-            mirrorTransferDataToDragPasteboard(data)
-            return data
+            return transferDataForDrag()
         }
         if type == .fileURL {
             let fileURL = URL(fileURLWithPath: filePath).standardizedFileURL
             return fileURL.absoluteString
         }
+        if type == Self.bonsplitTransferType {
+            return bonsplitRegistration?.pasteboardItem.string(forType: type)
+        }
         return nil
     }
 
-    private func mirrorTransferDataToDragPasteboard(_ transferData: Data) {
-        guard !didMirrorTransferDataToDragPasteboard else { return }
-        didMirrorTransferDataToDragPasteboard = true
+    /// Publishes the promoted writer's registered representations to the
+    /// exact native session pasteboard after willBeginAt.
+    func materializeRegisteredPayload(to pasteboard: NSPasteboard) {
+        _ = nativeDragOwnership()
+        let transferData = transferDataForDrag()
         let fileURLString = URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString
-        let pasteboard = NSPasteboard(name: .drag)
         var types = [DragOverlayRoutingPolicy.filePreviewTransferType, .fileURL]
         if bonsplitRegistration != nil {
             types.append(Self.bonsplitTransferType)
@@ -811,6 +892,26 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
         bonsplitRegistration?.write(to: pasteboard)
         pasteboard.setData(transferData, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
         pasteboard.setString(fileURLString, forType: .fileURL)
+    }
+
+    /// Stores every representation on the concrete item before AppKit binds it
+    /// to a drag pasteboard. This is required because AppKit may retain and
+    /// read an ``NSPasteboardItem`` directly without invoking the writer hooks.
+    private func materializePayload() {
+        let data = transferDataForDrag()
+        _ = setData(data, forType: DragOverlayRoutingPolicy.filePreviewTransferType)
+        _ = setString(
+            URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString,
+            forType: .fileURL
+        )
+    }
+
+    /// Mirrors a promoted Bonsplit lease onto this concrete pasteboard item.
+    private func materializeBonsplitCapability() {
+        guard let capability = bonsplitRegistration?.pasteboardItem.string(
+            forType: Self.bonsplitTransferType
+        ) else { return }
+        _ = setString(capability, forType: Self.bonsplitTransferType)
     }
 }
 
@@ -1085,23 +1186,37 @@ enum FilePreviewTextLoader {
     }
 
     @concurrent
-    static func load(url: URL) async -> Result {
-        loadSynchronously(url: url)
+    static func load(
+        url: URL,
+        maximumBytes: UInt64? = maximumLoadedTextBytes,
+        decodeUTF16: Bool = true
+    ) async -> Result {
+        loadSynchronously(
+            url: url,
+            maximumBytes: maximumBytes,
+            decodeUTF16: decodeUTF16
+        )
     }
 
-    static func loadSynchronously(url: URL) -> Result {
+    static func loadSynchronously(
+        url: URL,
+        maximumBytes: UInt64? = maximumLoadedTextBytes,
+        decodeUTF16: Bool = true
+    ) -> Result {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .unavailable
         }
         guard let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              fileSize >= 0,
-              UInt64(fileSize) <= maximumLoadedTextBytes else {
+              fileSize >= 0 else {
+            return .unavailable
+        }
+        if let maximumBytes, UInt64(fileSize) > maximumBytes {
             return .unavailable
         }
 
         do {
             let data = try Data(contentsOf: url)
-            guard let decoded = decodeText(data) else {
+            guard let decoded = decodeText(data, decodeUTF16: decodeUTF16) else {
                 return .unavailable
             }
             return .loaded(content: decoded.content, encoding: decoded.encoding)
@@ -1110,11 +1225,14 @@ enum FilePreviewTextLoader {
         }
     }
 
-    private static func decodeText(_ data: Data) -> (content: String, encoding: String.Encoding)? {
+    private static func decodeText(
+        _ data: Data,
+        decodeUTF16: Bool
+    ) -> (content: String, encoding: String.Encoding)? {
         if let decoded = String(data: data, encoding: .utf8) {
             return (decoded, .utf8)
         }
-        if let decoded = String(data: data, encoding: .utf16) {
+        if decodeUTF16, let decoded = String(data: data, encoding: .utf16) {
             return (decoded, .utf16)
         }
         if let decoded = String(data: data, encoding: .isoLatin1) {
@@ -1161,6 +1279,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
     let previewRevisionState = FilePreviewRevision()
+    private let textContentRevisionState = FilePreviewRevision()
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -1168,8 +1287,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var textEncoding: String.Encoding = .utf8
     private var saveGeneration = 0
     private var activeSaveGeneration: Int?
-    var fileChangeWatcher: FileWatcher?
-    var fileChangeTask: Task<Void, Never>?
+    var fileContentChangeCoordinator: FileContentChangeCoordinator
+    var fileContentObservationID: UUID?
+    var fileContentObservationLifetime: FileContentObservationLifetime?
     var fileChangeReloadTask: Task<Void, Never>?
     /// The one container currently projecting this panel's tab metadata.
     weak var tabMetadataHost: (any FilePreviewTabMetadataHost)?
@@ -1177,6 +1297,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     var isClosed = false
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
+    private let selectionReader = NativeTextSurfaceSelectionReader()
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
     private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
     private let modeResolver: @Sendable (URL) async -> FilePreviewMode
@@ -1191,10 +1312,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         previewRevisionState.value
     }
 
+    var textContentRevision: Int {
+        textContentRevisionState.value
+    }
+
     init(
         workspaceId: UUID,
         filePath: String,
         startFileWatcher: Bool = true,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil,
         textLoader: @escaping @Sendable (URL) async -> FilePreviewTextLoader.Result = { url in
             await FilePreviewTextLoader.load(url: url)
         },
@@ -1209,6 +1335,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         self.id = UUID()
         self.workspaceId = workspaceId
         self.filePath = filePath
+        self.fileContentChangeCoordinator =
+            fileContentChangeCoordinator ?? FileContentChangeCoordinator()
         self.displayTitle = URL(fileURLWithPath: filePath).lastPathComponent
         self.textLoader = textLoader
         self.textSaver = textSaver
@@ -1243,14 +1371,45 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()
+        selectionReader.close()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
     }
 
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        guard previewMode == .text else { return .unsupported }
+        return .snapshot(await selectionReader.read(
+            textView: textView,
+            kind: .filePreview,
+            filePath: filePath
+        ))
+    }
+
     /// Retargets container-scoped identity after a live panel transfer.
-    func updateWorkspaceId(_ workspaceId: UUID) {
+    func updateWorkspaceId(
+        _ workspaceId: UUID,
+        fileContentChangeCoordinator: FileContentChangeCoordinator? = nil
+    ) {
         self.workspaceId = workspaceId
+        guard let fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
+            return
+        }
+        guard self.fileContentChangeCoordinator !== fileContentChangeCoordinator else {
+            if fileContentObservationID == nil, !isClosed {
+                startWatchingForFileChanges()
+            }
+            return
+        }
+        let wasWatching = fileContentObservationID != nil
+        stopWatchingForFileChanges()
+        self.fileContentChangeCoordinator = fileContentChangeCoordinator
+        if wasWatching, !isClosed {
+            startWatchingForFileChanges()
+        }
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -1345,9 +1504,16 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func updateTextContent(_ nextContent: String) {
-        guard textContent != nextContent else { return }
-        textContent = nextContent
+        guard replaceTextContentIfChanged(nextContent) else { return }
         setTabMetadataDirtyState(nextContent != originalTextContent)
+    }
+
+    @discardableResult
+    private func replaceTextContentIfChanged(_ nextContent: String) -> Bool {
+        guard textContent != nextContent else { return false }
+        textContent = nextContent
+        textContentRevisionState.increment()
+        return true
     }
 
     /// Re-resolves and reloads the current path. Toolbar actions and filesystem
@@ -1451,7 +1617,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 isFileUnavailable = true
                 return
             }
-            textContent = ""
+            _ = replaceTextContentIfChanged("")
             originalTextContent = ""
             setTabMetadataDirtyState(false)
             isFileUnavailable = true
@@ -1464,7 +1630,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
                 isFileUnavailable = false
                 return
             }
-            textContent = content
+            _ = replaceTextContentIfChanged(content)
             originalTextContent = content
             textEncoding = encoding
             setTabMetadataDirtyState(false)
@@ -1478,7 +1644,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         guard !isSaving else { return nil }
         let currentContent = textView?.string ?? textContent
         guard currentContent != originalTextContent else {
-            textContent = currentContent
+            _ = replaceTextContentIfChanged(currentContent)
             setTabMetadataDirtyState(false)
             return nil
         }
@@ -1486,14 +1652,32 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         textLoadCoordinator.cancel()
         saveGeneration += 1
         let generation = saveGeneration
-        textContent = currentContent
+        _ = replaceTextContentIfChanged(currentContent)
         isSaving = true
         activeSaveGeneration = generation
         let fileURL = fileURL
         let encoding = textEncoding
         let textSaver = textSaver
-        return Task { [weak self, currentContent, fileURL, encoding, generation, textSaver] in
-            let result = await textSaver(currentContent, fileURL, encoding)
+        let fileContentChangeCoordinator = fileContentChangeCoordinator
+        let fileContentObservationID = fileContentObservationID
+        return Task {
+            [weak self, currentContent, fileURL, encoding, generation,
+             textSaver, fileContentChangeCoordinator, fileContentObservationID] in
+            let result = await fileContentChangeCoordinator.saveTextContent(
+                currentContent,
+                to: fileURL,
+                encoding: encoding,
+                using: textSaver,
+                excluding: fileContentObservationID
+            )
+            if let self {
+                fileContentChangeCoordinator.republishSuccessfulSaveIfNeeded(
+                    result,
+                    to: self.fileContentChangeCoordinator,
+                    at: fileURL.path,
+                    excluding: self.fileContentObservationID
+                )
+            }
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
@@ -1541,6 +1725,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         }
     }
 }
+
+extension FilePreviewPanel: FileContentChangeObservingPanel {}
 
 struct FilePreviewPanelView: View {
     @ObservedObject var panel: FilePreviewPanel
@@ -1630,7 +1816,9 @@ struct FilePreviewPanelView: View {
                     themeBackgroundColor: contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
                     drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    gutterBackgroundColor: appearance.backgroundColor,
+                    wordWrap: fileEditorWordWrap,
+                    filePath: panel.filePath
                 )
             case .pdf:
                 FilePreviewPDFView(
@@ -1679,7 +1867,7 @@ struct FilePreviewPanelView: View {
                 .cmuxFont(size: 12, design: .monospaced)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+                .copyOnlyTextSelection(for: panel.filePath)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 24)
             Text(String(localized: "filePreview.fileUnavailable.message", defaultValue: "The file may have been moved or deleted."))

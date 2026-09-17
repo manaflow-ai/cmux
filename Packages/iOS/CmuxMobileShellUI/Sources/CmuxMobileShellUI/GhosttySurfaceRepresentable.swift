@@ -30,6 +30,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var isComposerActive: Bool = false
     /// Theme for this exact Mac terminal surface.
     var terminalTheme: TerminalTheme
+    /// The top safe-area band the surface underlaps for the iOS 26
+    /// scroll-edge band (0 = band off). Captured by the detail screen from
+    /// SwiftUI geometry OUTSIDE the safe-area expansion, because a UIKit
+    /// view inside `ignoresSafeArea` reads a zero top inset.
+    var topContentInset: CGFloat = 0
+    /// Bottom safe-area inset captured outside the terminal's ignored SwiftUI
+    /// subtree. UIKit leaf and window values remain authoritative when present;
+    /// this is the fallback for edge-to-edge disconnected layouts.
+    var bottomSafeAreaInset: CGFloat = 0
     /// Raw Mac Ghostty defaults installed into the local mirror surface.
     var terminalConfigTheme: TerminalTheme
     /// The store's raw config generation. This drives a surface-local
@@ -112,6 +121,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // math reads this flag, so it must never depend on that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
+        view.setTopContentInset(topContentInset)
+        view.setCapturedBottomSafeAreaInset(bottomSafeAreaInset)
         context.coordinator.themeApplicationScheduler.seed(generation: configThemeGeneration)
         // The composition root's tracker spans host lifetimes, so a host built
         // for a reattached surface recovers keyboard transitions it missed.
@@ -121,7 +132,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             surfaceView: view,
             keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
                 ?? context.coordinator.fallbackKeyboardFrameTracker,
-            keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled
+            keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled,
+            capturedBottomSafeAreaInset: bottomSafeAreaInset
         )
     }
 
@@ -138,6 +150,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
+        surfaceView.setTopContentInset(topContentInset)
+        if let hostView = uiView as? GhosttySurfaceHostView {
+            hostView.setCapturedBottomSafeAreaInset(bottomSafeAreaInset)
+        }
         context.coordinator.onArtifactFilesRequested = onArtifactFilesRequested
         context.coordinator.onArtifactPathTapped = onArtifactPathTapped
         context.coordinator.onVisibleArtifactCountChanged = onVisibleArtifactCountChanged
@@ -286,6 +302,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let outputConsumerRecoveryClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        /// Shared by the legacy and verified apply paths: an alternating
+        /// config-theme producer mismatches on both, and the storm is per
+        /// consumer, not per path.
+        private var configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
@@ -374,6 +394,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 outputConsumerRestartBlocked = false
                 outputConsumerRestartAttempts = 0
                 outputConsumerRecoveryAlertPending = false
+                // A new consumer generation gets a fresh mismatch budget;
+                // automatic stream restarts keep the shared one so a single
+                // storm stays bounded across restarts.
+                configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
             }
             guard !outputConsumerRestartBlocked else { return }
             guard let store else { return }
@@ -522,6 +546,20 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     // would strand the sink until a later UIKit callback.
                     guard self.surfaceView === surfaceView else { return }
                     self.armOutputConsumerStabilityReset(generation: taskGeneration)
+                    if let frame = chunk.sourceRenderGridFrame,
+                       store.usesHybridTerminalOutput,
+                       !frame.full,
+                       frame.activeScreen == .primary {
+                        // Hybrid uses partial render-grid primary frames as
+                        // advisory state only. Full frames still apply so a
+                        // transition back from the alternate screen cannot
+                        // leave the byte lane showing stale TUI content.
+                        store.terminalOutputDidProcess(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                        continue
+                    }
                     #if DEBUG
                     let latencySequence = chunk.sourceRenderGridFrame?.stateSeq
                         ?? chunk.endSequence
@@ -597,40 +635,51 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case .legacy:
                         break
                     }
-                    switch chunk.viewportPolicy {
-                    case .natural:
-                        self.activeViewportPolicy = .natural
-                        if chunk.data.isEmpty {
-                            surfaceView.useNaturalViewSize()
-                        } else {
-                            let applied = await surfaceView.useNaturalViewSizeAndWait()
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
+                    let directPrimaryDelta = chunk.sourceRenderGridFrame.map {
+                        !$0.full && $0.anchor == .screen && $0.activeScreen == .primary
+                    } ?? false
+                    // Screen-anchored primary deltas are relative to the
+                    // established replay grid. Their advisory `.natural`
+                    // policy describes the phone's preferred layout, but
+                    // applying it before every delta can reflow one extra row
+                    // while the host is still emitting the established grid.
+                    // Keep the baseline until a full frame or an explicit
+                    // viewport report reconciles it.
+                    if !directPrimaryDelta {
+                        switch chunk.viewportPolicy {
+                        case .natural:
+                            self.activeViewportPolicy = .natural
+                            if chunk.data.isEmpty {
+                                surfaceView.useNaturalViewSize()
+                            } else {
+                                let applied = await surfaceView.useNaturalViewSizeAndWait()
+                                guard applied else {
+                                    store.terminalOutputDidReset(
+                                        surfaceID: surfaceID,
+                                        streamToken: chunk.streamToken
+                                    )
+                                    continue
+                                }
                             }
-                        }
-                    case .remoteGrid(let columns, let rows):
-                        self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
-                        if chunk.data.isEmpty {
-                            surfaceView.applyViewSize(cols: columns, rows: rows)
-                        } else {
-                            let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
-                            guard applied else {
-                                store.terminalOutputDidReset(
-                                    surfaceID: surfaceID,
-                                    streamToken: chunk.streamToken
-                                )
-                                continue
+                        case .remoteGrid(let columns, let rows):
+                            self.activeViewportPolicy = .remoteGrid(columns: columns, rows: rows)
+                            if chunk.data.isEmpty {
+                                surfaceView.applyViewSize(cols: columns, rows: rows)
+                            } else {
+                                let applied = await surfaceView.applyViewSizeAndWait(cols: columns, rows: rows)
+                                guard applied else {
+                                    store.terminalOutputDidReset(
+                                        surfaceID: surfaceID,
+                                        streamToken: chunk.streamToken
+                                    )
+                                    continue
+                                }
                             }
+                        case nil:
+                            break
                         }
-                    case nil:
-                        break
                     }
-                    if let chunkConfigTheme = chunk.terminalConfigTheme,
-                       chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                    if self.shouldResetForConfigThemeMismatch(chunk, store: store) {
                         store.terminalOutputDidReset(
                             surfaceID: surfaceID,
                             streamToken: chunk.streamToken
@@ -638,9 +687,33 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         continue
                     }
                     if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                        // Render-grid bytes paint absolute rows of the frame's
+                        // grid; the contract makes the surface refuse to paint
+                        // them onto a mismatched or freshly reflowed local grid
+                        // (the apply fails and the reset path replays).
+                        let renderGridContract = chunk.sourceRenderGridFrame.map {
+                            RenderGridApplyContract(
+                                columns: $0.columns,
+                                rows: $0.rows,
+                                isDelta: !$0.full,
+                                // Primary screen deltas use the ordered local
+                                // mirror fast path. Its generation fence is
+                                // sufficient and avoids a libghostty size
+                                // query for every echoed keystroke. Full and
+                                // alternate-screen frames retain the exact
+                                // dimension check used by replay safety.
+                                requiresSurfaceDimensionCheck: !(
+                                    !$0.full
+                                        && $0.anchor == .screen
+                                        && $0.activeScreen == .primary
+                                )
+                            )
+                        }
                         let applied = await surfaceView.processOutputAndWait(
                             chunk.data,
-                            terminalConfigTheme: chunk.terminalConfigTheme
+                            terminalConfigTheme: chunk.terminalConfigTheme,
+                            renderGridContract: renderGridContract,
+                            pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                         )
                         guard applied else {
                             store.terminalOutputDidReset(
@@ -991,14 +1064,38 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        /// Whether a theme-carrying chunk must be abandoned (reset plus
+        /// authoritative replay) because its config theme no longer matches
+        /// the store's newest for this surface. Bounded by
+        /// ``TerminalConfigThemeMismatchResetPolicy``: past the budget the
+        /// chunk applies with its own carried config theme, which
+        /// `processOutputAndWait(_:terminalConfigTheme:)` installs atomically
+        /// with the bytes, so an alternating theme pair cannot ping-pong
+        /// resets and replays forever.
+        private func shouldResetForConfigThemeMismatch(
+            _ chunk: MobileTerminalOutputChunk,
+            store: CMUXMobileShellStore
+        ) -> Bool {
+            guard let chunkConfigTheme = chunk.terminalConfigTheme else { return false }
+            let matchesStoreTheme = chunkConfigTheme == store.terminalConfigTheme(for: surfaceID)
+            let shouldReset = configThemeMismatchResetPolicy.shouldReset(
+                chunkMatchesStoreTheme: matchesStoreTheme
+            )
+            if !shouldReset, !matchesStoreTheme {
+                MobileDebugLog.anchormux(
+                    "terminal.output.theme_mismatch_apply surface=\(surfaceID)"
+                )
+            }
+            return shouldReset
+        }
+
         private func applyVerifiedRenderGrid(
             _ frame: MobileTerminalRenderGridFrame,
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async -> Bool {
-            if let chunkConfigTheme = chunk.terminalConfigTheme,
-               chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+            if shouldResetForConfigThemeMismatch(chunk, store: store) {
                 store.terminalOutputDidReset(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
@@ -1087,9 +1184,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
 
             if !chunk.data.isEmpty || chunk.terminalConfigTheme != nil {
+                // Same grid contract as the legacy path: the verified resize
+                // above targets the frame's grid, and painting must fail
+                // (reset + replay) if the surface could not reach it or a
+                // delta rides a reflowed grid.
                 let applied = await surfaceView.processOutputAndWait(
                     chunk.data,
-                    terminalConfigTheme: chunk.terminalConfigTheme
+                    terminalConfigTheme: chunk.terminalConfigTheme,
+                    renderGridContract: RenderGridApplyContract(
+                        columns: frame.columns,
+                        rows: frame.rows,
+                        isDelta: !frame.full
+                    ),
+                    pushesLocalScrollbackRows: chunk.sourceRenderGridFrame?.scrolledRows ?? 0
                 )
                 guard !Task.isCancelled else { return false }
                 guard applied else {

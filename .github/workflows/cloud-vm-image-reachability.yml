@@ -1,0 +1,110 @@
+name: Cloud VM image reachability
+
+# The bake smokes the daemon once, when an image is made. This asks a
+# different question: can a client reach the daemon in the image we are
+# shipping RIGHT NOW, using the cmux-tui build we are shipping right now?
+# Those two drift apart with no commit at all, because files.cmux.com moves
+# to a new client with every cmux-tui release while the manifest keeps
+# pinning yesterday's snapshot.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - web/services/vms/images/manifest.json
+      - web/services/vms/images/devbox/**
+      - web/services/vms/drivers/cmuxTuiDaemon.ts
+      - web/scripts/check-devbox-image-reachable.ts
+      - web/scripts/devbox-image-common.ts
+      - .github/workflows/cloud-vm-image-reachability.yml
+  push:
+    branches: [main]
+    paths:
+      - web/services/vms/images/manifest.json
+      - web/services/vms/drivers/cmuxTuiDaemon.ts
+      - web/scripts/check-devbox-image-reachable.ts
+      - .github/workflows/cloud-vm-image-reachability.yml
+  # The client moves without a commit here, so check daily. The cache skip
+  # below makes that a no-op on a day when nothing moved.
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Snapshot id to reach instead of the manifest default (also the way to prove this job fails)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-vm-image-reachability-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  reachable:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The provider key lives in this environment, not in a repo-wide secret,
+    # so only a job that names it can read it. No reviewers and no branch
+    # policy, or the daily run and PR runs could not use it; fork PRs get no
+    # secrets at all, which the gate below turns into a skip.
+    environment: cloud-vm-image-checks
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # A fork PR has no provider credential, and booting a VM for one would
+      # hand an untrusted branch the production account.
+      - name: Decide whether this run can boot a machine
+        id: gate
+        env:
+          HAS_KEY: ${{ secrets.FREESTYLE_API_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "no FREESTYLE_API_KEY available (fork PR, or the secret is not set); skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The identity of what would be tested: every default image id plus the
+      # live client's sha256. No credential and no machine needed to compute it.
+      - name: Identify the image and client pair
+        if: steps.gate.outputs.run == 'true'
+        id: pair
+        run: echo "key=$(bun scripts/check-devbox-image-reachable.ts --print-key)" >> "$GITHUB_OUTPUT"
+
+      - name: Look for a previous pass of this exact pair
+        if: steps.gate.outputs.run == 'true' && inputs.image == ''
+        id: seen
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: web/.devbox-reachable
+          key: devbox-reachable-${{ steps.pair.outputs.key }}
+
+      - name: Reach the shipped image
+        if: steps.gate.outputs.run == 'true' && (steps.seen.outputs.cache-hit != 'true' || inputs.image != '')
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          IMAGE: ${{ inputs.image }}
+        run: |
+          bun scripts/check-devbox-image-reachable.ts --kind base --size sm ${IMAGE:+--image "$IMAGE"}
+          # Only a pass is recorded, so a failure re-runs next time.
+          echo "${{ steps.pair.outputs.key }}" > .devbox-reachable
+
+      - name: Report a skipped run
+        if: steps.gate.outputs.run == 'true' && steps.seen.outputs.cache-hit == 'true'
+        run: echo "image ${{ steps.pair.outputs.key }} already passed with this client; nothing changed to test"

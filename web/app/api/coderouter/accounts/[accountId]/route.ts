@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
 import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
@@ -15,14 +16,16 @@ export function createDeleteAccountHandler(dependencies: {
   readonly remove: (input: {
     readonly teamId: string;
     readonly accountId: string;
+    readonly stackUserId?: string;
   }) => ReturnType<typeof removeAccount>;
 }) {
   return async (
     request: Request,
     context: { params: Promise<{ accountId: string }> },
   ): Promise<Response> => {
-    const resolved = await dependencies.resolve(request, "manage");
+    const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const { accountId } = await context.params;
     if (!UUID.test(accountId)) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
@@ -32,6 +35,7 @@ export function createDeleteAccountHandler(dependencies: {
       result = await dependencies.remove({
         teamId: resolved.value.team.teamId,
         accountId,
+        stackUserId: resolved.value.user.id,
       });
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_account" });
@@ -79,8 +83,8 @@ export function createDeleteAccountHandler(dependencies: {
   };
 }
 
-export const DELETE = createDeleteAccountHandler({
+export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accounts/[accountId]", createDeleteAccountHandler({
   resolve: resolveCodeRouterRequestContext,
-  remove: async ({ teamId, accountId }) =>
-    await removeAccount(teamId, accountId),
-});
+  remove: async ({ teamId, accountId, stackUserId }) =>
+    await removeAccount(teamId, accountId, stackUserId),
+}));

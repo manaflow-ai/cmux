@@ -13,9 +13,9 @@ use crate::resource::{
 use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
-    RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
-    ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
-    TerminalOnExit, TerminalResourceCloseCommit,
+    RegistryPane, RegistryScreen, RegistryTab, RegistryViewportColumn, ResourceCreationPreparation,
+    ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, ResourceWorkspaceLedger,
+    TerminalLifecycle, TerminalOnExit, TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -386,17 +386,20 @@ impl Mux {
             true,
         ));
         let created_path = json!({"kind":"workspace","workspace_id":public_id});
+        let durable = RegistryWorkspace {
+            id: workspace.id,
+            public_id: public_id.clone(),
+            key: key.clone(),
+            name: name.clone(),
+            group_key: self.session.clone(),
+        };
+        let mut desired = self.registry_projection(&state);
+        desired.push(durable.clone());
         let plan = ResourceMutationPlan::new(
             ResourcePatch {
                 changes: vec![
                     ResourceChange::UpsertWorkspace {
-                        workspace: RegistryWorkspace {
-                            id: workspace.id,
-                            public_id: public_id.clone(),
-                            key,
-                            name: name.clone(),
-                            group_key: self.session.clone(),
-                        },
+                        workspace: durable,
                         position: index,
                         active_screen: None,
                     },
@@ -413,9 +416,18 @@ impl Mux {
             move |state| {
                 state.push_workspace(workspace);
                 state.active_workspace = index;
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
             },
         )
+        .with_workspace_ledger(ResourceWorkspaceLedger {
+            event_kind: "workspace-added",
+            workspace_key: key,
+            workspaces: desired,
+            legacy_result: json!({
+                "workspace":public_id,
+                "name":name,
+                "index":index,
+            }),
+        })
         .with_metrics(ResourceMutationMetrics {
             touched_resources: 1,
             order_entries: index + 1,
@@ -426,7 +438,7 @@ impl Mux {
         {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
-        let commit = registry.commit_resource_creation_patch(
+        let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,
             "workspace.create",
@@ -435,8 +447,9 @@ impl Mux {
             &plan.result,
             &created_path,
             &plan.deltas,
+            plan.workspace_ledger.as_ref(),
         )?;
-        plan.apply(&mut state, &commit);
+        plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
         drop(registry);
         self.publish_resource_event();
@@ -637,6 +650,7 @@ impl Mux {
             ResourceOperation::TabRename => self.resource_rename_tab(
                 selectors,
                 nullable_name(&fields)?,
+                crate::resource_name::TabNameUpdate::parse(&fields)?,
                 expected_revision,
                 mutation,
                 &fingerprint,
@@ -855,6 +869,7 @@ impl Mux {
         self: &Arc<Self>,
         selectors: ResourceSelectors,
         name: Option<String>,
+        authority: crate::resource_name::TabNameUpdate,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
@@ -878,7 +893,12 @@ impl Mux {
                 let tab_id = resolved.path.tab.context("tab selector has no public id")?;
                 let topology = registry.resource_topology_snapshot()?;
                 let mut durable = topology_tab(&topology, &tab_id)?.clone();
-                durable.name = name.clone();
+                authority.apply(
+                    &mut durable,
+                    name.clone(),
+                    &topology.generation,
+                    topology.revision,
+                )?;
                 let value = tab_value(&durable, &topology)?;
                 let result = json!({"tab":tab_id});
                 let deltas = upserts([("tab", tab_id.as_str(), value)]);
@@ -2820,7 +2840,7 @@ impl Mux {
                 }
             }
             ResourceOperation::TerminalClose => {
-                let public_id = slots.terminal.clone().context("terminal disappeared")?;
+                let public_id = slots.terminal.context("terminal disappeared")?;
                 let host_id = registry
                     .terminal_host_id(&public_id)?
                     .with_context(|| format!("terminal {public_id} has no durable host"))?;
@@ -5361,18 +5381,8 @@ fn pane_value_with_flags(
 
 fn tab_value(tab: &RegistryTab, topology: &ResourceTopologySnapshot) -> anyhow::Result<Value> {
     let pane = topology_pane(topology, &tab.pane_id)?;
-    Ok(json!({
-        "id":tab.public_id,
-        "pane_id":tab.pane_id,
-        "name":tab.name,
-        "index":u32::try_from(tab.position).context("tab index exceeds uint32")?,
-        "focused":pane.active_tab.as_ref() == Some(&tab.public_id),
-        "content_kind":match tab.content_id {
-            ContentPublicId::Terminal(_) => "terminal",
-            ContentPublicId::Browser(_) => "browser",
-        },
-        "content_id":tab.content_id.as_str(),
-    }))
+    u32::try_from(tab.position).context("tab index exceeds uint32")?;
+    Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
 }
 
 fn layout_document(
@@ -5592,6 +5602,7 @@ fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
 }
 
 #[allow(clippy::too_many_arguments)]
+/// Build the durable mutation plan for moving a sole tab across panes.
 pub(super) fn structural_tab_move_plan(
     mux: &Arc<Mux>,
     state: &mut State,
@@ -5642,14 +5653,7 @@ pub(super) fn structural_tab_move_plan(
             .collect::<Vec<_>>();
         let moved_index = index.min(target_tabs.len());
         target_tabs.insert(moved_index, tab_id.clone());
-        for tab in &mut after.tabs {
-            if let Some(position) =
-                target_tabs.iter().position(|candidate| candidate == &tab.public_id)
-            {
-                tab.pane_id = target_pane_id.clone();
-                tab.position = position;
-            }
-        }
+        reindex_target_tab_positions(&mut after.tabs, &target_pane_id, &target_tabs);
         target_tabs
     };
     let moved_tab = topology_tab(&after, &tab_id)?.clone();
@@ -5870,6 +5874,28 @@ pub(super) fn structural_tab_move_plan(
             Mux::rebuild_split_screen_index(state);
         },
     ))
+}
+
+/// Assign target-pane positions in one pass over the topology tabs.
+///
+/// `target_order` is authoritative for both the moved tab and existing target
+/// tabs. Keeping the first map entry preserves the previous `position` lookup
+/// behavior if malformed input contains a duplicate public id.
+fn reindex_target_tab_positions(
+    tabs: &mut [RegistryTab],
+    target_pane_id: &PanePublicId,
+    target_order: &[TabPublicId],
+) {
+    let mut positions = HashMap::with_capacity(target_order.len());
+    for (position, tab_id) in target_order.iter().enumerate() {
+        positions.entry(tab_id).or_insert(position);
+    }
+    for tab in tabs {
+        if let Some(&position) = positions.get(&tab.public_id) {
+            tab.pane_id = target_pane_id.clone();
+            tab.position = position;
+        }
+    }
 }
 
 fn target_location_screen(state: &State, location: (usize, usize)) -> ScreenId {
@@ -6198,6 +6224,60 @@ fn set_node_split_ratios(node: &mut Node, ratios: &std::collections::BTreeMap<Sp
             set_node_split_ratios(a, ratios);
             set_node_split_ratios(b, ratios);
         }
+    }
+}
+
+#[cfg(test)]
+mod structural_tab_move_tests {
+    use super::*;
+
+    /// Build a terminal tab fixture with the requested durable placement.
+    fn tab(id: &str, pane_id: &str, position: usize) -> RegistryTab {
+        RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
+            public_id: TabPublicId::parse(id.to_string()).unwrap(),
+            pane_id: PanePublicId::parse(pane_id.to_string()).unwrap(),
+            position,
+            content_id: ContentPublicId::Terminal(
+                TerminalPublicId::parse("term_00000000000000000000000000000001".to_string())
+                    .unwrap(),
+            ),
+            name: None,
+            browser_url: None,
+            terminal_id: Some("term_00000000000000000000000000000001".to_string()),
+        }
+    }
+
+    /// Reindex the moved tab and existing target tabs without touching others.
+    #[test]
+    fn target_tab_positions_reindex_moved_and_target_tabs_only() {
+        let target_pane =
+            PanePublicId::parse("pane_00000000000000000000000000000001".to_string()).unwrap();
+        let other_pane =
+            PanePublicId::parse("pane_00000000000000000000000000000002".to_string()).unwrap();
+        let moved = tab("tab_00000000000000000000000000000001", other_pane.as_str(), 0);
+        let target_a = tab("tab_00000000000000000000000000000002", target_pane.as_str(), 0);
+        let target_b = tab("tab_00000000000000000000000000000003", target_pane.as_str(), 1);
+        let unrelated = tab("tab_00000000000000000000000000000004", other_pane.as_str(), 1);
+        let mut tabs = vec![moved, target_a, target_b, unrelated];
+
+        let target_order = vec![
+            TabPublicId::parse("tab_00000000000000000000000000000003".to_string()).unwrap(),
+            TabPublicId::parse("tab_00000000000000000000000000000001".to_string()).unwrap(),
+            TabPublicId::parse("tab_00000000000000000000000000000002".to_string()).unwrap(),
+            // Malformed duplicate IDs retain the first-match position from
+            // the previous `position` scan.
+            TabPublicId::parse("tab_00000000000000000000000000000001".to_string()).unwrap(),
+        ];
+        reindex_target_tab_positions(&mut tabs, &target_pane, &target_order);
+
+        assert_eq!(tabs[0].pane_id, target_pane);
+        assert_eq!(tabs[0].position, 1);
+        assert_eq!(tabs[1].position, 2);
+        assert_eq!(tabs[2].position, 0);
+        assert_eq!(tabs[3].pane_id, other_pane);
+        assert_eq!(tabs[3].position, 1);
     }
 }
 

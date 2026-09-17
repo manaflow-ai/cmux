@@ -9,6 +9,9 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+#endif
     let workspaces: [MobileWorkspacePreview]
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups; the list then renders flat. Passed as value snapshots so no
@@ -29,6 +32,10 @@ struct WorkspaceListView: View {
     /// one presentation and computer selection. Standalone previews keep the
     /// self-contained toolbar by leaving this false.
     var usesExternalSharedToolbar = false
+    /// The regular-width split shell owns the sidebar toggle in this trailing
+    /// group so it follows the list's filter and create controls at the actual
+    /// trailing edge. `nil` keeps standalone and compact callers unchanged.
+    var sidebarToggleAction: (() -> Void)? = nil
     /// Whether workspace-row titles wrap (multi-line) instead of truncating to a
     /// single line. Passed in as a value snapshot so no `@Observable` store
     /// crosses the `List` boundary.
@@ -666,12 +673,20 @@ struct WorkspaceListView: View {
         }
         .sheet(isPresented: settingsPresentation.isPresented, onDismiss: {
             settingsPresentation.didDismiss()
-            settingsPairingScannerHandoff.settingsDidDismiss(startScanner: showPairingScanner)
+            settingsPairingScannerHandoff.settingsDidDismiss(
+                startScanner: showPairingScanner,
+                showComputers: presentComputers
+            )
         }) {
             MobileSettingsView(
                 connectedHostName: host,
                 startPairingScanner: {
                     settingsPairingScannerHandoff.requestScannerAfterDismiss(
+                        isSettingsPresented: settingsPresentation.isPresented
+                    )
+                },
+                showComputers: {
+                    settingsPairingScannerHandoff.requestComputersAfterDismiss(
                         isSettingsPresented: settingsPresentation.isPresented
                     )
                 },
@@ -946,15 +961,24 @@ struct WorkspaceListView: View {
     }
 
     #if os(iOS)
+    /// One Computers entry path for the toolbar button and the Settings
+    /// handoff: the root owner when provided, the local sheet otherwise.
+    private func presentComputers() {
+        if let showComputers {
+            showComputers()
+        } else {
+            deviceTreePresentation.present()
+        }
+    }
+
     var devicesButton: some View {
         Button {
-            if let showComputers {
-                showComputers()
-            } else {
-                deviceTreePresentation.present()
-            }
+            presentComputers()
         } label: {
-            Image(systemName: "desktopcomputer")
+            MobileDevicesToolbarLabel(
+                gateWarningPairingIDs: store?.macVersionUpdateRequiredPairingIDs ?? [],
+                computerPairingIDs: Set(liveMachineSnapshots.macPickerMachines.map(\.id))
+            )
         }
         .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
