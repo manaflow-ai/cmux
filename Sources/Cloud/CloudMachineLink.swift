@@ -152,6 +152,10 @@ actor CloudMachineLink {
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
     private var processExit: CloudLinkFirstValue<Int32>?
+    /// One local JSON resource connection shared by every control request for
+    /// this machine. Terminal attachment streams are still allowed to subscribe
+    /// separately while they migrate onto this same multiplexer.
+    private var resourceConnection: CloudTuiPersistentResourceConnection?
     private var eventsProcess: Process?
     private var eventsProcessExit: CloudLinkFirstValue<Int32>?
     private var eventsSubscriptionID: UUID?
@@ -307,6 +311,14 @@ actor CloudMachineLink {
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
+        let resourceConnection = CloudTuiPersistentResourceConnection(socketPath: socketPath)
+        do {
+            try await resourceConnection.start()
+            self.resourceConnection = resourceConnection
+        } catch {
+            resourceConnection.close()
+            throw error
+        }
         state = .connected
         await startEventsSubscription(socketPath: socketPath, cursor: nil)
         changesContinuation.yield(.connected)
@@ -338,6 +350,8 @@ actor CloudMachineLink {
                 self.processExit = nil
             }
         }
+        resourceConnection?.close()
+        resourceConnection = nil
         await releaseHubLeaseOnce()
     }
 
@@ -433,6 +447,18 @@ actor CloudMachineLink {
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
     func run(arguments: [String], input: Data? = nil, timeout: Duration = .seconds(30)) async throws -> Data {
+        if input == nil,
+           let request = CloudTuiPersistentRequestBuilder.parse(arguments),
+           let resourceConnection {
+            return try await CloudOperationContext.phase(.process) {
+                try await resourceConnection.request(
+                    operation: request.operation,
+                    params: request.params,
+                    idempotencyKey: request.idempotencyKey,
+                    timeout: timeout
+                )
+            }
+        }
         try await CloudOperationContext.phase(.process) {
             try await self.runMeasured(arguments: arguments, input: input, timeout: timeout)
         }
