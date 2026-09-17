@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/grants", "crates/authority", "crates/transport", "crates/relay-server", "crates/control-server"]
+members = ["crates/grants", "crates/authority", "crates/transport", "crates/relay-server", "crates/control-server", "crates/ffi"]
 resolver = "2"
 
 [workspace.package]
@@ -27,7 +27,7 @@ serde_json = "1"
 subtle = "2"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
-tokio-util = { version = "0.7", features = ["codec", "compat"] }
+tokio-util = { version = "0.7", features = ["codec", "compat", "rt"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 prometheus-client = "0.23"

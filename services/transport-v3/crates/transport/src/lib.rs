@@ -9,6 +9,7 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod endpoint;
 pub mod relay_auth;
 pub mod session;
 

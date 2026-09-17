@@ -94,7 +94,7 @@ pub struct Lane {
     pub cursor: Option<u64>,
 }
 impl Lane {
-    fn validate(&self) -> Result<(), Error> {
+    pub fn validate(&self) -> Result<(), Error> {
         if self
             .resource
             .as_ref()
@@ -426,6 +426,26 @@ pub struct SessionSender {
     abort: tokio::task::AbortHandle,
 }
 impl SessionSender {
+    pub fn is_closed(&self) -> bool {
+        self.guard.check().is_err()
+            || self.closed.borrow().is_some()
+            || self.closed.has_changed().is_err()
+    }
+    pub async fn closed(&self) -> Error {
+        let mut closed = self.closed.clone();
+        loop {
+            if let Some(error) = *closed.borrow() {
+                return error;
+            }
+            if closed.changed().await.is_err() {
+                return Error::Closed;
+            }
+        }
+    }
+    /// Close this exact stream, waking blocked reads without acquiring their lock.
+    pub fn close(&self) {
+        self.abort.abort();
+    }
     pub async fn send(&self, bytes: Bytes) -> Result<(), Error> {
         if bytes.is_empty() || bytes.len() > MAX_DATA {
             return Err(Error::Protocol);

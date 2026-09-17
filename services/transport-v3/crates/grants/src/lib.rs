@@ -233,7 +233,7 @@ impl AuthorityKeys {
 }
 
 /// Authenticated updates only. Revisions invalidate older grants, including unlimited ones.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Revocations {
     revisions: BTreeMap<String, u64>,
     devices: BTreeSet<(String, PeerId)>,
