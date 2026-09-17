@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/grants", "crates/authority", "crates/transport"]
+members = ["crates/grants", "crates/authority", "crates/transport", "crates/relay-server"]
 resolver = "2"
 
 [workspace.package]
@@ -10,13 +10,20 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+axum = "0.8"
 cedar-policy = { version = "4.12", default-features = false }
+clap = { version = "4", features = ["derive", "env"] }
 ed25519-dalek = { version = "2.2", features = ["pkcs8", "rand_core"] }
 futures = "0.3"
+hex = "0.4"
 jsonwebtoken = "9.3"
-libp2p = { version = "0.56", default-features = false, features = ["tokio", "quic", "tcp", "dns", "websocket", "noise", "yamux", "relay", "dcutr", "identify", "ping", "macros", "request-response", "json", "ed25519"] }
+libp2p = { git = "https://github.com/manaflow-ai/rust-libp2p", rev = "e277dfbd12a6491e1c09befa3651191ab7965893", default-features = false, features = ["tokio", "quic", "tcp", "dns", "websocket", "noise", "yamux", "relay", "dcutr", "identify", "ping", "macros", "request-response", "json", "ed25519"] }
 libp2p-identity = { version = "0.2", features = ["ed25519", "peerid", "rand"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+subtle = "2"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+prometheus-client = "0.23"

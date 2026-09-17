@@ -9,6 +9,8 @@ use libp2p::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod relay_auth;
+
 pub const PROBE_PROTOCOL: StreamProtocol = StreamProtocol::new("/cmux/transport/3/probe");
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +47,7 @@ pub fn authorize_probe(
 
 #[derive(NetworkBehaviour)]
 pub struct PeerBehaviour {
+    pub relay_auth: relay_auth::Behaviour,
     pub relay: relay::client::Behaviour,
     pub identify: identify::Behaviour,
     pub dcutr: dcutr::Behaviour,
@@ -68,6 +71,7 @@ pub async fn peer(key: identity::Keypair) -> anyhow::Result<Swarm<PeerBehaviour>
         .await?
         .with_relay_client(noise::Config::new, yamux::Config::default)?
         .with_behaviour(|key, relay| PeerBehaviour {
+            relay_auth: relay_auth::behaviour(),
             relay,
             identify: identify::Behaviour::new(identify::Config::new(
                 "cmux/transport/3".into(),

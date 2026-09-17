@@ -1,8 +1,9 @@
 # Transport v3 foundation
 
 Independent Rust workspace for replacing iroh. This first slice proves native
-and browser interoperability and server-issued authorization. It is not wired
-into either app or deployed. It does not implement a public relay service yet.
+and browser interoperability and server-issued authorization. A private relay
+process now gates reservations and circuits using signed grants. It is not wired
+into either app or deployed. See IMPLEMENTATION.md for the remaining requirements.
 
 ## Boundaries
 
@@ -14,6 +15,10 @@ into either app or deployed. It does not implement a public relay service yet.
 - `cmux-v3-transport`: native libp2p QUIC, Noise/Yamux over TCP/WebSocket,
   Circuit Relay v2, and DCUtR composition. The probe validates permissions
   before echoing data. There are no legacy transport dependencies.
+- `cmux-v3-relay-server`: signed-grant admission for reservations and device pairs,
+  bounded grant cache, private management credentials, readiness/metrics, and
+  draining that refuses new circuits but waits for existing circuits to finish.
+  The process test exercises a real encrypted circuit through the actual binary.
 - `interop`: Chromium using JS libp2p through a loopback Rust relay to a Rust
   host, with both an allowed exchange and an invalid-grant rejection.
 
@@ -96,9 +101,10 @@ verified by this fixture.
 2. Durable, tenant-scoped records and a recoverable authorization update feed.
    Cache freshness must include membership and device revocations, not just
    ACL text. Persist known revocations and signer trust across app restarts.
-3. Destination-aware relay admission, per-team quotas, public TLS, and sustained
-   relay transfer limits. Stock Rust libp2p relay rate limiters do not provide
-   source/destination ACL enforcement. Do not deploy the laboratory relay.
+3. Per-team active bandwidth/circuit quotas, public TLS, revocation delivery,
+   and sustained relay transfer tests. Destination-aware admission now uses the
+   small in-org fork hook in https://github.com/manaflow-ai/rust-libp2p/pull/1
+   (author lawrencecchen). Do not deploy the laboratory relay or untested scripts.
 4. A stream/session owner that refreshes grants without reconnecting, schedules
    finite expiry even on idle streams, cancels active streams on revocation,
    and checks authorization before every operation. `Admission::check` is the
