@@ -18221,6 +18221,31 @@ mod tests {
     };
 
     #[test]
+    fn tab_workspace_move_preserves_surface_and_commits_one_revision() {
+        let mux = test_mux();
+        let first = mux.new_workspace(Some("source".into()), Some((80, 24))).unwrap();
+        let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let before = mux.with_state(|state| state.resource_revision);
+        mux.move_tab_to_workspace(second.id, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 2);
+            assert_eq!(state.resource_revision, before + 1);
+            assert_eq!(state.active_surface(), Some(second.id));
+            assert!(state.pane_of(first.id).is_some());
+        });
+        assert!(Arc::ptr_eq(&second, &mux.surface(second.id).unwrap()));
+        let empty = mux.create_empty_workspace(Some("empty".into()), None, None).unwrap();
+        mux.move_tab_to_workspace(second.id, Some(empty.workspace)).unwrap();
+        assert_eq!(mux.with_state(|state| state.workspaces[state.active_workspace].id), empty.workspace);
+        assert!(Arc::ptr_eq(&second, &mux.surface(second.id).unwrap()));
+        let before = mux.with_state(|state| (state.workspaces.len(), state.resource_revision));
+        assert!(mux.move_tab_to_workspace(second.id, Some(u64::MAX)).is_err());
+        assert_eq!(mux.with_state(|state| (state.workspaces.len(), state.resource_revision)), before);
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
     fn signaled_mutex_records_holder_site_wait_and_hold() {
         let mutex = SignaledMutex::new(0u32);
         assert!(mutex.stats().snapshot().holder.is_none());
