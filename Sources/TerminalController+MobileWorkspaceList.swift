@@ -264,6 +264,7 @@ extension TerminalController {
         }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
+        let unreadCount = store?.unreadCount(forTabId: workspace.id) ?? 0
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
@@ -299,7 +300,11 @@ extension TerminalController {
             // Mirrors the Mac sidebar's workspace unread badge (notification
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
-            "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            "has_unread": unreadCount > 0,
+            // The badge's exact number (same TerminalNotificationStore count the
+            // Mac sidebar renders). Kept alongside has_unread so released phones
+            // that only know the boolean keep working.
+            "unread_count": unreadCount,
             "terminals": terminals,
             "surfaces": surfaces,
             "simulators": simulators
@@ -490,12 +495,18 @@ extension TerminalController {
                     configStore: configStore
                 ),
                 "is_empty": group.isEmpty,
-                "member_workspace_ids": memberIDsByGroup[group.id] ?? [],
                 // Keep the legacy required field present for older phones.
                 // New clients use `is_empty` and never treat this stable
                 // header identity as a live workspace capability.
-                "anchor_workspace_id": group.anchorWorkspaceId.uuidString
+                "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
+                "member_workspace_ids": memberIDsByGroup[group.id] ?? [],
+                "anchor_workspace_provenance": group.anchorWorkspaceProvenance.rawValue,
+                "anchor_workspace_is_generated": group.isGeneratedAnchor,
             ]
+            if let externalID = group.externalID {
+                payload["external_id"] = externalID
+                payload["idempotency_key"] = externalID
+            }
             return payload
         }
     }

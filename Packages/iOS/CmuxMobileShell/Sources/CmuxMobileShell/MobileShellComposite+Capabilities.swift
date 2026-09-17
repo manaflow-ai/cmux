@@ -42,6 +42,14 @@ extension MobileShellComposite {
             && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
     }
 
+    /// Hybrid sessions subscribe to render-grid events only for screen-state
+    /// tracking and alternate-screen recovery. Primary-screen painting stays
+    /// on the sequence-aware byte lane, so an advisory grid must never impose
+    /// its shared viewport dimensions on the local natural surface.
+    public var usesHybridTerminalOutput: Bool {
+        terminalOutputTransport == .hybrid
+    }
+
     /// Screen-anchored render-grid sessions receive active-area-anchored
     /// frames whose deltas carry exact scrolled-row counts, so this device
     /// keeps a deep local scrollback and scrolls the primary screen locally
@@ -140,7 +148,11 @@ extension MobileShellComposite {
             }
             sawConnectedMac = true
         }
-        return !sawConnectedMac
+        // With no connected Mac the composer normally gets the benefit of the
+        // doubt (offline Macs may support tasks once they come up) — but not
+        // when the only listed computer is the demonstration Mac, which can
+        // never run a real task.
+        return !sawConnectedMac && !pairedMacsAreDemonstrationOnly
     }
 
     /// True while at least one Mac session is live: the foreground connection

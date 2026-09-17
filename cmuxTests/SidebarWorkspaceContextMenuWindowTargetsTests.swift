@@ -126,6 +126,7 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 canMarkRead: false,
                 canMarkUnread: false,
                 hasLatestNotification: false,
+                allNotificationsMuted: false,
                 notifications: []
             )
         )
@@ -165,6 +166,8 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             markRead: { _ in },
             markUnread: { _ in },
             clearLatestNotifications: { _ in },
+            currentNotificationsMuted: { _ in false },
+            setNotificationsMuted: { _, _ in },
             openNotification: { _ in },
             copyWorkspaceLinks: { _ in },
             openPullRequest: { _ in },
@@ -180,14 +183,14 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 removeAttachment: { _, _ in },
                 openAttachments: { _, _ in }
             ),
-            onDragStart: { NSItemProvider() },
             onToggleChecklistExpansion: {},
             onConsumeChecklistAddFieldActivation: {},
             onChecklistPopoverPresentedChange: { _ in },
             onContextMenuAppear: {},
             onContextMenuDisappear: {},
             onPointerFrameChange: { _ in },
-            onPointerFrameDisappear: {}
+            onPointerFrameDisappear: {},
+            onPointerDragEligibilityChange: { _ in }
         )
     }
 }

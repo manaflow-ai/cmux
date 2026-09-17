@@ -19,9 +19,8 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
     /// workspace's primary process.
     let setupCommand: String
 
-    /// Keeps the optional filesystem identity labels available on every toolchain.
-    /// Swift omits stored properties with default values from a synthesized
-    /// memberwise initializer, which would otherwise drop the rollback identity.
+    /// Keeps the optional filesystem identity labels available while preserving
+    /// default-`nil` call sites without preinitializing immutable properties.
     init(
         projectRootPath: String,
         worktreePath: String,

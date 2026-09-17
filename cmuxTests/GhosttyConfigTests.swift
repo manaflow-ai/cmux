@@ -260,7 +260,10 @@ final class GhosttyConfigTests: XCTestCase {
         let result = runCLI(
             try bundledCLIPath(),
             arguments: ["--json", "themes", "list"],
-            environment: ["CFFIXED_USER_HOME": root.path],
+            environment: [
+                "CFFIXED_USER_HOME": root.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-themes-\(UUID().uuidString).sock",
+            ],
             timeout: 10
         )
 
@@ -268,7 +271,7 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.output)
 
         let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [String: Any]
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
         )
         let themes = try XCTUnwrap(payload["themes"] as? [[String: Any]])
         XCTAssertTrue(themes.contains { ($0["name"] as? String) == "Zag Light" }, result.output)
@@ -1348,8 +1351,11 @@ final class GhosttyConfigTests: XCTestCase {
 
     private struct CLIResult {
         let status: Int32
-        let output: String
+        let stdout: String
+        let stderr: String
         let timedOut: Bool
+
+        var output: String { stdout + stderr }
     }
 
     private func bundledCLIPath() throws -> String {
@@ -1364,9 +1370,13 @@ final class GhosttyConfigTests: XCTestCase {
     ) -> CLIResult {
         let process = Process()
         let outputPipe = Pipe()
+        let errorPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: cliPath)
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
         for (key, value) in overrides {
             environment[key] = value
         }
@@ -1374,12 +1384,17 @@ final class GhosttyConfigTests: XCTestCase {
         process.environment = environment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        process.standardError = errorPipe
 
         do {
             try process.run()
         } catch {
-            return CLIResult(status: -1, output: String(describing: error), timedOut: false)
+            return CLIResult(
+                status: -1,
+                stdout: "",
+                stderr: String(describing: error),
+                timedOut: false
+            )
         }
 
         let exitSignal = DispatchSemaphore(value: 0)
@@ -1394,11 +1409,20 @@ final class GhosttyConfigTests: XCTestCase {
             _ = exitSignal.wait(timeout: .now() + 1)
         }
 
-        let output = String(
+        let stdout = String(
             data: outputPipe.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
-        return CLIResult(status: process.terminationStatus, output: output, timedOut: timedOut)
+        let stderr = String(
+            data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        return CLIResult(
+            status: process.terminationStatus,
+            stdout: stdout,
+            stderr: stderr,
+            timedOut: timedOut
+        )
     }
 
 }
@@ -4389,7 +4413,7 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
         XCTAssertTrue(paths.contains(currentConfig.path))
         XCTAssertFalse(paths.contains(legacyConfig.path))
-        XCTAssertFalse(GhosttyApp.shouldApplyManagedDefaultAppearance(
+        XCTAssertTrue(GhosttyApp.shouldApplyManagedDefaultAppearance(
             configPaths: paths,
             adaptiveDefaultThemeEnabled: true
         ))
@@ -4397,12 +4421,12 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
     // MARK: shouldApplyManagedDefaultAppearance
 
-    func testShouldApplyManagedDefaultAppearanceSkipsNonAppearanceConfig() throws {
+    func testShouldApplyManagedDefaultAppearancePreservesNonAppearanceConfig() throws {
         try withTempConfig("""
         font-family = JetBrains Mono
         background-opacity = 0.92
         """) { path in
-            XCTAssertFalse(
+            XCTAssertTrue(
                 GhosttyApp.shouldApplyManagedDefaultAppearance(
                     configPaths: [path],
                     adaptiveDefaultThemeEnabled: true
