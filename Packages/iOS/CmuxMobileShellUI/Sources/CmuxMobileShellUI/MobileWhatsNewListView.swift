@@ -63,7 +63,7 @@ private struct MobileWhatsNewArchiveRow: View {
     @ViewBuilder
     private var destination: some View {
         switch page.body {
-        case .features:
+        case .features, .pairingSetup:
             MobileWhatsNewFittingPage(page: page)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .background(PlatformPalette.systemBackground)

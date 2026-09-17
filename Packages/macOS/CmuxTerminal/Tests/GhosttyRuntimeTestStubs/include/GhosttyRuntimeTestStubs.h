@@ -81,6 +81,15 @@ void ghostty_surface_quicklook_font(void);
 void ghostty_surface_read_screen_tail_vt(void);
 void ghostty_surface_read_text(void);
 void ghostty_surface_refresh(void);
+bool ghostty_surface_set_render_presented_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t),
+    void *userdata);
+bool ghostty_surface_set_render_failed_callback(
+    void *surface,
+    void (*callback)(void *, uint64_t, int),
+    void *userdata);
+bool ghostty_surface_request_render_with_token(void *surface, uint64_t token);
 void ghostty_surface_render_grid_json(void);
 void ghostty_surface_render_grid_json_with_theme(void);
 ghostty_string_s ghostty_surface_render_grid_json_v2(
@@ -126,6 +135,8 @@ bool cmux_test_ghostty_renderer_realized_call_value(uint32_t index);
 void cmux_test_ghostty_renderer_realized_set_result(bool result);
 bool cmux_test_ghostty_renderer_release_was_occluded(void);
 bool cmux_test_ghostty_renderer_occlusion_visible(void);
+bool cmux_test_ghostty_renderer_present(void *surface);
+bool cmux_test_ghostty_renderer_fail(void *surface, int status);
 bool cmux_test_ghostty_surface_was_updated(void *surface);
 void cmux_test_ghostty_font_state_begin(
     void *surface,

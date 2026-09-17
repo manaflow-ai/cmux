@@ -242,15 +242,6 @@ struct CloudVMPaneState: Hashable, Codable, Sendable {
     var tabIDs: [String]
 }
 
-struct CloudVMTabState: Hashable, Codable, Sendable {
-    var id: String
-    var paneID: String
-    var name: String?
-    var index: Int
-    var focused: Bool
-    var contentKind: String
-    var contentID: String
-}
 
 /// The two valid remote tab-label states. The daemon uses an empty string to
 /// clear its optional label, so keep that state explicit at the app boundary

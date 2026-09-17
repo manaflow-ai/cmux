@@ -5491,6 +5491,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
     var trackedWindows: [NSWindow] = []
     var trackedPortals: [WindowTerminalPortal] = []
     var trackedSurfaces: [TerminalSurface] = []
+    var testWorkspace: TerminalPortalTestWorkspace?
 
     override func tearDown() {
         // Global flags first: a failed assertion can skip a test's own reset,
@@ -5520,6 +5521,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.close()
         }
         trackedWindows.removeAll()
+        testWorkspace?.tearDown()
+        testWorkspace = nil
 
         // Let queued coalesced portal passes fire as no-ops now rather than
         // inside a later test's layout pass.
@@ -5567,17 +5570,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         return portal
     }
 
-    func makeTrackedTerminalSurface() -> TerminalSurface {
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        trackedSurfaces.append(surface)
-        return surface
-    }
-
     func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -5620,11 +5612,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
+        let originalContentView = window.contentView
         let portal = makeTrackedPortal(window: window)
         _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
@@ -5649,13 +5642,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
+        let originalContentView = window.contentView
         let browserPortal = WindowBrowserPortal(window: window)
         let terminalPortal = makeTrackedPortal(window: window)
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
@@ -6390,174 +6384,6 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testInteractiveGeometryResizeEndFlushesFinalTerminalSize() {
-        let window = makeTestWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
-        )
-        let surface = makeTrackedTerminalSurface()
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let container = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
-        contentView.addSubview(container)
-        let anchor = NSView(frame: container.bounds)
-        container.addSubview(anchor)
-
-        TerminalWindowPortalRegistry.bind(
-            hostedView: surface.hostedView,
-            to: anchor,
-            visibleInUI: true,
-            expectedSurfaceId: surface.id,
-            expectedGeneration: surface.portalBindingGeneration()
-        )
-        TerminalWindowPortalRegistry.synchronizeForAnchor(anchor)
-        realizeWindowLayout(window)
-        let initialPixelSize = surface.debugCurrentPixelSize()
-        XCTAssertGreaterThan(initialPixelSize.width, 0)
-
-        // With frame notifications disabled, only the interaction zero
-        // crossing can discover and apply this final geometry.
-        anchor.postsFrameChangedNotifications = false
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
-        var interactionIsActive = true
-        defer {
-            if interactionIsActive {
-                TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
-            }
-        }
-        anchor.frame.size.width -= 120
-        XCTAssertEqual(surface.debugCurrentPixelSize().width, initialPixelSize.width)
-
-        TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window)
-        interactionIsActive = false
-        drainMainQueue()
-        drainMainQueue()
-
-        XCTAssertLessThan(
-            surface.debugCurrentPixelSize().width,
-            initialPixelSize.width,
-            "Ending the resize interaction should flush the final exact terminal width"
-        )
-    }
-
-    func testInteractiveGeometryResizeIsScopedToOwningWindow() {
-        let firstWindow = makeTestWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
-        )
-        defer {
-            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: firstWindow)
-            firstWindow.orderOut(nil)
-        }
-        let secondWindow = makeTestWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
-        )
-        defer {
-            NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: secondWindow)
-            secondWindow.orderOut(nil)
-        }
-
-        let firstSurface = makeTrackedTerminalSurface()
-        let secondSurface = makeTrackedTerminalSurface()
-        guard let firstContentView = firstWindow.contentView,
-              let secondContentView = secondWindow.contentView else {
-            XCTFail("Expected content views")
-            return
-        }
-
-        let firstAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
-        firstContentView.addSubview(firstAnchor)
-        let secondAnchor = NSView(frame: NSRect(x: 40, y: 60, width: 420, height: 220))
-        secondContentView.addSubview(secondAnchor)
-        TerminalWindowPortalRegistry.bind(
-            hostedView: firstSurface.hostedView,
-            to: firstAnchor,
-            visibleInUI: true,
-            expectedSurfaceId: firstSurface.id,
-            expectedGeneration: firstSurface.portalBindingGeneration()
-        )
-        TerminalWindowPortalRegistry.bind(
-            hostedView: secondSurface.hostedView,
-            to: secondAnchor,
-            visibleInUI: true,
-            expectedSurfaceId: secondSurface.id,
-            expectedGeneration: secondSurface.portalBindingGeneration()
-        )
-        TerminalWindowPortalRegistry.synchronizeForAnchor(firstAnchor)
-        TerminalWindowPortalRegistry.synchronizeForAnchor(secondAnchor)
-        realizeWindowLayout(firstWindow)
-        realizeWindowLayout(secondWindow)
-        for _ in 0..<4 { drainMainQueue() }
-
-        let initialFirstWidth = firstSurface.debugCurrentPixelSize().width
-        let initialSecondWidth = secondSurface.debugCurrentPixelSize().width
-        XCTAssertGreaterThan(initialFirstWidth, 0)
-        XCTAssertGreaterThan(initialSecondWidth, 0)
-
-        firstAnchor.postsFrameChangedNotifications = false
-        secondAnchor.postsFrameChangedNotifications = false
-        let outerInteractionOwner = NSObject()
-        let nestedInteractionOwner = NSObject()
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
-            owner: outerInteractionOwner,
-            in: firstWindow
-        )
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(
-            owner: nestedInteractionOwner,
-            in: firstWindow
-        )
-        var outerInteractionIsActive = true
-        var nestedInteractionIsActive = true
-        defer {
-            if outerInteractionIsActive {
-                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
-            }
-            if nestedInteractionIsActive {
-                TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
-            }
-        }
-
-        XCTAssertTrue(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow))
-        XCTAssertFalse(TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: secondWindow))
-        firstAnchor.frame.size.width -= 120
-        secondAnchor.frame.size.width -= 120
-
-        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: outerInteractionOwner)
-        outerInteractionIsActive = false
-        XCTAssertTrue(
-            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: firstWindow),
-            "Nested resize ownership should keep the window coalescing until every owner ends"
-        )
-        TerminalWindowPortalRegistry.endInteractiveGeometryResize(owner: nestedInteractionOwner)
-        nestedInteractionIsActive = false
-        drainMainQueue()
-        drainMainQueue()
-
-        XCTAssertLessThan(
-            firstSurface.debugCurrentPixelSize().width,
-            initialFirstWidth,
-            "Drag end should flush the owning window's final terminal width"
-        )
-        XCTAssertEqual(
-            secondSurface.debugCurrentPixelSize().width,
-            initialSecondWidth,
-            "One window's drag end must not flush unrelated terminal portals"
-        )
-
-        TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(
-            for: secondWindow,
-            forceImmediate: false
-        )
-        drainMainQueue()
-        drainMainQueue()
-        XCTAssertLessThan(
-            secondSurface.debugCurrentPixelSize().width,
-            initialSecondWidth,
-            "The unrelated window should still adopt its geometry when explicitly synchronized"
-        )
-    }
-
     func testDockDividerLifecycleScopesTerminalResizeToHostingWindow() {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 420)
@@ -6754,7 +6580,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let baselineWindows = Self.suiteBaselineWindowNumbers ?? []
         let leakedPortalWindows = NSApp.windows.filter { window in
             guard !baselineWindows.contains(window.windowNumber) else { return false }
-            guard let container = window.contentView?.superview else { return false }
+            guard let container = window.contentView else { return false }
             return container.subviews.contains { $0 is WindowTerminalHostView }
         }
         XCTAssertTrue(

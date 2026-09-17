@@ -1,9 +1,14 @@
 # cmux Cloud devbox interactive shell setup (/etc/cmux/bashrc).
 # Sourced from /etc/bash.bashrc, /etc/skel/.bashrc, /root/.bashrc, and
 # /home/cmux/.bashrc.
-# (byte-identical body below the header; vm-devbox-image.test.ts pins it) and
-# chatmux infra/sandbox-images/devshell.bashrc.
 case $- in *i*) ;; *) return ;; esac
+# A login shell can reach this file through both system and user rc files.
+if [[ ${__cmux_bashrc_loaded:-} ]]; then
+  # Ubuntu's per-user rc can replace the system PS1 between the two sources.
+  [ -r /etc/cmux/prompt.bash ] && . /etc/cmux/prompt.bash
+  return
+fi
+__cmux_bashrc_loaded=1
 
 # PTYs from the sandbox API do not reliably inherit these.
 export LANG="${LANG:-C.UTF-8}"
@@ -45,7 +50,8 @@ if [ -d /etc/cmux/blesh-cache-seed/blesh ]; then
 fi
 
 if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
-  source /usr/local/share/blesh/ble.sh --noattach
+  # Attach at the first prompt, after the user's .bashrc can customize PS1.
+  source /usr/local/share/blesh/ble.sh --attach=prompt
   bleopt prompt_eol_mark= exec_errexit_mark= exec_elapsed_mark= exec_exit_mark=
   # Minimal integration: token highlighting off entirely (the stock faces
   # paint colored backgrounds under mistyped commands and mid-word input,
@@ -65,18 +71,9 @@ if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
   ble-bind -f 'M-C-h' kill-backward-cword
 fi
 
-# Palette colors, not 256-color cube indices: the pane renders in the Mac's
-# Ghostty theme, so magenta/green/yellow/cyan/red land on whatever that theme
-# says, exactly like the local zsh prompt (ESC[35m, ESC[32m, ESC[33m). A cube
-# index such as 135 is the same fixed purple under every theme. The machine
-# name stays in the prompt (\h): cloud machines are addressed by name.
-__cmux_git() {
-  local b d=""
-  b=$(git symbolic-ref --short HEAD 2>/dev/null) || b=$(git rev-parse --short HEAD 2>/dev/null) || return 0
-  git diff --quiet --ignore-submodules HEAD 2>/dev/null || d="*"
-  printf ' on \001\033[36m\002%s\001\033[31m\002%s\001\033[0m\002' "$b" "$d"
-}
-PS1='\[\e[35m\]\u@\h\[\e[0m\] in \[\e[32m\]\w\[\e[0m\]$(__cmux_git)\[\e[33m\] λ\[\e[0m\] '
+# Users can override PS1 later in ~/.bashrc. The default reads the current
+# machine name with Bash builtins and no Git scan.
+[ -r /etc/cmux/prompt.bash ] && . /etc/cmux/prompt.bash
 
 HISTSIZE=50000
 HISTFILESIZE=50000
@@ -85,5 +82,3 @@ shopt -s histappend
 alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 alias g=git
-
-[ -n "${BLE_VERSION:-}" ] && ble-attach

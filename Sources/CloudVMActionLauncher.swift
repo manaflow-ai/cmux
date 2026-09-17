@@ -118,6 +118,11 @@ final class CloudVMActionLauncher {
                     title: String(localized: "command.cloudVM.failed.title.status", defaultValue: "Couldn't Read Machine Status"),
                     action: generic
                 )
+            case "resize":
+                return FailurePresentation(
+                    title: String(localized: "command.cloudVM.failed.title.resize", defaultValue: "Couldn't Resize Machine"),
+                    action: generic
+                )
             case "shell", "desktop", "open":
                 return FailurePresentation(
                     title: String(localized: "command.cloudVM.failed.title.open", defaultValue: "Couldn't Open Machine"),
