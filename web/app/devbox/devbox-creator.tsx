@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { vaultSignInHref } from "../lib/vault-auth";
 
 type CreatedDevbox = {
   id: string;
@@ -108,7 +109,7 @@ export function DevboxCreator() {
         />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link
-            href="/handler/sign-in?after_auth_return_to=/devbox"
+            href={vaultSignInHref("/devbox")}
             className="text-sm text-muted underline underline-offset-4 transition-colors hover:text-foreground"
           >
             Sign in

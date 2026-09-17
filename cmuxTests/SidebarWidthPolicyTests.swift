@@ -1,5 +1,8 @@
 import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
 import SwiftUI
+import Testing
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -9,6 +12,9 @@ import XCTest
 #endif
 
 final class SidebarWidthPolicyTests: XCTestCase {
+    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+
     func testDefaultMinimumSidebarWidthIsPersistedProductDefault() {
         let suiteName = "SidebarWidthPolicyTests.defaultMinimum.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -16,12 +22,12 @@ final class SidebarWidthPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             SessionPersistencePolicy.defaultMinimumSidebarWidth,
-            216,
+            240,
             accuracy: 0.001
         )
         XCTAssertEqual(
             SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
-            216,
+            240,
             accuracy: 0.001
         )
     }
@@ -73,10 +79,54 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
-    func testRightSidebarClampLeavesTerminalWidth() {
+    func testRightSidebarFirstCustomMaximumMatchesBuiltInCap() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(10_000, availableWidth: 10_000),
+            CGFloat(RightSidebarWidthSettings.defaultConfiguredMaximumWidth),
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarClampLeavesTerminalWidthWhenMaxWidthSettingIsMissing() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(10_000, availableWidth: 1000),
             640,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarConfiguredMaxCanExceedBuiltInDefaultOnWideWindows() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 2400,
+                configuredMaximumWidth: 1_500
+            ),
+            1_500,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarConfiguredMaxStillLeavesTerminalWidth() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 1000,
+                configuredMaximumWidth: 1_400
+            ),
+            640,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarConfiguredMaxBelowMinimumClampsToMinimumWidth() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 1000,
+                configuredMaximumWidth: 120
+            ),
+            276,
             accuracy: 0.001
         )
     }
@@ -85,6 +135,122 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(20, availableWidth: 1000),
             276,
+            accuracy: 0.001
+        )
+    }
+
+    func testSettingsFileStoreAppliesRightSidebarMaxWidthSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = RightSidebarWidthSettings.maxWidthKey
+        let previousValues = [
+            managedKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey] {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "right-sidebar-width-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "rightMaxWidth": 900
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.double(forKey: managedKey), 900, accuracy: 0.001)
+        let configuredMaximumWidth = try XCTUnwrap(
+            RightSidebarWidthSettings().configuredMaximumWidth(from: defaults.double(forKey: managedKey))
+        )
+        XCTAssertEqual(configuredMaximumWidth, 900, accuracy: 0.001)
+    }
+
+    func testSettingsFileStoreClampsRightSidebarMaxWidthSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = RightSidebarWidthSettings.maxWidthKey
+        let previousValues = [
+            managedKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey] {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "right-sidebar-width-settings-clamped-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "rightMaxWidth": 10000
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.double(forKey: managedKey),
+            RightSidebarWidthSettings.settingsEditorMaximumWidth,
+            accuracy: 0.001
+        )
+        let configuredMaximumWidth = try XCTUnwrap(
+            RightSidebarWidthSettings().configuredMaximumWidth(from: defaults.double(forKey: managedKey))
+        )
+        XCTAssertEqual(
+            configuredMaximumWidth,
+            RightSidebarWidthSettings.settingsEditorMaximumWidth,
             accuracy: 0.001
         )
     }
@@ -109,6 +275,66 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertTrue(range.contains(684))
         XCTAssertFalse(range.contains(675.9))
         XCTAssertFalse(range.contains(686.1))
+    }
+}
+
+@MainActor
+@Suite("App web theme contrast")
+struct AppWebThemeContrastTests {
+    @Test
+    func keepsReadableCmuxBlue() throws {
+        let accent = try #require(NSColor(hex: "#0088FF"))
+        let background = try #require(NSColor(hex: "#171717"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            accent,
+            on: background
+        )
+
+        #expect(adjusted.hexString() == accent.hexString())
+    }
+
+    @Test
+    func darkensAgainstLightTheme() throws {
+        let background = try #require(NSColor(hex: "#FDF6E3"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        #expect(adjusted.hexString() == "#0071D5")
+        #expect(
+            cmuxContrastRatio(
+                foreground: adjusted,
+                background: background
+            ) >= 4.5
+        )
+    }
+
+    @Test
+    func lightensAgainstDarkSelectedButton() throws {
+        let background = try #require(NSColor(hex: "#4A4543"))
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#0088FF")),
+            on: background
+        )
+
+        #expect(adjusted.hexString() == "#6BB9FF")
+        #expect(
+            cmuxContrastRatio(
+                foreground: adjusted,
+                background: background
+            ) >= 4.5
+        )
+    }
+
+    @Test
+    func choosesSmallestRGBAdjustmentWhenBothDirectionsAreReadable() throws {
+        let adjusted = AppWebThemeSnapshot.contrastAdjustedAccentNSColor(
+            try #require(NSColor(hex: "#000040")),
+            on: try #require(NSColor(hex: "#8060D0"))
+        )
+
+        #expect(adjusted.hexString() == "#000000")
     }
 }
 
@@ -263,10 +489,10 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
                 materialRawValue: SidebarMaterialOption.sidebar.rawValue,
                 blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
                 stateRawValue: SidebarStateOption.followWindow.rawValue,
-                tintHex: SidebarTintDefaults.hex,
+                tintHex: SidebarTintDefaults().hex,
                 tintHexLight: nil,
                 tintHexDark: nil,
-                tintOpacity: SidebarTintDefaults.opacity,
+                tintOpacity: SidebarTintDefaults().opacity,
                 cornerRadius: 0,
                 blurOpacity: 1,
                 colorScheme: .light

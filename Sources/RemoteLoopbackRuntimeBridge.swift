@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 
 enum RemoteLoopbackRuntimeBridge {
     static let runtimeBridgeScriptSource: String = {

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -17,13 +18,13 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
         let third = UUID()
 
         #expect(
-            SidebarWorkspaceSelectionSyncPolicy.anchorWorkspaceId(
+            SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
                 existingAnchorIndex: 1,
                 liveWorkspaceIds: [first, second, third]
             ) == second
         )
         #expect(
-            SidebarWorkspaceSelectionSyncPolicy.anchorWorkspaceId(
+            SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
                 existingAnchorIndex: 3,
                 liveWorkspaceIds: [first, second, third]
             ) == nil
@@ -38,7 +39,7 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
         let third = UUID()
         let fourth = UUID()
 
-        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceReorder(
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceReorder(
             preferredAnchorWorkspaceId: first,
             selectedWorkspaceIds: [first, second, third],
             focusedWorkspaceId: third,
@@ -55,7 +56,7 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
         let second = UUID()
         let third = UUID()
 
-        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceReorder(
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceReorder(
             preferredAnchorWorkspaceId: first,
             selectedWorkspaceIds: [second, third],
             focusedWorkspaceId: third,
@@ -72,7 +73,7 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
         let second = UUID()
         let third = UUID()
 
-        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.shiftClickAnchorIndex(
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
             existingAnchorIndex: nil,
             selectedWorkspaceIds: [first],
             focusedWorkspaceId: second,
@@ -89,13 +90,13 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
         let second = UUID()
         let third = UUID()
 
-        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy.shiftClickAnchorIndex(
+        let anchorIndex = SidebarWorkspaceSelectionSyncPolicy().shiftClickAnchorIndex(
             existingAnchorIndex: 0,
             selectedWorkspaceIds: [first, second],
             focusedWorkspaceId: second,
             liveWorkspaceIds: [first, second, third]
         )
-        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceClick(
+        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceClick(
             isShiftClick: true,
             resolvedShiftAnchorIndex: anchorIndex,
             clickedIndex: 2
@@ -108,7 +109,7 @@ struct SidebarWorkspaceSelectionAnchorPolicyTests {
     @MainActor
     @Test
     func nonShiftClickMovesSidebarSelectionAnchor() {
-        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy.anchorIndexAfterWorkspaceClick(
+        let nextAnchorIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceClick(
             isShiftClick: false,
             resolvedShiftAnchorIndex: 0,
             clickedIndex: 2

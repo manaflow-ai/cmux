@@ -56,12 +56,15 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
         XCTAssertNil(ClaudeConfigurationRoot.configuredResumeDirectory(root.appendingPathComponent(".claude").path))
 
         let command = try XCTUnwrap(
-            makeClaudeSessionEntry(fileURL: transcriptURL).resumeCommand
+            makeClaudeSessionEntry(fileURL: transcriptURL).copyResumeCommand
         )
 
         XCTAssertFalse(command.contains("CLAUDE_CONFIG_DIR="))
-        XCTAssertTrue(command.hasPrefix("cd /tmp/repo && "))
-        XCTAssertTrue(command.contains("claude --resume session-123"))
+        XCTAssertTrue(command.hasPrefix("cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && "))
+        XCTAssertTrue(command.contains(
+            AgentResumeArgv.claudeWrapperShellExecutableToken
+                .replacingOccurrences(of: "'", with: "'\\''") + " --resume session-123"
+        ))
         XCTAssertTrue(command.contains("--model claude-opus-4-7"))
         XCTAssertTrue(command.contains("--permission-mode default"))
     }
@@ -110,11 +113,14 @@ final class ClaudeConfigDirectoryPathTests: XCTestCase {
             makeClaudeSessionEntry(
                 fileURL: transcriptURL,
                 configDirectoryForResume: resumeConfigDir
-            ).resumeCommand
+            ).copyResumeCommand
         )
 
         XCTAssertTrue(command.contains("CLAUDE_CONFIG_DIR=\(configDir.path)"))
-        XCTAssertTrue(command.contains("claude --resume session-123"))
+        XCTAssertTrue(command.contains(
+            AgentResumeArgv.claudeWrapperShellExecutableToken
+                .replacingOccurrences(of: "'", with: "'\\''") + " --resume session-123"
+        ))
     }
 
     private func makeClaudeSessionEntry(

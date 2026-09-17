@@ -64,7 +64,7 @@ echo "Building GhosttyKit..."
 rm -rf GhosttyKit.xcframework ghostty/macos/GhosttyKit.xcframework
 (
   cd ghostty
-  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
+  zig build -Dcrash-report-subdir="$GHOSTTYKIT_CRASH_REPORT_SUBDIR" -Dsentry=false -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=universal -Doptimize=ReleaseFast
 )
 cp -R ghostty/macos/GhosttyKit.xcframework GhosttyKit.xcframework
 
@@ -79,6 +79,15 @@ if [ ! -x "$HELPER_PATH" ]; then
   echo "Ghostty theme picker helper not found at $HELPER_PATH" >&2
   exit 1
 fi
+
+# Submit the independently signed Computer Use helper now. Apple can process
+# its first ticket while this script finishes bundle metadata and signing.
+COMPUTER_USE_NOTARY_STATE="build/computer-use-notarization.state"
+./scripts/ci/notarize-computer-use-helper.sh \
+  --start "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
 
 # --- Inject Sparkle keys ---
 echo "Injecting Sparkle keys..."
@@ -96,19 +105,17 @@ echo "Sparkle keys injected"
 
 # --- Codesign ---
 echo "Codesigning..."
-CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
-if [ -f "$CLI_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$CLI_PATH"
-fi
-if [ -f "$HELPER_PATH" ]; then
-  /usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" "$HELPER_PATH"
-fi
-/usr/bin/codesign --force --options runtime --timestamp --sign "$SIGN_HASH" --entitlements "$ENTITLEMENTS" --deep "$APP_PATH"
-/usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+CMUX_SIGN_MODE=all-except-computer-use \
+  ./scripts/sign-cmux-bundle.sh "$APP_PATH" "$ENTITLEMENTS" "$SIGN_HASH"
 echo "Codesign verified"
 
 # --- Notarize app ---
 echo "Notarizing app..."
+./scripts/ci/notarize-computer-use-helper.sh \
+  --finish "$COMPUTER_USE_NOTARY_STATE" \
+  "$APP_PATH" \
+  "$ENTITLEMENTS" \
+  "$SIGN_HASH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" cmux-notary.zip
 xcrun notarytool submit cmux-notary.zip \
   --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait
@@ -119,6 +126,7 @@ echo "App notarized"
 
 # --- Create and notarize DMG ---
 echo "Creating DMG..."
+./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
 rm -f cmux-macos.dmg
 create-dmg --codesign "$SIGN_HASH" cmux-macos.dmg "$APP_PATH"
 echo "Notarizing DMG..."

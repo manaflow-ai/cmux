@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 tag = os.environ.get("CMUX_TAG", "swmob")
+bundle_id = os.environ.get("MOBILE_APP_BUNDLE_ID", f"dev.cmux.ios.{tag}").strip()
 repo = Path(os.environ.get("CMUX_REPO", Path(__file__).resolve().parents[2]))
 simulator_id = os.environ["SIMULATOR_ID"]
 client_id = os.environ.get("CLIENT_ID", "mobile-soak-cli")
@@ -137,11 +138,18 @@ def selected_route(routes):
     raise RuntimeError("attach ticket has no routes")
 
 
+# The soak targets one exact app bundle. Its attach URL must use that bundle's
+# exclusive scheme so simctl cannot route the URL to another installed build.
+ATTACH_URL_SCHEME = os.environ.get(
+    "MOBILE_ATTACH_URL_SCHEME", f"cmux-ios-{bundle_id}"
+).strip()
+
+
 def attach_url_for_ticket(ticket):
     encoded = base64.urlsafe_b64encode(
         json.dumps(ticket, separators=(",", ":")).encode("utf-8")
     ).decode("ascii").rstrip("=")
-    return f"cmux-ios://attach?v={ticket.get('version', 1)}&payload={encoded}"
+    return f"{ATTACH_URL_SCHEME}://attach?v={ticket.get('version', 1)}&payload={encoded}"
 
 
 def ticket_from_payload(payload, attach_url):
@@ -180,7 +188,10 @@ def create_ticket(workspace_id=None):
             "created_at": time.monotonic(),
         }
 
-    params = {"ttl_seconds": ticket_ttl_seconds}
+    params = {
+        "ttl_seconds": ticket_ttl_seconds,
+        "target": "simulator_injection",
+    }
     if workspace_id:
         params["workspace_id"] = workspace_id
     payload = cmux_rpc("mobile.attach_ticket.create", params)
@@ -188,7 +199,6 @@ def create_ticket(workspace_id=None):
 
 
 def launch_app_with_attach_ticket(ticket):
-    bundle_id = f"dev.cmux.ios.{tag}"
     run(["xcrun", "simctl", "terminate", simulator_id, bundle_id], cwd=Path("/"), check=False)
     launch_output = run(
         ["xcrun", "simctl", "launch", "--terminate-running-process", simulator_id, bundle_id],

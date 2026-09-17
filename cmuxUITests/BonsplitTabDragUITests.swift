@@ -10,7 +10,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         super.setUp()
         continueAfterFailure = false
 
-        let cleanup = XCUIApplication()
+        let cleanup = XCUIApplication.cmuxTestApplication()
         cleanup.terminate()
         _ = cleanup.wait(for: .notRunning, timeout: 2.0)
     }
@@ -63,6 +63,102 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
         XCTAssertEqual(window.frame.origin.x, windowFrameBeforeDrag.origin.x, accuracy: 2.0, "Expected tab drag not to move the window horizontally")
         XCTAssertEqual(window.frame.origin.y, windowFrameBeforeDrag.origin.y, accuracy: 2.0, "Expected tab drag not to move the window vertically")
+    }
+
+    func testMinimalModeReordersLaterTabToMiddleIndex() {
+        let (app, dataPath) = launchConfiguredApp(fourTabSetup: true)
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for later-to-middle Bonsplit tab drag UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let gammaTitle = ready["gammaTitle"] ?? "UITest Gamma"
+        let deltaTitle = ready["deltaTitle"] ?? "UITest Delta"
+        let initialOrder = "\(alphaTitle)|\(betaTitle)|\(gammaTitle)|\(deltaTitle)"
+        let expectedOrder = "\(alphaTitle)|\(deltaTitle)|\(betaTitle)|\(gammaTitle)"
+        let window = app.windows.element(boundBy: 0)
+        let betaTab = app.buttons[betaTitle]
+        let deltaTab = app.buttons[deltaTitle]
+
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        XCTAssertTrue(deltaTab.waitForExistence(timeout: 5.0), "Expected delta tab to exist")
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabTitles", equals: initialOrder, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected initial tracked tab order to be \(initialOrder). data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+
+        dragTab(deltaTab, before: betaTab)
+
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabTitles", equals: expectedOrder, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected dragging the later tab into the middle to produce \(expectedOrder). data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { deltaTab.frame.minX < betaTab.frame.minX },
+            "Expected delta tab to settle before beta without appending to the end. beta=\(betaTab.frame) delta=\(deltaTab.frame)"
+        )
+    }
+
+    func testMinimalModeReordersEarlierTabToMiddleIndex() {
+        let (app, dataPath) = launchConfiguredApp(fourTabSetup: true)
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for earlier-to-middle Bonsplit tab drag UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let gammaTitle = ready["gammaTitle"] ?? "UITest Gamma"
+        let deltaTitle = ready["deltaTitle"] ?? "UITest Delta"
+        let initialOrder = "\(alphaTitle)|\(betaTitle)|\(gammaTitle)|\(deltaTitle)"
+        let expectedOrder = "\(betaTitle)|\(gammaTitle)|\(alphaTitle)|\(deltaTitle)"
+        let window = app.windows.element(boundBy: 0)
+        let alphaTab = app.buttons[alphaTitle]
+        let deltaTab = app.buttons[deltaTitle]
+
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+        XCTAssertTrue(deltaTab.waitForExistence(timeout: 5.0), "Expected delta tab to exist")
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabTitles", equals: initialOrder, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected initial tracked tab order to be \(initialOrder). data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+
+        dragTab(alphaTab, before: deltaTab)
+
+        XCTAssertTrue(
+            waitForJSONKey("trackedPaneTabTitles", equals: expectedOrder, atPath: dataPath, timeout: 5.0) != nil,
+            "Expected dragging the earlier tab into the middle to produce \(expectedOrder). data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        XCTAssertTrue(
+            waitForCondition(timeout: 5.0) { alphaTab.frame.minX < deltaTab.frame.minX },
+            "Expected alpha tab to settle before delta without appending to the end. alpha=\(alphaTab.frame) delta=\(deltaTab.frame)"
+        )
     }
 
     func testMinimalModePlacesPaneTabBarAtTopEdge() {
@@ -314,6 +410,34 @@ final class BonsplitTabDragUITests: XCTestCase {
                 !closeButton.exists || !closeButton.isHittable
             },
             "Expected Cmd+Option+B to hide the right sidebar when it is open."
+        )
+    }
+
+    func testLaunchCompletesWithHiddenRightSidebarRestoringFindMode() {
+        let (app, dataPath) = launchConfiguredApp(
+            rightSidebarMode: "find",
+            showRightSidebar: false
+        )
+
+        XCTAssertTrue(
+            ensureAppRunningAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to keep running with hidden right sidebar in find mode. state=\(app.state.rawValue) data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1 with hidden right sidebar in find mode. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        XCTAssertEqual(ready["rightSidebarVisible"], "0")
+        XCTAssertNotEqual(app.state, .notRunning, "Expected app to still be running after hidden right-sidebar setup. data=\(loadJSON(atPath: dataPath) ?? [:])")
+        XCTAssertFalse(
+            app.textFields["FileExplorerSearchField"].firstMatch.exists,
+            "Hidden right sidebar should not expose the File Explorer search field at launch."
         )
     }
 
@@ -844,12 +968,14 @@ final class BonsplitTabDragUITests: XCTestCase {
     private func launchConfiguredApp(
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
+        rightSidebarMode: String? = nil,
         showRightSidebar: Bool = false,
         alwaysShowShortcutHints: Bool = false,
         windowSize: String? = nil,
-        actionButtonCount: Int? = nil
+        actionButtonCount: Int? = nil,
+        fourTabSetup: Bool = false
     ) -> (XCUIApplication, String) {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -865,6 +991,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         if let actionButtonCount {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"] = String(actionButtonCount)
         }
+        if fourTabSetup {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_FOUR_TAB_SETUP"] = "1"
+        }
         if showRightSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         }
@@ -872,6 +1001,12 @@ final class BonsplitTabDragUITests: XCTestCase {
             app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
+        if let rightSidebarMode {
+            app.launchArguments += [
+                "-rightSidebar.mode", rightSidebarMode,
+                "-fileExplorer.isVisible", showRightSidebar ? "1" : "0",
+            ]
+        }
         let options = XCTExpectedFailure.Options()
         options.isStrict = false
         XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
