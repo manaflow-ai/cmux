@@ -15,6 +15,24 @@ import WebKit
 @MainActor
 @Suite("Cloud browser CONNECT integration", .serialized, .timeLimit(.minutes(2)))
 struct CloudBrowserProxyIntegrationTests {
+    @Test("the browser carrier does not inherit app credentials")
+    func browserCarrierSanitizesInheritedCredentials() {
+        let environment = CloudBrowserProxyProcess.sanitizedEnvironment([
+            "HOME": "/Users/test",
+            "CMUX_AUTH_CREDENTIALS_FILE": "/tmp/credentials",
+            "CMUX_DOGFOOD_STACK_PASSWORD": "secret",
+            "CMUX_UITEST_STACK_PASSWORD": "secret",
+            "CMUX_SOCKET_PASSWORD": "secret",
+            "PATH": "/usr/bin",
+        ])
+        #expect(environment["HOME"] == "/Users/test")
+        #expect(environment["PATH"] == "/usr/bin")
+        #expect(environment["CMUX_AUTH_CREDENTIALS_FILE"] == nil)
+        #expect(environment["CMUX_DOGFOOD_STACK_PASSWORD"] == nil)
+        #expect(environment["CMUX_UITEST_STACK_PASSWORD"] == nil)
+        #expect(environment["CMUX_SOCKET_PASSWORD"] == nil)
+    }
+
     @Test("a cold Cloud page has a loading host and proxy before its first request")
     func coldCloudNavigationKeepsItsLoadingHost() async throws {
         let server = try CloudBrowserProxyTestServer(address: "10.16.0.10", marker: "cold")

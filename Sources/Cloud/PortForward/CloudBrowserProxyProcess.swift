@@ -6,6 +6,15 @@ nonisolated private let browserProxyLog = Logger(subsystem: "com.cmuxterm.app", 
 
 /// Owns one VM's browser carrier and its WireGuard claim until shutdown or child exit.
 actor CloudBrowserProxyProcess {
+    private static let secretEnvironmentKeys: Set<String> = [
+        "CMUX_AUTH_CREDENTIALS_FILE",
+        "CMUX_DOGFOOD_STACK_EMAIL",
+        "CMUX_DOGFOOD_STACK_PASSWORD",
+        "CMUX_UITEST_STACK_EMAIL",
+        "CMUX_UITEST_STACK_PASSWORD",
+        "CMUX_SOCKET_PASSWORD",
+    ]
+
     private var process: Process?
     private var exit: CloudLinkFirstValue<Int32>?
     private var releaseHub: (@Sendable () async -> Void)?
@@ -14,6 +23,13 @@ actor CloudBrowserProxyProcess {
     let addresses: [String]
 
     init(addresses: [String]) { self.addresses = addresses }
+
+    /// The browser carrier authenticates with its generated CONNECT credential
+    /// and its explicit state directory. It must not inherit app login material
+    /// or dogfood passwords from the GUI process environment.
+    nonisolated static func sanitizedEnvironment(_ environment: [String: String]) -> [String: String] {
+        environment.filter { !secretEnvironmentKeys.contains($0.key) }
+    }
 
     var readyEndpoint: CloudBrowserProxyEndpoint? {
         process?.isRunning == true && !stopped ? endpoint : nil
@@ -32,6 +48,7 @@ actor CloudBrowserProxyProcess {
         let ready = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
         child.executableURL = client
         child.arguments = arguments
+        child.environment = Self.sanitizedEnvironment(ProcessInfo.processInfo.environment)
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = output
         child.standardError = errors
