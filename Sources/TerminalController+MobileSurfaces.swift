@@ -71,11 +71,13 @@ extension TerminalController {
             }
             return WorkspaceSyncRecord.Surface(
                 surfaceID: panel.id.uuidString,
+                stableSurfaceID: panel.stableSurfaceId.uuidString,
                 kind: mobileSurfaceKind(for: panel.panelType).rawValue,
                 title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                 filePath: filePath,
                 todo: panel.panelType == .workspaceTodo ? mobileTodoSnapshot(in: workspace) : nil,
-                isFocused: panel.id == workspace.focusedPanelId
+                isFocused: panel.id == workspace.focusedPanelId,
+                paneID: workspace.paneId(forPanelId: panel.id)?.id.uuidString
             )
         }
     }
