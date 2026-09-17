@@ -147,6 +147,7 @@ Flag a new `(landing)` page (or a new path added to `web/app/sitemap.ts`) when i
 Localization of the new page copy into every locale is covered by the internationalization rule, not this one.
 
 Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently and not added to `agentReadablePages` either, non-landing routes, edits to existing landing pages, and existing registry drift the PR does not introduce or worsen.
+
 ## Cloud Persistent Session and Early Input
 
 For Cloud terminal creation and transport, keep one authenticated machine-owned cmux-tui session and multiplex control replies and revisioned events over it. Logical per-terminal streams are allowed when they preserve attachment leases, cancellation, geometry ownership, and byte routing. Reserve the local manual pane and start its empty Ghostty runtime immediately; remote PTY creation, shell startup, and attachment populate that runtime later. Preserve ordered input ownership, auth, idempotency keys, revision fences, and attachment leases. Reuse a current validated event graph and refresh only for cold, stale, missing, or revision-conflict state.
