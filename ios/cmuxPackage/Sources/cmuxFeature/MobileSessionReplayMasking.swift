@@ -14,14 +14,20 @@ import CmuxMobileTerminal
 /// composition root hands it to the crash reporter at SDK start. A new
 /// content surface that is not a `UILabel`/`UIImageView`/`WKWebView` must be
 /// added here before it ships.
-public enum MobileSessionReplayMasking {
+public struct MobileSessionReplayMasking {
+    private let browserMasking: BrowserStreamReplayMasking
+
+    public init(browserMasking: BrowserStreamReplayMasking = BrowserStreamReplayMasking()) {
+        self.browserMasking = browserMasking
+    }
+
     /// All app-owned content surfaces that session replay must mask.
-    public static var maskedViewClasses: [AnyClass] {
+    public var maskedViewClasses: [AnyClass] {
         [
             GhosttySurfaceView.self,
             SimStreamDisplayView.self,
             CameraPreviewHostView.self,
-        ] + BrowserStreamReplayMasking.maskedViewClasses
+        ] + browserMasking.maskedViewClasses
     }
 }
 #endif

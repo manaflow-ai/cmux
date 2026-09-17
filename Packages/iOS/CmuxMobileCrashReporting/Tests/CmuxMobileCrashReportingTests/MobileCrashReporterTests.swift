@@ -75,7 +75,13 @@ private final class ReplayMaskProbeView: UIView {}
     }
 
     @Test func optionsFactoryMatchesMobileContract() {
+        #if os(iOS)
+        let options = MobileCrashReporter().makeOptions(
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+        )
+        #else
         let options = MobileCrashReporter().makeOptions()
+        #endif
 
         #expect(options.dsn == "https://834d19a3077c4adbff534dca1e93de4f@o4507547940749312.ingest.us.sentry.io/4510604800491520")
         #expect(options.tracesSampleRate?.doubleValue == 0.0)
@@ -105,7 +111,8 @@ private final class ReplayMaskProbeView: UIView {}
         #expect(options.sessionReplay.maskAllText == true)
         #expect(options.sessionReplay.maskAllImages == true)
         #expect(options.sessionReplay.enableFastViewRendering == false)
-        #expect(options.sessionReplay.maskedViewClasses.isEmpty)
+        #expect(options.sessionReplay.maskedViewClasses.count == 1)
+        #expect(options.sessionReplay.maskedViewClasses.first == ReplayMaskProbeView.self)
         #endif
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
@@ -142,9 +149,13 @@ private final class ReplayMaskProbeView: UIView {}
 
     @Test func replayForceSessionEnvironmentOverridesSampleRateOnlyInDebug() {
         let forced = MobileCrashReporter().makeOptions(
-            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"]
+            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"],
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
         )
-        let normal = MobileCrashReporter().makeOptions(environment: [:])
+        let normal = MobileCrashReporter().makeOptions(
+            environment: [:],
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+        )
 
         #if DEBUG
         #expect(forced.sessionReplay.sessionSampleRate == 1.0)
@@ -153,6 +164,22 @@ private final class ReplayMaskProbeView: UIView {}
         #endif
         #expect(normal.sessionReplay.sessionSampleRate == 0.1)
         #expect(forced.sessionReplay.onErrorSampleRate == 1.0)
+    }
+
+    @Test func replayStaysDisabledWithoutRequiredMaskClasses() {
+        let missing = MobileCrashReporter().makeOptions(
+            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"]
+        )
+        let empty = MobileCrashReporter().makeOptions(
+            environment: ["CMUX_REPLAY_FORCE_SESSION": "1"],
+            replayMaskedViewClasses: []
+        )
+
+        for options in [missing, empty] {
+            #expect(options.sessionReplay.sessionSampleRate == 0.0)
+            #expect(options.sessionReplay.onErrorSampleRate == 0.0)
+            #expect(options.sessionReplay.maskedViewClasses.isEmpty)
+        }
     }
     #endif
 

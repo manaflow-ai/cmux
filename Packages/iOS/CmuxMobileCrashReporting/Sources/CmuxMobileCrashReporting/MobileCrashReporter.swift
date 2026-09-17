@@ -61,7 +61,7 @@ public struct MobileCrashReporter {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         notificationCenter: NotificationCenter = .default,
         revocationWatcher: RevocationWatcher,
-        replayMaskedViewClasses: [AnyClass] = [],
+        replayMaskedViewClasses: [AnyClass]? = nil,
         prepareLocale: () -> Void = {
             _ = Locale.current
             _ = NSLocale.preferredLanguages
@@ -149,12 +149,13 @@ public struct MobileCrashReporter {
     ///     top of the text/image/webview defaults. The composition root passes
     ///     every content surface here (terminal, browser stream, sim stream,
     ///     camera) because Metal- and video-backed views are not covered by
-    ///     the class-based defaults.
+    ///     the class-based defaults. Replay stays disabled when this is nil or
+    ///     empty so a new startup path cannot record those surfaces unmasked.
     /// - Returns: A fully configured Sentry ``Options`` value suitable for
     ///   `SentrySDK.start(options:)`.
     public func makeOptions(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        replayMaskedViewClasses: [AnyClass] = []
+        replayMaskedViewClasses: [AnyClass]? = nil
     ) -> Options {
         let options = Options()
         options.dsn = Self.dsn
@@ -210,19 +211,20 @@ public struct MobileCrashReporter {
         // transport and purges `Caches/io.sentry`, which holds buffered
         // replay segments. Touch capture stays off because it requires
         // `enableSwizzling`.
-        options.sessionReplay.onErrorSampleRate = 1.0
-        options.sessionReplay.sessionSampleRate = 0.1
+        let hasRequiredReplayMasks = !(replayMaskedViewClasses?.isEmpty ?? true)
+        options.sessionReplay.onErrorSampleRate = hasRequiredReplayMasks ? 1.0 : 0.0
+        options.sessionReplay.sessionSampleRate = hasRequiredReplayMasks ? 0.1 : 0.0
         options.sessionReplay.quality = .low
         options.sessionReplay.maskAllText = true
         options.sessionReplay.maskAllImages = true
-        options.sessionReplay.maskedViewClasses = replayMaskedViewClasses
+        options.sessionReplay.maskedViewClasses = replayMaskedViewClasses ?? []
         // CALayer-only rendering can omit views entirely; keep the complete
         // renderer so masked regions are drawn as blocks, not skipped.
         options.sessionReplay.enableFastViewRendering = false
         #if DEBUG
         // Mask-audit override: force a full-session replay so every screen
         // can be walked once and inspected in Sentry for mask leaks.
-        if environment["CMUX_REPLAY_FORCE_SESSION"] == "1" {
+        if hasRequiredReplayMasks, environment["CMUX_REPLAY_FORCE_SESSION"] == "1" {
             options.sessionReplay.sessionSampleRate = 1.0
         }
         #endif

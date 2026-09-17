@@ -6,10 +6,12 @@ import UIKit
 /// browser pixels live in a plain `CALayer`, which replay's text/image
 /// masking defaults cannot classify, so the hosting view must be masked by
 /// class.
-public enum BrowserStreamReplayMasking {
+public struct BrowserStreamReplayMasking {
     /// The browser stream view class whose layer-backed pixels must be masked.
-    public static var maskedViewClasses: [AnyClass] {
-        [BrowserStreamContentView.self]
+    public let maskedViewClasses: [AnyClass]
+
+    public init() {
+        self.maskedViewClasses = [BrowserStreamContentView.self]
     }
 }
 #endif
