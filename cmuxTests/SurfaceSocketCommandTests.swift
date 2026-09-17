@@ -365,11 +365,15 @@ struct SurfaceSocketCommandTests {
     @Test func projectResolvesAnExplicitSurfaceInAnotherWindow() async throws {
         try await Self.withFixture { fixture in
             let app = try #require(AppDelegate.shared)
-            let windowID = app.createMainWindow(shouldActivate: false)
+            // This test exercises ownership lookup, not window rendering.
+            // Keep the second window context deterministic and avoid leaving
+            // SwiftUI render/teardown work running into the next socket test.
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let windowID = app.registerMainWindowContextForTesting(tabManager: manager)
             defer {
-                app.mainWindow(for: windowID)?.performClose(nil)
+                app.unregisterMainWindowContextForTesting(windowId: windowID)
+                manager.tabs.forEach { $0.teardownAllPanels() }
             }
-            let manager = try #require(app.tabManagerFor(windowId: windowID))
             let workspace = try #require(manager.selectedWorkspace)
             let surfaceID = try #require(workspace.focusedPanelId)
             let paneID = try #require(workspace.paneId(forPanelId: surfaceID))
