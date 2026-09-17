@@ -130,8 +130,7 @@ struct BrowserActionDispatcher {
                 guard let panelId = workspace.openNewCanvasPane(
                     type: .browser,
                     focus: true,
-                    direction: direction.canvasDirection,
-                    engine: panel.engineKind
+                    direction: direction.canvasDirection
                 ) else {
                     return false
                 }
@@ -145,7 +144,6 @@ struct BrowserActionDispatcher {
                 insertFirst: direction.insertFirst,
                 preferredProfileID: panel.profileID,
                 focus: true,
-                engine: panel.engineKind,
                 websiteDataStore:
                     panel.explicitEphemeralWebsiteDataStoreForSibling
             ) else {
@@ -161,14 +159,14 @@ struct BrowserActionDispatcher {
                 insertFirst: direction.insertFirst,
                 sourcePanelId: panel.id,
                 preferredProfileID: panel.profileID,
-                engine: panel.engineKind,
                 websiteDataStore:
                     panel.explicitEphemeralWebsiteDataStoreForSibling,
-                focus: true
+                focus: false
             ),
             let splitPanel = dock.browserPanel(for: splitPanelId) else {
                 return false
             }
+            dock.focusPanelFromDockInteraction(splitPanelId, window: nil)
             _ = appDelegate.focusBrowserAddressBar(in: splitPanel)
             return true
         }

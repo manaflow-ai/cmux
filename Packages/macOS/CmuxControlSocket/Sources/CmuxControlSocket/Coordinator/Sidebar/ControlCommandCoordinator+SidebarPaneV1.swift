@@ -1,5 +1,4 @@
 internal import Foundation
-internal import CmuxBrowser
 
 /// The v1 bonsplit pane commands (`list_panes` / `list_pane_surfaces` /
 /// `focus_pane` / `focus_surface_by_panel` / `drag_surface_to_split` /
@@ -151,7 +150,6 @@ extension ControlCommandCoordinator {
         var direction: ControlSidebarSplitDirectionV1 = .right
         var urlRaw: String? = nil
         var url: URL? = nil
-        var engine: BrowserEngineKind?
         var invalidDirection = false
 
         let parts = args.split(separator: " ")
@@ -171,26 +169,11 @@ extension ControlCommandCoordinator {
                 let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
                 urlRaw = urlStr.isEmpty ? nil : urlStr
                 url = urlRaw.flatMap { URL(string: $0) }
-            } else if partStr.hasPrefix("--engine=") {
-                guard let parsed = BrowserEngineKind.parse(String(partStr.dropFirst("--engine=".count))) else {
-                    return "ERROR: \(browserEngineStrings().invalidOption)"
-                }
-                engine = parsed
             }
-        }
-        if let engineIndex = parts.firstIndex(of: "--engine") {
-            guard engineIndex + 1 < parts.count,
-                  let parsed = BrowserEngineKind.parse(String(parts[engineIndex + 1])) else {
-                return "ERROR: \(browserEngineStrings().invalidOption)"
-            }
-            engine = parsed
         }
 
         if invalidDirection {
             return "ERROR: Invalid direction. Use left, right, up, or down."
-        }
-        if engine != nil && !isBrowser {
-            return "ERROR: \(browserEngineStrings().browserOnly)"
         }
         if isBrowser, !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
             return browserPanelOpenExternallyWhenDisabled(rawURL: urlRaw, url: url)
@@ -200,8 +183,7 @@ extension ControlCommandCoordinator {
             isBrowser: isBrowser,
             orientationIsHorizontal: direction.isHorizontal,
             insertFirst: direction.insertFirst,
-            url: url,
-            engine: engine
+            url: url
         ) ?? .failed {
         case .created(let newPanelID):
             return "OK \(newPanelID.uuidString)"
@@ -227,7 +209,6 @@ extension ControlCommandCoordinator {
         var paneArg: String? = nil
         var urlRaw: String? = nil
         var url: URL? = nil
-        var engine: BrowserEngineKind?
 
         let parts = args.split(separator: " ")
         for part in parts {
@@ -241,33 +222,13 @@ extension ControlCommandCoordinator {
                 let urlStr = String(partStr.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines)
                 urlRaw = urlStr.isEmpty ? nil : urlStr
                 url = urlRaw.flatMap { URL(string: $0) }
-            } else if partStr.hasPrefix("--engine=") {
-                guard let parsed = BrowserEngineKind.parse(String(partStr.dropFirst("--engine=".count))) else {
-                    return "ERROR: \(browserEngineStrings().invalidOption)"
-                }
-                engine = parsed
             }
-        }
-        if let engineIndex = parts.firstIndex(of: "--engine") {
-            guard engineIndex + 1 < parts.count,
-                  let parsed = BrowserEngineKind.parse(String(parts[engineIndex + 1])) else {
-                return "ERROR: \(browserEngineStrings().invalidOption)"
-            }
-            engine = parsed
-        }
-        if engine != nil && !isBrowser {
-            return "ERROR: \(browserEngineStrings().browserOnly)"
         }
         if isBrowser, !(browserPanelContext?.controlBrowserPanelAvailabilityEnabled() ?? true) {
             return browserPanelOpenExternallyWhenDisabled(rawURL: urlRaw, url: url)
         }
 
-        switch sidebarContext?.controlSidebarNewSurface(
-            isBrowser: isBrowser,
-            paneArg: paneArg,
-            url: url,
-            engine: engine
-        ) ?? .noTabSelected {
+        switch sidebarContext?.controlSidebarNewSurface(isBrowser: isBrowser, paneArg: paneArg, url: url) ?? .noTabSelected {
         case .noTabSelected, .failed:
             return "ERROR: Failed to create tab"
         case .paneNotFound:

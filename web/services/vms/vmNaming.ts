@@ -3,8 +3,8 @@ import { randomInt } from "node:crypto";
 /**
  * Three-word machine names (`sleepy-teal-otter`). The slug is generated once
  * per machine at create, never changes, and is unique among the owner's live
- * machines, so it can stand in for the provider id anywhere a person types a
- * machine address. `displayName` stays the free-text label people rename.
+ * machines. `displayName` stays the free-text label people rename, and the
+ * provider id remains the machine address for API and CLI operations.
  *
  * The grammar is deliberately narrow (lowercase ASCII words joined by single
  * hyphens) so the slug is safe in URLs, hostnames, shell arguments, and file
@@ -87,7 +87,9 @@ const SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 export type VmSlugRandom = (upperExclusive: number) => number;
 
 function pick(list: readonly string[], random: VmSlugRandom): string {
-  return list[random(list.length)]!;
+  const value = list[random(list.length)];
+  if (value === undefined) throw new Error("VM slug word list is empty");
+  return value;
 }
 
 /** A fresh `adjective-color-animal` slug. `random` is injectable for tests. */
@@ -107,6 +109,8 @@ export function suffixVmSlug(slug: string, random: VmSlugRandom = randomInt): st
 
 /** How many plain candidates to try before falling back to a suffixed one. */
 export const VM_SLUG_PLAIN_ATTEMPTS = 8;
+/** Maximum suffixed candidates to probe before failing the transaction. */
+export const VM_SLUG_SUFFIX_ATTEMPTS = 64;
 
 /**
  * Picks a slug no live machine in the scope already uses. `isTaken` answers
@@ -124,8 +128,9 @@ export async function allocateVmSlug(
     plain = generateVmSlug(random);
     if (!(await isTaken(plain))) return plain;
   }
-  for (;;) {
+  for (let attempt = 0; attempt < VM_SLUG_SUFFIX_ATTEMPTS; attempt += 1) {
     const candidate = suffixVmSlug(plain, random);
     if (!(await isTaken(candidate))) return candidate;
   }
+  throw new Error("Unable to allocate a unique VM slug");
 }

@@ -41,6 +41,8 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? USER_ID,
+    coderouterPoolId: null,
     ...overrides,
   };
 }

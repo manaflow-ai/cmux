@@ -1,6 +1,5 @@
 import AppKit
 import Bonsplit
-import CmuxBrowser
 import CmuxControlSocket
 import CmuxTerminal
 
@@ -178,8 +177,7 @@ extension TerminalController {
         isBrowser: Bool,
         orientationIsHorizontal: Bool,
         insertFirst: Bool,
-        url: URL?,
-        engine: BrowserEngineKind?
+        url: URL?
     ) -> ControlSidebarPaneSplitResolution {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
@@ -197,8 +195,7 @@ extension TerminalController {
                 insertFirst: insertFirst,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
-                engine: engine
+                creationPolicy: .automationPreload
             )?.id else {
                 return .failed
             }
@@ -227,12 +224,7 @@ extension TerminalController {
 
     // MARK: - New / close surface
 
-    func controlSidebarNewSurface(
-        isBrowser: Bool,
-        paneArg: String?,
-        url: URL?,
-        engine: BrowserEngineKind?
-    ) -> ControlSidebarNewSurfaceResolution {
+    func controlSidebarNewSurface(isBrowser: Bool, paneArg: String?, url: URL?) -> ControlSidebarNewSurfaceResolution {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
@@ -264,8 +256,7 @@ extension TerminalController {
                 inPane: targetPaneId,
                 url: url,
                 focus: focus,
-                creationPolicy: .automationPreload,
-                engine: engine
+                creationPolicy: .automationPreload
             )?.id else {
                 return .failed
             }
@@ -364,18 +355,25 @@ extension TerminalController {
 
     @discardableResult
     func controlSidebarReloadConfigWithAdmission(
+        /// Runs after surface propagation completes.
         completion:
-            GhosttyApp.ConfigurationReloadCompletion? = nil
+            GhosttyApp.ConfigurationReloadCompletion? = nil,
+        /// Runs as soon as the validated app configuration commits. `false`
+        /// means preparation failed and no new configuration was committed.
+        commitCompletion:
+            GhosttyApp.ConfigurationReloadCommitCompletion? = nil
     ) -> Bool {
         if let appDelegate = AppDelegate.shared {
             return appDelegate.reloadConfiguration(
                 source: "socket.reload_config",
-                completion: completion
+                completion: completion,
+                commitCompletion: commitCompletion
             )
         }
         return GhosttyApp.shared.reloadConfiguration(
             source: "socket.reload_config",
-            completion: completion
+            completion: completion,
+            commitCompletion: commitCompletion
         )
     }
 

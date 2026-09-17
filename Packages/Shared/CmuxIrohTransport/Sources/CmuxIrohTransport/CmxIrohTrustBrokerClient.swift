@@ -943,11 +943,21 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             let code = body.map { payload in
                 payload.source.map { "\(payload.error):\($0.rawValue)" } ?? payload.error
             }
-            if http.statusCode == 429,
+            if http.statusCode == 429 {
+                let retryAfterSeconds = Self.retryAfterSeconds(
+                    http.value(forHTTPHeaderField: "Retry-After")
+                ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+                throw CmxIrohTrustBrokerClientError.rateLimited(
+                    code: code,
+                    retryAfterSeconds: retryAfterSeconds
+                )
+            }
+            if (500 ... 599).contains(http.statusCode),
                let retryAfterSeconds = Self.retryAfterSeconds(
                    http.value(forHTTPHeaderField: "Retry-After")
                ) {
-                throw CmxIrohTrustBrokerClientError.rateLimited(
+                throw CmxIrohTrustBrokerClientError.rejectedWithRetryAfter(
+                    statusCode: http.statusCode,
                     code: code,
                     retryAfterSeconds: retryAfterSeconds
                 )
@@ -981,15 +991,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     private static func retryAfterSeconds(_ value: String?) -> Int? {
-        guard let value,
-              !value.isEmpty,
-              value.utf8.allSatisfy({ (48 ... 57).contains($0) }),
-              let seconds = Int(value),
-              (1 ... CmxIrohBrokerCooldown.maximumRetryAfterSeconds).contains(seconds),
-              String(seconds) == value else {
-            return nil
-        }
-        return seconds
+        CmxRetryAfterPolicy.seconds(from: value)
     }
 
     private static func relayTokenResponse(

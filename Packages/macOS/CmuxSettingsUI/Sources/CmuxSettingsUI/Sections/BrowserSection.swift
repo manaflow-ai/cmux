@@ -18,9 +18,6 @@ public struct BrowserSection: View {
     private let importAnchorID: String?
 
     @State private var disabled: DefaultsValueModel<Bool>
-    @State private var defaultBrowserEngine: DefaultsValueModel<BrowserEngineOption>
-    @State private var chromiumExtensions: DefaultsValueModel<String>
-    @State private var remoteDebuggingPort: DefaultsValueModel<Int>
     @State private var engine: DefaultsValueModel<BrowserSearchEngine>
     @State private var customName: DefaultsValueModel<String>
     @State private var customURL: DefaultsValueModel<String>
@@ -57,6 +54,10 @@ public struct BrowserSection: View {
             browserDisabledUserDefaultsKey: BrowserCatalogSection().disabled.userDefaultsKey
         )
     @State private var browserURLAllowlistManagedByPolicy = BrowserURLAllowlistPolicy().isManaged
+    /// The effective allowlist policy, re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)`` so the
+    /// managed note tracks `BrowserAllowLocalhost` / `BrowserAllowLocalFiles`.
+    @State private var urlAllowlistPolicy = BrowserURLAllowlistPolicy()
 
     public init(
         defaultsStore: UserDefaultsSettingsStore,
@@ -68,13 +69,6 @@ public struct BrowserSection: View {
         self.hostActions = hostActions
         self.importAnchorID = importAnchorID
         _disabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.disabled))
-        _defaultBrowserEngine = State(
-            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultEngine)
-        )
-        _chromiumExtensions = State(
-            initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.chromiumExtensionDirectories)
-        )
-        _remoteDebuggingPort = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.remoteDebuggingPort))
         _engine = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.defaultSearchEngine))
         _customName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineName))
         _customURL = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.browser.customSearchEngineURLTemplate))
@@ -113,32 +107,7 @@ public struct BrowserSection: View {
             Button(String(localized: "settings.browser.history.clearDialog.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "settings.browser.history.clearDialog.message", defaultValue: "This removes visited-page suggestions from the browser omnibar."))
-        }
-        .task {
-            startSettingsObservation([
-                disabled,
-                defaultBrowserEngine,
-                chromiumExtensions,
-                remoteDebuggingPort,
-                engine,
-                customName,
-                customURL,
-                suggestions,
-                theme,
-                defaultZoom,
-                discardEnabled,
-                discardDelay,
-                askWhereToSaveDownloads,
-                openTermLinks,
-                interceptOpen,
-                hosts,
-                external,
-                httpAllowlist,
-                urlAllowlist,
-                importHint,
-                reactGrab,
-            ])
-        }
+        }.task { startSettingsObservation([disabled, engine, customName, customURL, suggestions, theme, defaultZoom, discardEnabled, discardDelay, askWhereToSaveDownloads, openTermLinks, interceptOpen, hosts, external, httpAllowlist, urlAllowlist, importHint, reactGrab]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 browserManagedByPolicy = ManagedDevicePolicy().isBrowserDisableLocked(
@@ -147,6 +116,7 @@ public struct BrowserSection: View {
                 let policy = BrowserURLAllowlistPolicy()
                 let wasManaged = browserURLAllowlistManagedByPolicy
                 browserURLAllowlistManagedByPolicy = policy.isManaged
+                urlAllowlistPolicy = policy
                 if policy.isManaged || wasManaged {
                     urlAllowlistDraft = effectiveURLAllowlistText(
                         for: urlAllowlist,
@@ -183,69 +153,6 @@ public struct BrowserSection: View {
                     .controlSize(.small)
                     .disabled(browserManagedByPolicy)
                     .accessibilityIdentifier("BrowserEnabledToggle")
-            }
-            SettingsCardDivider()
-
-            // Default Browser Engine
-            SettingsCardRow(
-                configurationReview: .json("browser.defaultEngine"),
-                searchAnchorID: "setting:browser:default-engine",
-                String(localized: "settings.browser.engine", defaultValue: "Default Browser Engine"),
-                subtitle: browserEngineSubtitle(defaultBrowserEngine.current),
-                controlWidth: Self.columnWidth
-            ) {
-                Picker(
-                    "",
-                    selection: Binding(
-                        get: { defaultBrowserEngine.current },
-                        set: { defaultBrowserEngine.set($0) }
-                    )
-                ) {
-                    ForEach(BrowserEngineOption.allCases) { value in
-                        Text(browserEngineLabel(value)).tag(value)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .accessibilityIdentifier("SettingsBrowserEnginePicker")
-            }
-            SettingsCardDivider()
-
-            // Unpacked Chromium extensions
-            hostnameEditor(
-                title: String(localized: "settings.browser.chromiumExtensions", defaultValue: "Chromium Extensions"),
-                subtitle: String(localized: "settings.browser.chromiumExtensions.subtitle", defaultValue: "Unpacked extension directories loaded into Chromium browser panes. One absolute path per line; each directory must contain a manifest.json. Applies when the next pane starts."),
-                json: "browser.chromiumExtensionDirectories",
-                model: chromiumExtensions
-            )
-            .settingsSearchAnchors(["setting:browser:chromium-extensions"])
-            SettingsCardDivider()
-
-            // Loopback CDP endpoint
-            SettingsCardRow(
-                configurationReview: .json("browser.remoteDebuggingPort"),
-                searchAnchorID: "setting:browser:remote-debugging-port",
-                String(localized: "settings.browser.remoteDebuggingPort", defaultValue: "Chromium Remote Debugging Port"),
-                subtitle: remoteDebuggingSubtitle,
-                controlWidth: Self.columnWidth
-            ) {
-                TextField(
-                    "",
-                    value: Binding(
-                        get: { remoteDebuggingPort.current },
-                        set: {
-                            let normalized = $0 == 0
-                                ? 0
-                                : min(max($0, 1024), 65_535)
-                            remoteDebuggingPort.set(normalized)
-                        }
-                    ),
-                    format: .number
-                )
-                .textFieldStyle(.roundedBorder)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 80)
-                .accessibilityIdentifier("SettingsBrowserRemoteDebuggingPortField")
             }
             SettingsCardDivider()
 
@@ -628,9 +535,16 @@ public struct BrowserSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available."))
+            Text(String(localized: "settings.browser.urlAllowlist.description", defaultValue: "Restricts embedded-browser navigation to matching hosts or URL patterns. A suggested localhost list is shown; saving it opts into the restriction. Remove entries to block them, or, when no managed policy applies, clear the list to allow all web origins. Invalid-only values fail closed. Internal cmux documents remain available. Under a managed policy, localhost and local files stay available unless your organization turns them off."))
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)
+            if browserURLAllowlistManagedByPolicy {
+                Text(managedURLAllowlistNote)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("SettingsBrowserURLAllowlistManagedNote")
+            }
             TextEditor(text: $urlAllowlistDraft)
                 .cmuxFont(size: 12, weight: .regular, design: .monospaced)
                 .frame(minHeight: 86)
@@ -701,6 +615,34 @@ public struct BrowserSection: View {
     ) -> String {
         guard policy.isManaged else { return model.current }
         return policy.patterns.map(\.rawValue).joined(separator: "\n")
+    }
+
+    /// What a managed list permits beyond its rules, in the admin's own terms:
+    /// localhost and local files are on by default and each can be turned off
+    /// by a profile.
+    private var managedURLAllowlistNote: String {
+        switch (urlAllowlistPolicy.allowsLocalhost, urlAllowlistPolicy.allowsLocalFiles) {
+        case (true, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOn",
+                defaultValue: "Your organization manages this list. localhost (any port) and local files stay available in addition to the rules above."
+            )
+        case (false, true):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localhostOff",
+                defaultValue: "Your organization manages this list and blocks localhost. Local files stay available."
+            )
+        case (true, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localFilesOff",
+                defaultValue: "Your organization manages this list and blocks local files. localhost (any port) stays available."
+            )
+        case (false, false):
+            return String(
+                localized: "settings.browser.urlAllowlist.managed.localDefaultsOff",
+                defaultValue: "Your organization manages this list and blocks localhost and local files."
+            )
+        }
     }
 
     private var urlAllowlistHint: some View {
@@ -817,39 +759,6 @@ public struct BrowserSection: View {
         }
         let name = themeDisplayName(mode)
         return String(localized: "settings.browser.theme.subtitleForced", defaultValue: "\(name) forces that color scheme for compatible pages.")
-    }
-
-    private var remoteDebuggingSubtitle: String {
-        if remoteDebuggingPort.current == 0 {
-            return String(localized: "settings.browser.remoteDebuggingPort.subtitleOff", defaultValue: "Off by default. Chromium panes still use private CDP internally; no external endpoint is exposed.")
-        }
-        let format = String(
-            localized: "settings.browser.remoteDebuggingPort.subtitleOn",
-            defaultValue: "New panes request http://127.0.0.1:%lld. If busy, cmux chooses another loopback port; CLI JSON reports the actual Playwright endpoint."
-        )
-        return String.localizedStringWithFormat(format, Int64(remoteDebuggingPort.current))
-    }
-
-    private func browserEngineLabel(_ engine: BrowserEngineOption) -> String {
-        switch engine {
-        case .auto:
-            return String(localized: "settings.browser.engine.auto", defaultValue: "Auto (Match Default Browser)")
-        case .webkit:
-            return String(localized: "settings.browser.engine.webkit", defaultValue: "WebKit")
-        case .chromium:
-            return String(localized: "settings.browser.engine.chromium", defaultValue: "Chromium")
-        }
-    }
-
-    private func browserEngineSubtitle(_ engine: BrowserEngineOption) -> String {
-        switch engine {
-        case .auto:
-            return String(localized: "settings.browser.engine.subtitle.auto", defaultValue: "New browser panes use Chromium when your default browser is Chromium-based (Chrome, Edge, Brave, Arc…), otherwise WebKit.")
-        case .webkit:
-            return String(localized: "settings.browser.engine.subtitle.webkit", defaultValue: "Use the built-in WebKit engine for new browser panes.")
-        case .chromium:
-            return String(localized: "settings.browser.engine.subtitle.chromium", defaultValue: "Use a managed out-of-process Chromium runtime for new browser panes.")
-        }
     }
 
     private func themeDisplayName(_ mode: BrowserThemeMode) -> String {

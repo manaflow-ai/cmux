@@ -19,6 +19,8 @@ function vmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     id: "00000000-0000-4000-8000-00000000sync",
     userId: "user-sync",
     billingTeamId: "team-sync",
+    ownerTeamId: "team-sync",
+    coderouterPoolId: null,
     billingPlanId: "pro",
     provider: "freestyle",
     providerVmId: "provider-vm-sync",
@@ -52,7 +54,7 @@ function baseRepo(vm: CloudVmRow): VmRepositoryShape {
   return {
     listUserVms: () => Effect.succeed([]),
     findUserVm: () => Effect.succeed(vm),
-    setDisplayName: () => Effect.succeed(true),
+    setDisplayName: ({ displayName }: { displayName: string | null }) => Effect.sync(() => { vm.displayName = displayName; return true; }),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     markBillingGrantApplied: () => Effect.void,
     deleteBillingGrant: () => Effect.void,
@@ -85,7 +87,7 @@ function providerBase(): VmProviderGatewayShape {
   return {
     create: () => Effect.die("unused"),
     destroy: () => Effect.void,
-    exec: () => Effect.die("unused"),
+    exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
     openAttach: () => Effect.die("unused"),
     openSSH: () => Effect.die("unused"),
     revokeSSHIdentity: () => Effect.void,
@@ -218,6 +220,7 @@ describe("Cloud VM provider state synchronization", () => {
       ...baseRepo(vm),
       setDisplayName: ({ displayName }: { displayName: string | null }) =>
         Effect.sync(() => {
+          vm.displayName = displayName;
           databaseNames.push(displayName);
           return true;
         }),
@@ -249,7 +252,7 @@ describe("Cloud VM provider state synchronization", () => {
     const providerNames: (string | null)[] = [];
     const repo = {
       ...baseRepo(vm),
-      setDisplayName: () => Effect.succeed(true),
+      setDisplayName: ({ displayName }: { displayName: string | null }) => Effect.sync(() => { vm.displayName = displayName; return true; }),
     } as unknown as VmRepositoryShape;
     const provider = {
       ...providerBase(),

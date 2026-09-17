@@ -23,4 +23,20 @@ describe("billing success routing", () => {
       response.headers.get("x-middleware-request-x-next-intl-locale"),
     ).toBe("ja");
   });
+
+  test("keeps the public Founder recovery URL while localizing its page", () => {
+    const response = middleware(
+      new NextRequest("https://cmux.test/billing/recover", {
+        headers: { "accept-language": "ja" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    const rewritten = new URL(response.headers.get("x-middleware-rewrite")!);
+    expect(rewritten.pathname).toBe("/ja/billing/recover");
+    expect(response.headers.get("x-middleware-request-x-next-intl-locale")).toBe(
+      "ja",
+    );
+  });
 });
