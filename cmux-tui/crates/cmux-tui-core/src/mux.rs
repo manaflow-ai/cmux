@@ -22649,7 +22649,7 @@ mod tests {
             "snapshot": snapshot,
         });
         registry
-            .connection
+            .connection_for_test()
             .execute(
                 "INSERT INTO meta(key, value) VALUES(?1, ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -22671,7 +22671,7 @@ mod tests {
 
         let registry = WorkspaceRegistry::in_memory("roster-malformed-cursor").unwrap();
         registry
-            .connection
+            .connection_for_test()
             .execute(
                 "INSERT INTO meta(key, value) VALUES(?1, ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -22704,7 +22704,7 @@ mod tests {
             )
             .unwrap();
         registry
-            .connection
+            .connection_for_test()
             .execute(
                 "INSERT INTO journal_segments(
                    segment_id, start_sequence, end_sequence, record_count, codec, content,

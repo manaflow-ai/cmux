@@ -2282,6 +2282,11 @@ impl std::fmt::Debug for WorkspaceRegistry {
 }
 
 impl WorkspaceRegistry {
+    #[cfg(test)]
+    pub(crate) fn connection_for_test(&self) -> &Connection {
+        &self.connection
+    }
+
     pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
         let connection = Connection::open_in_memory()?;
         Self::initialize(
