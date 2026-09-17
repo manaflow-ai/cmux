@@ -94,6 +94,17 @@ final class PhonePushClient {
     /// rotation can rebuild ciphertext without putting plaintext in the
     /// durable queue or sending it to the server.
     private var pendingPayloadsByCorrelationID: [String: PhonePushPayload] = [:]
+    /// Payloads waiting for the bounded recipient-key discovery request. These
+    /// remain in memory only and are either encrypted into the durable queue
+    /// when discovery completes or dropped with telemetry on failure.
+    private struct PendingRecipientPayload {
+        let payload: PhonePushPayload
+        let identity: AuthenticatedSessionIdentity
+        let targetBundleIdentifier: String
+        let expirationEpochSeconds: Int
+    }
+    private var pendingRecipientPayloads: [PendingRecipientPayload] = []
+    private static let maxPendingRecipientPayloads = 32
     private var recipientRefreshTask: Task<Void, Never>?
     private var lastRecipientRefreshEpochSeconds = 0
     private var lastEncryptionUnavailableLogEpochSeconds = 0
@@ -326,8 +337,11 @@ final class PhonePushClient {
             payload: payload,
             identity: identity
         ) else {
-            reportEncryptionUnavailable()
-            return .encryptionUnavailable
+            return retainUntilRecipientRefresh(
+                payload: payload,
+                identity: identity,
+                targetBundleIdentifier: targetBundleIdentifier
+            )
         }
         guard let envelope = makeEncryptedEnvelope(
             payload: payload,
@@ -399,8 +413,11 @@ final class PhonePushClient {
                 payload: payload,
                 identity: identity
             ) {
-                reportEncryptionUnavailable()
-                admission = .encryptionUnavailable
+                admission = retainUntilRecipientRefresh(
+                    payload: payload,
+                    identity: identity,
+                    targetBundleIdentifier: targetBundleIdentifier
+                )
                 continue
             }
             guard let envelope = makeEncryptedEnvelope(
@@ -490,6 +507,62 @@ final class PhonePushClient {
                 return
             }
             await self.refreshPushRecipients(auth: auth)
+            self.retryPendingRecipientPayloads()
+        }
+    }
+
+    private func retainUntilRecipientRefresh(
+        payload: PhonePushPayload,
+        identity: AuthenticatedSessionIdentity,
+        targetBundleIdentifier: String
+    ) -> PhonePushForwardAdmission {
+        guard pendingRecipientPayloads.count < Self.maxPendingRecipientPayloads else {
+            reportEncryptionUnavailable()
+            return .encryptionUnavailable
+        }
+        pendingRecipientPayloads.append(
+            PendingRecipientPayload(
+                payload: payload,
+                identity: identity,
+                targetBundleIdentifier: targetBundleIdentifier,
+                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds
+            )
+        )
+        scheduleRecipientRefresh(force: true)
+        phonePushLog.info("queued push until recipient-key discovery completes")
+        return .queued
+    }
+
+    private func retryPendingRecipientPayloads() {
+        guard !pendingRecipientPayloads.isEmpty else { return }
+        let pending = pendingRecipientPayloads
+        pendingRecipientPayloads.removeAll(keepingCapacity: true)
+        for item in pending {
+            guard clock.nowEpochSeconds < item.expirationEpochSeconds else {
+                phonePushLog.error("dropping expired push awaiting recipient-key discovery")
+                continue
+            }
+            guard hasTrustedRecipient(
+                payload: item.payload,
+                identity: item.identity
+            ), let envelope = makeEncryptedEnvelope(
+                payload: item.payload,
+                identity: item.identity,
+                targetBundleIdentifier: item.targetBundleIdentifier,
+                expirationEpochSeconds: item.expirationEpochSeconds
+            ) else {
+                reportEncryptionUnavailable()
+                continue
+            }
+            deliveryQueue.retainOnly(
+                accountID: item.identity.accountID,
+                generation: item.identity.generation
+            )
+            pendingPayloadsByCorrelationID[envelope.correlationID] = item.payload
+            guard deliveryQueue.enqueue(envelope) else {
+                pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
+                logQueueStage("recipient_refresh_queue_overflow", correlationID: envelope.correlationID)
+            }
         }
     }
 
@@ -704,6 +777,7 @@ final class PhonePushClient {
         deliveryQueue.cancelAll()
         suppressQueuePersistence = false
         pendingPayloadsByCorrelationID.removeAll()
+        pendingRecipientPayloads.removeAll()
     }
     private func drainPersistence() async {
         while let snapshot = pendingPersistenceSnapshot {
