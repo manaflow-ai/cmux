@@ -338,7 +338,8 @@ final class PaneDropTargetView: NSView {
 #endif
             return .move
         case .rejected:
-            clearDragState(phase: "\(phase).reject")
+            setActiveDropZone(nil)
+            transferDropRouter.feedback.update(transferDropRouter.rejection, over: self)
             return []
         case .notTransfer:
             break
@@ -439,6 +440,7 @@ final class PaneDropTargetView: NSView {
     }
 
     private func clearDragState(phase: String) {
+        transferDropRouter.feedback.clear()
         guard activeZone != nil else { return }
         setActiveDropZone(nil)
 #if DEBUG
@@ -482,19 +484,3 @@ final class PaneDropTargetView: NSView {
 }
 
 typealias TerminalPaneDropTargetView = PaneDropTargetView
-
-struct PaneDropTargetRepresentable: NSViewRepresentable {
-    let dropContext: PaneDropContext?
-
-    func makeNSView(context: Context) -> PaneDropTargetView {
-        PaneDropTargetView(frame: .zero)
-    }
-
-    func updateNSView(_ nsView: PaneDropTargetView, context: Context) {
-        nsView.dropContext = dropContext
-        nsView.hostedView = nil
-        if dropContext == nil {
-            nsView.draggingExited(nil)
-        }
-    }
-}
