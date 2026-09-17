@@ -1,0 +1,159 @@
+import Foundation
+import XCTest
+
+/// Exercises Ghostty link activation and the shell wrapper in a running app.
+final class TerminalLinkBrowserPlacementUITests: XCTestCase {
+    private var application: XCUIApplication?
+    private var fixture: URL!
+    private var socketPath = ""
+
+    override func setUp() {
+        super.setUp()
+        continueAfterFailure = false
+        fixture = FileManager.default.temporaryDirectory
+            .appendingPathComponent("terminal-link-placement-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: true)
+        socketPath = "/tmp/cmux-link-\(UUID().uuidString.prefix(8)).sock"
+    }
+
+    override func tearDown() {
+        application?.terminate()
+        try? FileManager.default.removeItem(at: fixture)
+        try? FileManager.default.removeItem(atPath: socketPath)
+        super.tearDown()
+    }
+
+    func testDefaultPlacementCreatesSplit() throws {
+        try verifyLinkPlacement("split", expectedPanes: 2)
+    }
+
+    func testSamePaneClickAndOpenCommandKeepOnePane() throws {
+        try verifyLinkPlacement("samePane", expectedPanes: 1)
+    }
+
+    private func verifyLinkPlacement(_ placement: String, expectedPanes: Int) throws {
+        let app = XCUIApplication.cmuxTestApplication()
+        application = app
+        let stateURL = fixture.appendingPathComponent("state.json")
+        let commandURL = fixture.appendingPathComponent("command.json")
+        try Data("{}".utf8).write(to: commandURL)
+        app.launchArguments += [
+            "-socketControlMode", "allowAll",
+            "-browserDisabledOverride", "NO",
+            "-browserOpenTerminalLinksInCmuxBrowser", "YES",
+            "-browserInterceptTerminalOpenCommandInCmuxBrowser", "YES",
+            "-browserTerminalLinkBrowserPlacement", placement,
+            "-AppleLanguages", "(en)",
+            "-AppleLocale", "en_US",
+        ]
+        app.launchEnvironment["CMUX_TAG"] = "issue-12798-terminal-links-same"
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_PATH"] = stateURL.path
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_COMMAND_PATH"] = commandURL.path
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_FIXTURE_DIR"] = fixture.path
+        app.launchEnvironment["CMUX_UI_TEST_TERMINAL_CMD_CLICK_LINE_FORMAT"] = "url"
+        // Do not install the URL-capture sink: the click must create a real browser.
+        app.launch()
+        XCTAssertTrue(poll { self.readState(stateURL)["ready"] as? String == "1" })
+        let source = try XCTUnwrap(readState(stateURL)["surfaceId"] as? String)
+        let workspace = try XCTUnwrap(rpc("workspace.current")["workspace_id"] as? String)
+        let initial = try surfaces(workspace)
+        let sourcePane = try XCTUnwrap(initial.first { $0["id"] as? String == source }?["pane_id"] as? String)
+        attach(app, name: "\(placement)-before-terminal-link")
+
+        // The existing harness drives the production Cmd modifier and Ghostty
+        // mouse dispatch at a real URL cell, without intercepting the open action.
+        let clickID = UUID().uuidString
+        let command: [String: Any] = ["id": clickID, "action": "stationary_cmd_click_token"]
+        try JSONSerialization.data(withJSONObject: command).write(to: commandURL)
+        XCTAssertTrue(poll { self.readState(stateURL)["lastCommandId"] as? String == clickID })
+        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 1 })
+        XCTAssertEqual(try panes(workspace).count, expectedPanes)
+        let clickedBrowser = try XCTUnwrap(try browsers(workspace).first)
+        if placement == "samePane" {
+            XCTAssertEqual(clickedBrowser["pane_id"] as? String, sourcePane)
+        } else {
+            XCTAssertNotEqual(clickedBrowser["pane_id"] as? String, sourcePane)
+        }
+        attach(app, name: "\(placement)-after-click")
+
+        _ = try rpc("surface.focus", ["workspace_id": workspace, "surface_id": source])
+        let outputPath = fixture.appendingPathComponent("open-output.txt").path
+        let shellCommand = "open https://example.com/terminal-placement > '\(outputPath)' 2>&1"
+        _ = try rpc("surface.send_text", ["workspace_id": workspace, "surface_id": source, "text": shellCommand])
+        _ = try rpc("surface.send_key", ["workspace_id": workspace, "surface_id": source, "key": "enter"])
+        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 2 })
+        XCTAssertEqual(try panes(workspace).count, expectedPanes)
+        if placement == "samePane" {
+            XCTAssertTrue(try browsers(workspace).allSatisfy { $0["pane_id"] as? String == sourcePane })
+        }
+        let wrapperOutput = (try? String(contentsOfFile: outputPath, encoding: .utf8)) ?? ""
+        let output = XCTAttachment(string: wrapperOutput)
+        output.name = "\(placement)-open-wrapper-output"
+        output.lifetime = .keepAlways
+        add(output)
+        XCTAssertTrue(wrapperOutput.contains(placement == "samePane" ? "placement=samePane" : "placement=reuse"), wrapperOutput)
+        let openedBrowser = try XCTUnwrap(try browsers(workspace).last?["id"] as? String)
+        _ = try rpc("surface.focus", ["workspace_id": workspace, "surface_id": openedBrowser])
+        attach(app, name: "\(placement)-after-open-command")
+
+        if placement == "samePane" {
+            let explicit = try rpc("browser.open_split", [
+                "workspace_id": workspace, "surface_id": source,
+                "url": "about:blank", "focus": true,
+            ])
+            XCTAssertEqual(explicit["created_split"] as? Bool, true)
+            XCTAssertEqual(try panes(workspace).count, 2)
+            attach(app, name: "samePane-manual-browser-split")
+        }
+    }
+
+    private func rpc(_ method: String, _ params: [String: Any] = [:]) throws -> [String: Any] {
+        let response = try XCTUnwrap(controlSocketJSONViaNetcat(
+            ["id": UUID().uuidString, "method": method, "params": params],
+            socketPath: socketPath,
+            responseTimeout: 8
+        ))
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        return try XCTUnwrap(response["result"] as? [String: Any])
+    }
+
+    private func surfaces(_ workspace: String) throws -> [[String: Any]] {
+        try XCTUnwrap(rpc("surface.list", ["workspace_id": workspace])["surfaces"] as? [[String: Any]])
+    }
+
+    private func browsers(_ workspace: String) throws -> [[String: Any]] {
+        try surfaces(workspace).filter { $0["type"] as? String == "browser" }
+    }
+
+    private func panes(_ workspace: String) throws -> [[String: Any]] {
+        try XCTUnwrap(rpc("pane.list", ["workspace_id": workspace])["panes"] as? [[String: Any]])
+    }
+
+    private func readState(_ url: URL) -> [String: Any] {
+        guard let data = try? Data(contentsOf: url),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return value
+    }
+
+    private func poll(timeout: TimeInterval = 30, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return condition()
+    }
+
+    private func attach(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
