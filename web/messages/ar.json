@@ -22,8 +22,31 @@
       "title": "يتطلب cmux Pro",
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "تعذر التحقق من حجم RAM للجهاز المصدر.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "حجم الجهاز هذا غير متاح حاليًا. اختر حجمًا يصل إلى {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "تتضمن Go جهازين افتراضيين محفوظين، بما فيهما الجهاز قيد التشغيل.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "تتضمن Go جهازاً افتراضياً واحداً قيد التشغيل في كل مرة.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "استهلكت Go ساعات تشغيل الأجهزة الأربعين لهذا الشهر. ستتوفر الأجهزة المحفوظة مجدداً عند بدء فترة الفوترة التالية.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "إذا عثرنا على حساب، فتحقق من بريدك الإلكتروني لمعرفة الخطوات التالية"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "مشاركة مع الفريق",
+      "makePrivate": "جعله خاصًا",
+      "privateImportHint": "الحسابات الجديدة خاصة. شارك الحساب لإتاحته لأجهزة Cloud VM الخاصة بهذا الفريق.",
+      "description": "الحسابات المشتركة متاحة للأجهزة الافتراضية السحابية لهذا الفريق. تبقى الحسابات الخاصة متاحة فقط للشخص الذي أضافها.",
+      "cancelAction": "إلغاء"
     }
   },
   "community": {
@@ -980,10 +1010,10 @@
       "targetTitle": "نافذة غير مقصودة أو نقرة محظورة",
       "targetBody": "افحص التطبيق مجددًا واختر عنصرًا من حالته الحالية. إذا حجبت نافذة أخرى الهدف، فأظهر النافذة المطلوبة وافحصها قبل المحاولة. لا تُعد استخدام إحداثيات أو فهارس قديمة.",
       "productLink": "نظرة عامة على cmux Computer Use",
-    "copyTitle": "نسخ مطالبة Computer Use",
-    "copyPrompt": "نسخ المطالبة",
-    "copiedPrompt": "تم النسخ",
-    "installPrompt": "استخدم مهارة $cmux-cua. إذا لم تكن متاحة فثبّتها بالمثبّت المعتاد. عند نقص الأذونات اطلب مني فتح إعدادات cmux → Computer Use. افحص قبل التنفيذ وتحقق بعد كل تغيير.\n\nالمهمة: [صف المهمة هنا]"
+      "copyTitle": "نسخ مطالبة Computer Use",
+      "copyPrompt": "نسخ المطالبة",
+      "copiedPrompt": "تم النسخ",
+      "installPrompt": "استخدم مهارة $cmux-cua. إذا لم تكن متاحة فثبّتها بالمثبّت المعتاد. عند نقص الأذونات اطلب مني فتح إعدادات cmux → Computer Use. افحص قبل التنفيذ وتحقق بعد كل تغيير.\n\nالمهمة: [صف المهمة هنا]"
     },
     "remoteTmux": {
       "moshContrast": "للتجوال بين الشبكات، استخدم cmux mosh-tmux. يفتح طرفية Mosh متكاملة متصلة بجلسة tmux مسماة؛ ولا يستبدل مرآة مساحات العمل وعلامات التبويب والأجزاء الأصلية التي يوفرها وضع تحكم tmux عبر SSH."
@@ -1190,6 +1220,7 @@
           "globalFontMagnification": "يضبط بهذا المقدار النسبي أحجام الخطوط في الطرفيات وعناوين التبويبات والأشرطة الجانبية والإعدادات والتراكبات وواجهة التطبيق التي يملكها cmux. لا يشمل محتوى صفحات المتصفح المعروض."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "عند تعيين true (الافتراضي)، يوفر cmux لوحة ألوان افتراضية تتكيف مع المظهر ما لم يتم تكوين سمة Ghostty أو ألوان الطرفية. يتم الاحتفاظ بإعدادات الخط والإعدادات الأخرى. عند تعيين false، يستخدم Ghostty لوحة ألوانه المدمجة الثابتة. تكون الأولوية دائمًا للسمات والألوان المحددة صراحةً، بما في ذلك theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "حد أقصى اختياري للعرض، بالنقاط، لمحتوى الطرفية ودردشة الوكيل المضمنة. عيّن false لاستخدام عرض الجزء بالكامل.",
           "sessionContentAlignment": "الموضع الأفقي لمحتوى الطرفية ودردشة الوكيل المضمنة عند تفعيل sessionContentMaxWidth.",
           "copyOnSelect": "عند true، ينسخ النص المحدد في الطرفية إلى حافظة النظام عند تثبيت التحديد. عند false، لا يصدر cmux تجاوز Ghostty copy-on-select؛ وتتحكم إعدادات Ghostty وقيمه الافتراضية في سلوك حافظة التحديد.",

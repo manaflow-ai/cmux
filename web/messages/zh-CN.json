@@ -22,8 +22,31 @@
       "title": "需要 cmux Pro",
       "message": "云端虚拟机需要 cmux Pro 套餐。",
       "action": "请前往 {upgradeUrl} 升级到 cmux Pro 以创建云端虚拟机。"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB 的机器需要 cmux {plan}。当前套餐最多支持 {max} GiB。",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "无法验证源机器的内存大小。",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "此机器规格当前不可用。请选择不超过 {max} GiB 的规格。",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go 同时可运行一台 VM。",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go 本月的 40 VM 小时已用完。保存的 VM 可在下一个计费周期开始后继续使用。",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "如果我们找到了账户，请查看你的邮箱了解下一步"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "与团队共享",
+      "makePrivate": "设为私有",
+      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
+      "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
+      "cancelAction": "取消"
     }
   },
   "community": {
@@ -980,10 +1010,10 @@
       "targetTitle": "选错窗口或点击被阻止",
       "targetBody": "重新查看应用，从当前状态中选择新的元素。如果其他窗口遮挡了目标，请先显示目标窗口再重新查看。不要复用过期坐标或元素索引。",
       "productLink": "cmux Computer Use 概览",
-    "copyTitle": "复制 Computer Use 提示词",
-    "copyPrompt": "复制提示词",
-    "copiedPrompt": "已复制",
-    "installPrompt": "本任务使用 $cmux-cua 技能。若技能不可用，请用常用技能安装器安装。若缺少权限，请让我打开 cmux 设置 → Computer Use。操作前检查，每次变更后验证。\n\n任务：[在此描述任务]"
+      "copyTitle": "复制 Computer Use 提示词",
+      "copyPrompt": "复制提示词",
+      "copiedPrompt": "已复制",
+      "installPrompt": "本任务使用 $cmux-cua 技能。若技能不可用，请用常用技能安装器安装。若缺少权限，请让我打开 cmux 设置 → Computer Use。操作前检查，每次变更后验证。\n\n任务：[在此描述任务]"
     },
     "remoteTmux": {
       "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"
@@ -1190,6 +1220,7 @@
           "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
         },
         "terminal": {
+          "adaptiveDefaultTheme": "为 true（默认）时，除非配置了 Ghostty 主题或终端颜色，否则 cmux 会提供随外观变化的默认配色。字体和其他设置会保留。为 false 时，Ghostty 使用固定的内置配色。显式主题和颜色始终优先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "终端和内置代理聊天内容的可选最大宽度，单位为点。设为 false 可使用整个窗格宽度。",
           "sessionContentAlignment": "启用 sessionContentMaxWidth 时，终端和内置代理聊天内容的水平位置。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",

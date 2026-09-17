@@ -191,7 +191,10 @@ extension RemoteSessionCoordinator {
             "remote.relay.inheritedMaster.reapObserved " +
                 debugConfigSummary()
         )
-        guard !isStopping else { return }
+        // A parked session has no retry scheduled, so `.reconnecting` would
+        // strand it without its verdict. Whatever ends the park (Reconnect,
+        // wake) resets the transport itself.
+        guard !isStopping, parkedState == nil else { return }
         resetTransportForReconnectLocked(
             preservePersistentRelayMetadata: true
         )
@@ -241,6 +244,30 @@ extension RemoteSessionCoordinator {
         controlMasterReapState.observationTask?.cancel()
         controlMasterReapState.observationTask = nil
         controlMasterReapState.observedControlPath = nil
+    }
+
+    /// Returns whether OpenSSH reported that this relay's remote listener is
+    /// already bound.
+    static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
+        reverseRelayPortBindingFailureLine(in: detail, relayPort: relayPort) != nil
+    }
+
+    /// Extracts the exact bind diagnostic from standalone or multiplexed
+    /// OpenSSH stderr. Multiplexing adds a prefix and may append a later
+    /// summary line, so classification must inspect every line.
+    static func reverseRelayPortBindingFailureLine(
+        in detail: String,
+        relayPort: Int
+    ) -> String? {
+        let expected = "remote port forwarding failed for listen port \(relayPort)"
+        return detail
+            .split(whereSeparator: \.isNewline)
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .first(where: {
+                $0 == expected || $0.hasSuffix(": \(expected)")
+            })
     }
 
     private func publishReverseRelayPortUnavailableLocked() {
