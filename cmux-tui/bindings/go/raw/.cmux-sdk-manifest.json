@@ -2,8 +2,8 @@
   "files": [
     {
       "path": "generated_commands.go",
-      "sha256": "5829f14156f34733d67515f19fe54f7b1d90a269c3286e4b161ff6d64141805a",
-      "size": 374790
+      "sha256": "4e58c8e1637fbd0e74cc6aee53683d8f2ec1e90fed5b93fda4973a0ba349984b",
+      "size": 374252
     },
     {
       "path": "generated_events.go",

@@ -11503,18 +11503,6 @@ func (c *Client) URLOpenResult(ctx context.Context, opened bool, requestID strin
 	return result, err
 }
 
-// URLOpenSubscribe sends url-open-subscribe. Protocol v12; authority frontend.
-func (c *Client) URLOpenSubscribe(ctx context.Context, request URLOpenSubscribeRequest) (URLOpenSubscribeResult, error) {
-	var result URLOpenSubscribeResult
-	params, err := commandMap(request)
-	if err != nil {
-		err = fmt.Errorf("%w: encode url-open-subscribe parameters: %v", ErrInvalidArgument, err)
-		return result, err
-	}
-	err = c.requestGenerated(ctx, commandMetadata["url-open-subscribe"], "url-open-subscribe", params, &result)
-	return result, err
-}
-
 // VTState sends vt-state. Protocol v5; authority control.
 func (c *Client) VTState(ctx context.Context, surface ID) (VTStateResult, error) {
 	var result VTStateResult
