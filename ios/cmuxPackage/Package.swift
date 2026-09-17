@@ -61,7 +61,7 @@ let package = Package(
                 "CmuxIrohTransport",
                 "CmuxIrxTransport",
                 "CmuxV3Transport",
-                "CmuxV3Native",
+                .product(name: "CmuxV3Native", package: "CmuxV3Transport"),
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",

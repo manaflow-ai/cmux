@@ -4,7 +4,10 @@ import PackageDescription
 let package = Package(
     name: "CmuxV3Transport",
     platforms: [.iOS(.v17), .macOS(.v14)],
-    products: [.library(name: "CmuxV3Transport", targets: ["CmuxV3Transport"])],
+    products: [
+        .library(name: "CmuxV3Transport", targets: ["CmuxV3Transport"]),
+        .library(name: "CmuxV3Native", targets: ["CmuxV3Native"]),
+    ],
     dependencies: [.package(path: "../CMUXMobileCore")],
     targets: [
         .binaryTarget(name: "CmuxV3NativeFFI", path: "Native/CmuxV3NativeFFI.xcframework"),
