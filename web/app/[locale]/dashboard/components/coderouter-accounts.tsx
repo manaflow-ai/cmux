@@ -26,8 +26,13 @@ export type ClaudeAccountsState =
   | { readonly kind: "error" };
 
 /** Accounts `cr add` stores: Codex and OpenCode Go sign-ins routed by coderouter. */
+export type CoderouterAccountView = CodeRouterAccountSummary & {
+  readonly usage?: unknown;
+  readonly usageError?: string;
+};
+
 export type NativeAccountsState =
-  | { readonly kind: "ok"; readonly accounts: readonly CodeRouterAccountSummary[] }
+  | { readonly kind: "ok"; readonly accounts: readonly CoderouterAccountView[] }
   | { readonly kind: "error" };
 
 export type SharedAccountsState =
@@ -189,7 +194,9 @@ function ClaudeAccountRow({
   const now = useNow();
   const cooling = account.cooldownUntil !== null &&
     new Date(account.cooldownUntil).getTime() > now.getTime();
-  const health = account.state === "disabled"
+  const health = account.state === "broken"
+    ? t("stateClaudeBroken", { code: account.lastFailureCode ?? "rejected" })
+    : account.state === "disabled"
     ? t("stateDisabled")
     : cooling
       ? t("coolingDown", {
@@ -210,7 +217,7 @@ function ClaudeAccountRow({
           ? `${usage} · ${t("lastFailure", { code: account.lastFailureCode })}`
           : usage
       }
-      dimmed={account.state === "disabled"}
+      dimmed={account.state === "disabled" || account.state === "broken"}
       actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="claude" visibility={account.visibility ?? "team"} /> : null}<ClaudeAccountActions teamId={teamId} account={account} /></div> : null}
       t={t}
     />
@@ -225,7 +232,7 @@ function NativeAccountRow({
 }: {
   readonly teamId: string;
   readonly viewerUserId?: string;
-  readonly account: CodeRouterAccountSummary;
+  readonly account: CoderouterAccountView;
   readonly canManage: boolean;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
@@ -245,6 +252,12 @@ function NativeAccountRow({
         })
         : t("stateActive");
   const sessions = t("activeSessions", { count: account.activeSessions });
+  const usage = usageWindows(account.usage);
+  const usageText = account.usageError
+    ? t("usageUnavailable")
+    : usage.length === 0
+      ? t("usageUnknown")
+      : usage.map((window) => t(window.kind === "primary" ? "usagePrimary" : "usageSecondary", { percent: window.usedPercent })).join(" · ");
   return (
     <AccountRowFrame
       provider={nativeKindLabel(account.provider, t)}
@@ -253,14 +266,31 @@ function NativeAccountRow({
       status={status}
       statusDetail={
         account.lastFailureCode && account.state !== "active" && account.state !== "refreshing"
-          ? `${sessions} · ${t("lastFailure", { code: account.lastFailureCode })}`
-          : sessions
+          ? `${sessions} · ${t("lastFailure", { code: account.lastFailureCode })} · ${usageText}`
+          : `${sessions} · ${usageText}`
       }
       dimmed={account.state === "broken" || account.state === "expired"}
       actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
       t={t}
     />
   );
+}
+
+/** ChatGPT usage payload windows, clamped for safe display. */
+export function usageWindows(value: unknown): readonly { kind: "primary" | "secondary"; usedPercent: number }[] {
+  if (typeof value !== "object" || value === null) return [];
+  const rate = (value as { rate_limit?: unknown }).rate_limit;
+  if (typeof rate !== "object" || rate === null) return [];
+  const windows: { kind: "primary" | "secondary"; usedPercent: number }[] = [];
+  for (const kind of ["primary", "secondary"] as const) {
+    const window = (rate as Record<string, unknown>)[`${kind}_window`];
+    if (typeof window !== "object" || window === null) continue;
+    const used = (window as { used_percent?: unknown }).used_percent;
+    if (typeof used === "number" && Number.isFinite(used)) {
+      windows.push({ kind, usedPercent: Math.max(0, Math.min(100, Math.round(used))) });
+    }
+  }
+  return windows;
 }
 
 function AccountSharing({ teamId, accountId, family, visibility }: {
@@ -470,11 +500,11 @@ function ClaudeAccountActions({
       confirmTitle={t("removeConfirmTitle")}
       confirmBody={t("removeClaudeConfirmBody")}
       t={t}
-      leading={
+      leading={account.state === "broken" ? null : (
         <button type="button" onClick={toggle} disabled={status.state === "submitting"} className={buttonClass}>
           {account.state === "disabled" ? t("enableAction") : t("disableAction")}
         </button>
-      }
+      )}
     />
   );
 }
@@ -757,8 +787,16 @@ function ClaudeUpstreamForm({
         });
         return;
       }
+      const result: { alreadyExists?: boolean; validation?: string } = await response.json().catch(() => ({}));
       form.reset();
-      setStatus({ state: "success", message: t("saveSuccess") });
+      setStatus({
+        state: "success",
+        message: result.alreadyExists
+          ? t("alreadyAdded")
+          : result.validation === "unreachable"
+            ? t("saveSuccessUnverified")
+            : t("saveSuccess"),
+      });
       router.refresh();
     } catch {
       setStatus({ state: "error", message: t("saveError") });
@@ -932,6 +970,7 @@ function errorMessageForStatus(
 ): string {
   if (status === 400) return t("validationError");
   if (status === 403) return t("teamAccessError");
+  if (status === 422) return t("credentialRejected");
   if (status === 503) return unavailable;
   return fallback;
 }

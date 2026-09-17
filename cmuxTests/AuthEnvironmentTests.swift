@@ -10,6 +10,58 @@ import Testing
 
 @Suite("Auth environment")
 struct AuthEnvironmentTests {
+    @Test("coderouter request URL keeps credentials on the configured origin")
+    func coderouterRequestURLKeepsCredentialsOnConfiguredOrigin() throws {
+        let requestURL = try CoderouterClient.validatedRequestURL(
+            baseURL: URL(string: "https://cmux.com")!,
+            path: "/api/coderouter/accounts",
+            queryItems: [URLQueryItem(name: "team", value: "team-1")]
+        )
+        #expect(requestURL.absoluteString == "https://cmux.com/api/coderouter/accounts?team=team-1")
+
+        #expect(throws: (any Error).self) {
+            try CoderouterClient.validatedRequestURL(
+                baseURL: URL(string: "http://cmux.com")!,
+                path: "/api/coderouter/accounts"
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try CoderouterClient.validatedRequestURL(
+                baseURL: URL(string: "https://attacker.example")!,
+                path: "/api/coderouter/accounts"
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try CoderouterClient.validatedRequestURL(
+                baseURL: URL(string: "https://cmux.com:8443")!,
+                path: "/api/coderouter/accounts"
+            )
+        }
+        #expect(throws: (any Error).self) {
+            try CoderouterClient.validatedRequestURL(
+                baseURL: URL(string: "https://cmux.com")!,
+                path: "https://attacker.example/api/coderouter/accounts"
+            )
+        }
+    }
+
+    #if DEBUG
+    @Test("coderouter request URL permits only loopback HTTP in debug")
+    func coderouterRequestURLPermitsOnlyLoopbackHTTPInDebug() throws {
+        let requestURL = try CoderouterClient.validatedRequestURL(
+            baseURL: URL(string: "http://localhost:4252")!,
+            path: "/api/coderouter/accounts"
+        )
+        #expect(requestURL.absoluteString == "http://localhost:4252/api/coderouter/accounts")
+        #expect(throws: (any Error).self) {
+            try CoderouterClient.validatedRequestURL(
+                baseURL: URL(string: "http://192.168.1.5:4252")!,
+                path: "/api/coderouter/accounts"
+            )
+        }
+    }
+    #endif
+
     @Test("macOS production auth override selects the production Stack project")
     func macOSProductionAuthOverrideSelectsProductionStackProject() {
         #expect(AuthEnvironment.resolvedStackAuthEnvironment(

@@ -24,6 +24,8 @@ let authJsonAvailable = true;
 let cutoverReady = true;
 let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
+const coderouterAccountCalls: Array<[string, unknown]> = [];
+let coderouterAccounts: unknown[] = [];
 let selectedTeamId: string | null = "team-1";
 let scopedTeamId: string | null = null;
 let authorizationCalls = 0;
@@ -120,6 +122,9 @@ mock.module(
 class TestSubrouterAuthorizationUnavailableError extends Error {}
 
 mock.module("../services/vms/auth", () => ({
+  parseNativeStackTokens: () => null,
+  unauthorized: () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
+  verifyRequest: async () => null,
   withSubrouterAuthorizationDeadline: async (
     operation: (signal: AbortSignal) => Promise<unknown>,
   ) => {
@@ -137,6 +142,17 @@ mock.module("../services/vms/auth", () => ({
   isSubrouterAuthorizationError: (error: unknown) =>
     error === authorizationFailure ||
     error instanceof TestSubrouterAuthorizationUnavailableError,
+}));
+
+mock.module("../services/subrouter/routeHelpers", () => ({
+  authorizedSubrouterTeams: async () => authorizedTeams,
+  resolveTeam: () => ({
+    ok: true,
+    teamId: "team-1",
+    teamName: "Team One",
+    use: true,
+    manageAccounts: true,
+  }),
 }));
 
 mock.module("../services/coderouter/permissions", () => ({
@@ -251,7 +267,7 @@ mock.module("../app/[locale]/dashboard/components/coderouter-accounts", () => ({
   }: {
     shared: { kind: string };
     claude: { kind: string };
-    native: { kind: string };
+    native: { kind: string; accounts?: readonly unknown[] };
     canManage: boolean;
   }) => (
     <div
@@ -259,9 +275,23 @@ mock.module("../app/[locale]/dashboard/components/coderouter-accounts", () => ({
       data-shared={shared.kind}
       data-claude={claude.kind}
       data-native={native.kind}
+      data-native-count={native.accounts?.length ?? 0}
       data-can-manage={String(canManage)}
     />
   ),
+}));
+
+mock.module("../services/coderouter/usage", () => ({
+  accountsWithUsage: async (teamId: string, access: unknown) => {
+    coderouterAccountCalls.push([teamId, access]);
+    return {
+      accounts: coderouterAccounts,
+      usageAsOf: "2026-09-02T10:00:00.000Z",
+      usageGeneratedAtMs: Date.now(),
+      cacheMaxAgeSeconds: 30,
+      timing: { rdsMs: 0, providerMs: 0, totalMs: 0 },
+    };
+  },
 }));
 
 mock.module("../services/coderouter/claudeUpstream", () => ({
@@ -284,6 +314,8 @@ describe("coderouter dashboard", () => {
     cutoverReady = true;
     hostedControlConfigured = true;
     hostedExchangeCalls = 0;
+    coderouterAccountCalls.length = 0;
+    coderouterAccounts = [];
     metricsTeamIds.length = 0;
     machineMetricsCalls.length = 0;
     machineMetricsKind = "ready";
@@ -389,6 +421,14 @@ describe("coderouter dashboard", () => {
     expect(html).not.toContain("without a list price");
     expect(html).toContain("No prompts, outputs, account labels, or member identities");
     expect(html).not.toContain("stack-user");
+  });
+
+  test("loads subscription usage with the selected team and current user scope", async () => {
+    coderouterAccounts = [{ id: "acct-1" }, { id: "acct-2" }];
+    authorizationAvailable = true;
+    const html = renderToStaticMarkup(await CoderouterOverviewContent({ locale: "en", team: "team-1" }));
+    expect(coderouterAccountCalls).toEqual([["team-1", { kind: "user", userId: "user-1" }]]);
+    expect(html).toContain('data-native-count="2"');
   });
 
   test("renders one combined accounts section without a page-level team switcher", async () => {

@@ -5,10 +5,15 @@ import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 // carry masked identifiers only.
 import {
   addClaudeAccount,
+  ClaudeAccountCredentialConflict,
   listClaudeAccounts,
   parseClaudeUpstreamInput,
   removeAllClaudeAccounts,
 } from "../../../../services/coderouter/claudeUpstream";
+import {
+  CREDENTIAL_REJECTED_MESSAGE,
+  probeClaudeCredential,
+} from "../../../../services/coderouter/claudeCredentialProbe";
 import {
   resolveCoderouterUsageTeam,
   resolveCodeRouterRequestContext,
@@ -27,6 +32,7 @@ export type ClaudeUpstreamRouteDependencies = {
   readonly list: typeof listClaudeAccounts;
   readonly add: typeof addClaudeAccount;
   readonly removeAll: typeof removeAllClaudeAccounts;
+  readonly probe: typeof probeClaudeCredential;
 };
 
 const defaultDependencies: ClaudeUpstreamRouteDependencies = {
@@ -35,7 +41,17 @@ const defaultDependencies: ClaudeUpstreamRouteDependencies = {
   list: listClaudeAccounts,
   add: addClaudeAccount,
   removeAll: removeAllClaudeAccounts,
+  probe: probeClaudeCredential,
 };
+
+function accountVisibility(body: unknown): unknown {
+  return body && typeof body === "object" && "visibility" in body ? body.visibility : "private";
+}
+
+function skipsCredentialValidation(request: Request, body: unknown): boolean {
+  return new URL(request.url).searchParams.get("validate") === "0"
+    || (typeof body === "object" && body !== null && (body as { validate?: unknown }).validate === false);
+}
 
 export function makeClaudeUpstreamHandlers(
   dependencies: ClaudeUpstreamRouteDependencies = defaultDependencies,
@@ -63,18 +79,52 @@ export function makeClaudeUpstreamHandlers(
     if (!resolved.ok) return resolved.response;
     const body = await readJsonBody(request);
     if (!body.ok) return body.response;
-    const visibility = body.value && typeof body.value === "object" && "visibility" in body.value ? (body.value as { visibility: unknown }).visibility : "private";
+    const visibility = accountVisibility(body.value);
     if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
     if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
-    const input = parseClaudeUpstreamInput(body.value);
+    let input = parseClaudeUpstreamInput(body.value);
     if (!input) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
     const teamId = resolved.value.team.teamId;
     const stackUserId = resolved.value.user.id;
+    // Live check by default: a dead key or revoked token is refused here rather
+    // than failing the first machine routed to it. `validate: false` (or
+    // ?validate=0) skips it for offline scripting.
+    const skipValidation = skipsCredentialValidation(request, body.value);
+    let validation: "ok" | "skipped" | "unreachable" = "skipped";
+    if (!skipValidation) {
+      const probe = await dependencies.probe(input);
+      if (!probe.ok && probe.reason === "rejected") {
+        addCoderouterBreadcrumb("account", "Claude upstream credential rejected on add", {
+          upstream_kind: input.kind,
+          status: probe.status,
+        }, "warning");
+        return Response.json(
+          {
+            error: "credential_rejected",
+            message: `${CREDENTIAL_REJECTED_MESSAGE} Nothing was stored.`,
+            upstreamStatus: probe.status,
+            retryable: false,
+          },
+          { status: 422, headers: { "cache-control": "no-store" } },
+        );
+      }
+      validation = probe.ok ? "ok" : "unreachable";
+      if (probe.ok && probe.email && !input.label) {
+        input = { ...input, label: probe.email.slice(0, 64) };
+      }
+    }
     try {
       const before = await dependencies.list(teamId, { kind: "user", userId: stackUserId });
-      const account = await dependencies.add(teamId, stackUserId, input, visibility);
+      const { account, alreadyExists } = await dependencies.add(teamId, stackUserId, input, visibility);
+      if (alreadyExists) {
+        addCoderouterBreadcrumb("account", "Claude upstream account already present", { upstream_kind: input.kind });
+        return Response.json(
+          { teamId, account, upstream: account, accountsTotal: before.length, alreadyExists: true, validation },
+          { status: 200, headers: { "cache-control": "no-store" } },
+        );
+      }
       captureCoderouterEvent({
         event: "coderouter_claude_upstream_set",
         userId: stackUserId,
@@ -84,12 +134,16 @@ export function makeClaudeUpstreamHandlers(
       addCoderouterBreadcrumb("account", "Claude upstream account added", {
         upstream_kind: input.kind,
         accounts_total: before.length + 1,
+        validation,
       });
       return Response.json(
-        { teamId, account, upstream: account, accountsTotal: before.length + 1 },
+        { teamId, account, upstream: account, accountsTotal: before.length + 1, alreadyExists: false, validation },
         { status: 201, headers: { "cache-control": "no-store" } },
       );
     } catch (error) {
+      if (error instanceof ClaudeAccountCredentialConflict) {
+        return Response.json({ error: "credential_conflict" }, { status: 409, headers: { "cache-control": "no-store" } });
+      }
       reportCoderouterFailure("rds", error, { operation: "add_claude_account" });
       return claudeUpstreamUnavailable("coderouter could not store the Claude upstream account. Nothing was changed; retry shortly.");
     }

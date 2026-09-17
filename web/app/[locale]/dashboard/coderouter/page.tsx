@@ -32,7 +32,7 @@ import {
   type NativeAccountsState,
   type SharedAccountsState,
 } from "../components/coderouter-accounts";
-import { listAccounts as listNativeAccounts } from "@/services/coderouter/repository";
+import { accountsWithUsage } from "@/services/coderouter/usage";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { withPrioritySpan } from "@/services/telemetry";
@@ -507,7 +507,8 @@ async function loadSharedAccounts(
 
 async function loadNativeAccounts(teamId: string, userId: string): Promise<NativeAccountsState> {
   try {
-    return { kind: "ok", accounts: await listNativeAccounts(teamId, { kind: "user", userId }) };
+    const result = await accountsWithUsage(teamId, { kind: "user", userId });
+    return { kind: "ok", accounts: result.accounts };
   } catch {
     return { kind: "error" };
   }

@@ -44,6 +44,10 @@
       "schedule": "49 * * * *"
     },
     {
+      "path": "/api/cron/coderouter-account-health",
+      "schedule": "11,41 * * * *"
+    },
+    {
       "path": "/api/cron/cloud-diagnostics",
       "schedule": "* * * * *"
     }

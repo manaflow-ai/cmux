@@ -4747,11 +4747,11 @@ struct CMUXCLI {
     }
 
     private func localizedCoderouterCommands() -> String {
-        let defaultValue = "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)"
+        let defaultValue = "coderouter <accounts|machines> [--team <id>] [--json]    (team accounts and machine usage; other verbs pass through)"
         let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
         let catalogValue = String(
             localized: "cli.coderouter.commands",
-            defaultValue: "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)",
+            defaultValue: "coderouter <accounts|machines> [--team <id>] [--json]    (team accounts and machine usage; other verbs pass through)",
             bundle: bundle
         )
         let explicitValue = CMUXDiffViewerLocalization.string(
@@ -6381,7 +6381,7 @@ struct CMUXCLI {
             try runAIAccountsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "coderouter":
-            try runCoderouterCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+            try await runCoderouterCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "mobile":
             let sub = commandArgs.first?.lowercased()

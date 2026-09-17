@@ -46,6 +46,8 @@ const claudeAccount = {
   state: "active" as const,
   cooldownUntil: null,
   lastFailureCode: null,
+  consecutiveFailures: 0,
+  brokenAt: null,
   lastUsedAt: "2026-09-07T10:00:00.000Z",
   createdAt: "2026-09-01T00:00:00.000Z",
   updatedAt: "2026-09-01T00:00:00.000Z",
@@ -69,6 +71,7 @@ const nativeCodexAccount = {
   lastFailureCode: null,
   cooldownUntil: null,
   activeSessions: 3,
+  usage: { rate_limit: { primary_window: { used_percent: 35 }, secondary_window: { used_percent: 80 } } },
 };
 
 describe("coderouter accounts section", () => {
@@ -86,6 +89,8 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("3 accounts");
     expect(html).toContain("lawrence@example.com");
     expect(html).toContain("3 active sessions");
+    expect(html).toContain("5h window 35% used");
+    expect(html).toContain("weekly window 80% used");
     expect(html.match(/<ul[^>]*>/g)).toHaveLength(1);
     expect(html).toContain("Claude Code OAuth");
     expect(html).toContain("sk-ant-oat01-…a1b2");
@@ -95,6 +100,22 @@ describe("coderouter accounts section", () => {
     expect(html).toContain("added 2026-08-20");
     // Provider rows are text only.
     expect(html).not.toContain("<svg");
+  });
+
+  test("shows a broken Claude credential with removal but no re-enable action", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        claude={{ kind: "ok", accounts: [{ ...claudeAccount, state: "broken", lastFailureCode: "invalid_credential" }] }}
+        native={{ kind: "ok", accounts: [] }}
+        shared={{ kind: "ok", accounts: [] }}
+      />,
+    );
+    expect(html).toContain("Broken (invalid_credential): replace this credential");
+    expect(html).toContain("Remove");
+    expect(html).not.toContain(">Enable<");
+    expect(html).not.toContain(">Disable<");
   });
 
   test("offers every account kind in one add panel, OAuth token included", () => {
