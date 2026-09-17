@@ -16,12 +16,12 @@ TARGETS = {("darwin", "arm64"), ("darwin", "amd64"),
 
 
 class RemoteDaemonReleaseTests(unittest.TestCase):
-    def test_stable_and_nightly_release_artifacts(self):
-        for suffix in ("", "12345601"):
-            with self.subTest(suffix=suffix), tempfile.TemporaryDirectory() as directory:
+    def test_stable_nightly_and_rc_release_artifacts(self):
+        for channel, suffix in (("stable", ""), ("nightly", "12345601"), ("rc", "12345602")):
+            with self.subTest(channel=channel), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory)
-                version = "0.64.25" + (f"-nightly.{suffix}" if suffix else "")
-                tag = "nightly" if suffix else "v0.64.25"
+                version = "0.64.25" + (f"-{channel}.{suffix}" if suffix else "")
+                tag = channel if suffix else "v0.64.25"
                 args = [str(ROOT / "scripts/build_remote_daemon_release_assets.sh"),
                         "--version", version, "--release-tag", tag,
                         "--repo", "manaflow-ai/cmux", "--output-dir", directory]

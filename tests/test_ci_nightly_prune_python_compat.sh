@@ -116,6 +116,15 @@ immutable, ignored = module.collect_immutable_assets({"assets": release_assets})
 assert ignored == 1
 to_delete, _ = module.partition_assets(immutable, keep_builds=1, total_assets=9, max_assets=950)
 assert {asset.name for asset in to_delete} == set(daemon_names) | {"cmux-nightly-macos-arm64-12345601.dmg"}
+
+# RC runs share the daemon naming contract but have independent release storage.
+rc_assets = [{**asset, "name": asset["name"].replace("cmux-nightly-macos-", "cmux-rc-macos-")}
+             for asset in release_assets]
+immutable, ignored = module.collect_immutable_assets(
+    {"assets": rc_assets}, module.immutable_asset_patterns("cmux-rc-macos-"))
+assert ignored == 1
+to_delete, _ = module.partition_assets(immutable, keep_builds=1, total_assets=9, max_assets=950)
+assert {asset.name for asset in to_delete} == set(daemon_names) | {"cmux-rc-macos-arm64-12345601.dmg"}
 PY
 
 echo "PASS: nightly prune script is compatible with older macOS runner Python"

@@ -51,9 +51,10 @@ def verify_assets(manifest_path, directory):
             and {(e["goOS"], e["goArch"]) for e in entries} == TARGETS,
             "daemon manifest must contain each supported platform exactly once")
     suffix = ""
-    if manifest["releaseTag"] == "nightly":
-        version_parts = manifest["appVersion"].rsplit("-nightly.", 1)
-        require(len(version_parts) == 2 and version_parts[1].isdigit(), "invalid nightly daemon version")
+    if manifest["releaseTag"] in ("nightly", "rc"):
+        channel = manifest["releaseTag"]
+        version_parts = manifest["appVersion"].rsplit(f"-{channel}.", 1)
+        require(len(version_parts) == 2 and version_parts[1].isdigit(), f"invalid {channel} daemon version")
         suffix = "-" + version_parts[1]
     require(manifest_path.name == f"cmuxd-remote-manifest{suffix}.json", "unexpected manifest filename")
     require(manifest["checksumsAssetName"] == f"cmuxd-remote-checksums{suffix}.txt",
