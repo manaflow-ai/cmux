@@ -13,6 +13,7 @@ import time
 
 lock = threading.Lock()
 cancelled = set()
+failed_once = set()
 next_id = 100
 pending = {}
 
@@ -57,6 +58,24 @@ def handle_prompt(rid, params):
         chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # Failure simulation for retry tests. "fail-once: X" fails the first
+    # prompt of a session with an ACP internal error and echoes X after that;
+    # "fail-after-update: X" streams a chunk first, then fails every time.
+    if text.startswith("fail-once:"):
+        if sid not in failed_once:
+            failed_once.add(sid)
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error"}})
+            return
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text.startswith("limit:"):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+        return
+    if text.startswith("fail-after-update:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "partial "}})
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
         return
     if text == "slow":
         for i in range(3):

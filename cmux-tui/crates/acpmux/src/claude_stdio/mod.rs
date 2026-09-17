@@ -97,7 +97,11 @@ pub struct SpawnPlan {
 /// mode chip then always tells the truth.
 pub fn spawn_plan(profile: &AgentProfile, resume: Option<&str>, fork: bool, fresh_id: Option<&str>, effort: Option<&str>, mode: &str) -> SpawnPlan {
     let program = profile.argv.first().cloned().unwrap_or_else(|| "claude".into());
-    let mut args: Vec<String> = vec![
+    // Everything after the program in argv comes first: a wrapper such as
+    // `sr claude proxy` needs its own words before Claude's flags, and a
+    // plain profile can still pin --model, --settings, --mcp-config, ...
+    let mut args: Vec<String> = profile.argv.iter().skip(1).cloned().collect();
+    args.extend([
         "-p".into(),
         "--input-format".into(),
         "stream-json".into(),
@@ -107,7 +111,7 @@ pub fn spawn_plan(profile: &AgentProfile, resume: Option<&str>, fork: bool, fres
         "--include-partial-messages".into(),
         "--permission-prompt-tool".into(),
         "stdio".into(),
-    ];
+    ]);
     if let Some(sid) = resume {
         args.push("--resume".into());
         args.push(sid.into());
@@ -126,9 +130,6 @@ pub fn spawn_plan(profile: &AgentProfile, resume: Option<&str>, fork: bool, fres
         args.push("--permission-mode".into());
         args.push(mode.into());
     }
-    // Everything after the program in argv is passed through, so a profile
-    // can pin --model, --permission-mode, --settings, --mcp-config, ...
-    args.extend(profile.argv.iter().skip(1).cloned());
     SpawnPlan { program, args }
 }
 

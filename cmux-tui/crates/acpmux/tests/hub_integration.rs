@@ -59,7 +59,7 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
     let mut agents = BTreeMap::new();
     agents.insert(
         "fake".to_owned(),
-        AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None },
+        AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None },
     );
     let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
@@ -337,7 +337,7 @@ async fn restart_marks_unknown_outcome() {
     let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None });
+    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None });
     let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Local;
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
@@ -362,4 +362,40 @@ async fn restart_marks_unknown_outcome() {
     assert_eq!(final_kind, "turn_result", "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
     assert_eq!(events.last().unwrap().msg["detail"], "outcome_unknown");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn limit_error_fails_over_to_the_fallback_profile() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut agents = BTreeMap::new();
+    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: Some("fake-pool".into()) });
+    agents.insert("fake-pool".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None });
+    let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}})).await.unwrap();
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "fo"}}})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "hello"}]})).await.unwrap();
+    // The direct profile reports a usage limit; the pool profile answers.
+    // The fake agent echoes the same prompt text, so the failover reply is
+    // the echo of the limit prompt from the second process.
+    let r = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "limit: now"}]})).await;
+    let session = hub.resolve(&id).unwrap();
+    let kinds: Vec<String> = hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
+    assert!(kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
+    assert_eq!(hub.session_summary(&session)["agent"], "fake-pool");
+    // The pool profile is the same fake agent, so it reports the limit too:
+    // no second failover, the turn fails once and stays on the pool.
+    assert!(r.is_err(), "{r:?}");
+    assert_eq!(kinds.iter().filter(|k| *k == "failover").count(), 1);
+    let ok = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "after"}]})).await.unwrap();
+    assert_eq!(ok["stopReason"], "end_turn");
+    assert_eq!(hub.session_summary(&session)["preview"], "echo: after");
 }

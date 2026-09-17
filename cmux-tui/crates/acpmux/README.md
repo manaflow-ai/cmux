@@ -293,7 +293,24 @@ Stopping a session kills the agent's whole process group, so background shells t
 started stop with it. Resume afterwards is exact, but the agent no longer remembers those
 processes.
 
-## Configuration
+## Subrouter: Claude across many accounts
+
+[Subrouter](https://github.com/manaflow-ai/subrouter) is a local proxy that spreads Claude and
+Codex traffic across subscription accounts and fails over when one hits its limit. When `sr`
+is installed, acpmux discovers a `claude-sr` profile that launches Claude through the pool
+(`sr claude proxy`, which accepts acpmux's stream-json flags, `--session-id` and `--resume`),
+and sets it as the `fallback` of the direct `claude` profile.
+
+- `acpmux run -a claude-sr "…"` always uses the pool; the pool picks the account with the
+  most quota and keeps the conversation sticky to it.
+- A direct `claude` session whose account reports a usage or rate limit mid-turn is moved
+  onto `claude-sr` automatically: the agent process is replaced by a pooled one that resumes
+  the same Claude session, the prompt runs once more, and a `failover {from, to, reason}`
+  event is logged. `session info` then shows `agent: claude-sr`.
+- Any profile can name a `fallback` in `~/.acpmux/config.json`; the same rule applies to
+  every harness, keyed on the error text (`reached your … limit`, `rate limit`, `quota`,
+  `429`, `out of credits`).
+
 
 Harnesses found on PATH join the configured ones at every start: `claude`, `codex-acp`,
 `gemini`, `opencode`, and `pi-acp` (the ACP adapter for pi: `bun add -g pi-acp`). Entries in

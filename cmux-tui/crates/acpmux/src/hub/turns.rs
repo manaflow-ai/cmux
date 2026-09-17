@@ -64,9 +64,31 @@ impl Hub {
         self.append(session, "mux", "user_message", json!({"text": text, "client": client}));
         let turn_seq = self.append(session, "mux", "turn_started", json!({"prompt": short_text(&text, 200), "client": client})).seq;
         self.set_status(session, SessionStatus::Running);
-        let result = child
-            .request(method::SESSION_PROMPT, json!({"sessionId": agent_sid, "prompt": blocks}))
+        let mut result = child
+            .request(method::SESSION_PROMPT, json!({"sessionId": agent_sid, "prompt": blocks.clone()}))
             .await;
+        // The account behind this harness is exhausted: move the session
+        // onto its fallback profile (the subrouter pool for Claude), which
+        // resumes the same agent session, and run the prompt once more.
+        if let Err(e) = &result {
+            if is_limit_error(&e.message) {
+                if let Some(to) = self.fallback_profile(session).await {
+                    let from = session.meta().agent;
+                    self.append(session, "mux", "failover", json!({"from": from, "to": to, "reason": e.message}));
+                    self.detach_child(session).await;
+                    session.meta.lock().unwrap().agent = to.clone();
+                    self.save_meta(session);
+                    match self.child_for(session).await {
+                        Ok(child2) => {
+                            if let Some(sid2) = session.meta().agent_session_id {
+                                result = child2.request(method::SESSION_PROMPT, json!({"sessionId": sid2, "prompt": blocks})).await;
+                            }
+                        }
+                        Err(e2) => result = Err(e2),
+                    }
+                }
+            }
+        }
         *session.turn.lock().unwrap() = None;
         match &result {
             Ok(v) => {
@@ -91,6 +113,17 @@ impl Hub {
         self.save_meta(session);
         drop(guard);
         result
+    }
+
+    /// The profile to fall over to, when the current one names one that exists.
+    async fn fallback_profile(&self, session: &Session) -> Option<String> {
+        let cfg = self.config.read().await;
+        let agent = session.meta().agent;
+        let to = cfg.agents.get(&agent)?.fallback.clone()?;
+        if to == agent || !cfg.agents.contains_key(&to) {
+            return None;
+        }
+        Some(to)
     }
 
     /// Build a plain-text transcript from the log for rehydration.
@@ -409,4 +442,31 @@ impl Hub {
         }
     }
 
+}
+
+/// Does an agent error mean the account is out of quota, not that the
+/// prompt was wrong? Matches Claude's limit messages and common API ones.
+pub fn is_limit_error(message: &str) -> bool {
+    let m = message.to_lowercase();
+    (m.contains("reached your") && m.contains("limit"))
+        || m.contains("usage limit")
+        || m.contains("rate limit")
+        || m.contains("rate_limit")
+        || m.contains("out of credits")
+        || m.contains("insufficient credits")
+        || m.contains("quota")
+        || m.contains("overloaded")
+        || m.contains("429")
+}
+
+#[cfg(test)]
+mod limit_tests {
+    #[test]
+    fn recognizes_limit_messages() {
+        assert!(super::is_limit_error("You've reached your Fable limit. Switch to another model"));
+        assert!(super::is_limit_error("rate_limit_error: too many requests"));
+        assert!(super::is_limit_error("HTTP 429 overloaded"));
+        assert!(!super::is_limit_error("simulated internal error"));
+        assert!(!super::is_limit_error("permission denied"));
+    }
 }

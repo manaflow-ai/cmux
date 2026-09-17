@@ -14,7 +14,7 @@ use tokio::sync::mpsc;
 fn config(policy: PermissionPolicy) -> Config {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None });
+    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None });
     let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;

@@ -55,6 +55,11 @@ pub struct AgentProfile {
     pub env: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Profile to move a session onto when this one's account reports a
+    /// usage or rate limit mid-turn. Discovery sets `claude-sr` (the
+    /// subrouter account pool) for `claude` when `sr` is installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -205,6 +210,13 @@ impl Config {
         for (name, profile) in discover_agents() {
             cfg.agents.entry(name).or_insert(profile);
         }
+        if cfg.agents.contains_key("claude-sr") {
+            if let Some(c) = cfg.agents.get_mut("claude") {
+                if c.fallback.is_none() && c.kind == AgentKind::ClaudeStdio {
+                    c.fallback = Some("claude-sr".into());
+                }
+            }
+        }
         if cfg.default_agent.is_none() {
             cfg.default_agent = cfg.agents.keys().next().cloned();
         }
@@ -250,7 +262,7 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
                                         kind: AgentKind::Acp,
                                         argv,
                                         env: BTreeMap::new(),
-                                        description: Some("imported from ~/.acpx".into()),
+                                        description: Some("imported from ~/.acpx".into()), fallback: None,
                                     },
                                 );
                             }
@@ -268,6 +280,9 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
         // pi (earendil-works/pi) speaks ACP through the pi-acp adapter,
         // which spawns `pi --mode rpc`: `bun add -g pi-acp`.
         ("pi", "pi-acp"),
+        // Claude through the subrouter account pool: `sr claude proxy`
+        // picks the account with the most quota and fails over on limits.
+        ("claude-sr", "sr"),
     ] {
         if agents.contains_key(name) {
             continue;
@@ -275,6 +290,7 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
         if let Some(path) = which(bin) {
             let (kind, argv) = match bin {
                 "claude" => (AgentKind::ClaudeStdio, vec![path]),
+                "sr" => (AgentKind::ClaudeStdio, vec![path, "claude".into(), "proxy".into()]),
                 "gemini" => (AgentKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" => (AgentKind::Acp, vec![path, "acp".into()]),
                 _ => (AgentKind::Acp, vec![path]),
@@ -285,9 +301,18 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
                     kind,
                     argv,
                     env: BTreeMap::new(),
-                    description: Some("found on PATH".into()),
+                    description: Some(if bin == "sr" { "Claude through the subrouter account pool".into() } else { "found on PATH".into() }),
+                    fallback: None,
                 },
             );
+        }
+    }
+    // A direct Claude falls over to the pool when its account is exhausted.
+    if agents.contains_key("claude-sr") {
+        if let Some(c) = agents.get_mut("claude") {
+            if c.fallback.is_none() {
+                c.fallback = Some("claude-sr".into());
+            }
         }
     }
     agents
