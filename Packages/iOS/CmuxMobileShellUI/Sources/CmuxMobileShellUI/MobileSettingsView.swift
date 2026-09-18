@@ -456,14 +456,16 @@ struct MobileSettingsView: View {
                 // and stay DEBUG-only.
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
 #if DEBUG
+                    let pushMacStatus = store?.phonePushMacStatus
+                    let pushReadiness = pushCoordinator.readiness(
+                        macStatus: pushMacStatus,
+                        macAccountMismatch: store?.connectionRequiresReauth == true,
+                        securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
+                    )
                     MobilePushSettingsContent(
-                        readiness: pushCoordinator.readiness(
-                            macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true,
-                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
-                        ),
+                        readiness: pushReadiness,
                         phoneEnabled: $notificationsEnabled,
-                        macStatus: store?.phonePushMacStatus,
+                        macStatus: pushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,
                         supportsMacTest: store?.supportsPhonePushTest == true,
                         canConnectMac: startPairingScanner != nil,
