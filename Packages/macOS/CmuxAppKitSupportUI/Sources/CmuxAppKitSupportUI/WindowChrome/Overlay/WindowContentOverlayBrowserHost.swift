@@ -13,6 +13,8 @@ public final class WindowContentOverlayBrowserHostView: NSView {
 
     override public var isOpaque: Bool { false }
 
+    deinit {}
+
     override public func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
         return hit === self ? nil : hit

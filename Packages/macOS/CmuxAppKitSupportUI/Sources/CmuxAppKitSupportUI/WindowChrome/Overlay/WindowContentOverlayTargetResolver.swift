@@ -2,8 +2,10 @@ public import AppKit
 
 /// Resolves the AppKit insertion point for window-level overlays.
 @MainActor
-public struct WindowContentOverlayTargetResolver {
+public final class WindowContentOverlayTargetResolver {
     private let glassEffect: any WindowGlassEffectManaging
+    private weak var cachedBrowserWindow: NSWindow?
+    private weak var cachedBrowserHost: WindowContentOverlayBrowserHostView?
 
     /// Creates a resolver using an injected glass-effect seam.
     public init(glassEffect: any WindowGlassEffectManaging) {
@@ -17,11 +19,8 @@ public struct WindowContentOverlayTargetResolver {
             return glassTarget
         }
 
-        guard let contentView = window.contentView,
-              let themeFrame = contentView.superview else {
-            return nil
-        }
-        return WindowContentOverlayInstallationTarget(container: themeFrame, reference: contentView)
+        guard let contentView = window.contentView else { return nil }
+        return siblingInstallationTarget(for: contentView)
     }
 
     /// Returns an in-content target for WebKit's native hover event delivery.
@@ -34,13 +33,27 @@ public struct WindowContentOverlayTargetResolver {
         if let glassTarget = glassEffect.portalInstallationTarget(for: window) {
             return glassTarget
         }
+        if cachedBrowserWindow === window,
+           let cachedBrowserHost,
+           cachedBrowserHost.window === window {
+            return WindowContentOverlayInstallationTarget(
+                container: cachedBrowserHost,
+                reference: cachedBrowserHost
+            )
+        }
         guard let contentView = window.contentView else { return nil }
         if let browserHost = Self.descendant(
             in: contentView,
             matching: WindowContentOverlayBrowserHostView.identifier
         ) {
+            cachedBrowserWindow = window
+            cachedBrowserHost = browserHost
             return WindowContentOverlayInstallationTarget(container: browserHost, reference: browserHost)
         }
+        return siblingInstallationTarget(for: contentView)
+    }
+
+    private func siblingInstallationTarget(for contentView: NSView) -> WindowContentOverlayInstallationTarget? {
         guard let themeFrame = contentView.superview else { return nil }
         return WindowContentOverlayInstallationTarget(container: themeFrame, reference: contentView)
     }
