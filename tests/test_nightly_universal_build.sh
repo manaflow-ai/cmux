@@ -492,7 +492,7 @@ if ! awk '
   /^      - name: Publish nightly release assets/ { in_publish=1; next }
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
-  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-\*-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
+  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-\*-\$\{\{ needs\.build-nightly-app\.outputs\.daemon_build \}\}\.dmg/ { saw_immutable=1 }
   in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}\.dmg/ { saw_stable=1 }
   in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-arm64\.dmg/ { saw_arm=1 }
   in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-x86_64\.dmg/ { saw_intel=1 }
