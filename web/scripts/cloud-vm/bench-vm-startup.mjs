@@ -52,9 +52,26 @@ let authHeaders;
 // and the `finally` below still destroys every machine and the user. Node's
 // default signal handling would exit without running it.
 let interrupted = false;
-const interrupt = () => { interrupted = true; };
+const interruptWaiters = new Set();
+const interrupt = () => {
+  interrupted = true;
+  for (const wake of interruptWaiters) wake();
+};
 process.once("SIGINT", interrupt);
 process.once("SIGTERM", interrupt);
+
+/** A bounded wait that returns early on SIGINT/SIGTERM instead of holding teardown for the full delay. */
+function sleep(ms) {
+  return new Promise((resolve) => {
+    const wake = () => {
+      clearTimeout(timer);
+      interruptWaiters.delete(wake);
+      resolve();
+    };
+    const timer = setTimeout(wake, ms);
+    interruptWaiters.add(wake);
+  });
+}
 
 function requireStatus(stage, response, expected = 200) {
   if (response.status !== expected) {
@@ -112,7 +129,7 @@ async function attachUntilReady(vmId, stage) {
     if (response.status !== 502 || body.retryable !== true || remainingMs <= 0 || interrupted) {
       throw new Error(`${stage} attach for ${vmId} failed: ${response.status} ${response.text.slice(0, 300)}`);
     }
-    await new Promise((resolve) => setTimeout(resolve, Math.min(remainingMs, Math.max(1, Number(body.retryAfterSeconds) || 2) * 1000)));
+    await sleep(Math.min(remainingMs, Math.max(1, Number(body.retryAfterSeconds) || 2) * 1000));
   }
 }
 
@@ -121,11 +138,13 @@ async function edgeReady(vmId) {
   const startedAt = performance.now();
   const probes = [];
   for (;;) {
+    // The request itself is bounded by what is left of the stage budget.
+    const remainingMs = Math.max(1_000, EDGE_BUDGET_MS - (performance.now() - startedAt));
     const exec = await fetchTimed(vmUrl(vmId, "/exec"), {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json" },
       body: JSON.stringify({ command: EDGE_PROBE, timeoutMs: 10_000 }),
-    });
+    }, remainingMs);
     const code = (json(exec.text).stdout ?? "").trim();
     probes.push({ status: exec.status, ms: exec.ms, code });
     if (exec.status === 200 && /^[1-5]\d\d$/.test(code)) {
@@ -134,7 +153,7 @@ async function edgeReady(vmId) {
     if (performance.now() - startedAt >= EDGE_BUDGET_MS || interrupted) {
       throw new Error(`edge alias did not answer within ${EDGE_BUDGET_MS} ms (last exec ${exec.status}, code ${code || "none"})`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await sleep(1000);
   }
 }
 

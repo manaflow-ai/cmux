@@ -62,7 +62,9 @@ export function summarizeStages(stageMaps) {
   const byStage = {};
   for (const stages of stageMaps ?? []) {
     for (const [name, value] of Object.entries(stages ?? {})) {
-      (byStage[name] ??= []).push(value);
+      const samples = byStage[name] ?? [];
+      samples.push(value);
+      byStage[name] = samples;
     }
   }
   return Object.fromEntries(Object.entries(byStage).map(([name, values]) => [name, summarize(values)]));

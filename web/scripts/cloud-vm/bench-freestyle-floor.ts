@@ -11,8 +11,11 @@
  * announcement exec, exec/data/fs round trips, guest shell startup as the
  * work user (login non-interactive, and interactive under a pty with ble.sh),
  * pause, start, daemon-after-resume and delete. `--burst K` adds K concurrent
- * creates to expose allocation contention. Every VM and the benchmark VPC are
- * deleted before exit, including on failure; existing machines are never read.
+ * creates to expose allocation contention. Readiness milestones come from a
+ * 250 ms poll, so each is late by up to one interval plus the probe round
+ * trip; the interval is reported in the summary. Every VM and the benchmark
+ * VPC are deleted before exit, including on failure; existing machines are
+ * never read.
  */
 import { Freestyle, FreestyleApiError, type Vm } from "freestyle";
 import { randomUUID } from "node:crypto";
@@ -42,6 +45,10 @@ if (!Number.isInteger(trials) || trials < 0 || !Number.isInteger(burst) || burst
   console.error("bench-freestyle-floor: --trials and --burst take non-negative integers; --size is sm|md|lg|lgx|xl|2xl");
   process.exit(2);
 }
+if (trials === 0 && burst === 0) {
+  console.error("bench-freestyle-floor: nothing to measure (--trials 0 and --burst 0)");
+  process.exit(2);
+}
 if (!process.env.FREESTYLE_API_KEY) {
   console.error("Set FREESTYLE_API_KEY (source ~/.secrets/cmux.env)");
   process.exit(2);
@@ -50,6 +57,7 @@ const size = vmImageSize(sizeName);
 const image = option("--image") ?? resolveVmImage("freestyle", undefined, process.env, { kind: "desktop", memoryMb: size.memoryMb }).image;
 const fs = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
 const runId = `bench-${randomUUID().slice(0, 8)}`;
+const PROBE_INTERVAL_MS = 250;
 // Fail closed: a resource the run could not delete, or an interrupted run, is
 // a failed benchmark (exit 1 and `ok: false`), never a clean exit.
 const cleanupFailures: string[] = [];
@@ -105,7 +113,8 @@ async function waitForDaemon(vm: Vm, origin: number, budgetMs = 90_000): Promise
     if (result.running && milestones.daemonProcessMs === null) milestones.daemonProcessMs = at;
     if (result.listening && milestones.daemonListenMs === null) milestones.daemonListenMs = at;
     if (milestones.daemonListenMs !== null) break;
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    checkInterrupted();
+    await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS));
   }
   return milestones;
 }
@@ -262,6 +271,7 @@ const summary = {
   ok: !interrupted && cleanupFailures.length === 0 && ok.length === results.sequential.length && results.burst.every((trial) => !trial.error),
   interrupted,
   cleanupFailures,
+  probeIntervalMs: PROBE_INTERVAL_MS,
   image,
   size: size.name,
   vpc: withVpc,

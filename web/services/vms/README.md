@@ -358,6 +358,7 @@ lower-bound budget (issue #12905). The three benchmarks it is built on live besi
 scripts and only ever create, measure and delete their own resources:
 
 ```bash
+cd web
 bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5        # create → attach → exec → pause → resume → destroy, with the create route's Server-Timing stages
 bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider floor with the SDK: allocation, daemon listening, exec RTT, guest shell, pause/start
 bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
