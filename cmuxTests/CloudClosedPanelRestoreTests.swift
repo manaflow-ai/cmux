@@ -130,6 +130,36 @@ struct CloudClosedPanelRestoreTests {
         }
     }
 
+    @Test("Nested browser-only history scaffolding does not trigger terminal creation")
+    func nestedBrowserLayoutReopensWithoutTerminals() throws {
+        try withManager { manager in
+            let workspace = manager.addWorkspace(initialSurface: .browser, autoWelcomeIfNeeded: false)
+            let first = try #require(workspace.focusedPanelId)
+            let second = try #require(manager.newBrowserSplit(
+                tabId: workspace.id, fromPanelId: first,
+                orientation: .horizontal, url: URL(string: "about:blank")
+            ))
+            let third = try #require(manager.newBrowserSplit(
+                tabId: workspace.id, fromPanelId: second,
+                orientation: .vertical, url: URL(string: "about:blank")
+            ))
+            workspace.markCloseHistoryEligible(panelId: third)
+            #expect(workspace.closePanel(third, force: true))
+            #expect(manager.reopenMostRecentlyClosedItem())
+            #expect(workspace.panels.count == 3)
+            #expect(workspace.panels.values.allSatisfy { $0.panelType == .browser })
+            #expect(workspace.bonsplitController.allPaneIds.count == 3)
+            #expect(workspace.isProgrammaticSplit == false)
+            guard case .split(let root) = workspace.bonsplitController.treeSnapshot(),
+                  case .split(let nested) = root.second else {
+                Issue.record("Expected horizontal split containing a nested vertical split")
+                return
+            }
+            #expect(root.orientation == "horizontal")
+            #expect(nested.orientation == "vertical")
+        }
+    }
+
     private func withManager(_ body: (TabManager) throws -> Void) throws {
         let suite = "CloudClosedPanelRestoreTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
