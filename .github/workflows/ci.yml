@@ -737,10 +737,13 @@ jobs:
           tar -xzf "$archive" -C "$CMUX_DERIVED_DATA_PATH"
           products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
           stable="$RUNNER_TEMP/cmux-app-host-package-frameworks"
+          stable_system="/private/tmp/cmux-app-host-package-frameworks"
           mkdir -p "$stable"
           framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
           test -n "$framework_source"
           rsync -aL "$(dirname "$framework_source")/" "$stable/"
+          mkdir -p "$stable_system"
+          rsync -aL "$(dirname "$framework_source")/" "$stable_system/"
           if [ -L "$products/PackageFrameworks" ]; then
             rm "$products/PackageFrameworks"
           fi
@@ -2166,6 +2169,7 @@ jobs:
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
+              'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
               build-for-testing 2>&1 | tee -a "$RUNNER_TEMP/cmux-compile-admission.txt"
           done
 
@@ -2174,11 +2178,17 @@ jobs:
         run: |
           set -euo pipefail
           products="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug"
+          stable="/private/tmp/cmux-app-host-package-frameworks"
+          mkdir -p "$stable"
+          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+          test -n "$framework_source"
+          framework_root="$(dirname "$framework_source")"
+          rsync -aL "$framework_root/" "$stable/"
           if [ -L "$products/PackageFrameworks" ]; then
             rm "$products/PackageFrameworks"
           fi
           mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$products/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/Frameworks/" "$products/PackageFrameworks/"
+          rsync -aL "$framework_root/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
