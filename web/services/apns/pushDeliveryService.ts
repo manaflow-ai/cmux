@@ -33,6 +33,7 @@ import {
   claimDeviceDeliveryTargets,
   type DeviceDeliveryClaim,
   DeviceDeliveryBusyError,
+  retainAuthorizedDeviceDeliveryTargets,
   releaseDeviceDeliveryTargets,
 } from "./deviceDeliveryLease";
 
@@ -368,6 +369,39 @@ async function executePushDeliveryWithTargets(
         code: "push_service_not_configured",
       }),
     };
+  }
+
+  const authorizedTargets = await retainAuthorizedDeviceDeliveryTargets(
+    db,
+    input.userId,
+    leaseToken,
+    sendTargets,
+  );
+  const authorizedTargetIDs = new Set(
+    authorizedTargets.flatMap((target) =>
+      target.targetId == null ? [] : [target.targetId]
+    ),
+  );
+  const revokedOutcomes = sendTargets
+    .filter((target) => target.targetId == null || !authorizedTargetIDs.has(target.targetId))
+    .map((target): ApnsSendResult => ({
+      targetId: target.targetId,
+      deviceToken: target.deviceToken,
+      status: 404,
+      reason: "target_revoked",
+      prune: false,
+    }));
+  priorOutcomes = mergePushDeliveryOutcomes(priorOutcomes, revokedOutcomes);
+  sendTargets = authorizedTargets;
+  if (sendTargets.length === 0) {
+    return await completeDelivery(
+      dependencies,
+      input,
+      leaseToken,
+      priorOutcomes,
+      false,
+      deliveryPayload.expirationEpochSeconds,
+    );
   }
 
   // Deliberately not tied to the caller's request lifecycle: a client

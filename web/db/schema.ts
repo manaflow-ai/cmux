@@ -1011,6 +1011,7 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
     deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
     deliveryLeaseToken: uuid("delivery_lease_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

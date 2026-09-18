@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import type { cloudDb } from "../../db/client";
 import { deviceTokens } from "../../db/schema";
@@ -44,6 +44,7 @@ export async function claimDeviceDeliveryTargets(
   const tokenScope = (bundleId: string | null) => and(
     eq(deviceTokens.userId, userId),
     eq(deviceTokens.platform, "ios"),
+    isNull(deviceTokens.revokedAt),
     ...(bundleId == null ? [] : [eq(deviceTokens.bundleId, bundleId)]),
   );
   return db.transaction(async (tx) => {
@@ -108,6 +109,37 @@ export async function claimDeviceDeliveryTargets(
       })),
     };
   });
+}
+
+/**
+ * Rechecks the revocation marker after the durable send lease is recorded.
+ * Sign-out may revoke a row while APNs setup is still pending; revoked rows
+ * must be removed from the provider call even though the original claim is
+ * still in memory.
+ */
+export async function retainAuthorizedDeviceDeliveryTargets(
+  db: PushDatabase,
+  userId: string,
+  leaseToken: string | null,
+  targets: readonly ApnsTarget[],
+): Promise<ApnsTarget[]> {
+  if (!leaseToken || targets.length === 0) return [];
+  const rows = await db
+    .select({ targetId: deviceTokens.id })
+    .from(deviceTokens)
+    .where(and(
+      eq(deviceTokens.userId, userId),
+      eq(deviceTokens.platform, "ios"),
+      eq(deviceTokens.deliveryLeaseToken, leaseToken),
+      isNull(deviceTokens.revokedAt),
+      inArray(deviceTokens.id, targets.flatMap((target) =>
+        target.targetId == null ? [] : [target.targetId]
+      )),
+    ));
+  const authorized = new Set(rows.map((row) => row.targetId));
+  return targets.filter((target) =>
+    target.targetId != null && authorized.has(target.targetId)
+  );
 }
 
 export async function releaseDeviceDeliveryTargets(

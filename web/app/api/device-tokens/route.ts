@@ -2,7 +2,7 @@
 // Auth: Stack Bearer from the native client. A row only exists after the
 // user explicitly opts in on their device, so presence == "wants phone pushes".
 
-import { and, count, eq, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokens } from "../../../db/schema";
@@ -49,6 +49,7 @@ export async function GET(request: Request): Promise<Response> {
     eq(deviceTokens.userId, user.id),
     eq(deviceTokens.bundleId, bundle.bundleId),
     eq(deviceTokens.platform, "ios"),
+    isNull(deviceTokens.revokedAt),
   ));
   return jsonResponse({ recipients: rows.filter((row) => row.publicKey && row.installationID !== "legacy") });
 }
@@ -208,6 +209,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             installationId: isLegacy ? "legacy" : installationId,
             pushKeyId: isLegacy ? "legacy" : pushKeyId,
             pushPublicKey: isLegacy ? null : pushPublicKey,
+            revokedAt: null,
             updatedAt: new Date(),
           })
           .where(eq(deviceTokens.id, rowToUpdate.id));
@@ -401,12 +403,14 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
     const deliveryLeaseUntilMs =
       existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
     if (deliveryLeaseUntilMs > Date.now()) {
+      if (existingToken) {
+        await tx
+          .update(deviceTokens)
+          .set({ revokedAt: new Date(), updatedAt: new Date() })
+          .where(eq(deviceTokens.id, existingToken.id));
+      }
       return {
-        outcome: "busy" as const,
-        retryAfterSeconds: Math.max(
-          1,
-          Math.ceil((deliveryLeaseUntilMs - Date.now()) / 1_000),
-        ),
+        outcome: "revoked" as const,
       };
     }
     if (existingToken) {
@@ -423,21 +427,5 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   if (deletion.outcome === "ambiguous") {
     return jsonResponse({ error: "ambiguous_legacy_device_token" }, 409);
   }
-  if (deletion.outcome === "busy") {
-    return new Response(
-      JSON.stringify({
-        error: "push_delivery_in_progress",
-        retryAfterSeconds: deletion.retryAfterSeconds,
-      }),
-      {
-        status: 409,
-        headers: {
-          "content-type": "application/json",
-          "retry-after": String(deletion.retryAfterSeconds),
-        },
-      },
-    );
-  }
-
   return jsonResponse({ ok: true });
 }
