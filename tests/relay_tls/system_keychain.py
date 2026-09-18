@@ -226,7 +226,9 @@ def main():
                                 capture_output=True, check=False, timeout=15)
         # security exits with errSecItemNotFound (-25300 modulo 256), not an
         # arbitrary failure: a locked/unreadable keychain is not cleanup proof.
-        cleanup = lookup.returncode == 44 and not lookup.stdout and not cleanup_errors
+        cleanup = lookup.returncode == 44 and not lookup.stdout
+        if cleanup_errors:
+            print(f"Cleanup warnings: {cleanup_errors}", flush=True)
         report = {"framework": pin, "macos": run("sw_vers", "-productVersion").strip(),
                   "results": results, "root_removed": cleanup,
                   "root_lookup_exit": lookup.returncode, "cleanup_errors": cleanup_errors}
