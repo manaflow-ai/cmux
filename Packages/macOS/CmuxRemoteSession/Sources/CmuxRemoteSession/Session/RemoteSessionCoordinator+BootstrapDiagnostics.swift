@@ -84,14 +84,18 @@ extension RemoteSessionCoordinator {
         return """
         remote_path=\(remotePath.shellSingleQuoted)
         \(logPathAssignment)
+        remote_mode=missing
         if [ -e "$remote_path" ]; then
           remote_size="$(wc -c < "$remote_path" 2>/dev/null || printf 'unknown')"
           set -- $remote_size
           remote_size="${1:-unknown}"
+          remote_mode="$(stat -c '%a' "$remote_path" 2>/dev/null || stat -f '%Lp' "$remote_path" 2>/dev/null || printf 'unknown')"
+          set -- $remote_mode
+          remote_mode="${1:-unknown}"
         else
           remote_size=missing
         fi
-        printf 'remote_path=%s\\nremote_size=%s\\n' "$remote_path" "$remote_size"
+        printf 'remote_path=%s\\nremote_size=%s\\nremote_mode=%s\\n' "$remote_path" "$remote_size" "$remote_mode"
         if [ -n "$log_path" ] && [ -r "$log_path" ]; then
           printf '%s\\n' 'daemon_log_tail:'
           tail -n 80 "$log_path" 2>/dev/null | tail -c 6000 || true
@@ -158,6 +162,7 @@ extension RemoteSessionCoordinator {
     ) -> String {
         var path = sanitizedRemoteDaemonPath(fallbackPath)
         var size = "unknown"
+        var mode = "unknown"
         var hasLogTail = false
         for line in output.split(whereSeparator: \.isNewline) {
             let value = String(line)
@@ -169,11 +174,27 @@ extension RemoteSessionCoordinator {
                 if Int64(candidate) != nil || candidate == "missing" || candidate == "unknown" {
                     size = candidate
                 }
+            } else if value.hasPrefix("remote_mode=") {
+                let candidate = String(value.dropFirst("remote_mode=".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if candidate == "missing" || candidate == "unknown" ||
+                    candidate.range(of: "^[0-7]{3,4}$", options: .regularExpression) != nil {
+                    mode = candidate
+                }
             } else if value == "daemon_log_tail:" {
                 hasLogTail = true
             }
         }
         let logSummary = hasLogTail ? "daemon log tail captured" : "daemon log unavailable"
-        return "remote path: \(path); remote size: \(size) bytes; \(logSummary)"
+        return String(
+            format: String(
+                localized: "remoteDaemon.bootstrap.diagnostics.summary",
+                defaultValue: "remote path: %@; remote size: %@ bytes; remote mode: %@; %@"
+            ),
+            path,
+            size,
+            mode,
+            logSummary
+        )
     }
 }
