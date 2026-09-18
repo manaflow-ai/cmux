@@ -242,6 +242,13 @@ ensure_extension_profile_from_asc() {
   command -v python3 >/dev/null || die "python3 is required"
   command -v openssl >/dev/null || die "openssl is required"
 
+  export ASC_KEY_ID="${ASC_KEY_ID:-${ASC_API_KEY_ID:-}}"
+  export ASC_ISSUER_ID="${ASC_ISSUER_ID:-${ASC_API_ISSUER_ID:-}}"
+  export ASC_PRIVATE_KEY_PATH="${ASC_PRIVATE_KEY_PATH:-${ASC_API_KEY_PATH:-}}"
+  if [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ] || [ -z "${ASC_PRIVATE_KEY_PATH:-}" ]; then
+    die "upload credentials are required to fetch the extension profile"
+  fi
+
   local cert_pem cert_serial
   cert_pem="$TMP_ROOT/ios-distribution-cert.pem"
   security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" > "$cert_pem" ||
