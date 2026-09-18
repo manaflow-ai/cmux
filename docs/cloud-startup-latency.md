@@ -22,16 +22,16 @@ minutes. The "~10 seconds sometimes" report is consistent with any one of
 those tails landing on top of the 4–5 s median.
 
 **Provider floor (measured with the Freestyle SDK directly, n=5):**
-allocation returns in **0.41 s** median and the baked daemon is listening
-**1.06 s** after the create call started. Pause/resume is far cheaper:
+allocation returns in **0.44 s** median and the daemon bound to this machine
+is listening **1.21 s** after the create call started. Pause/resume is far cheaper:
 start returns in 0.09 s and the daemon is listening 0.14 s after the resume
 request (a figure that includes the start call). Exec round
-trip is 18 ms. Three concurrent creates cost 0.49 s each (no meaningful
+trip is 25 ms. Three concurrent creates cost 0.45 s each (no meaningful
 contention).
 
 **Lower bound with every feature intact (this architecture, this provider):**
 about **1.5 s** to a usable prompt for a fresh machine (0.15 s control plane,
-0.41 s allocation, ~0.3 s daemon start once the supervisor is event-driven,
+0.44 s allocation, ~0.3 s daemon start once the supervisor is event-driven,
 ~0.3 s link + snapshot + terminal, ~0.3 s shell with ble.sh kept but deferred), and
 about **0.3 s + shell** for resume/reconnect (0.14 s from the resume request
 to a listening daemon, 0.14 s link). This is a floor derived from
@@ -94,20 +94,20 @@ Click "Create" in the sheet (`NewMachineModel` → `MachineCreateCoordinator`
 | 1 | CLI process start, socket connect, `vm.create` admission | Mac | ~50–100 ms (not measured separately) | mostly no |
 | 2 | `VMClient.create` waits for `AuthCoordinator.currentTokens()` | Mac | 0 normally; minutes in the #12624 stall | yes (owned by #12624) |
 | 3 | `POST /api/vm`: auth 0.3 ms, entitlements 0.2 ms, begin_create (DB tx, advisory lock, slug) 30–48 ms, resolve_network 35–78 ms (p90 200–500 ms), model_plane_provision 3–9 ms, **provider_create 1.30–1.31 s**, mark_running 5–10 ms, usage_events 7–17 ms; server total 1.41–1.42 s; client-observed 1.47–1.51 s | Vercel | 1.4–1.5 s (Nightly client p50 1.07 s, p90 2.97 s) | provider_create is ~0.4 s allocation + ~0.85 s guest work (row 4) |
-| 4 | Inside provider_create: `vms.create` (0.41 s), address validation, **`installGuestCli`** (fs write 35 ms + exec chmod/mv + prompt install python; since #12741 the same exec also installs the guest browser openers), **`ensureResourceReporter`** (exec: write unit, `systemctl daemon-reload`, `restart`, `enable --now`) | Vercel → guest | ~0.85 s | **yes**: bake shim, openers and reporter; prompt already re-applied at attach |
+| 4 | Inside provider_create: `vms.create` (0.44 s), address validation, **`installGuestCli`** (fs write 35 ms + exec chmod/mv + prompt install python; since #12741 the same exec also installs the guest browser openers), **`ensureResourceReporter`** (exec: write unit, `systemctl daemon-reload`, `restart`, `enable --now`) | Vercel → guest | ~0.85 s | **yes**: bake shim, openers and reporter; prompt already re-applied at attach |
 | 5 | `vm.rename` (only when a name was typed): DB update + guest prompt-install exec, 30 s socket timeout, best-effort but synchronous in the CLI | Vercel → guest | p50 281 ms, **p90 13.9 s** (n=24) | **yes**: accept `displayName` at create |
 | 6 | `vm.cmux_remote_info` → `POST /api/vm/{id}/attach-endpoint`: auth, `requireAccessibleUserVm`, `getStatus` provider probe, **announce exec** (~100 ms), **attach bundle exec** with the settle loop (up to 3 s, 100 ms ticks, two metadata curls per tick), **shim + browser-opener check exec** (sha256 of the shim plus `guestBrowserReadyCommand`, added by #12741 on 2026-09-18, after this session's runs), **hooks-ready exec** (python), **reporter-install exec** (systemctl), lease + usage + metadata DB writes | Vercel → guest | fresh machine 1.2–1.5 s (this session, before #12741); existing machine Nightly p50 0.75 s; server p50 1.12 s, p95 14.9 s (14 d) | **yes**: one exec; skip baked components; readiness by dialing |
 | 7 | Hub pin (`wg hub` spawn + socket ready) and route probe (SOCKS connect race across families) | Mac | hub cold 0.24 s, tunnel enroll 0.12–0.30 s (first time), probe ~1 RTT | yes: overlap with row 3 |
 | 8 | `workspace.create` (placeholder pane), `workspace.cloud_vm_bind` | Mac | ~10–20 ms | no |
 | 9 | `surface.catalog refresh:true` for the machine: link `remote connect --carrier` (**0.14 s**, reconnect 0.13 s), `session current snapshot` (57 ms), fleet list (0.2–1.2 s cold) | Mac → guest | 0.3–0.5 s | partly: the list is not needed to open the terminal |
 | 10 | `surface.new_terminal` → `workspace <ws> run -- bash -l` (132 ms) → manual-mirror attach + first frame (90–330 ms, PR #12739) | Mac → guest | 0.2–0.45 s | little |
-| 11 | Guest shell to first prompt: `bash -l` profile chain (agent-config, terminfo, desktop env) 0.52 s; interactive shell with ble.sh 1.28 s under a pty; prompt visible 1.06 s after `run` over the real link | guest | **1.1 s** | partly: ble.sh load and profile chain |
+| 11 | Guest shell to first prompt: `bash -l` profile chain (agent-config, terminfo, desktop env) 0.51 s; interactive shell with ble.sh 1.10 s under a pty; prompt visible 1.06 s after `run` over the real link | guest | **1.1 s** | partly: ble.sh load and profile chain |
 | 12 | Desktop (Displays row): `open-port` API (p50 633 ms, 14 d) runs `systemctl start cmux-desktop` (no-op, the desktop is live in the memory snapshot) then the browser proxy + noVNC load | Vercel → guest → Mac | ~1–2 s, in parallel with 10–11 if opened | partly: skip the heal exec when the daemon reports the desktop up |
 | 13 | Model plane (coderouter edge injection) | provider edge | already answering 200 at the first probe, 3–5 s after create, in 3/3 trials | n/a |
 
 Rows 3–6 are the control plane; rows 7–11 are the Mac; rows 11–13 are
-the guest. The provider's own contribution is inside row 4 (0.41 s) plus
-the daemon boot that overlaps rows 5–6 (listening at +1.06 s from the
+the guest. The provider's own contribution is inside row 4 (0.44 s) plus
+the daemon boot that overlaps rows 5–6 (listening at +1.21 s from the
 create call).
 
 ## 4. Measured baselines
@@ -178,28 +178,37 @@ so the settle loop covered the create→attach race in this session.
 
 ### 4.3 Provider floor (`bench-freestyle-floor.ts`, SDK only)
 
+Readiness here is the image's own health predicate: the daemon process runs,
+something listens on 1337, and the daemon is the one bound to this machine's
+instance id (a clone briefly runs the source machine's daemon until the
+supervisor re-keys it, and that stale listener does not count). Each
+milestone is late by up to one 250 ms probe interval plus one ~25 ms exec.
+An earlier run that checked only the listener read 1.06 s; its allocation
+and first exec were also faster that day, so the re-key's own cost is at
+most ~0.15 s of the difference.
+
 | Stage (md, n=5; sm, n=3) | md p50 (range) | sm p50 |
 | --- | --- | --- |
-| `vms.create` returns, state `running` | 414 ms (331–451) | 398 ms |
-| first successful guest exec | 476 ms | 534 ms |
-| daemon process running (supervisor tick) | 772 ms (672–806) | 857 ms |
-| daemon listening on 1337 | **1061 ms** (957–1113) | 1143 ms |
-| strict announce exec | 98 ms | 136 ms |
-| exec RTT / `data()` / 20 KB fs write | 18 / 15 / 35 ms | 17 ms |
-| `bash -lc true` as work user (guest clock) | 518 ms (416–525) | 317 ms |
-| interactive `bash -il` under a pty with ble.sh (guest clock) | 1279 ms (1025–1279) | 1027 ms |
-| pause / start | 161 (p90 1065) / 91 ms | 185 / 88 ms |
-| daemon listening after the resume request (includes the start call) | 143 ms | 136 ms |
-| delete | 76 ms | 81 ms |
-| burst of 3 concurrent creates: allocation / listening | 488 / 1108 ms | – |
+| `vms.create` returns, state `running` | 441 ms (415–524) | 479 ms |
+| first successful guest exec | 582 ms | 668 ms |
+| daemon process running (supervisor tick) | 913 ms (866–1051) | 1056 ms |
+| daemon listening on 1337, bound to this machine | **1214 ms** (1167–1352) | 1378 ms |
+| strict announce exec | 133 ms | 138 ms |
+| exec RTT / `data()` / 20 KB fs write | 25 / 17 / 34 ms | 25 ms |
+| `bash -lc true` as work user (guest clock) | 505 ms (361–580) | 437 ms |
+| interactive `bash -il` under a pty with ble.sh (guest clock) | 1101 ms (1087–1298) | 1029 ms |
+| pause / start | 177 (p90 218) / 92 ms | 200 / 98 ms |
+| daemon listening after the resume request (includes the start call) | 141 ms | 156 ms |
+| delete | 84 ms | 105 ms |
+| burst of 3 concurrent creates: allocation / listening | 449 / 1191 ms | – |
 
-So the machine exists and executes commands ~0.5 s after the request, the
-daemon is reachable ~0.6 s later, and a memory-preserving resume is ~0.14 s
-end to end (`resumeDaemonListenMs` is measured from before `start()`, so the
-143 ms already contains the 91 ms start call; the first probe after `start()`
-returns already sees the listener). The supervisor's 1 s poll (`cmux-devbox-boot`) is visible as
-the 0.3 s between first-exec and daemon-process; daemon start to listen is
-~0.29 s.
+So the machine exists and executes commands ~0.6 s after the request, the
+daemon that is valid for it is reachable ~0.6 s later, and a memory-preserving
+resume is ~0.14 s end to end (`resumeDaemonListenMs` is measured from before
+`start()`, so the 141 ms already contains the 92 ms start call; the first
+probe after `start()` returns already sees the listener). The supervisor's
+1 s poll (`cmux-devbox-boot`) is visible as the 0.33 s between first-exec and
+daemon-process; daemon start to listen is ~0.30 s.
 
 ### 4.4 Transport benchmark (`bench-private-link.ts`, md, n=3)
 
@@ -237,7 +246,7 @@ inside the one bundle exec.
 | Resume a paused machine from the sidebar | attach-resume 1.7–2.4 s + link 0.14 + terminal 0.2 + shell 1.1 ≈ 3.2–3.9 s | ~0.3 s + shell | ≤ 1.5 s |
 | Reconnect to a running machine (app already linked) | Cmd-D/Cmd-T open 0.25–0.66 s + shell (PR #12739) | 0.15 s + shell | ≤ 0.5 s + shell |
 | Reconnect after app restart | attach-endpoint 0.75 s (route cache empty) + link 0.14 + snapshot 0.06 + terminal | link only (route persisted) | ≤ 0.5 s + shell |
-| 3 concurrent creates | create 1.76 s, attach 1.10 s each | allocation 0.49 s each | as sequential |
+| 3 concurrent creates | create 1.76 s, attach 1.10 s each | allocation 0.45 s each | as sequential |
 | Full features (desktop visible, agents' credentials) | desktop +1–2 s in parallel; edge already up | desktop ~0.3 s | desktop ≤ 0.5 s after link |
 
 ## 5. Lower-bound budget (explicit assumptions)
@@ -248,12 +257,12 @@ nothing that can be overlapped:
 | Component | Floor | Basis | Confidence |
 | --- | --- | --- | --- |
 | Control plane admission (auth verify, one DB transaction, response) | 0.10–0.15 s | Server-Timing: auth 0.3 ms, begin_create 30–48 ms, mark_running 5–10 ms, plus one client RTT ~70 ms | high |
-| Provider allocation | 0.41 s | 8 SDK creates: 331–494 ms | high for this vantage/day; provider-owned |
-| Daemon ready | 0.30 s | process→listen 0.29 s measured; assumes the supervisor starts it immediately on resume (today 1 s poll) | medium |
+| Provider allocation | 0.44 s | 8 SDK creates: 415–524 ms | high for this vantage/day; provider-owned |
+| Daemon ready | 0.30 s | process→listen 0.30 s measured, identity-verified; assumes the supervisor starts it immediately on resume (today 1 s poll) | medium |
 | Reachability + link | 0.12–0.15 s | measured link 123–219 ms (p50 139); the boot-time announce runs before the daemon listens | high |
 | Snapshot + terminal create | 0.19 s | 57 + 132 ms measured; one multiplexed request could shave ~50 ms | high |
-| Shell to prompt | 0.30–0.50 s | `bash -lc` 0.42–0.52 s today; ble.sh adds ~0.75 s; assumes a trimmed profile chain and ble.sh loaded after the first prompt | medium |
-| **Sum** | **~1.4–1.7 s** | | |
+| Shell to prompt | 0.30–0.50 s | `bash -lc` 0.36–0.58 s today; ble.sh adds ~0.6 s; assumes a trimmed profile chain and ble.sh loaded after the first prompt | medium |
+| **Sum** | **~1.5–1.7 s** | | |
 
 Unavoidable by construction: one RTT to the control plane, provider
 allocation, daemon start, one RTT to dial, shell startup. Everything else
@@ -272,10 +281,10 @@ list refresh, ble.sh with its cache, and the first-frame pipeline.
 1. **Create does three guest round trips after allocation** (`installGuestCli`: fs write + exec; `ensureResourceReporter`: exec running `systemctl daemon-reload/restart/enable`). provider_create is 1.30 s from Vercel against a 0.41 s allocation; the transport bench shows the same 1.06 s vs 0.41 s from a closer vantage. The shim and the reporter unit are static per image epoch; the bake already installs the daemon, its pin and the agent hooks the same way. The prompt identity is re-applied by the attach bundle anyway (`promptSetup` in `openCmuxRemote`).
 2. **Attach runs five to six guest execs serially** (announce; bundle with a settle loop that runs two metadata-service curls per 100 ms tick; since #12741 a shim-sha256 + browser-opener readiness check; hooks-ready check with a python JSON parse; reporter install with systemctl) plus a `getStatus` provider probe and three DB writes. Measured 0.61 s from the Mac and 0.85–1.5 s through Vercel before #12741 landed; per-day production p50 doubled when the first of these entered the path on 2026-09-10. On current images the hooks check is always a no-op (the bake proves hooks installed), the shim/opener check is a no-op after the first attach, and the reporter compare/enable is a no-op after the first attach. Each addition is individually small (one exec is ~20 ms of RTT plus its work), which is exactly why the count keeps growing; the fix is structural (one exec, gated by the image epoch), not per-feature.
 3. **Named creates serialize a rename exec** (p90 13.9 s, n=24) before opening the shell. The server already installs the prompt name inside create when `promptIdentity` is passed; the create route just does not accept a display name.
-4. **The daemon waits for a 1 s supervisor tick**: first exec succeeds at 0.48 s, the daemon process appears at 0.77 s, listens at 1.06 s. A systemd path/oneshot triggered at resume, or an immediate check at supervisor start, removes ~0.3 s.
+4. **The daemon waits for a 1 s supervisor tick**: first exec succeeds at 0.58 s, the daemon process appears at 0.91 s, listens (bound to the machine) at 1.21 s. A systemd path/oneshot triggered at resume, or an immediate check at supervisor start, removes ~0.3 s.
 5. **Resume heals twice and polls at 1 s**: `resume()` calls `ensureCmuxTuiRunning` (shim install, settle exec, hooks), then `openCmuxRemote` runs announce + bundle + hooks + reporter again; `waitForRunningStatus` sleeps 1 s between probes. Provider floor is 0.09 s start + 0.14 s daemon; measured resume-attach is 1.7–2.4 s.
 6. **The client learns the route only from the attach-endpoint**, so the hub pin and route probe start after that request and the link after those. The create response already carries the private addresses; the daemon's Noise handshake is the real readiness proof.
-7. **Guest shell startup is 1.1 s to the first prompt**: `bash -l` profile chain 0.5 s (agent-config generators, terminfo, desktop env, ble.sh cache seeding), ble.sh source ~0.75 s. Every new terminal pays it, not only startup.
+7. **Guest shell startup is 1.1 s to the first prompt**: `bash -l` profile chain 0.5 s (agent-config generators, terminfo, desktop env, ble.sh cache seeding), ble.sh source ~0.6 s. Every new terminal pays it, not only startup.
 8. **Vercel cold starts**: the first call of a route function costs ~2–3 s (exec 2.4 s vs 0.37 s warm, staging list 1.2 s cold). Production exec p90 in telemetry is 2.46 s for a 75 ms server operation.
 9. **Polling and timeouts around the path**: fleet poll 45 s (the "Creating…" row is replaced only after a refresh; the coordinator does trigger one on the marker), stats 20 s per machine (#12625), CLI `vm.cmux_remote_info` 16 min socket timeout, `VMClient.createTimeoutSeconds` 16 min, link connect 60 s, hub socket wait 45 s (#11008 owns command deadlines).
 10. **Auth wait before the request** (#12624): client−server overhead is 73 ms at p50 but 0.8–1.5 s at p90/p95 for create, and the issue documents 10-minute spans.
@@ -288,7 +297,7 @@ list refresh, ble.sh with its cache, and the first-frame pipeline.
 | **Event-driven readiness** (client dials from the create response; daemon-ready proven by the handshake; attach-endpoint becomes the repair call; supervisor starts daemon on resume) | −0.75 to −1.5 s (attach RTT) −0.3 s (tick) | none | dial retries bounded by the existing reconnect policy (100 ms → 5 s, 15 s attempt) | lease must be recorded at create for the creator's device or after the first dial; admission is unchanged (VPC membership) | none | a machine whose daemon never comes up shows "connecting" until the repair call runs (bounded, e.g. after 3 failed attempts) | **do second**, needs the lease-ledger decision |
 | **Parallel initialization** (hub/tunnel/route probe while create is in flight; desktop open in parallel with the terminal; fleet list off the open path) | −0.2 to −0.5 s | none | none | none | none | none | do with the above |
 | **Prebuilt/versioned images** | already the design (memory snapshot with daemon parked, desktop live) | rebake per epoch | – | – | promotion invariants already enforced | – | keep; add daemon-start-on-resume |
-| **Snapshot/resume as the default open** (keep machines paused, resume on open) | resume floor 0.14 s vs create 1.06 s | paused = disk only | pause p90 1.06 s observed | none | user data persists anyway | none | already available (`pause`); make resume cheap (item 6) |
+| **Snapshot/resume as the default open** (keep machines paused, resume on open) | resume floor 0.14 s vs create 1.21 s | paused = disk only | pause p90 1.06 s observed | none | user data persists anyway | none | already available (`pause`); make resume cheap (item 6) |
 | **Warm inventory** (one spare paused machine per active user/team) | −0.8 s on fresh create after the above | one extra 16–32 GB disk per user; naming/limit/billing exceptions; recreate spares on every image promotion | none | spare must be created in the user's VPC with the user's edge rule: fine | staleness: spares older than the manifest must be discarded | new reconciler, new orphan class | **not now**; revisit if allocation regresses above ~1 s |
 | **Connection reuse** | app already keeps one link per machine and one hub; persisting the route (already) lets a restart skip attach | none | – | – | – | – | keep; extend to pre-dial on fleet discovery |
 | **Faster shell** (deferred ble.sh, trimmed profile) | −0.5 to −0.8 s on every terminal | none | – | – | image change | – | do, with parity tests for ghost text and prompt |
@@ -301,7 +310,7 @@ proof required before claiming it, and ownership overlap.
 1. **Attach: one exec, no re-installs, readiness by dial** (web driver). Merge announce + settle + probe + devices + trusted-listener into one script; skip the shim/opener, hooks and reporter checks when `/etc/cmux/image-stamp` epoch ≥ the epoch that bakes them; skip the `getStatus` probe for rows created in the last minute; move lease/usage/metadata writes to `after()` where the response does not depend on them. Expected: server p50 1.12 s → ~0.35–0.45 s, p95 15 s → ≤ 2 s. Proof: `bench-vm-startup.mjs` before/after (n ≥ 10 staging, n ≥ 5 production) plus PostHog open_attach p50/p95 by build; provider tests asserting the exec count. Overlap: #12672 (create/attach outcome) — coordinate on the driver; #12537 owns the UI.
 2. **Create: allocation only** (image + web). Bake `/usr/local/bin/cmux` shim, the guest browser openers (`guestBrowser.ts`) and the `cmux-resource-stats` unit into the devbox (add them to `devboxSourceDigest`), drop `installGuestCli` and `ensureResourceReporter` from create (keep the heal-time install for pre-epoch images), accept `displayName` in `POST /api/vm` and set it in the create transaction, make the CLI's rename fire-and-forget. Expected: provider_create 1.30 s → ~0.5 s; named-create tail −14 s. Proof: Server-Timing provider_create before/after; regression test that create issues zero guest execs on a current-epoch image. Overlap: #12672.
 3. **Client: dial from the create response; hub in parallel** (Mac). `vm new` receives the private addresses in the create response; pin the hub and probe the route while the create is in flight; dial `--carrier` immediately and call attach-endpoint only when the dial fails N times (repair). Persist the route for later opens (already done). Expected −0.75 to −1.5 s. Proof: `cli.vm.timing` stages on a tagged build; native phases from `CloudOperationRecorder` (`open.tunnel/route/connect`). Overlap: #12537 (readiness presentation), #11008 (deadlines).
-4. **Guest supervisor: start the daemon on resume** (image). Replace the 1 s tick for the clone check with an immediate check at supervisor start plus a metadata/instance-id watch, keep the 30 s announce loop. Expected −0.3 s. Proof: `bench-freestyle-floor.ts` daemonListenMs p50 1.06 s → ≤ 0.75 s on the promoted image.
+4. **Guest supervisor: start the daemon on resume** (image). Replace the 1 s tick for the clone check with an immediate check at supervisor start plus a metadata/instance-id watch, keep the 30 s announce loop. Expected −0.3 s. Proof: `bench-freestyle-floor.ts` daemonListenMs p50 1.21 s → ≤ 0.9 s on the promoted image.
 5. **Guest shell: prompt in ≤ 0.5 s** (image). Profile `/etc/profile.d` + bashrc chain; defer ble.sh sourcing until after the first prompt (or precompile), keep ghost text, prompt name and agent configs. Expected −0.5 to −0.8 s per terminal. Proof: floor bench loginShell/interactivePty before/after; `bench-private-link.ts` runToPromptMs; parity checks for ghost text and prompt name.
 6. **Resume: single heal, fast poll** (web). Skip `ensureCmuxTuiRunning` on resume when the pinned daemon is present; poll `getStatus` at 200 ms; let `openCmuxRemote` do the one exec from item 1. Expected resume-attach 1.7–2.4 s → ~0.5 s. Proof: bench resumeAttachMs.
 7. **Control-plane tails** (ops + web). Measure and remove cold starts for the cloud routes (Fluid compute/keep-warm; verify with the exec p90 in PostHog), batch DB writes, keep `resolve_network` off the create path for returning users (row already holds the network id). Expected p90 −2 s.

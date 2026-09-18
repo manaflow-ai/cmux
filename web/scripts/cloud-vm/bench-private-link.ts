@@ -20,7 +20,7 @@
  * verify-devbox-private-link.ts.
  */
 import { Duration, Effect, Schedule } from "effect";
-import { type Freestyle, FreestyleApiError } from "freestyle";
+import type { Freestyle } from "freestyle";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync, writeSync } from "node:fs";
@@ -28,7 +28,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { cleanupPrivateLinkResource as cleanup } from "../devbox-private-link-cleanup";
 import { startPrivateLinkClient } from "../devbox-private-link-process";
-import { FreestyleProvider, freestyleClient } from "../../services/vms/drivers/freestyle";
+import { FREESTYLE_NETWORK_FIREWALL_RULES, FreestyleProvider, freestyleClient } from "../../services/vms/drivers/freestyle";
 import type { GuestPromptIdentity } from "../../services/vms/guestPrompt";
 import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
@@ -174,29 +174,15 @@ function workspaceId(snapshot: string): string {
 }
 
 /**
- * Fails when a network or tunnel already carries the run's slug: the run
- * would otherwise adopt, and at teardown delete, something it did not make.
- */
-async function requireSlugFree(client: Freestyle, slug: string): Promise<void> {
-  const tunnels = await client.tunnels.list();
-  if ((tunnels.tunnels ?? []).some((tunnel) => tunnel.slug === slug)) throw new Error(`a tunnel with slug ${slug} already exists; refusing to adopt it`);
-  try {
-    await client.vpc.get(slug);
-  } catch (error) {
-    if (error instanceof FreestyleApiError && error.status === 404) return;
-    throw error;
-  }
-  throw new Error(`a network with slug ${slug} already exists; refusing to adopt it`);
-}
-
-/**
  * Safety net for a VPC or tunnel whose create response was lost before its
  * acquireRelease finalizer existed: both carry this run's slug, so they are
- * found by name and removed (machines on the VPC first). Registered before
- * anything is created, so it runs after every other finalizer; every step
- * treats "not found" as done.
+ * found by name and removed (machines on the VPC first), but only when they
+ * also carry the run's own marks (the network its run label, the tunnel the
+ * run's client key); anything else with the slug is reported and left alone.
+ * Registered before anything is created, so it runs after every other
+ * finalizer; every step treats "not found" as done.
  */
-function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string) {
+function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, clientPublicKey: string) {
   const networking = provider.privateNetworking;
   return Effect.gen(function* () {
     const failures: string[] = [];
@@ -208,6 +194,10 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string) {
       for (const tunnel of tunnels.right.tunnels ?? []) {
         if (tunnel.slug !== slug) continue;
         const id = tunnel.tunnelId ?? tunnel.id;
+        if (tunnel.clientPublicKey !== clientPublicKey) {
+          failures.push(`tunnel ${id} carries slug ${slug} but another client key; not deleting it`);
+          continue;
+        }
         console.error(`cleanup_reconcile_tunnel=${id}`);
         const deleted = yield* Effect.either(attemptWithin(`delete tunnel ${id}`, () => tracked(networking.deleteTunnel(id)), "60 seconds"));
         if (deleted._tag === "Left") failures.push(deleted.left.message);
@@ -365,14 +355,19 @@ function bench() {
       (directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
     );
     const slug = `cmux-bench-link-${runId}`;
-    // Ownership first: nothing may carry this run's slug before the run
-    // creates it, or the slug-based safety net below could delete a network
-    // or tunnel this run did not make; the net is registered only after
-    // that check, and the create labels the network so teardown can verify.
-    yield* attemptWithin("check the run slug is free", () => requireSlugFree(sdk, slug), "60 seconds");
-    yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug));
+    // The run's own key pair doubles as its tunnel's ownership proof.
+    const { privateKey, publicKey } = generateKeyPairSync("x25519");
+    const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
+    const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
+    yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug, clientPublicKey));
+    // The network is made with the SDK's plain create, which fails closed on
+    // a slug conflict, not with the driver's ensureNetwork, which adopts an
+    // existing network on conflict: a successful create is the only proof
+    // that the network, and everything the finalizers later delete by its
+    // id, is this run's. The rules are production's.
     const network = yield* timed(Effect.acquireRelease(
-      attempt("ensureNetwork", () => bounded(networking.ensureNetwork({ slug, displayName: slug }), 120_000, "ensureNetwork")),
+      attempt("vpc.create", () => bounded(sdk.vpc.create({ slug, displayName: slug, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc.create"))
+        .pipe(Effect.map((created) => ({ id: created.data.id }))),
       (value) => cleanup(`VPC ${value.id}`, () => tracked(networking.deleteNetwork(value.id))),
     ));
     // Registered right after the VPC so it runs before the VPC delete: any
@@ -380,13 +375,14 @@ function bench() {
     // response was lost) is found by its membership in the benchmark-owned
     // VPC and destroyed.
     yield* Effect.addFinalizer(() => reconcileRunMachines(provider, network.value.id));
-    const { privateKey, publicKey } = generateKeyPairSync("x25519");
-    const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
-    const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
+    // The driver recovers an existing tunnel only for the same client key,
+    // and this run's key is fresh, so a slug conflict fails; `created` is
+    // still checked so an adopted tunnel could never be deleted as ours.
     const tunnel = yield* timed(Effect.acquireRelease(
       attempt("createTunnel", () => bounded(networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey }), 120_000, "createTunnel")),
-      (value) => cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))),
+      (value) => (value.created ? cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))) : Effect.void),
     ));
+    if (!tunnel.value.created) return yield* Effect.fail(new Error(`a tunnel with slug ${slug} already existed; refusing to adopt it`));
     const config = tunnel.value.tunnel.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${privateBytes}`);
     const configPath = path.join(root, "wg.conf");
     const hubSocket = path.join(root, "wg.sock");

@@ -11,7 +11,9 @@
  *
  * Per trial, from the manifest's default snapshot for the size: allocation
  * (`vms.create` returning), first successful guest exec, the baked daemon
- * process running and listening on 1337, the strict private-network
+ * process running and, bound to this machine's instance id, listening on
+ * 1337 (the image's own health predicate, so a clone's stale daemon never
+ * counts as ready), the strict private-network
  * announcement exec, exec/data/fs round trips, guest shell startup as the
  * work user (login non-interactive, and interactive under a pty with ble.sh),
  * pause, start, daemon-after-resume and delete. `--burst K` adds K concurrent
@@ -31,8 +33,8 @@ import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
 import { elapsedMs, formatSummary, summarize, summarizeFields } from "./benchStats.mjs";
 
-type Probe = { ms: number; execOk: boolean; listening: boolean; running: boolean };
-type DaemonMilestones = { firstExecMs: number | null; daemonProcessMs: number | null; daemonListenMs: number | null; probeAttempts: number };
+type Probe = { ms: number; execOk: boolean; listening: boolean; running: boolean; healthy: boolean; instanceId: string | null };
+type DaemonMilestones = { firstExecMs: number | null; daemonProcessMs: number | null; daemonListenMs: number | null; probeAttempts: number; instanceId: string | null };
 type Trial = Record<string, unknown> & { index: number };
 
 const args = process.argv.slice(2);
@@ -80,8 +82,25 @@ process.once("SIGTERM", interrupt);
 function checkInterrupted(): void {
   if (interrupted) throw new Error("interrupted");
 }
-// `[s]tart` keeps pgrep from matching this probe's own shell.
-const PROBE_COMMAND = "l=0; grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null && l=1; r=0; pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && r=1; echo \"$l $r\"";
+// The machine's own instance id from the platform's metadata service, the
+// same token dance the image's health predicate uses.
+const INSTANCE_ID_COMMAND = "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
+
+/**
+ * The readiness probe, the image's own health predicate split into fields:
+ * the daemon process runs (`[s]tart` keeps pgrep from matching the probe's
+ * own shell), something listens on 1337, and the daemon is the one bound to
+ * this machine. An image that binds identity ships /etc/cmux/bake-instance-id
+ * and its supervisor writes the bound id to /etc/cmux/daemon-instance-id; a
+ * clone briefly runs the source machine's daemon until the supervisor
+ * re-keys it, and that stale listener must not count as ready. The instance
+ * id is read from the metadata service until it is known, then passed back
+ * in, so a probe costs one exec and no metadata round trips.
+ */
+function probeCommand(instanceId: string | null): string {
+  const id = instanceId === null ? `i=$(${INSTANCE_ID_COMMAND})` : `i=${shellQuote(instanceId)}`;
+  return `${id}; l=0; grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null && l=1; r=0; pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && r=1; v=0; { [ ! -f /etc/cmux/bake-instance-id ] || { [ -n "$i" ] && [ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$i" ]; }; } && v=1; echo "$l $r $v $i"`;
+}
 const WORK_USER_ENV = "setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty";
 // Each wrapper prints the elapsed milliseconds and then exits with the
 // measured command's own status, so a shell that failed or was killed by
@@ -158,26 +177,34 @@ async function execOk(vm: Vm, command: string, label: string, timeoutMs = 10_000
   return result;
 }
 
-async function probe(vm: Vm): Promise<Probe> {
+async function probe(vm: Vm, instanceId: string | null): Promise<Probe> {
   try {
-    const result = await exec(vm, PROBE_COMMAND, 3_000);
-    const [listening, running] = result.stdout.split(" ");
-    return { ms: result.ms, execOk: result.exitCode === 0, listening: listening === "1", running: running === "1" };
+    const result = await exec(vm, probeCommand(instanceId), 6_000);
+    const [listening, running, valid, id] = result.stdout.split(" ");
+    const healthy = listening === "1" && running === "1" && valid === "1";
+    return { ms: result.ms, execOk: result.exitCode === 0, listening: listening === "1", running: running === "1", healthy, instanceId: id || null };
   } catch {
-    return { ms: 0, execOk: false, listening: false, running: false };
+    return { ms: 0, execOk: false, listening: false, running: false, healthy: false, instanceId: null };
   }
 }
 
-/** Polls the guest until the daemon process runs and listens on 1337; returns milestone offsets from `origin`. */
-async function waitForDaemon(vm: Vm, origin: number, budgetMs = 90_000): Promise<DaemonMilestones> {
-  const milestones: DaemonMilestones = { firstExecMs: null, daemonProcessMs: null, daemonListenMs: null, probeAttempts: 0 };
+/**
+ * Polls the guest until the daemon process runs and, bound to this machine's
+ * instance id, listens on 1337; returns milestone offsets from `origin`.
+ * `daemonProcessMs` is the first sighting of any daemon process (a clone can
+ * briefly show the source machine's); `daemonListenMs` requires the image's
+ * health predicate, so only the daemon that is valid for this machine counts.
+ */
+async function waitForDaemon(vm: Vm, origin: number, budgetMs = 90_000, knownInstanceId: string | null = null): Promise<DaemonMilestones> {
+  const milestones: DaemonMilestones = { firstExecMs: null, daemonProcessMs: null, daemonListenMs: null, probeAttempts: 0, instanceId: knownInstanceId };
   while (performance.now() - origin < budgetMs) {
     milestones.probeAttempts += 1;
-    const result = await probe(vm);
+    const result = await probe(vm, milestones.instanceId);
+    if (milestones.instanceId === null && result.instanceId !== null) milestones.instanceId = result.instanceId;
     const at = elapsedMs(origin);
     if (result.execOk && milestones.firstExecMs === null) milestones.firstExecMs = at;
     if (result.running && milestones.daemonProcessMs === null) milestones.daemonProcessMs = at;
-    if (result.listening && milestones.daemonListenMs === null) milestones.daemonListenMs = at;
+    if (result.healthy && milestones.daemonListenMs === null) milestones.daemonListenMs = at;
     if (milestones.daemonListenMs !== null) break;
     checkInterrupted();
     await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS));
@@ -348,7 +375,8 @@ async function runTrial(index: number, vpcId: string | null): Promise<Trial> {
     const started = await timed(() => bounded(vm.start(), 120_000, "start"));
     trial.startMs = started.ms;
     trial.stateAfterStart = started.value.state;
-    const afterResume = await waitForDaemon(vm, resumeOrigin, 60_000);
+    // The same machine keeps its instance id across pause/start.
+    const afterResume = await waitForDaemon(vm, resumeOrigin, 60_000, boot.instanceId);
     trial.resumeFirstExecMs = afterResume.firstExecMs;
     trial.resumeDaemonListenMs = afterResume.daemonListenMs;
     if (afterResume.daemonListenMs === null) throw new Error("daemon not listening after resume");
