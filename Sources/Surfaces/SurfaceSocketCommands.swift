@@ -289,6 +289,16 @@ extension TerminalController {
                 workspaceID = preferred
             }
             let destination = Self.surfaceDestination(resolvedParams, workspaceID: workspaceID)
+            let didRegisterOptimistically = await catalog.resources[resource] == nil
+            defer {
+                if didRegisterOptimistically {
+                    Task { @MainActor in
+                        if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
+                            await provider.refresh(force: true)
+                        }
+                    }
+                }
+            }
             let opened = try await catalog.openCloudPort(
                 machine: resource.machine,
                 port: port,
