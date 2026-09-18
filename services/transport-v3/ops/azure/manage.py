@@ -6,6 +6,27 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+
+def operation_script(action):
+    if action not in {'status', 'drain'}:
+        raise ValueError('unknown relay operation')
+    script = '''#!/bin/bash
+set -euo pipefail
+state=$(docker inspect --format "{{.State.Status}} {{.State.ExitCode}}" cmux-v3-relay 2>/dev/null || true)
+if [ "$state" = "exited 0" ]; then
+  echo "Relay already exited cleanly; drain is idempotent."
+  echo CMUX_V3_OK
+  exit 0
+fi
+curl -fsS --max-time 3 http://127.0.0.1:8080/healthz
+curl -fsS --max-time 3 http://127.0.0.1:8080/metrics
+'''
+    if action == 'drain':
+        script += '''token=$(od -An -v -tx1 /etc/cmux-v3/drain | tr -d ' \\n')
+curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $token" http://127.0.0.1:8080/drain
+'''
+    return script + 'echo CMUX_V3_OK\n'
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('action',choices=['status','drain'])
@@ -30,16 +51,7 @@ def main():
             if not any('CMUX_V3_READY' in v.get('message','') for v in result.get('value',[])):
                 raise RuntimeError('Replacement is not ready; old generation stays active')
         print('Replacement readiness rechecked. Old circuits will finish before exit.')
-    script='''#!/bin/bash
-set -euo pipefail
-curl -fsS --max-time 3 http://127.0.0.1:8080/healthz
-curl -fsS --max-time 3 http://127.0.0.1:8080/metrics
-'''
-    if args.action=='drain':
-        script+='''token=$(od -An -v -tx1 /etc/cmux-v3/drain | tr -d ' \\n')
-curl -fsS --max-time 3 -X POST -H "Authorization: Bearer $token" http://127.0.0.1:8080/drain
-'''
-    script+='echo CMUX_V3_OK\n'
+    script = operation_script(args.action)
     with tempfile.NamedTemporaryFile('w',suffix='.sh') as f:
         f.write(script);f.flush()
         value=json.loads(subprocess.check_output(['az','vm','run-command','invoke','--subscription',args.subscription,'-g',args.group,'-n',args.node,'--command-id','RunShellScript','--scripts','@'+f.name,'--only-show-errors','-o','json'],text=True))
