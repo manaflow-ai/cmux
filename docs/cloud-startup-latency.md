@@ -334,7 +334,40 @@ bun test tests/cloud-vm-bench-stats.test.ts
 PostHog queries are in `docs/cloud-startup-latency/posthog-*.txt` headers
 (HogQL over `cloud_vm_request` and `cmux_cloud_vm_request`, project 244066).
 
-## 11. Limitations
+## 11. Incidental findings from the benchmark runs
+
+- **A create request can leave a second, untracked machine running.** In the
+  staging run with the edge probe (2026-09-18, three creates), two requests
+  (traces `d492bc1c446e396f3895bf5063ed2a3e` at 00:57:50Z and
+  `e3a2a242aac5a594ffb0236d220354ee` at 00:58:01Z) each returned one machine
+  id, which the benchmark later destroyed, while a second machine from the
+  same snapshot appeared on the same owner VPC 0.7 s and 0.4 s after each
+  request started and was still running 30 minutes later, unknown to the
+  control plane. The route's `provider_create` stage shows one provider call
+  per request (2174 ms and 1507 ms), `providerGateway.ts` has no retry, and
+  the SDK re-issues only idempotent GETs, so the client side does not explain
+  it; the other 21 creates of the session did not do this. Both orphans were
+  deleted by hand after verifying they belonged to the throwaway user's VPC.
+  This is the created-but-lost class #12672 asks to reconcile: a periodic
+  provider-versus-`cloud_vms` reconciliation per owner network would catch
+  it, and the provider-side request logs for those two traces should say
+  whether the platform allocated twice.
+- **Throwaway-user scripts leak owner networks.** `smoke-vm-api.mjs` and
+  `stress-vm-api.mjs` delete their Stack user with the server key, which
+  leaves the user's provider VPC (`cmux-net-<hash>`, created by the first
+  create) and its `cloud_vm_networks` row behind on every run. The eight
+  networks this session's early runs left were removed by hand after
+  verifying they had no machines or tunnels. `bench-vm-startup.mjs` now
+  deletes the account through `DELETE /api/account` and falls back to
+  removing the network at the provider by the application's slug; the smoke
+  and stress scripts should adopt the same cleanup.
+- **Account deletion fails on staging at its last step.** `DELETE /api/account`
+  answered `500 account_delete_retryable` three times in a row for a
+  throwaway user after it had already destroyed the cmux-owned data (the
+  Stack deletion step); the route's owner should check the staging Stack
+  configuration.
+
+## 12. Limitations
 
 - One vantage point (a Mac in the same region as the provider's API), one
   day; provider numbers may differ by region and load. Production runs are
