@@ -224,6 +224,56 @@ export class IrohRepository extends Context.Tag("cmux/IrohRepository")<
 
 export const IrohRepositoryLive = Layer.succeed(IrohRepository, makeLiveRepository());
 
+/** Revoke the authenticated account owner's active endpoint binding. The
+ * dashboard uses the same deletion guard, lock and revocation transaction as
+ * device-authorized mutations without requiring a lost device's proof. */
+export function revokeEndpointForAccountOwner(input: {
+  readonly userId: string;
+  readonly endpointId: string;
+  readonly now: Date;
+}): Effect.Effect<IrohRevocationCommit, RepositoryError> {
+  return repositoryEffect("revoke_endpoint_owner", async () => {
+    return await cloudDb().transaction(async (tx) => {
+      await assertIrohUserMutationAllowed(tx, input.userId);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
+      const [binding] = await tx
+        .select({ id: irohEndpointBindings.id })
+        .from(irohEndpointBindings)
+        .where(and(
+          eq(irohEndpointBindings.userId, input.userId),
+          eq(irohEndpointBindings.endpointId, input.endpointId),
+          isNull(irohEndpointBindings.revokedAt),
+        ))
+        .for("update")
+        .limit(1);
+      if (!binding) {
+        // Idempotent: no active binding (never registered on the old stack,
+        // or already revoked) is success for the shared-store mirror.
+        return {
+          revoked: false,
+          accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+        };
+      }
+      const revoked = await revokeActiveBindings(tx, {
+        userId: input.userId,
+        bindingIds: [binding.id],
+        now: input.now,
+        reason: "user_requested",
+      });
+      if (revoked.length === 0) {
+        return {
+          revoked: false,
+          accountRevision: await currentRouteRevision(tx, input.userId, input.now),
+        };
+      }
+      return {
+        revoked: true,
+        accountRevision: await advanceRouteRevision(tx, input.userId, input.now),
+      };
+    });
+  });
+}
+
 function makeLiveRepository(): IrohRepositoryShape {
   return {
     issueChallenge: (input) => repositoryEffect("issue_challenge", async () => {

@@ -74,7 +74,11 @@ function routeRequest(incomingRequest: NextRequest) {
   response = handleLegalAndDocsRoutes(request, pathname);
   if (response) return response;
 
-  response = intlMiddleware(request);
+  // Internal default-locale rewrites must keep dashboard auth handling while
+  // avoiding next-intl redirecting back to the unprefixed URL.
+  const rewrittenDashboard = request.headers.get("x-next-intl-locale") === routing.defaultLocale
+    && (pathname === "/en/dashboard" || pathname.startsWith("/en/dashboard/"));
+  response = rewrittenDashboard ? NextResponse.next() : intlMiddleware(request);
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,

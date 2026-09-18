@@ -388,6 +388,10 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func devicesDashboardURL() -> URL? {
+        AuthEnvironment.devicesDashboardURL
+    }
+
     var isCloudMachinesAvailable: Bool {
         CloudMachinesFeature.isEnabled
     }
