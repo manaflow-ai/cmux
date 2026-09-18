@@ -53,6 +53,22 @@ const selection = resolveVmImage("freestyle", option("--image"), process.env, { 
 const image = selection.image;
 const PROMPT_PATTERN = "λ";
 const runId = randomUUID().slice(0, 8);
+// Provider requests cannot be cancelled: each create is tracked until it
+// settles, and the slug-based safety net waits for them before it lists the
+// inventory, so an interrupted or timed-out create cannot allocate behind
+// the sweep.
+const inFlight = new Set<Promise<unknown>>();
+function tracked<T>(promise: Promise<T>): Promise<T> {
+  inFlight.add(promise);
+  promise.then(() => inFlight.delete(promise), () => inFlight.delete(promise));
+  return promise;
+}
+async function settleInFlight(ms: number): Promise<void> {
+  if (inFlight.size === 0) return;
+  console.error(`cleanup_waiting_for_in_flight=${inFlight.size}`);
+  await Promise.race([Promise.allSettled([...inFlight]), new Promise((resolve) => setTimeout(resolve, ms))]);
+  if (inFlight.size > 0) throw new Error(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
+}
 
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (error) => new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`) });
@@ -119,6 +135,8 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string) {
   return Effect.gen(function* () {
     const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
     const failures: string[] = [];
+    const settled = yield* Effect.either(attempt("settle in-flight provider requests", () => settleInFlight(300_000)));
+    if (settled._tag === "Left") failures.push(settled.left.message);
     const tunnels = yield* Effect.either(attempt("list tunnels", () => sdk.tunnels.list()));
     if (tunnels._tag === "Left") failures.push(tunnels.left.message);
     else {
@@ -154,9 +172,9 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
     // request is not cancellable, so an interrupt waits for it) and the
     // destroy finalizer is registered atomically with the machine's id.
     const created = yield* timed(Effect.acquireRelease(
-      attempt("provider.create", () => provider.create({
+      attempt("provider.create", () => tracked(provider.create({
         image, network: { id: networkId }, displayName: `bench-link-${runId}-${index}`, imageSize: selection.size ?? undefined,
-      })),
+      }))),
       (value) => Effect.gen(function* () {
         const destroyed = yield* timed(cleanup(`VM ${value.providerVmId}`, () => provider.destroy(value.providerVmId)));
         trial.destroyMs = destroyed.ms;

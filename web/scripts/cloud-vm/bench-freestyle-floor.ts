@@ -83,12 +83,39 @@ const INTERACTIVE_PTY_MS = "s=$(date +%s%N); printf 'exit\\n' | timeout 25 scrip
  * caller's budget and interrupt checks run and the trial's cleanup still
  * deletes the machine (a lost create is found by the run id at exit).
  */
+const inFlight = new Set<Promise<unknown>>();
+
 function bounded<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  // The provider request cannot be cancelled, so it stays tracked until it
+  // settles and teardown waits for it before listing the inventory.
+  inFlight.add(promise);
+  promise.then(() => inFlight.delete(promise), () => inFlight.delete(promise));
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms} ms`)), ms);
   });
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Waits (bounded) for every timed-out provider request to settle, so reconciliation sees what they made. */
+async function settleInFlight(ms: number): Promise<void> {
+  if (inFlight.size === 0) return;
+  console.error(`cleanup_waiting_for_in_flight=${inFlight.size}`);
+  await Promise.race([Promise.allSettled([...inFlight]), new Promise((resolve) => setTimeout(resolve, ms))]);
+  if (inFlight.size > 0) cleanupFailures.push(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
+}
+
+/** Polls until the VM reports `paused` (a `pausing` machine would race the start). */
+async function waitForPaused(vm: Vm, budgetMs = 60_000): Promise<string> {
+  const startedAt = performance.now();
+  let state = "";
+  while (performance.now() - startedAt < budgetMs) {
+    state = (await bounded(vm.data(), 30_000, "data")).state;
+    if (state === "paused") return state;
+    if (state !== "pausing") throw new Error(`pause left the VM ${state}`);
+    await new Promise((resolve) => setTimeout(resolve, PROBE_INTERVAL_MS));
+  }
+  throw new Error(`VM still ${state} ${budgetMs} ms after pause`);
 }
 
 async function timed<T>(run: () => Promise<T>): Promise<{ ms: number; value: T }> {
@@ -257,6 +284,7 @@ async function runTrial(index: number, vpcId: string | null): Promise<Trial> {
     trial.pauseMs = paused.ms;
     trial.stateAfterPause = paused.value.state;
     if (paused.value.state !== "paused" && paused.value.state !== "pausing") throw new Error(`pause left the VM ${paused.value.state}`);
+    if (paused.value.state === "pausing") trial.stateAfterPause = await waitForPaused(vm);
     const resumeOrigin = performance.now();
     const started = await timed(() => bounded(vm.start(), 120_000, "start"));
     trial.startMs = started.ms;
@@ -316,6 +344,7 @@ try {
     console.error(`burst: ${JSON.stringify(results.burst)}`);
   }
 } finally {
+  await settleInFlight(300_000);
   await reconcileRunVms();
   if (withVpc) {
     // The VPC's slug is the run id, so a create whose response was lost (no
