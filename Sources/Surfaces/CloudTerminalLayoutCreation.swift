@@ -9,6 +9,7 @@ struct CloudTerminalLayoutCreation: Sendable {
     let machine: SurfaceMachineID
     let socketPath: String
     let commandRunner: any CloudTuiCommandRunning
+    var initialState: CloudVMState? = nil
     var commandDeadline: Duration = .seconds(30)
 
     /// Performs one create, retrying only a revision conflict that did not commit.
@@ -27,7 +28,10 @@ struct CloudTerminalLayoutCreation: Sendable {
         var attempt = 0
         while true {
             try Task.checkCancellation()
-            let state = try await snapshot()
+            let state: CloudVMState
+            if attempt == 0, let initialState, initialState.cursor != nil,
+               initialState.lookupIndex.tab(id: nearTabID) != nil { state = initialState }
+            else { state = try await snapshot() }
             guard let tab = state.lookupIndex.tab(id: nearTabID),
                   tab.contentKind == "terminal" else {
                 throw CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound(nearTabID)
@@ -36,13 +40,11 @@ struct CloudTerminalLayoutCreation: Sendable {
                   let screen = state.lookupIndex.screen(id: pane.screenID) else {
                 throw CmuxTuiSurfaceProvider.ProviderError.remotePlacementUnavailable(nearTabID)
             }
-            var arguments = ["--socket", socketPath, "--json", "pane", pane.id]
-            if let splitDirection { arguments += ["split", "--" + splitDirection.rawValue] }
-            else { arguments.append("run") }
-            arguments += ["--idempotency-key", idempotencyKey]
-            if let correlationKey { arguments += ["--correlation-key", correlationKey] }
-            if let cursor = state.cursor { arguments += ["--expected-revision", String(cursor.revision)] }
-            if splitDirection == nil { arguments += ["--"] + CloudTuiCommandLine.defaultTerminalCommand }
+            let arguments = CloudTuiRequests.paneCreate(
+                paneID: pane.id, direction: splitDirection?.rawValue,
+                command: CloudTuiCommandLine.defaultTerminalCommand, revision: state.cursor?.revision,
+                key: idempotencyKey, correlationKey: correlationKey
+            )
             do {
                 try Task.checkCancellation()
                 let data = try await commandRunner.runTuiCommand(arguments: arguments, deadline: commandDeadline)
@@ -62,7 +64,7 @@ struct CloudTerminalLayoutCreation: Sendable {
     private func snapshot() async throws -> CloudVMState {
         try await CloudOperationContext.phase(.snapshot) {
             let data = try await commandRunner.runTuiCommand(
-                arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath),
+                arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath),
                 deadline: commandDeadline
             )
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],

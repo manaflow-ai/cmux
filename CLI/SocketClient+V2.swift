@@ -76,8 +76,8 @@ extension SocketClient {
                         action: action,
                         reason: error["reason"] as? String,
                         details: safeV2Details(error["details"]),
-                        requestID: data?["request_id"] as? String,
-                        traceID: data?["trace_id"] as? String
+                        requestID: (data?["request_id"] as? String) ?? (data?["requestId"] as? String),
+                        traceID: (data?["trace_id"] as? String) ?? (data?["traceId"] as? String)
                     ),
                     v2Code: error["code"] as? String,
                     isStructuredProtocolResponse: true,

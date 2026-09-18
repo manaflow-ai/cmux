@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// One shared browser route. HTTP uses the userspace hub; HTTPS retains its
-/// certificate identity on the private network. VPN state never changes routes.
+/// One shared service route. In-app browsers use an authenticated CONNECT proxy
+/// through userspace WireGuard while retaining the VM address and port.
 @MainActor
 @Observable
 final class CloudPortAccessModel {
@@ -11,6 +11,7 @@ final class CloudPortAccessModel {
         case connecting
         case stopping
         case direct
+        case proxied(CloudBrowserProxyEndpoint)
         case forwarded(UInt16)
         case failed(String)
         case closed
@@ -24,6 +25,7 @@ final class CloudPortAccessModel {
     private let wake: @MainActor () async throws -> Void
     private let startForward: @MainActor (CloudPortForwardTarget) async throws -> UInt16
     private let stopForward: @MainActor () async -> Void
+    private let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)?
     private var observation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
     private var generation = 0
@@ -34,14 +36,16 @@ final class CloudPortAccessModel {
         wake: @escaping @MainActor () async throws -> Void,
         startForward: @escaping @MainActor (CloudPortForwardTarget) async throws -> UInt16,
         stopForward: @escaping @MainActor () async -> Void,
-        route: CloudPortAccessRoute = .privateNetwork
+        route: CloudPortAccessRoute = .privateNetwork,
+        startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)? = nil
     ) {
         self.target = target
         self.coordinator = coordinator
         self.wake = wake
         self.startForward = startForward
         self.stopForward = stopForward
-        self.route = route
+        self.route = startBrowserProxy == nil ? route : .browserProxy
+        self.startBrowserProxy = startBrowserProxy
     }
 
     var failureMessage: String? {
@@ -58,7 +62,18 @@ final class CloudPortAccessModel {
     }
 
     var isReady: Bool {
-        switch phase { case .direct, .forwarded: return true; default: return false }
+        switch phase { case .direct, .forwarded, .proxied: return true; default: return false }
+    }
+
+    var browserProxy: CloudBrowserProxyEndpoint? {
+        if case .proxied(let endpoint) = phase { return endpoint }
+        return nil
+    }
+
+    var usesBrowserProxy: Bool { route == .browserProxy }
+
+    func connectBrowser(force: Bool = false) {
+        if force { retry() } else { connect() }
     }
 
     var localAddress: String? {
@@ -117,6 +132,13 @@ final class CloudPortAccessModel {
 
     private func start() {
         switch route {
+        case .browserProxy:
+            guard let startBrowserProxy else { return }
+            run { [wake] in
+                try await wake()
+                try Task.checkCancellation()
+                return .proxied(try await startBrowserProxy())
+            }
         case .loopback:
             run { [wake, startForward, target] in
                 try await wake()
@@ -160,7 +182,7 @@ final class CloudPortAccessModel {
 
     func url(for remoteURL: URL) -> URL? {
         switch phase {
-        case .direct: return CloudPortRoutePlan.privateURL(remoteURL.absoluteString, address: target.host)
+        case .direct, .proxied: return CloudPortRoutePlan.privateURL(remoteURL.absoluteString, address: target.host)
         case .forwarded(let port): return CloudPortRoutePlan.localURL(rewriting: remoteURL.absoluteString, toLoopbackPort: port)
         default: return nil
         }

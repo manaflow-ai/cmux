@@ -39,6 +39,10 @@ extension Workspace {
             #endif
             return nil
         }
+        // A focused creation is user input demand. Start its local manual
+        // renderer before remote creation; keep hidden/restored reservations
+        // on normal admission so a restore cannot eagerly allocate every pane.
+        if focus { panel.surface.requestInputDemandSurfaceStartIfNeeded() }
         let reservation = CloudTerminalPaneReservation(workspaceID: id, panelID: panelID, machine: machine, inputRelay: relay)
         cloudPendingCreations[panelID] = reservation
         return reservation

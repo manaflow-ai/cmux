@@ -16,6 +16,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Highest input frame the Mac had received when this frame was captured.
+    /// This is a count on the ordered terminal input lane, never terminal text.
+    public var appliedInputSequence: UInt64?
     /// Stable identifier for one producer lifetime of ``renderRevision``.
     ///
     /// A surface may be recreated with the same public ID after hibernation or
@@ -109,6 +112,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        appliedInputSequence: UInt64? = nil,
         renderEpoch: String = "",
         renderRevision: UInt64 = 0,
         columns: Int,
@@ -196,6 +200,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.appliedInputSequence = appliedInputSequence
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
         self.columns = columns
@@ -234,6 +239,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let appliedInputSequence = try container.decodeIfPresent(UInt64.self, forKey: .appliedInputSequence)
         let renderEpoch = try container.decodeIfPresent(String.self, forKey: .renderEpoch) ?? ""
         let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision) ?? 0
         let columns = try container.decode(Int.self, forKey: .columns)
@@ -263,6 +269,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            appliedInputSequence: appliedInputSequence,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
             columns: columns,
@@ -410,6 +417,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            appliedInputSequence: appliedInputSequence,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
             columns: columns,

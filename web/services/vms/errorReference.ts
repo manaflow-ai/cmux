@@ -27,7 +27,7 @@ export function withVmErrorReference<T extends Record<string, unknown>>(
 
   const ui = payload.ui;
   if (ui && typeof ui === "object" && !Array.isArray(ui)) {
-    output.ui = {
+    (output as Record<string, unknown>)["ui"] = {
       ...(ui as Record<string, unknown>),
       ...(reference.requestId ? { requestId: reference.requestId } : {}),
       ...(reference.traceId ? { traceId: reference.traceId } : {}),

@@ -81,13 +81,19 @@ func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append(contentsOf: details.map { "  \($0)" })
     }
     let requestId = cloudVMString(object["requestId"])
+        ?? cloudVMString(object["request_id"])
         ?? cloudVMString(object["clientRequestId"])
+        ?? cloudVMString(object["client_request_id"])
         ?? cloudVMString(ui?["requestId"])
+        ?? cloudVMString(ui?["request_id"])
     if let requestId {
         lines.append("")
         lines.append(cloudVMRequestIDLine(requestId: requestId))
     }
-    if let traceId = cloudVMString(object["traceId"]) ?? cloudVMString(ui?["traceId"]) {
+    if let traceId = cloudVMString(object["traceId"])
+        ?? cloudVMString(object["trace_id"])
+        ?? cloudVMString(ui?["traceId"])
+        ?? cloudVMString(ui?["trace_id"]) {
         // The support reference. Operators open the exact server trace,
         // PostHog row and Sentry event from this one id.
         lines.append("")
@@ -2354,6 +2360,18 @@ actor VMClient {
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
                 continue
             }
+            // The private gateway has not forwarded this request yet. Every
+            // verb is safe to retry while its tagged backend is starting.
+            if http.statusCode == 503, retriesLeft > 0,
+               resolved.host == "cmux-dev-backend-1.tail137216.ts.net",
+               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting" {
+                retriesLeft -= 1
+                onRetry()
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
+                    try await CmxRetryAfterPolicy.sleep(seconds: 2)
+                }
+                continue
+            }
             if let sessionIdentity {
                 guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
                     throw VMClientError.notSignedIn
@@ -2686,10 +2704,7 @@ actor MachineUsageClient {
 
     func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
         return try await withOperation(.stats, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
-            guard (200...299).contains(http.statusCode) else {
-                throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
-            }
+            let (data, _) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
             return try Self.decodeTeamUsage(data)
         }
     }
@@ -2746,7 +2761,6 @@ actor MachineUsageClient {
         if let value = raw as? Double, value.isFinite { return Int(exactly: value.rounded(.towardZero)) }
         return nil
     }
-
     private nonisolated static func doubleValue(_ raw: Any?) -> Double? {
         if let value = raw as? Double, value.isFinite { return value }
         if let value = raw as? Int { return Double(value) }
@@ -2757,7 +2771,6 @@ actor MachineUsageClient {
     // Date.ISO8601FormatStyle is Sendable, so these can be nonisolated
     // constants; ISO8601DateFormatter is not and warned here.
     private nonisolated static let iso8601WithFractions = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-
     private nonisolated static let iso8601 = Date.ISO8601FormatStyle()
 
     /// `null`/absent is nil; an unparseable string is nil too, since the date
@@ -2800,22 +2813,27 @@ actor MachineUsageClient {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch let error as URLError {
-            switch error.code {
-            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
-                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
-                throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
-            default:
-                throw error
+        return try await CloudOperationContext.phase(.request) {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch let error as URLError {
+                switch error.code {
+                case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                    let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                    throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+                default:
+                    throw error
+                }
             }
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw MachineUsageClientError.malformedResponse("non-HTTP response")
-        }
+            guard let http = response as? HTTPURLResponse else {
+                throw MachineUsageClientError.malformedResponse("non-HTTP response")
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
         return (data, http)
     }
+}
 }
