@@ -30,7 +30,9 @@ def main():
     source = 'let Syslog=datatable(Age:long,ProcessName:string,_ResourceId:string,SyslogMessage:string)[' + ','.join(rows) + '] | extend TimeGenerated=now()-Age*1m;\n'
     expected = {'health': ['missing_heartbeat', 'missing_heartbeat', 'not_ready', 'scrape_failed'],
         'stalled-drain': ['drain_over_30_minutes'],
-        'resource-pressure': ['disk_under_10_percent', 'memory_under_10_percent']}
+        'resource-pressure': ['disk_under_10_percent', 'memory_under_10_percent'],
+        'revocation-feed': [],
+        'no-healthy-generation': []}
     for name, kql in queries(nodes).items():
         result = query(receipt['workspace_id'], source + kql)
         actual = sorted(row[1] for row in result['tables'][0]['rows'])
