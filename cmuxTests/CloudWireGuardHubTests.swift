@@ -460,7 +460,7 @@ struct CloudWireGuardHubTests {
             idleGrace: .seconds(10)
         ))
         let acquire = Task { try await hub.acquire() }
-        #expect(await readinessStarted.result)
+        try #require(await readinessStarted.result == true)
         try #require(spawner.last).exit(status: 17)
         releaseReadiness.resolve(true)
 
