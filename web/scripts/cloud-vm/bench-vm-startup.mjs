@@ -31,6 +31,11 @@ const EDGE_BUDGET_MS = 90_000;
 const label = optionValue(rest, "--label") ?? "";
 const outPath = optionValue(rest, "--out");
 const REQUEST_TIMEOUT_MS = 120_000;
+// The create route keeps provisioning for up to its own maxDuration (600 s);
+// aborting the client earlier would strand a machine this run never learns
+// the id of. Wait at least that long, and reconcile through the fleet list
+// at exit anyway (the throwaway user owns nothing else).
+const CREATE_TIMEOUT_MS = 630_000;
 const ATTACH_BUDGET_MS = 180_000;
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
@@ -115,6 +120,12 @@ async function attachUntilReady(vmId, stage) {
     const body = json(response.text);
     attempts.push({ status: response.status, ms: response.ms, error: body.error ?? null });
     if (response.status === 200) {
+      // Only an endpoint the documented client path can dial counts as ready:
+      // a trusted-carrier listener at a ws:// route. Anything else is a
+      // failed attach for this benchmark, not a sample.
+      if (body.trustedCarrier !== true || typeof body.route !== "string" || !/^wss?:\/\//.test(body.route)) {
+        throw new Error(`${stage} attach for ${vmId} answered 200 without a trusted-carrier route: ${response.text.slice(0, 300)}`);
+      }
       return {
         [`${stage}Ms`]: elapsedMs(startedAt),
         [`${stage}Attempts`]: attempts,
@@ -147,7 +158,10 @@ async function edgeReady(vmId) {
     }, remainingMs);
     const code = (json(exec.text).stdout ?? "").trim();
     probes.push({ status: exec.status, ms: exec.ms, code });
-    if (exec.status === 200 && /^[1-5]\d\d$/.test(code)) {
+    // Only a 200 from the reflection route proves the edge injected the
+    // machine's credential; 401/503 mean it is not ready yet, and 000 means
+    // the alias is not routed yet.
+    if (exec.status === 200 && json(exec.text).exitCode === 0 && code === "200") {
       return { edgeReadyMs: elapsedMs(startedAt), edgeProbes: probes, edgeHttpCode: code };
     }
     if (performance.now() - startedAt >= EDGE_BUDGET_MS || interrupted) {
@@ -163,7 +177,7 @@ async function runTrial(index) {
     method: "POST",
     headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `bench-${suffix}-${index}` },
     body: "{}",
-  });
+  }, CREATE_TIMEOUT_MS);
   trial.createMs = create.ms;
   trial.createStatus = create.status;
   trial.createTraceId = create.headers.get("x-cmux-trace-id");
@@ -188,6 +202,10 @@ async function runTrial(index) {
     trial.execMs = exec.ms;
     trial.execStatus = exec.status;
     requireStatus("POST exec", exec);
+    // The HTTP status only says the API ran the command; the sample is the
+    // guest's `true` exiting 0.
+    const execExit = json(exec.text).exitCode;
+    if (execExit !== 0) throw new Error(`POST exec: guest command exited ${execExit ?? "unknown"}`);
   }
   if (edgeCheck) Object.assign(trial, await edgeReady(vmId));
   if (!skipPause) {
@@ -226,7 +244,28 @@ async function runBatches() {
   return results;
 }
 
+/**
+ * Reconcile before deleting: a create whose response was lost (timeout,
+ * interrupt) still made a machine under this throwaway user, and the user
+ * owns nothing else, so every listed machine is ours to destroy.
+ */
+async function reconcileOwnedVms() {
+  try {
+    const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
+    if (list.status !== 200) {
+      console.error(`cleanup_list_failed status=${list.status}`);
+      return;
+    }
+    for (const vm of json(list.text).vms ?? []) {
+      if (typeof vm.id === "string" && vm.status !== "destroyed") liveVmIds.add(vm.id);
+    }
+  } catch (error) {
+    console.error(`cleanup_list_failed error=${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 async function destroyLeftovers() {
+  if (authHeaders) await reconcileOwnedVms();
   for (const vmId of [...liveVmIds]) {
     try {
       const destroy = await fetchTimed(vmUrl(vmId), { method: "DELETE", headers: authHeaders });
