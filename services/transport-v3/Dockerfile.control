@@ -10,8 +10,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin cmux-control
 COPY --from=build /src/target/release/cmux-v3-control-server /usr/local/bin/cmux-v3-control-server
+COPY control-entrypoint.sh /usr/local/bin/control-entrypoint.sh
 USER cmux-control
 EXPOSE 8080
 STOPSIGNAL SIGTERM
 ENV CMUX_V3_CONTROL_HTTP=0.0.0.0:8080
-ENTRYPOINT ["/usr/local/bin/cmux-v3-control-server"]
+ENTRYPOINT ["/usr/local/bin/control-entrypoint.sh"]
