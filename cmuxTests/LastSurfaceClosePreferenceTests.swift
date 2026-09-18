@@ -376,6 +376,7 @@ struct LastSurfaceClosePreferenceTests {
                 isBase: false,
                 remoteWorkspaceID: "ws-display"
             )
+            SurfaceCatalog.shared.endProjections(panelID: browserId, reason: .replaced)
             SurfaceCatalog.shared.record(SurfaceProjection(
                 resource: display,
                 workspaceID: workspace.id,

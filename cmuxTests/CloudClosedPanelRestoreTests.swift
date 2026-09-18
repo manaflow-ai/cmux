@@ -22,8 +22,13 @@ struct CloudClosedPanelRestoreTests {
                 panelID: browserID, resource: resource,
                 remoteWorkspaceID: "remote-workspace", remoteTabID: "remote-tab"
             )
+            SurfaceCatalog.shared.endProjections(panelID: browserID, reason: .replaced)
             var snapshot = workspace.sessionSnapshot(includeScrollback: false)
             snapshot.surfaceProjections = [record]
+            for pane in workspace.bonsplitController.allPaneIds {
+                for tab in workspace.bonsplitController.tabs(inPane: pane) { _ = workspace.bonsplitController.closeTab(tab.id) }
+            }
+            workspace.panels = [:]
             let remap = workspace.restoreSessionSnapshot(snapshot, deferBrowserPanels: true)
             let deferredID = try #require(remap[browserID])
             #expect(workspace.panels[deferredID] is DeferredBrowserPanel)
@@ -56,7 +61,7 @@ struct CloudClosedPanelRestoreTests {
             let store = ClosedItemHistoryStore(loadPersisted: false)
             store.push(.panel(ClosedPanelHistoryEntry(
                 workspaceId: workspace.id, paneId: UUID(), tabIndex: 0,
-                snapshot: snapshot, layout: layout
+                snapshot: snapshot, paneAnchorPanelId: oldID, layout: layout
             )))
             let revision = store.revision
             store.remapPanelAnchorIds(from: oldID, to: newID)
