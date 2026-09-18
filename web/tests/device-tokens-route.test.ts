@@ -657,6 +657,10 @@ describe("device token route", () => {
     if (!sql) throw new Error("test database not initialized");
     const token = "f".repeat(64);
     const bundleId = "dev.cmux.ios.revocation";
+    const accessTokenFor = (sessionID: string) =>
+      `header.${Buffer.from(
+        JSON.stringify({ refresh_token_id: sessionID }),
+      ).toString("base64url")}.signature`;
     const requestHeaders = (accessToken: string, refreshToken: string) => ({
       authorization: `Bearer ${accessToken}`,
       "x-stack-refresh-token": refreshToken,
@@ -675,11 +679,13 @@ describe("device token route", () => {
       }),
     );
 
-    expect((await register("old-access", "old-refresh")).status).toBe(200);
+    const oldAccessToken = accessTokenFor("old-session");
+    const newAccessToken = accessTokenFor("new-session");
+    expect((await register(oldAccessToken, "old-refresh")).status).toBe(200);
     const signOut = await DELETE(
       new Request("https://cmux.test/api/device-tokens", {
         method: "DELETE",
-        headers: requestHeaders("old-access", "old-refresh"),
+        headers: requestHeaders(oldAccessToken, "old-refresh"),
         body: JSON.stringify({
           deviceToken: token,
           bundleId,
@@ -689,13 +695,13 @@ describe("device token route", () => {
     );
     expect(signOut.status).toBe(200);
 
-    const delayedOldRegistration = await register("old-access", "old-refresh");
+    const delayedOldRegistration = await register(oldAccessToken, "old-refresh");
     expect(delayedOldRegistration.status).toBe(409);
     expect(await delayedOldRegistration.json()).toEqual({
       error: "push_registration_revoked",
     });
 
-    expect((await register("new-access", "new-refresh")).status).toBe(200);
+    expect((await register(newAccessToken, "new-refresh")).status).toBe(200);
     const [row] = await sql<{ revokedAt: Date | null }[]>`
       select revoked_at as "revokedAt"
       from device_tokens

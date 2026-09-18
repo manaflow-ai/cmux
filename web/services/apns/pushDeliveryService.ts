@@ -1,4 +1,4 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
@@ -34,7 +34,7 @@ import {
   claimDeviceDeliveryTargets,
   type DeviceDeliveryClaim,
   DeviceDeliveryBusyError,
-  withAuthorizedDeviceDeliveryTargets,
+  retainAuthorizedDeviceDeliveryTargets,
   releaseDeviceDeliveryTargets,
 } from "./deviceDeliveryLease";
 
@@ -294,6 +294,7 @@ async function executePreparedPushDelivery(
     input.userId,
     sendTargets,
     results,
+    deviceLeaseToken,
   );
 
   return await completeDelivery(
@@ -503,15 +504,14 @@ async function sendAuthorizedPushDelivery(
   readonly revokedOutcomes: ApnsSendResult[];
   readonly results: Array<ApnsSendResult & { targetId?: string }>;
 }> {
-  const authorizedDelivery = await withAuthorizedDeviceDeliveryTargets(
+  const sendTargets = await retainAuthorizedDeviceDeliveryTargets(
     db,
     userId,
     deviceLeaseToken,
     targets,
-    (authorizedTargets) => send(config, authorizedTargets, payload),
   );
   const authorizedTargetIDs = new Set(
-    authorizedDelivery.authorizedTargets.flatMap((target) =>
+    sendTargets.flatMap((target) =>
       target.targetId == null ? [] : [target.targetId]
     ),
   );
@@ -524,11 +524,13 @@ async function sendAuthorizedPushDelivery(
       reason: "target_revoked",
       prune: false,
     }));
-  const sendTargets = authorizedDelivery.authorizedTargets;
+  const rawResults = sendTargets.length > 0
+    ? await send(config, sendTargets, payload)
+    : [];
   const sentTargetByToken = new Map(
     sendTargets.map((target) => [target.deviceToken, target]),
   );
-  const results = (authorizedDelivery.result ?? []).map((result) => ({
+  const results = rawResults.map((result) => ({
     ...result,
     targetId:
       result.targetId
@@ -542,6 +544,7 @@ async function persistApnsResults(
   userId: string,
   sendTargets: readonly ApnsTarget[],
   results: readonly (ApnsSendResult & { targetId?: string })[],
+  deviceLeaseToken: string | null,
 ): Promise<Array<ApnsSendResult & { targetId?: string }>> {
   const targetsByID = new Map(
     sendTargets.flatMap((target) =>
@@ -562,12 +565,14 @@ async function persistApnsResults(
     )),
   );
   const deletedTargetIDs = new Set<string>();
-  if (exactDeadTargetPredicate) {
+  if (exactDeadTargetPredicate && deviceLeaseToken) {
     const deletedTargets = await db
       .delete(deviceTokens)
       .where(and(
         eq(deviceTokens.userId, userId),
         eq(deviceTokens.platform, "ios"),
+        eq(deviceTokens.deliveryLeaseToken, deviceLeaseToken),
+        isNull(deviceTokens.revokedAt),
         exactDeadTargetPredicate,
       ))
       .returning({ targetId: deviceTokens.id });

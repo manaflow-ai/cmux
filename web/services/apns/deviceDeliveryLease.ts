@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 
 import type { cloudDb } from "../../db/client";
 import { deviceTokens } from "../../db/schema";
@@ -91,6 +91,7 @@ export async function claimDeviceDeliveryTargets(
           now.getTime() + DEVICE_DELIVERY_LEASE_MS,
         ),
         deliveryLeaseToken: leaseToken,
+        deliveryStartedAt: null,
       })
       .where(and(
         tokenScope(targetBundleId),
@@ -117,15 +118,15 @@ export async function claimDeviceDeliveryTargets(
  * must be removed from the provider call even though the original claim is
  * still in memory.
  */
-export async function withAuthorizedDeviceDeliveryTargets<T>(
+export async function retainAuthorizedDeviceDeliveryTargets(
   db: PushDatabase,
   userId: string,
   leaseToken: string | null,
   targets: readonly ApnsTarget[],
-  operation: (authorizedTargets: readonly ApnsTarget[]) => Promise<T>,
-): Promise<{ authorizedTargets: ApnsTarget[]; result: T | null }> {
+  now = new Date(),
+): Promise<ApnsTarget[]> {
   if (!leaseToken || targets.length === 0) {
-    return { authorizedTargets: [], result: null };
+    return [];
   }
   return db.transaction(async (tx) => {
     const rows = await tx
@@ -143,6 +144,7 @@ export async function withAuthorizedDeviceDeliveryTargets<T>(
         eq(deviceTokens.platform, "ios"),
         eq(deviceTokens.deliveryLeaseToken, leaseToken),
         isNull(deviceTokens.revokedAt),
+        gt(deviceTokens.deliveryLeaseUntil, now),
         inArray(deviceTokens.id, targets.flatMap((target) =>
           target.targetId == null ? [] : [target.targetId]
         )),
@@ -152,11 +154,43 @@ export async function withAuthorizedDeviceDeliveryTargets<T>(
     const authorizedTargets = targets.filter((target) =>
       target.targetId != null && authorizedIDs.has(target.targetId)
     );
-    const result = authorizedTargets.length > 0
-      ? await operation(authorizedTargets)
-      : null;
-    return { authorizedTargets, result };
+    if (authorizedTargets.length > 0) {
+      await tx
+        .update(deviceTokens)
+        .set({ deliveryStartedAt: now })
+        .where(and(
+          eq(deviceTokens.deliveryLeaseToken, leaseToken),
+          isNull(deviceTokens.revokedAt),
+          inArray(deviceTokens.id, authorizedTargets.flatMap((target) =>
+            target.targetId == null ? [] : [target.targetId]
+          )),
+        ));
+    }
+    return authorizedTargets;
   });
+}
+
+export async function waitForDeviceDeliveryTarget(
+  db: PushDatabase,
+  targetId: string,
+): Promise<void> {
+  const deadline = Date.now() + DEVICE_DELIVERY_LEASE_MS + 5_000;
+  while (Date.now() < deadline) {
+    const [row] = await db
+      .select({
+        deliveryStartedAt: deviceTokens.deliveryStartedAt,
+        deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+      })
+      .from(deviceTokens)
+      .where(eq(deviceTokens.id, targetId))
+      .limit(1);
+    if (!row || row.deliveryStartedAt == null) return;
+    if (
+      row.deliveryLeaseUntil == null
+      || row.deliveryLeaseUntil.getTime() <= Date.now()
+    ) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 export async function releaseDeviceDeliveryTargets(
@@ -167,7 +201,11 @@ export async function releaseDeviceDeliveryTargets(
   if (!leaseToken || targetIds.length === 0) return;
   await db
     .update(deviceTokens)
-    .set({ deliveryLeaseUntil: null, deliveryLeaseToken: null })
+    .set({
+      deliveryLeaseUntil: null,
+      deliveryLeaseToken: null,
+      deliveryStartedAt: null,
+    })
     .where(and(
       eq(deviceTokens.deliveryLeaseToken, leaseToken),
       inArray(deviceTokens.id, targetIds),

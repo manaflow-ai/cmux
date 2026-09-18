@@ -3,10 +3,11 @@
 // user explicitly opts in on their device, so presence == "wants phone pushes".
 
 import crypto from "node:crypto";
+import { decodeJwt } from "jose";
 import { and, count, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
-import { deviceTokens } from "../../../db/schema";
+import { deviceTokenRevocations, deviceTokens } from "../../../db/schema";
 import { resolveApnsProviderConfiguration } from "../../../services/apns/config";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import { parseNativeStackTokens, unauthorized, verifyRequest } from "../../../services/vms/auth";
@@ -24,6 +25,7 @@ import {
   AccountDeletionMutationBlockedError,
   assertAccountDeletionUserMutationAllowed,
 } from "../../../services/account/deletionLock";
+import { waitForDeviceDeliveryTarget } from "../../../services/apns/deviceDeliveryLease";
 
 
 const HEX_TOKEN = /^[0-9a-fA-F]{64,200}$/;
@@ -80,7 +82,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   const input = parseRegistrationInput(request, body.value);
   if (!input.ok) return input.response;
   const { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey, isLegacy } = input.value;
-  const authFingerprint = requestAuthFingerprint(request);
+  const authSessionFingerprint = requestAuthSessionFingerprint(request);
 
   const db = cloudDb();
 
@@ -106,7 +108,6 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             pushKeyId: string;
             pushPublicKey: string | null;
             revokedAt: Date | null;
-            revokedAuthFingerprint: string | null;
           }
         | undefined;
       if (!isLegacy) {
@@ -118,7 +119,6 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             pushKeyId: deviceTokens.pushKeyId,
             pushPublicKey: deviceTokens.pushPublicKey,
             revokedAt: deviceTokens.revokedAt,
-            revokedAuthFingerprint: deviceTokens.revokedAuthFingerprint,
           })
           .from(deviceTokens)
           .where(and(
@@ -138,7 +138,6 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           pushKeyId: deviceTokens.pushKeyId,
           pushPublicKey: deviceTokens.pushPublicKey,
           revokedAt: deviceTokens.revokedAt,
-          revokedAuthFingerprint: deviceTokens.revokedAuthFingerprint,
         })
         .from(deviceTokens)
         .where(and(
@@ -152,14 +151,17 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         existingInstallation?.deliveryLeaseUntil?.getTime() ?? 0,
         existingToken?.deliveryLeaseUntil?.getTime() ?? 0,
       );
-      if (
-        authFingerprint !== null
-        && [existingInstallation, existingToken].some((row) =>
-          row?.userId === user.id
-          && row.revokedAt !== null
-          && row.revokedAuthFingerprint === authFingerprint
-        )
-      ) {
+      const [sessionRevocation] = await tx
+        .select({ id: deviceTokenRevocations.id })
+        .from(deviceTokenRevocations)
+        .where(and(
+          eq(deviceTokenRevocations.userId, user.id),
+          eq(deviceTokenRevocations.deviceToken, deviceToken),
+          eq(deviceTokenRevocations.bundleId, bundle.bundleId),
+          eq(deviceTokenRevocations.authSessionFingerprint, authSessionFingerprint),
+        ))
+        .limit(1);
+      if (sessionRevocation) {
         return { limitReached: false, authRevoked: true };
       }
       if (deliveryLeaseUntilMs > Date.now()) {
@@ -237,7 +239,6 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             pushKeyId: isLegacy ? "legacy" : pushKeyId,
             pushPublicKey: isLegacy ? null : pushPublicKey,
             revokedAt: null,
-            revokedAuthFingerprint: null,
             updatedAt: new Date(),
           })
           .where(eq(deviceTokens.id, rowToUpdate.id));
@@ -251,7 +252,6 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           installationId: isLegacy ? "legacy" : installationId,
           pushKeyId: isLegacy ? "legacy" : pushKeyId,
           pushPublicKey: isLegacy ? null : pushPublicKey,
-          revokedAuthFingerprint: null,
         });
       }
 
@@ -390,7 +390,9 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   const revokeSession = body.value.revokeSession === true
     || body.value.revokeSession === "true";
-  const authFingerprint = revokeSession ? requestAuthFingerprint(request) : null;
+  const authSessionFingerprint = revokeSession
+    ? requestAuthSessionFingerprint(request)
+    : null;
   const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim().toLowerCase() : "";
   const bodyBundleId =
     typeof body.value.bundleId === "string"
@@ -419,6 +421,7 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
         id: deviceTokens.id,
         bundleId: deviceTokens.bundleId,
         deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
+        deliveryStartedAt: deviceTokens.deliveryStartedAt,
       })
       .from(deviceTokens)
       .where(clientNamespace
@@ -437,82 +440,129 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
       return { outcome: "ambiguous" as const };
     }
     const existingToken = matches[0];
-    const [foreignToken] = !existingToken && revokeSession && clientNamespace
-      ? await tx
-        .select({ id: deviceTokens.id })
-        .from(deviceTokens)
-        .where(and(
-          eq(deviceTokens.deviceToken, deviceToken),
-          eq(deviceTokens.bundleId, clientNamespace),
-        ))
-        .limit(1)
-        .for("update")
-      : [];
-    if (revokeSession && existingToken) {
-      await tx
-        .update(deviceTokens)
-        .set({
-          revokedAt: new Date(),
-          revokedAuthFingerprint: authFingerprint,
-          updatedAt: new Date(),
-        })
-        .where(eq(deviceTokens.id, existingToken.id));
-      return { outcome: "revoked" as const };
-    }
-    const deliveryLeaseUntilMs =
-      existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
-    if (deliveryLeaseUntilMs > Date.now()) {
-      if (existingToken) {
-        await tx
-          .update(deviceTokens)
-          .set({
-            revokedAt: new Date(),
-            revokedAuthFingerprint: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(deviceTokens.id, existingToken.id));
-      }
-      return {
-        outcome: "revoked" as const,
-      };
-    }
-    if (existingToken) {
-      await tx
-        .delete(deviceTokens)
-        .where(and(
-          eq(deviceTokens.deviceToken, deviceToken),
-          eq(deviceTokens.userId, user.id),
-          eq(deviceTokens.bundleId, existingToken.bundleId),
-        ));
-    } else if (revokeSession && clientNamespace && !foreignToken) {
-      const bundle = normalizeApnsBundle(clientNamespace);
-      if (bundle) {
-        await tx.insert(deviceTokens).values({
-          userId: user.id,
-          deviceToken,
-          bundleId: bundle.bundleId,
-          environment: bundle.environment,
-          platform: "ios",
-          installationId: "legacy",
-          pushKeyId: "legacy",
-          revokedAt: new Date(),
-          revokedAuthFingerprint: authFingerprint,
-        });
-      }
-    }
-    return { outcome: "deleted" as const };
+    return applyDeviceTokenDeletion(tx, {
+      userId: user.id,
+      deviceToken,
+      clientNamespace,
+      revokeSession,
+      authSessionFingerprint,
+      existingToken,
+    });
   });
   if (deletion.outcome === "ambiguous") {
     return jsonResponse({ error: "ambiguous_legacy_device_token" }, 409);
   }
+  if (deletion.waitForDeliveryTargetId) {
+    await waitForDeviceDeliveryTarget(db, deletion.waitForDeliveryTargetId);
+  }
   return jsonResponse({ ok: true });
 }
 
-function requestAuthFingerprint(request: Request): string | null {
+type DeviceTokenDeletionTransaction =
+  Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+type DeviceTokenMatch = {
+  readonly id: string;
+  readonly bundleId: string;
+  readonly deliveryLeaseUntil: Date | null;
+  readonly deliveryStartedAt: Date | null;
+};
+
+async function applyDeviceTokenDeletion(
+  tx: DeviceTokenDeletionTransaction,
+  input: {
+    readonly userId: string;
+    readonly deviceToken: string;
+    readonly clientNamespace: string | null;
+    readonly revokeSession: boolean;
+    readonly authSessionFingerprint: string | null;
+    readonly existingToken: DeviceTokenMatch | undefined;
+  },
+): Promise<{
+  readonly outcome: "deleted" | "revoked";
+  readonly waitForDeliveryTargetId: string | null;
+}> {
+  const {
+    userId,
+    deviceToken,
+    clientNamespace,
+    revokeSession,
+    authSessionFingerprint,
+    existingToken,
+  } = input;
+  if (revokeSession && existingToken) {
+    await tx
+      .insert(deviceTokenRevocations)
+      .values({
+        userId,
+        deviceToken,
+        bundleId: existingToken.bundleId,
+        authSessionFingerprint: authSessionFingerprint!,
+      })
+      .onConflictDoNothing();
+    await tx
+      .update(deviceTokens)
+      .set({ revokedAt: new Date(), updatedAt: new Date() })
+      .where(eq(deviceTokens.id, existingToken.id));
+    return {
+      outcome: "revoked",
+      waitForDeliveryTargetId:
+        existingToken.deliveryStartedAt != null
+        || (existingToken.deliveryLeaseUntil?.getTime() ?? 0) > Date.now()
+          ? existingToken.id
+          : null,
+    };
+  }
+  if ((existingToken?.deliveryLeaseUntil?.getTime() ?? 0) > Date.now()) {
+    if (existingToken) {
+      await tx
+        .update(deviceTokens)
+        .set({ revokedAt: new Date(), updatedAt: new Date() })
+        .where(eq(deviceTokens.id, existingToken.id));
+    }
+    return {
+      outcome: "revoked",
+      waitForDeliveryTargetId: existingToken?.id ?? null,
+    };
+  }
+  if (revokeSession && clientNamespace) {
+    const bundle = normalizeApnsBundle(clientNamespace);
+    if (bundle) {
+      await tx
+        .insert(deviceTokenRevocations)
+        .values({
+          userId,
+          deviceToken,
+          bundleId: bundle.bundleId,
+          authSessionFingerprint: authSessionFingerprint!,
+        })
+        .onConflictDoNothing();
+    }
+  }
+  if (existingToken) {
+    await tx
+      .delete(deviceTokens)
+      .where(and(
+        eq(deviceTokens.deviceToken, deviceToken),
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.bundleId, existingToken.bundleId),
+      ));
+  }
+  return { outcome: "deleted", waitForDeliveryTargetId: null };
+}
+
+function requestAuthSessionFingerprint(request: Request): string {
   const tokens = parseNativeStackTokens(request);
-  if (!tokens) return null;
+  if (!tokens) return "unknown";
+  let sessionID: unknown;
+  try {
+    sessionID = decodeJwt(tokens.accessToken).refresh_token_id;
+  } catch {
+    sessionID = null;
+  }
+  if (typeof sessionID !== "string" || sessionID.length === 0) return "unknown";
   return crypto
     .createHash("sha256")
-    .update(`${tokens.accessToken}\n${tokens.refreshToken}`)
+    .update("cmux-stack-session-v1\n" + sessionID)
     .digest("hex");
 }
