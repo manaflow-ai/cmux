@@ -63,6 +63,7 @@ const app = new StackServerApp({
 });
 
 const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
+const benchEmail = `cmux-${project.stackLabel}-bench+${suffix}@manaflow.dev`;
 const liveVmIds = new Set();
 let user;
 let authHeaders;
@@ -419,22 +420,30 @@ async function reapOwnerNetwork(userId) {
  * rows. Deleting only the Stack identity would leave that provider VPC behind.
  */
 /**
- * Outcomes: "deleted" (200); "cleanup_incomplete" (202: the Stack identity is
- * gone but the route's post-Stack cleanup did not finish, so the network must
- * be verified separately); "retryable_failure" (the route's own resumable
- * state machine answered `retryable: true` three times, so its checkpoints
- * stay valid for a later retry); "failed" (an unclassified answer, after
- * which nothing about the account's state is known). A `202 {deletionPending}`
- * means another deletion of the same account is still running and is waited on.
+ * Outcomes: "deleted" (200); "cleanup_incomplete" (the route deleted the
+ * Stack identity but its post-Stack cleanup stayed incomplete after the
+ * resume path was retried, so an operator follow-up is needed);
+ * "retryable_failure" (the route's own resumable state machine answered
+ * `retryable: true` three times; its checkpoints stay valid for a later
+ * retry with the identity kept); "failed" (an unclassified answer). A
+ * `202 {deletionPending}` means another deletion of the same account is still
+ * running and is waited on; a `202 {cleanupIncomplete}` is retried because a
+ * later call resumes the post-Stack cleanup.
  */
 async function deleteAccount() {
   let retryableFailures = 0;
+  let incompleteAnswers = 0;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const response = await fetchTimed(`${targetUrl}/api/account`, { method: "DELETE", headers: authHeaders }, 300_000);
     const body = json(response.text);
     if (response.status === 200) return "deleted";
-    if (response.status === 202 && body.cleanupIncomplete === true) return "cleanup_incomplete";
     if (response.status === 202 && body.deletionPending === true) {
+      await sleep(5_000);
+      continue;
+    }
+    if (response.status === 202 && body.cleanupIncomplete === true) {
+      incompleteAnswers += 1;
+      if (incompleteAnswers >= 3) return "cleanup_incomplete";
       await sleep(5_000);
       continue;
     }
@@ -445,6 +454,20 @@ async function deleteAccount() {
     await sleep(5_000);
   }
   return "failed";
+}
+
+/** A user whose creation response was lost is found by its generated email with the server key. */
+async function reconcileCreatedUser() {
+  if (user) return user;
+  try {
+    const listed = await app.listUsers({ query: benchEmail, limit: 5 });
+    const found = listed.find((candidate) => candidate.primaryEmail === benchEmail);
+    if (found) console.error(`cleanup_reconciled_user=${benchEmail}`);
+    return found ?? null;
+  } catch (error) {
+    console.error(`cleanup_user_lookup_failed error=${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 function positiveInteger(raw, flag) {
@@ -459,6 +482,7 @@ function positiveInteger(raw, flag) {
 /** Everything teardown learned, so the report can say what really happened. */
 async function runCleanup() {
   const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, leftoverVmIds: [], keptUser: null };
+  if (!user && !authHeaders) user = await reconcileCreatedUser();
   if (user && !authHeaders) {
     // Setup failed before a session existed, so no API call and no machine
     // was ever made in this user's name; the provider sweep still runs by
@@ -497,37 +521,28 @@ async function runCleanup() {
     cleanup.accountOutcome = outcome;
     if (outcome === "deleted") cleanup.accountDeleted = true;
     if (outcome === "cleanup_incomplete") {
-      // The identity is already gone; only the network can still be verified.
+      // The identity is gone and the route's resume path was retried; what
+      // remains (tombstone, analytics cleanup) needs an operator, so this is
+      // reported as a cleanup failure, not a success. The provider network is
+      // still taken out so no billable resource is left behind.
       cleanup.identityGone = true;
-      cleanup.accountDeleted = await reapOwnerNetwork(user.id);
-      if (!cleanup.accountDeleted) console.error(`cleanup_needed_network=${ownerNetworkSlug(user.id)} (the account route deleted the identity but its cleanup did not finish)`);
+      await reapOwnerNetwork(user.id);
+      console.error(`cleanup_needed_account_followup=${user.id} (the account route deleted the identity but its post-Stack cleanup stayed incomplete after retries)`);
     }
-    if (outcome === "retryable_failure") {
-      // The route answered with its resumable contract (a checkpoint is
-      // recorded; on staging it fails at the final Stack step after it has
-      // already removed the cmux-owned data). Provider inventory is verified
-      // empty above, so take the network out by its slug and drop the
-      // identity with the server key: no billable resource outlives the
-      // account, and at worst inert rows for a deleted user remain. An
-      // unclassified failure ("failed") never reaches this branch: the user
-      // is kept so the route can be retried with its state intact.
-      try {
-        if (await reapOwnerNetwork(user.id)) {
-          await user.delete();
-          cleanup.accountDeleted = true;
-          console.error("cleanup_note=account deletion route failed; the owner network was removed at the provider and the Stack identity with the server key (a cloud_vm_networks row for the deleted user may remain)");
-        }
-      } catch (cleanupError) {
-        console.error(`cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
-      }
+    if (outcome === "retryable_failure" || outcome === "failed") {
+      // The application's account deletion is the only path that removes its
+      // own rows (machines, leases, usage, tombstones). It is resumable, so
+      // the identity is kept for a later DELETE /api/account; only the
+      // provider-side network is taken out here so nothing billable remains.
+      await reapOwnerNetwork(user.id);
     }
   }
   if (user && !cleanup.accountDeleted && !cleanup.identityGone) {
     // The throwaway user is the only credential that still owns whatever is
-    // left (machines, or the owner network the app deletes with the account);
-    // deleting the identity now would make them unreachable to any retry.
+    // left; deleting the identity now would strand the application's rows
+    // behind an account its own deletion can no longer resume.
     cleanup.keptUser = user.primaryEmail ?? user.id;
-    console.error(`cleanup_needed_user=${cleanup.keptUser} (kept so its resources can still be cleaned up: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account, which also removes its owner network)`);
+    console.error(`cleanup_needed_user=${cleanup.keptUser} (kept so the application's own account deletion can be retried: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account)`);
   }
   cleanup.ok = !user || (cleanup.accountDeleted && cleanup.leftoverVmIds.length === 0);
   return cleanup;
@@ -570,7 +585,7 @@ let startedAt = null;
 let runError = null;
 try {
   user = await app.createUser({
-    primaryEmail: `cmux-${project.stackLabel}-bench+${suffix}@manaflow.dev`,
+    primaryEmail: benchEmail,
     primaryEmailVerified: true,
     primaryEmailAuthEnabled: true,
     password: randomBytes(24).toString("base64url"),

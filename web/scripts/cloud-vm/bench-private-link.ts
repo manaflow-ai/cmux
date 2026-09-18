@@ -63,6 +63,15 @@ function tracked<T>(promise: Promise<T>): Promise<T> {
   promise.then(() => inFlight.delete(promise), () => inFlight.delete(promise));
   return promise;
 }
+/** A tracked provider request raced against a deadline; the request itself keeps running until it settles. */
+function bounded<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  tracked(promise);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
 async function settleInFlight(ms: number): Promise<void> {
   if (inFlight.size === 0) return;
   console.error(`cleanup_waiting_for_in_flight=${inFlight.size}`);
@@ -172,9 +181,9 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
     // request is not cancellable, so an interrupt waits for it) and the
     // destroy finalizer is registered atomically with the machine's id.
     const created = yield* timed(Effect.acquireRelease(
-      attempt("provider.create", () => tracked(provider.create({
+      attempt("provider.create", () => bounded(provider.create({
         image, network: { id: networkId }, displayName: `bench-link-${runId}-${index}`, imageSize: selection.size ?? undefined,
-      }))),
+      }), 900_000, "provider.create")),
       (value) => Effect.gen(function* () {
         const destroyed = yield* timed(cleanup(`VM ${value.providerVmId}`, () => provider.destroy(value.providerVmId)));
         trial.destroyMs = destroyed.ms;
@@ -286,7 +295,7 @@ function bench() {
     const slug = `cmux-bench-link-${runId}`;
     yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug));
     const network = yield* timed(Effect.acquireRelease(
-      attempt("ensureNetwork", () => networking.ensureNetwork({ slug })),
+      attempt("ensureNetwork", () => bounded(networking.ensureNetwork({ slug }), 120_000, "ensureNetwork")),
       (value) => cleanup(`VPC ${value.id}`, () => networking.deleteNetwork(value.id)),
     ));
     // Registered right after the VPC so it runs before the VPC delete: any
@@ -298,7 +307,7 @@ function bench() {
     const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
     const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
     const tunnel = yield* timed(Effect.acquireRelease(
-      attempt("createTunnel", () => networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey })),
+      attempt("createTunnel", () => bounded(networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey }), 120_000, "createTunnel")),
       (value) => cleanup(`tunnel ${value.tunnel.id}`, () => networking.deleteTunnel(value.tunnel.id)),
     ));
     const config = tunnel.value.tunnel.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${privateBytes}`);

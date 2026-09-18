@@ -358,14 +358,20 @@ PostHog queries are in `docs/cloud-startup-latency/posthog-*.txt` headers
   create) and its `cloud_vm_networks` row behind on every run. The eight
   networks this session's early runs left were removed by hand after
   verifying they had no machines or tunnels. `bench-vm-startup.mjs` now
-  deletes the account through `DELETE /api/account` and falls back to
-  removing the network at the provider by the application's slug; the smoke
-  and stress scripts should adopt the same cleanup.
+  deletes the account through `DELETE /api/account`; when that route does
+  not complete it removes the owner network at the provider by the
+  application's slug, keeps the Stack identity so the route's resumable
+  deletion can be retried, and exits 1. The smoke and stress scripts should
+  adopt the same cleanup.
 - **Account deletion fails on staging at its last step.** `DELETE /api/account`
   answered `500 account_delete_retryable` three times in a row for a
   throwaway user after it had already destroyed the cmux-owned data (the
   Stack deletion step); the route's owner should check the staging Stack
-  configuration.
+  configuration. Until it is fixed, every staging run of
+  `bench-vm-startup.mjs` ends with its throwaway user kept (named on stderr
+  as `cleanup_needed_user=`), no provider resources, and exit status 1; the
+  measurements are still written. The users this session left that way were
+  removed by hand with the server key after verifying they owned nothing.
 
 ## 12. Limitations
 
