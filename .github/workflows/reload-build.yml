@@ -560,6 +560,22 @@ jobs:
 
           app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
           [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
+          # A successful Blacksmith build is installed as a Cloud dogfood app.
+          # Never publish an artifact that silently falls back to localhost or
+          # loses the compiled Cloud feature marker when backend provisioning
+          # was skipped upstream.
+          case "$CMUX_DEV_BACKEND_URL" in
+            https://cmux-dev-backend-1.tail137216.ts.net:[0-9]*) ;;
+            *) echo "::error::macOS Cloud build requires an approved GCP backend URL, got '${CMUX_DEV_BACKEND_URL:-<empty>}'" >&2; exit 1 ;;
+          esac
+          info_plist="$app_path/Contents/Info.plist"
+          [ -f "$info_plist" ] || { echo "::error::built app is missing Contents/Info.plist" >&2; exit 1; }
+          marker="$(/usr/libexec/PlistBuddy -c 'Print :CMUXCloudDogfoodEnabled' "$info_plist" 2>/dev/null || true)"
+          [ "$marker" = "true" ] || { echo "::error::Cloud dogfood marker missing from $info_plist" >&2; exit 1; }
+          app_backend="$(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:CMUX_DEV_BACKEND_URL' "$info_plist" 2>/dev/null || true)"
+          [ "$app_backend" = "$CMUX_DEV_BACKEND_URL" ] || { echo "::error::app backend URL '$app_backend' does not match registered '$CMUX_DEV_BACKEND_URL'" >&2; exit 1; }
+          app_transport="$(/usr/libexec/PlistBuddy -c 'Print :LSEnvironment:CMUX_DEV_BACKEND_TRANSPORT' "$info_plist" 2>/dev/null || true)"
+          [ "$app_transport" = "direct" ] || { echo "::error::Cloud app transport must be direct, got '${app_transport:-<empty>}'" >&2; exit 1; }
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
