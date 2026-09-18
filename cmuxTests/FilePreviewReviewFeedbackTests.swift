@@ -431,6 +431,55 @@ struct FilePreviewReviewFeedbackTests {
         )
     }
 
+    @Test
+    func surfaceListIncludesFilePathsForPreviewSurfaces() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-list-\(UUID().uuidString)", isDirectory: true)
+        let fileURL = directory.appendingPathComponent("source.swift")
+        let markdownURL = directory.appendingPathComponent("README.md")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try "let value = 1\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        try "# Preview\n".write(to: markdownURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        defer { workspace.teardownAllPanels() }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let filePanel = try #require(workspace.newFilePreviewSurface(
+            inPane: pane,
+            filePath: fileURL.path,
+            focus: false
+        ))
+        let markdownPanel = try #require(workspace.newMarkdownSurface(
+            inPane: pane,
+            filePath: markdownURL.path,
+            focus: false
+        ))
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let request: [String: Any] = [
+            "id": "surface-list-file-path",
+            "method": "surface.list",
+            "params": ["workspace_id": workspace.id.uuidString],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(String(data: requestData, encoding: .utf8))
+        let response = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(response.data(using: .utf8))
+        let envelope = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+        let result = try #require(envelope["result"] as? [String: Any])
+        let surfaces = try #require(result["surfaces"] as? [[String: Any]])
+        let fileRow = try #require(surfaces.first { ($0["id"] as? String) == filePanel.id.uuidString })
+        let markdownRow = try #require(surfaces.first { ($0["id"] as? String) == markdownPanel.id.uuidString })
+
+        #expect(fileRow["file_path"] as? String == fileURL.path)
+        #expect(markdownRow["file_path"] as? String == markdownURL.path)
+    }
+
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
