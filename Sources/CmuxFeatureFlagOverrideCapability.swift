@@ -7,6 +7,7 @@ struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
     let allowsCloudOverride: Bool
     let enablesCloudDogfood: Bool
     let isDebugBuild: Bool
+    let isTaggedDebugArtifact: Bool
 
     init(bundle: Bundle = .main) {
         #if DEBUG
@@ -22,6 +23,7 @@ struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
         // Only the shipping Nightly identity grants the exception in Release.
         // Debug also requires a debug bundle, so stable/staging identities fail closed.
         let debugID = SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier
+        isTaggedDebugArtifact = isDebugBuild && bundleIdentifier?.hasPrefix(debugID + ".") == true
         allowsCloudOverride = bundleIdentifier == SocketPathMarkerFiles.nightlyBundleIdentifier
             || (isDebugBuild && (bundleIdentifier == debugID
                 || bundleIdentifier?.hasPrefix(debugID + ".") == true))
