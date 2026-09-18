@@ -49,17 +49,35 @@ no connection ticket and no Freestyle call.
 
 ## Ports and Desktop path
 
-In-app HTTP browser panes and Desktop use one shared authenticated HTTP loopback
-forward per machine and port, replacing the browser URL with
-`http://127.0.0.1:<port>` while preserving the noVNC path and query. The forward
-warms the hub before navigation, so the noVNC WebSocket uses the same authenticated
-relay. HTTPS uses the private VPN route because the raw TCP relay cannot preserve
-TLS routing. Forward listeners close when their machine leaves the fleet, on
-sign-out, or at process exit.
+A Cloud browser keeps the machine's private IP and original port as its actual
+URL and document origin. Command-clicking `http://0.0.0.0:8000/` or
+`http://localhost:8000/` in a Cloud terminal opens the page to the right at that
+terminal's machine address, for example `http://10.16.0.7:8000/`. Another VM can
+use the same port at `http://10.16.0.8:8000/`; their routes and origins are distinct.
 
-Command-click on a Cloud terminal's localhost, 127.0.0.1, or 0.0.0.0 web link
-replaces only its host with the VM's private address. The browser follows the
-same connection flow. Local terminals and external sites keep their own URLs.
+Each machine has one app-owned authenticated HTTP CONNECT proxy. WebKit sends
+only that machine's private-address requests through it, with direct fallback
+disabled. The proxy opens the existing daemon's `LoopbackOnly` TCP route over
+an authenticated carrier through the shared userspace WireGuard hub. The daemon
+connects to `127.0.0.1:<port>` inside the VM, so loopback-only development servers
+work as well as servers listening on all interfaces. No guest firewall rule,
+system network route, public preview, or macOS VPN approval is needed.
+
+Browser data stores are isolated per pane, profile, and machine, with stable
+identifiers across session restore. A new proxy for one VM cannot reconfigure
+another pane's networking. HTTP request bodies and WebSocket bytes are relayed
+without changing the private-IP Host header or document origin. Cleartext
+localhost fetch, XHR, WebSocket, and EventSource URLs inside the page are mapped
+to its VM address. HTTPS keeps its normal certificate validation against the
+visible private address.
+
+Opening a page starts the userspace connection automatically. Loading and failure
+states remain in the same browser pane and Reload retries the connection.
+The local proxy requires a fresh per-process credential exchanged only through
+the app's private stdout pipe; it accepts only the configured VM addresses and
+refuses the daemon port. Machine removal, sign-out, and process exit close the
+proxy and its WireGuard claim. Explicit loopback forwards for other local clients
+remain separate from the browser's stable private-IP URL.
 
 ## System-wide route (`cmux vpn up`)
 
