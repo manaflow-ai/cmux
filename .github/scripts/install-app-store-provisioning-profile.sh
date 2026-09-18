@@ -23,6 +23,7 @@ TMP_PROFILE="$TMP_ROOT/cmux-appstore.mobileprovision"
 TMP_PLIST="$TMP_ROOT/cmux-appstore-profile.plist"
 TMP_EXTENSION_PROFILE="$TMP_ROOT/cmux-appstore-extension.mobileprovision"
 TMP_EXTENSION_PLIST="$TMP_ROOT/cmux-appstore-extension-profile.plist"
+ENV_OUTPUT="${GITHUB_ENV:-$TMP_ROOT/cmux-appstore.env}"
 PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
 RESOLVED_PROFILE_NAME=""
 RESOLVED_PROFILE_UUID=""
@@ -81,7 +82,7 @@ validate_profile() {
 install_profile() {
   mkdir -p "$PROFILE_DIR"
   cp "$TMP_PROFILE" "$PROFILE_DIR/$RESOLVED_PROFILE_UUID.mobileprovision"
-  echo "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=$RESOLVED_PROFILE_NAME" >> "$GITHUB_ENV"
+  echo "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=$RESOLVED_PROFILE_NAME" >> "$ENV_OUTPUT"
   note "installed App Store profile '$RESOLVED_PROFILE_NAME'"
 }
 
@@ -104,7 +105,7 @@ validate_extension_profile() {
 install_extension_profile() {
   mkdir -p "$PROFILE_DIR"
   cp "$TMP_EXTENSION_PROFILE" "$PROFILE_DIR/$EXTENSION_PROFILE_UUID.mobileprovision"
-  echo "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=$EXTENSION_PROFILE_NAME" >> "$GITHUB_ENV"
+  echo "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=$EXTENSION_PROFILE_NAME" >> "$ENV_OUTPUT"
   note "installed App Store extension profile '$EXTENSION_PROFILE_NAME'"
 }
 

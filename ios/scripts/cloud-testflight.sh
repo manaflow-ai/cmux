@@ -329,9 +329,66 @@ verify_ipa_aps_environment_production() {
   return 0
 }
 
+resolve_appstore_extension_profile() {
+  [[ "$LANE" == "appstore" ]] || return 0
+  [[ -n "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}" ]] && return 0
+
+  local team_id plistbuddy profile_dir profile_path profile_plist app_id profile_name
+  team_id="${IOS_APPSTORE_TEAM_ID:-7WLXT3NR37}"
+  plistbuddy="/usr/libexec/PlistBuddy"
+  profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
+  profile_plist="$(mktemp "${TMPDIR:-/tmp}/cmux-appstore-extension-profile.XXXXXX")"
+  if [[ -d "$profile_dir" ]]; then
+    for profile_path in "$profile_dir"/*.mobileprovision; do
+      [[ -f "$profile_path" ]] || continue
+      security cms -D -i "$profile_path" > "$profile_plist" 2>/dev/null || continue
+      app_id="$($plistbuddy -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
+      [[ "$app_id" == "$team_id.${BETA_BUNDLE_ID}.NotificationService" ]] || continue
+      profile_name="$($plistbuddy -c 'Print :Name' "$profile_plist" 2>/dev/null || true)"
+      [[ -n "$profile_name" ]] || continue
+      export IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME="$profile_name"
+      err "using installed App Store extension profile '$profile_name'"
+      return 0
+    done
+  fi
+
+  local profile_helper env_output keychain identity local_config
+  profile_helper="$REPO_ROOT/.github/scripts/install-app-store-provisioning-profile.sh"
+  [[ -x "$profile_helper" ]] || die "missing App Store profile helper: $profile_helper"
+  local_config="$IOS_DIR/Config/AppStoreConnect.local.plist"
+  if [[ -f "$local_config" ]]; then
+    ASC_API_KEY_ID="${ASC_API_KEY_ID:-$($plistbuddy -c 'Print :ASC_API_KEY_ID' "$local_config" 2>/dev/null || true)}"
+    ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$($plistbuddy -c 'Print :ASC_API_ISSUER_ID' "$local_config" 2>/dev/null || true)}"
+    ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$($plistbuddy -c 'Print :ASC_API_KEY_PATH' "$local_config" 2>/dev/null || true)}"
+    export ASC_API_KEY_ID ASC_API_ISSUER_ID ASC_API_KEY_PATH
+  fi
+  [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]] ||
+    die "App Store export needs an extension provisioning profile; set IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME or configure ASC API credentials"
+
+  identity="${IOS_DISTRIBUTION_IDENTITY:-}"
+  if [[ -z "$identity" ]]; then
+    identity="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(.* Distribution: .* (7WLXT3NR37)\)".*/\1/p' | head -n 1)"
+  fi
+  [[ -n "$identity" ]] || die "could not find an Apple Distribution identity for the App Store extension profile"
+  export IOS_DISTRIBUTION_IDENTITY="$identity"
+  keychain="${IOS_APPSTORE_KEYCHAIN_NAME:-$(security default-keychain -d user 2>/dev/null | tr -d '"')}"
+  [[ -n "$keychain" ]] || die "could not resolve the keychain containing the Apple Distribution identity"
+  env_output="$ARTIFACT_ROOT/appstore-profile-env"
+  : > "$env_output"
+  GITHUB_ENV="$env_output" IOS_APPSTORE_KEYCHAIN_NAME="$keychain" "$profile_helper"
+  while IFS='=' read -r profile_env_key profile_env_value; do
+    [[ -n "$profile_env_key" ]] || continue
+    export "$profile_env_key=$profile_env_value"
+  done < "$env_output"
+  [[ -n "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}" ]] ||
+    die "App Store profile helper did not provide an extension provisioning profile"
+}
+
 # --- hand off to upload-testflight.sh (export + re-sign + verify + upload) ----
 UPLOAD="$IOS_DIR/scripts/upload-testflight.sh"
 [[ -x "$UPLOAD" ]] || die "missing $UPLOAD"
+
+resolve_appstore_extension_profile
 
 upload_args=( --lane "$LANE" --archive-path "$ARCHIVE_PATH" )
 [[ "$EXTERNAL" -eq 1 ]] && upload_args+=( --external )
