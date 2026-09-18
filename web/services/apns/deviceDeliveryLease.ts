@@ -175,6 +175,7 @@ export async function waitForDeviceDeliveryTarget(
   targetId: string,
 ): Promise<void> {
   const deadline = Date.now() + DEVICE_DELIVERY_LEASE_MS + 5_000;
+  let delayMs = 25;
   while (Date.now() < deadline) {
     const [row] = await db
       .select({
@@ -189,7 +190,8 @@ export async function waitForDeviceDeliveryTarget(
       row.deliveryLeaseUntil == null
       || row.deliveryLeaseUntil.getTime() <= Date.now()
     ) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    delayMs = Math.min(1_000, delayMs * 2);
   }
 }
 

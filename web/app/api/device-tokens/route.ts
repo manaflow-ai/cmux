@@ -83,6 +83,9 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   if (!input.ok) return input.response;
   const { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey, isLegacy } = input.value;
   const authSessionFingerprint = requestAuthSessionFingerprint(request);
+  if (!authSessionFingerprint) {
+    return jsonResponse({ error: "push_registration_requires_session_id" }, 409);
+  }
 
   const db = cloudDb();
 
@@ -400,28 +403,14 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
-  const revokeSession = body.value.revokeSession === true
-    || body.value.revokeSession === "true";
-  const authSessionFingerprint = revokeSession
-    ? requestAuthSessionFingerprint(request)
-    : null;
-  const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim().toLowerCase() : "";
-  const bodyBundleId =
-    typeof body.value.bundleId === "string"
-      ? body.value.bundleId.trim()
-      : "";
-  const headerNamespace = request.headers.get("x-cmux-app-namespace");
-  const clientNamespace = headerNamespace ?? bodyBundleId;
-  if (!deviceToken) return jsonResponse({ error: "missing_device_token" }, 400);
-  if (!HEX_TOKEN.test(deviceToken)) return jsonResponse({ error: "invalid_device_token" }, 400);
-  if (clientNamespace && (
-    !normalizeApnsBundle(clientNamespace) ||
-    (headerNamespace !== null &&
-      bodyBundleId !== "" &&
-      headerNamespace !== bodyBundleId)
-  )) {
-    return jsonResponse({ error: "invalid_client_namespace" }, 400);
-  }
+  const parsedRequest = parseDeviceTokenDeletionRequest(request, body.value);
+  if (parsedRequest instanceof Response) return parsedRequest;
+  const {
+    deviceToken,
+    clientNamespace,
+    revokeSession,
+    authSessionFingerprint,
+  } = parsedRequest;
 
   const db = cloudDb();
   const deletion = await db.transaction(async (tx) => {
@@ -466,6 +455,39 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
     await waitForDeviceDeliveryTarget(db, deletion.waitForDeliveryTargetId);
   }
   return jsonResponse({ ok: true });
+}
+
+type DeviceTokenDeletionRequest = {
+  readonly deviceToken: string;
+  readonly clientNamespace: string | null;
+  readonly revokeSession: boolean;
+  readonly authSessionFingerprint: string | null;
+};
+
+function parseDeviceTokenDeletionRequest(
+  request: Request,
+  body: Record<string, unknown>,
+): DeviceTokenDeletionRequest | Response {
+  const revokeSession = body.revokeSession === true || body.revokeSession === "true";
+  const authSessionFingerprint = revokeSession
+    ? requestAuthSessionFingerprint(request)
+    : null;
+  if (revokeSession && !authSessionFingerprint) {
+    return jsonResponse({ error: "push_revocation_requires_session_id" }, 409);
+  }
+  const deviceToken = typeof body.deviceToken === "string" ? body.deviceToken.trim().toLowerCase() : "";
+  const bodyBundleId = typeof body.bundleId === "string" ? body.bundleId.trim() : "";
+  const headerNamespace = request.headers.get("x-cmux-app-namespace");
+  const clientNamespace = headerNamespace ?? bodyBundleId;
+  if (!deviceToken) return jsonResponse({ error: "missing_device_token" }, 400);
+  if (!HEX_TOKEN.test(deviceToken)) return jsonResponse({ error: "invalid_device_token" }, 400);
+  if (clientNamespace && (
+    !normalizeApnsBundle(clientNamespace) ||
+    (headerNamespace !== null && bodyBundleId !== "" && headerNamespace !== bodyBundleId)
+  )) {
+    return jsonResponse({ error: "invalid_client_namespace" }, 400);
+  }
+  return { deviceToken, clientNamespace, revokeSession, authSessionFingerprint };
 }
 
 type DeviceTokenDeletionTransaction =
@@ -572,16 +594,16 @@ async function applyDeviceTokenDeletion(
   return { outcome: "deleted", waitForDeliveryTargetId: null };
 }
 
-function requestAuthSessionFingerprint(request: Request): string {
+function requestAuthSessionFingerprint(request: Request): string | null {
   const tokens = parseNativeStackTokens(request);
-  if (!tokens) return "unknown";
+  if (!tokens) return null;
   let sessionID: unknown;
   try {
     sessionID = decodeJwt(tokens.accessToken).refresh_token_id;
   } catch {
     sessionID = null;
   }
-  if (typeof sessionID !== "string" || sessionID.length === 0) return "unknown";
+  if (typeof sessionID !== "string" || sessionID.length === 0) return null;
   return crypto
     .createHash("sha256")
     .update("cmux-stack-session-v1\n" + sessionID)
