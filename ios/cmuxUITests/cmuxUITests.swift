@@ -11692,7 +11692,13 @@ final class IOSSetupRecoveryUITests: XCTestCase {
     func testOnboardingSettingsReplayAlignmentAndActions() {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
-        app.launchEnvironment = ["CMUX_UITEST_MOCK_DATA": "1"]
+        app.launchEnvironment = [
+            "CMUX_UITEST_MOCK_DATA": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "connected",
+        ]
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         defer { app.terminate() }
