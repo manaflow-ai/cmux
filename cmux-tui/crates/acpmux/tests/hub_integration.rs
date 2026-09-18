@@ -59,7 +59,7 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
     let mut agents = BTreeMap::new();
     agents.insert(
         "fake".to_owned(),
-        AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None },
+        AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None },
     );
     let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
@@ -337,7 +337,7 @@ async fn restart_marks_unknown_outcome() {
     let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None });
+    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
     let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Local;
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
@@ -368,8 +368,8 @@ async fn restart_marks_unknown_outcome() {
 async fn limit_error_fails_over_to_the_fallback_profile() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: Some("fake-pool".into()) });
-    agents.insert("fake-pool".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None });
+    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: Some("fake-pool".into()), family: None });
+    agents.insert("fake-pool".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
     let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
@@ -413,4 +413,45 @@ async fn process_death_quotes_the_last_stderr_line() {
     assert_eq!(last.msg["status"], "failed");
     assert!(last.msg["error"].as_str().unwrap().contains("Not logged in"));
     assert_eq!(hub.session_summary(&session)["status"], "disconnected");
+}
+
+#[tokio::test]
+async fn family_defaults_pick_the_profile_model_effort_and_policy() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut agents = BTreeMap::new();
+    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    agents.insert("fake-pool".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.defaults.insert("fake".into(), acpmux::config::SessionDefaults { model: Some("m2".into()), effort: None, policy: Some(PermissionPolicy::ApproveAll), prefer: vec!["fake-pool".into()], env: BTreeMap::new() });
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
+    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}})).await.unwrap();
+    // The family name resolves to the preferred profile; defaults apply.
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "fake", "name": "fam"}}})).await.unwrap();
+    let sum = &s["_meta"]["acpmux"];
+    assert_eq!(sum["agent"], "fake-pool", "{sum}");
+    assert_eq!(sum["family"], "fake");
+    assert_eq!(sum["policy"], "approve-all");
+    assert_eq!(sum["model"], "m2");
+    // An explicit request wins over the defaults.
+    let s2 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "fake", "name": "fam2", "model": "m1", "policy": "ask"}}})).await.unwrap();
+    assert_eq!(s2["_meta"]["acpmux"]["model"], "m1");
+    assert_eq!(s2["_meta"]["acpmux"]["policy"], "ask");
+    // A profile name still works and lists its family in the agents view.
+    let a = c.request(method::MUX_AGENTS, json!({})).await.unwrap();
+    assert_eq!(a["agents"]["fake-pool"]["family"], "fake");
+    assert_eq!(a["families"]["fake"], json!(["fake", "fake-pool"]));
+    assert_eq!(a["agents"]["fake"]["defaults"]["model"], "m2");
+    // The defaults view resolves the family to its profile.
+    let d = c.request(method::MUX_DEFAULTS, json!({"family": "fake"})).await.unwrap();
+    assert_eq!(d["profile"], "fake-pool");
+    assert_eq!(d["model"], "m2");
+    // Unknown families name what exists.
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "gpt"}}})).await.unwrap_err();
+    assert!(err.contains("families: fake"), "{err}");
 }

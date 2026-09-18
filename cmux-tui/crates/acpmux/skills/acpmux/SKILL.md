@@ -30,6 +30,7 @@ The binary is the authority. `acpmux --help`, `acpmux session --help`,
 acpmux run -a codex --cwd ~/proj --policy approve-edits "fix the failing test"   # create, send, print only the reply
 acpmux --json run -a claude "..."                                               # {"sessionId","name","reply","stopReason"}
 acpmux ensure NAME -a codex --cwd DIR       # get the session, or create it (idempotent)
+acpmux defaults                             # per family: which profile `-a claude` / `-a codex` picks, default model, effort, policy
 acpmux send NAME --no-wait "next step"      # queue and return; the reply says what it is behind
 acpmux wait                                 # block until ANY session resolves (turn ended or needs a permission)
 acpmux wait NAME [NAME…] --until ready|permission|closed|done|running [--all] [--timeout 300] [--print]
@@ -66,4 +67,7 @@ errors are one JSON object on stderr: `{"error": {"code", "detail", "message"}}`
 - `--timeout` on `send`/`run` cancels the turn cooperatively and exits 3.
   `--on-permission deny|fail` keeps a script from hanging on a prompt.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.
+- `-a claude` and `-a codex` are family names: acpmux picks the configured profile
+  (an account pool, a router) and applies the family defaults. Pass `-m`/`-e`/`--policy`
+  only when the task needs something else.
 - Sessions on other machines show as `host/name`; commands take that form.

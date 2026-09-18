@@ -69,6 +69,9 @@ pub struct SessionMeta {
     pub agent: String,
     #[serde(default)]
     pub agent_argv: Vec<String>,
+    /// Model family of the profile at creation (`claude`, `codex`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
     pub cwd: PathBuf,
     #[serde(default)]
     pub agent_session_id: Option<String>,
@@ -380,6 +383,7 @@ mod tests {
             name: id.into(),
             agent: "codex".into(),
             agent_argv: vec![],
+            family: None,
             cwd: PathBuf::from("/tmp"),
             agent_session_id: None,
             status: SessionStatus::Idle,

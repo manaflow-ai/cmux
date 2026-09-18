@@ -332,6 +332,7 @@ impl Hub {
             name,
             agent: parent_meta.agent.clone(),
             agent_argv: parent_meta.agent_argv.clone(),
+            family: parent_meta.family.clone(),
             cwd,
             agent_session_id: if is_claude { None } else { Some(new_sid) },
             status: SessionStatus::Idle,

@@ -35,6 +35,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let _ = std::io::stdout().write_all(acpmux::schema::SCHEMA.as_bytes());
             Ok(())
         }
+        Command::Defaults { family, pairs, clear } => orchestrate::defaults(connect(true).await?, family, pairs, clear, json_out).await,
         Command::Skill => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(orchestrate::SKILL.as_bytes());
@@ -170,6 +171,12 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
             }
+            if let Some(m) = &args.model {
+                meta["model"] = json!(m);
+            }
+            if let Some(e) = &args.effort {
+                meta["effort"] = json!(e);
+            }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             if let Some(c) = cwd {
                 p["cwd"] = json!(c);
@@ -177,12 +184,6 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let v = client.request(method::SESSION_NEW, p).await?;
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             let name = v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
-            if let Some(m) = &args.model {
-                client.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": m})).await?;
-            }
-            if let Some(e) = &args.effort {
-                client.request(method::SESSION_SET_CONFIG_OPTION, json!({"sessionId": id, "configId": "effort", "value": e})).await?;
-            }
             let one_shot = !args.prompt.is_empty() && (args.quiet || json_out);
             if json_out && !one_shot {
                 let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap_or(v.clone());
@@ -418,7 +419,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 }
                 for (name, prof) in agents {
                     let argv: Vec<String> = prof.get("argv").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect()).unwrap_or_default();
-                    println!("{}{:<10} {}", if name == default { "*" } else { " " }, name, argv.join(" "));
+                    let family = prof.get("family").and_then(Value::as_str).unwrap_or("");
+                    let d = prof.get("defaults");
+                    let extras: Vec<String> = ["model", "effort", "policy"].iter().filter_map(|k| d.and_then(|d| d.get(*k)).and_then(Value::as_str).map(|v| format!("{k}={v}"))).collect();
+                    println!("{}{:<10} {:<9} {}{}", if name == default { "*" } else { " " }, name, family, argv.join(" "), if extras.is_empty() { String::new() } else { format!("  [{}]", extras.join(" ")) });
                 }
             }
             Ok(())

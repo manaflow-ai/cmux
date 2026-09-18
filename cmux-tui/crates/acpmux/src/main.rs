@@ -96,6 +96,16 @@ enum Command {
     /// Print the agent skill: how an agent drives acpmux. Also `guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
+    /// Show or set session defaults per model family: `defaults`, `defaults claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`.
+    /// `key=` clears one key; `--clear` removes the family's entry.
+    Defaults {
+        family: Option<String>,
+        /// key=value pairs: model, effort, policy, prefer (comma list), env.KEY
+        pairs: Vec<String>,
+        #[arg(long)]
+        clear: bool,
+    },
     /// Print the last reply of a session (plain text).
     #[command(alias = "reply")]
     Last {

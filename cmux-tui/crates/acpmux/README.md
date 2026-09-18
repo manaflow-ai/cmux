@@ -240,6 +240,32 @@ there, and a selection covers only the useful text: the gutter, role markers and
 padding are never highlighted or copied. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
+## Defaults per model family
+
+An orchestrator asks for "a Claude session" or "a Codex session", not for a profile name, a
+model id, and an effort level every time. `defaults` in `config.json` holds those per family,
+and `-a FAMILY` resolves to a profile:
+
+```sh
+acpmux defaults                                                # one row per family: profile, model, effort, policy
+acpmux defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude
+acpmux defaults codex  model=gpt-5-codex effort=high policy=approve-edits
+acpmux defaults claude env.ANTHROPIC_BASE_URL=http://127.0.0.1:4000   # a router for every Claude process
+acpmux defaults claude effort=                                 # clear one key; --clear drops the family
+acpmux run -a claude "…"                                       # goes to claude-sr with those defaults
+acpmux run -a claude -m claude-sonnet-5 "…"                    # flags still win
+```
+
+Families are derived from the harness (`claude` for the stdio backend and `sr claude proxy`,
+`codex` for `codex-acp`, `opencode`, `pi`, `gemini`) or set with `"family"` on a profile.
+`prefer` lists the profiles to use for a family in order, so `-a claude` can go to the
+subrouter pool first and the plain login second. Precedence at creation: the request, then a
+`defaults` entry named after the profile, then the family's entry, then the daemon's
+`permissionPolicy`. A default model or effort the harness rejects fails the creation with the
+reason, so a typo never starts a session on the wrong model. `_acpmux/agents` reports every
+profile's family and resolved defaults, and `session/new` takes a family name as `agent` plus
+`model` and `effort` in `_meta.acpmux`.
+
 ## Peers: every session on every machine, from one Mac
 
 A daemon can mirror other daemons. Add a peer and its sessions appear locally as

@@ -160,7 +160,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 .or_else(|| params.get("policy").and_then(Value::as_str))
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
-            let s = hub.new_session(&agent, name, cwd, policy).await?;
+            let model = meta.and_then(|m| m.get("model")).and_then(Value::as_str).map(str::to_owned);
+            let effort = meta.and_then(|m| m.get("effort")).and_then(Value::as_str).map(str::to_owned);
+            let s = hub.new_session(&agent, name, cwd, policy, model, effort).await?;
             attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
@@ -304,7 +306,74 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         }
         method::MUX_AGENTS => {
             let cfg = hub.config.read().await;
-            Ok(json!({"agents": cfg.agents, "defaultAgent": cfg.default_agent}))
+            let mut agents = serde_json::Map::new();
+            for (name, p) in &cfg.agents {
+                let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
+                if let Some(o) = v.as_object_mut() {
+                    o.insert("family".into(), json!(crate::config::derive_family(name, p)));
+                    let d = cfg.defaults_for(name);
+                    if !d.is_empty() {
+                        o.insert("defaults".into(), json!(d));
+                    }
+                }
+                agents.insert(name.clone(), v);
+            }
+            Ok(json!({"agents": agents, "defaultAgent": cfg.default_agent, "families": cfg.families(), "defaults": cfg.defaults}))
+        }
+        // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
+        method::MUX_DEFAULTS => {
+            let family = str_param(&params, "family").map(str::to_owned);
+            let set = params.get("set").filter(|v| v.is_object());
+            let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
+            if set.is_some() || clear {
+                let family = family.clone().ok_or_else(|| RpcError::invalid_params("family is required to change defaults"))?;
+                let mut cfg = hub.config.write().await;
+                if clear {
+                    cfg.defaults.remove(&family);
+                } else if let Some(set) = set {
+                    let patch: crate::config::SessionDefaults = serde_json::from_value(set.clone()).map_err(|e| RpcError::invalid_params(format!("defaults: {e}")))?;
+                    let entry = cfg.defaults.entry(family.clone()).or_default();
+                    let mut merged = entry.clone();
+                    // A JSON null clears one field.
+                    for (k, v) in set.as_object().unwrap() {
+                        if v.is_null() {
+                            match k.as_str() {
+                                "model" => merged.model = None,
+                                "effort" => merged.effort = None,
+                                "policy" => merged.policy = None,
+                                "prefer" => merged.prefer.clear(),
+                                "env" => merged.env.clear(),
+                                _ => {}
+                            }
+                        }
+                    }
+                    if patch.model.is_some() { merged.model = patch.model; }
+                    if patch.effort.is_some() { merged.effort = patch.effort; }
+                    if patch.policy.is_some() { merged.policy = patch.policy; }
+                    if !patch.prefer.is_empty() { merged.prefer = patch.prefer; }
+                    for (k, v) in patch.env { merged.env.insert(k, v); }
+                    if merged.is_empty() {
+                        cfg.defaults.remove(&family);
+                    } else {
+                        *entry = merged;
+                    }
+                }
+                if let Err(e) = cfg.save() {
+                    return Err(RpcError::internal(format!("save config: {e}")));
+                }
+            }
+            let cfg = hub.config.read().await;
+            let mut resolved = serde_json::Map::new();
+            for f in cfg.families().keys().chain(cfg.defaults.keys()) {
+                if resolved.contains_key(f) { continue; }
+                let profile = cfg.resolve_agent(f);
+                let d = profile.as_deref().map(|p| cfg.defaults_for(p)).unwrap_or_default();
+                resolved.insert(f.clone(), json!({"profile": profile, "profiles": cfg.families().get(f).cloned().unwrap_or_default(), "model": d.model, "effort": d.effort, "policy": d.policy, "prefer": d.prefer, "env": d.env}));
+            }
+            match family {
+                Some(f) => Ok(resolved.get(&f).cloned().unwrap_or(json!({"profile": null, "profiles": []}))),
+                None => Ok(json!({"families": resolved, "defaults": cfg.defaults})),
+            }
         }
         method::MUX_INFO => {
             let s = hub.resolve(session_key(&params)?)?;

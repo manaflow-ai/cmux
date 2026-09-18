@@ -12,6 +12,7 @@ impl Hub {
             "sessionId": m.id,
             "name": m.name,
             "agent": m.agent,
+            "family": m.family,
             "cwd": m.cwd,
             "status": m.status.to_string(),
             "agentSessionId": m.agent_session_id,

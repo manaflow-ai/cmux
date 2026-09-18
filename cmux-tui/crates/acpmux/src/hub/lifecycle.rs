@@ -11,14 +11,26 @@ impl Hub {
         name: Option<String>,
         cwd: PathBuf,
         policy: Option<PermissionPolicy>,
+        model: Option<String>,
+        effort: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
-        let profile = self
-            .config
-            .read()
-            .await
-            .agent(agent)
-            .cloned()
-            .ok_or_else(|| RpcError::invalid_params(format!("unknown agent {agent:?}")))?;
+        // `agent` may be a family (`claude`, `codex`): the family's prefer
+        // list, then an exact profile, then the first profile in the family.
+        let (agent, profile, defaults) = {
+            let cfg = self.config.read().await;
+            let resolved = cfg.resolve_agent(agent).ok_or_else(|| {
+                let fams: Vec<String> = cfg.families().keys().cloned().collect();
+                RpcError::invalid_params(format!("unknown agent {agent:?}; profiles: {}; families: {}", cfg.agents.keys().cloned().collect::<Vec<_>>().join(", "), fams.join(", ")))
+            })?;
+            let profile = cfg.agents[&resolved].clone();
+            let defaults = cfg.defaults_for(&resolved);
+            (resolved, profile, defaults)
+        };
+        let agent = agent.as_str();
+        let family = crate::config::derive_family(agent, &profile);
+        let policy = policy.or(defaults.policy);
+        let model = model.or(defaults.model);
+        let effort = effort.or(defaults.effort);
         let cwd = if cwd.is_absolute() {
             cwd
         } else {
@@ -42,6 +54,7 @@ impl Hub {
             name,
             agent: agent.into(),
             agent_argv: profile.argv.clone(),
+            family: Some(family),
             cwd,
             agent_session_id: None,
             status: SessionStatus::Idle,
@@ -75,7 +88,29 @@ impl Hub {
             .unwrap()
             .insert(id.clone(), session.clone());
         self.append(&session, "mux", "created", json!({"agent": agent}));
-        self.ensure_child(&session, &profile).await?;
+        self.ensure_child(&session, &self.with_default_env(&profile, &defaults.env)).await?;
+        // Family or profile defaults, applied once the harness is up. A bad
+        // default fails creation loudly rather than starting a session that
+        // silently runs another model.
+        let applied: Result<(), RpcError> = async {
+            if let Some(m) = &model {
+                if let Err(e) = self.set_model(&session, m).await {
+                    let known: Vec<String> = self.known_models.lock().unwrap().get(agent).map(|l| l.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default();
+                    let hint = if known.is_empty() { String::new() } else { format!("; models: {}", known.join(", ")) };
+                    return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
+                }
+            }
+            if let Some(e) = &effort {
+                self.set_config(&session, "effort", json!(e)).await.map_err(|err| RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message)))?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(e) = applied {
+            // Never leave a half-configured session behind.
+            let _ = self.kill(&session, true).await;
+            return Err(e);
+        }
         Ok(session)
     }
 
@@ -496,14 +531,21 @@ impl Hub {
 
     pub(super) async fn child_for(self: &Arc<Self>, session: &Arc<Session>) -> Result<Arc<ChildAgent>, RpcError> {
         let agent = session.meta().agent;
-        let profile = self
-            .config
-            .read()
-            .await
-            .agent(&agent)
-            .cloned()
-            .ok_or_else(|| RpcError::invalid_params(format!("unknown agent {agent:?}")))?;
-        self.ensure_child(session, &profile).await
+        let (profile, defaults) = {
+            let cfg = self.config.read().await;
+            let profile = cfg.agent(&agent).cloned().ok_or_else(|| RpcError::invalid_params(format!("unknown agent {agent:?}")))?;
+            (profile, cfg.defaults_for(&agent))
+        };
+        self.ensure_child(session, &self.with_default_env(&profile, &defaults.env)).await
+    }
+
+    /// The profile with the family's default env underneath its own.
+    fn with_default_env(&self, profile: &AgentProfile, env: &std::collections::BTreeMap<String, String>) -> AgentProfile {
+        let mut p = profile.clone();
+        for (k, v) in env {
+            p.env.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+        p
     }
 
 }

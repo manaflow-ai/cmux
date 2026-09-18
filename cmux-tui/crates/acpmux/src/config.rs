@@ -60,6 +60,81 @@ pub struct AgentProfile {
     /// subrouter account pool) for `claude` when `sr` is installed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
+    /// Model family this profile belongs to (`claude`, `codex`, `opencode`,
+    /// `pi`, `gemini`). Derived from the kind and argv when absent. Family
+    /// names are what `defaults` and `-a FAMILY` resolve against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family: Option<String>,
+}
+
+/// Session defaults for a family or a single profile (`defaults` in
+/// config.json). Precedence at `session/new`: explicit request, then the
+/// profile's own entry, then its family's entry, then the daemon defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<PermissionPolicy>,
+    /// Profiles to use, in order, when a session asks for this family:
+    /// `["claude-sr", "claude"]` sends `-a claude` to the account pool
+    /// first. Absent: a profile named like the family, else the first
+    /// profile in the family.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prefer: Vec<String>,
+    /// Extra environment for every process in the family (an API base URL,
+    /// a router key variable). The profile's own `env` wins on conflicts.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
+}
+
+impl SessionDefaults {
+    fn overlay(&mut self, top: &SessionDefaults) {
+        if top.model.is_some() {
+            self.model = top.model.clone();
+        }
+        if top.effort.is_some() {
+            self.effort = top.effort.clone();
+        }
+        if top.policy.is_some() {
+            self.policy = top.policy;
+        }
+        if !top.prefer.is_empty() {
+            self.prefer = top.prefer.clone();
+        }
+        for (k, v) in &top.env {
+            self.env.insert(k.clone(), v.clone());
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        *self == SessionDefaults::default()
+    }
+}
+
+/// The family a profile belongs to: its explicit `family`, else derived
+/// from the harness kind and the argv basenames, else the first word of
+/// the profile name (`claude-sr` → `claude`, `fake-pool` → `fake`).
+pub fn derive_family(name: &str, profile: &AgentProfile) -> String {
+    if let Some(f) = &profile.family {
+        return f.clone();
+    }
+    if profile.kind == AgentKind::ClaudeStdio {
+        return "claude".into();
+    }
+    let words: Vec<String> = profile
+        .argv
+        .iter()
+        .map(|a| Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default())
+        .collect();
+    for (needle, family) in [("codex", "codex"), ("opencode", "opencode"), ("gemini", "gemini"), ("pi-acp", "pi"), ("claude", "claude")] {
+        if words.iter().any(|w| w.contains(needle)) {
+            return family.into();
+        }
+    }
+    name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -167,13 +242,18 @@ pub struct Config {
     pub peers: BTreeMap<String, PeerConfig>,
     #[serde(default)]
     pub default_agent: Option<String>,
+    /// Per-family (or per-profile) session defaults, keyed by family or
+    /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
+    /// "policy": "approve-edits", "prefer": ["claude-sr", "claude"]}}`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub defaults: BTreeMap<String, SessionDefaults>,
     #[serde(default)]
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_max_rows: Option<u16>,
     /// `notifyCommand`: shell command the daemon runs when a session needs a
     /// permission or ends a turn while nobody is attached. Gets ACPMUX_EVENT,
@@ -186,9 +266,65 @@ pub struct Config {
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
     pub path: Option<PathBuf>,
+    /// Profiles that came from PATH discovery, not the file. `save` leaves
+    /// them out so the file keeps only what the user wrote and discovery
+    /// stays live.
+    #[serde(skip)]
+    pub discovered: std::collections::BTreeSet<String>,
+    /// `(profile, fallback)` set by discovery, stripped on save.
+    #[serde(skip)]
+    pub auto_fallback: Option<(String, String)>,
+    /// `defaultAgent` was filled in at load, not written by the user.
+    #[serde(skip)]
+    pub auto_default: bool,
 }
 
 impl Config {
+    /// Family of a configured profile.
+    pub fn family(&self, profile: &str) -> Option<String> {
+        self.agents.get(profile).map(|p| derive_family(profile, p))
+    }
+
+    /// Families with their profiles, in name order.
+    pub fn families(&self) -> BTreeMap<String, Vec<String>> {
+        let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for (name, p) in &self.agents {
+            out.entry(derive_family(name, p)).or_default().push(name.clone());
+        }
+        out
+    }
+
+    /// The profile a session request names. `requested` may be a profile
+    /// name or a family name: the family's `prefer` list wins, then a
+    /// profile with that exact name, then the first profile in the family.
+    pub fn resolve_agent(&self, requested: &str) -> Option<String> {
+        if let Some(d) = self.defaults.get(requested) {
+            if let Some(p) = d.prefer.iter().find(|p| self.agents.contains_key(*p)) {
+                return Some(p.clone());
+            }
+        }
+        if self.agents.contains_key(requested) {
+            return Some(requested.to_owned());
+        }
+        self.agents.iter().find(|(n, p)| derive_family(n, p) == requested).map(|(n, _)| n.clone())
+    }
+
+    /// Defaults that apply to a profile: its family's entry under its own.
+    pub fn defaults_for(&self, profile: &str) -> SessionDefaults {
+        let mut d = SessionDefaults::default();
+        if let Some(f) = self.family(profile) {
+            if let Some(fd) = self.defaults.get(&f) {
+                d.overlay(fd);
+            }
+            if f != profile {
+                if let Some(pd) = self.defaults.get(profile) {
+                    d.overlay(pd);
+                }
+            }
+        }
+        d
+    }
+
     pub fn path() -> PathBuf {
         home().join("config.json")
     }
@@ -208,16 +344,21 @@ impl Config {
         // Harnesses found on PATH join the configured ones, so installing an
         // adapter such as pi-acp is enough; configured entries always win.
         for (name, profile) in discover_agents() {
-            cfg.agents.entry(name).or_insert(profile);
+            if !cfg.agents.contains_key(&name) {
+                cfg.discovered.insert(name.clone());
+                cfg.agents.insert(name, profile);
+            }
         }
         if cfg.agents.contains_key("claude-sr") {
             if let Some(c) = cfg.agents.get_mut("claude") {
                 if c.fallback.is_none() && c.kind == AgentKind::ClaudeStdio {
                     c.fallback = Some("claude-sr".into());
+                    cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
                 }
             }
         }
         if cfg.default_agent.is_none() {
+            cfg.auto_default = true;
             cfg.default_agent = cfg.agents.keys().next().cloned();
         }
         cfg.path = Some(path);
@@ -233,7 +374,19 @@ impl Config {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        write_atomic(path, serde_json::to_string_pretty(self)?.as_bytes())
+        let mut on_disk = self.clone();
+        on_disk.agents.retain(|n, _| !self.discovered.contains(n));
+        if let Some((p, f)) = &self.auto_fallback {
+            if let Some(prof) = on_disk.agents.get_mut(p) {
+                if prof.fallback.as_deref() == Some(f.as_str()) {
+                    prof.fallback = None;
+                }
+            }
+        }
+        if self.auto_default {
+            on_disk.default_agent = None;
+        }
+        write_atomic(path, serde_json::to_string_pretty(&on_disk)?.as_bytes())
     }
 
     pub fn agent(&self, name: &str) -> Option<&AgentProfile> {
@@ -262,7 +415,7 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
                                         kind: AgentKind::Acp,
                                         argv,
                                         env: BTreeMap::new(),
-                                        description: Some("imported from ~/.acpx".into()), fallback: None,
+                                        description: Some("imported from ~/.acpx".into()), fallback: None, family: None,
                                     },
                                 );
                             }
@@ -302,7 +455,7 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
                     argv,
                     env: BTreeMap::new(),
                     description: Some(if bin == "sr" { "Claude through the subrouter account pool".into() } else { "found on PATH".into() }),
-                    fallback: None,
+                    fallback: None, family: None,
                 },
             );
         }
@@ -427,6 +580,73 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 mod tests {
     use super::*;
 
+    fn prof(kind: AgentKind, argv: &[&str]) -> AgentProfile {
+        AgentProfile { kind, argv: argv.iter().map(|s| s.to_string()).collect(), env: BTreeMap::new(), description: None, fallback: None, family: None }
+    }
+
+    #[test]
+    fn families_are_derived_and_resolved() {
+        let mut cfg = Config::default();
+        cfg.agents.insert("claude".into(), prof(AgentKind::ClaudeStdio, &["/usr/local/bin/claude"]));
+        cfg.agents.insert("claude-sr".into(), prof(AgentKind::ClaudeStdio, &["/Users/x/bin/sr", "claude", "proxy"]));
+        cfg.agents.insert("codex".into(), prof(AgentKind::Acp, &["/opt/homebrew/bin/codex-acp"]));
+        cfg.agents.insert("oc".into(), prof(AgentKind::Acp, &["opencode", "acp"]));
+        cfg.agents.insert("pi".into(), prof(AgentKind::Acp, &["/x/pi-acp"]));
+        let mut tagged = prof(AgentKind::Acp, &["python3", "agent.py"]);
+        tagged.family = Some("codex".into());
+        cfg.agents.insert("router-codex".into(), tagged);
+        assert_eq!(cfg.family("claude-sr").as_deref(), Some("claude"));
+        assert_eq!(cfg.family("oc").as_deref(), Some("opencode"));
+        assert_eq!(cfg.family("pi").as_deref(), Some("pi"));
+        assert_eq!(cfg.families()["codex"], vec!["codex".to_owned(), "router-codex".to_owned()]);
+        // Exact profile wins, then the family's first profile.
+        assert_eq!(cfg.resolve_agent("claude").as_deref(), Some("claude"));
+        assert_eq!(cfg.resolve_agent("opencode").as_deref(), Some("oc"));
+        assert_eq!(cfg.resolve_agent("nope"), None);
+        // prefer sends the family to the pool first, and skips missing profiles.
+        cfg.defaults.insert("claude".into(), SessionDefaults { model: Some("claude-opus-5".into()), effort: Some("high".into()), policy: Some(PermissionPolicy::ApproveEdits), prefer: vec!["missing".into(), "claude-sr".into()], env: BTreeMap::from([("A".to_owned(), "1".to_owned())]) });
+        cfg.defaults.insert("claude-sr".into(), SessionDefaults { effort: Some("max".into()), ..Default::default() });
+        assert_eq!(cfg.resolve_agent("claude").as_deref(), Some("claude-sr"));
+        let d = cfg.defaults_for("claude-sr");
+        assert_eq!(d.model.as_deref(), Some("claude-opus-5"));
+        assert_eq!(d.effort.as_deref(), Some("max"));
+        assert_eq!(d.policy, Some(PermissionPolicy::ApproveEdits));
+        assert_eq!(d.env["A"], "1");
+        assert!(cfg.defaults_for("codex").is_empty());
+        // Round-trips through JSON as camelCase under "defaults".
+        let text = serde_json::to_string(&cfg).unwrap();
+        assert!(text.contains("\"defaults\":{\"claude\""), "{text}");
+        let back: Config = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.defaults, cfg.defaults);
+    }
+
+    #[test]
+    fn save_leaves_discovered_profiles_out() {
+        let dir = std::env::temp_dir().join(format!("acpmux-save-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut cfg = Config::default();
+        cfg.path = Some(dir.join("config.json"));
+        let mut claude = prof(AgentKind::ClaudeStdio, &["claude"]);
+        claude.fallback = Some("claude-sr".into());
+        cfg.agents.insert("claude".into(), claude);
+        cfg.agents.insert("claude-sr".into(), prof(AgentKind::ClaudeStdio, &["sr", "claude", "proxy"]));
+        cfg.agents.insert("pi".into(), prof(AgentKind::Acp, &["pi-acp"]));
+        cfg.discovered = ["claude-sr".to_owned(), "pi".to_owned()].into_iter().collect();
+        cfg.auto_fallback = Some(("claude".into(), "claude-sr".into()));
+        cfg.default_agent = Some("pi".into());
+        cfg.auto_default = true;
+        cfg.defaults.insert("claude".into(), SessionDefaults { model: Some("m".into()), ..Default::default() });
+        cfg.save().unwrap();
+        let text = std::fs::read_to_string(dir.join("config.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["agents"].as_object().unwrap().keys().cloned().collect::<Vec<_>>(), vec!["claude".to_owned()]);
+        assert!(v["agents"]["claude"].get("fallback").is_none(), "{text}");
+        assert!(v.get("defaultAgent").map(|d| d.is_null()).unwrap_or(true), "{text}");
+        assert_eq!(v["defaults"]["claude"]["model"], "m");
+        assert!(!text.contains("composerMaxRows"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn launcher_check_rejects_old_subrouter() {
         let dir = std::env::temp_dir().join(format!("acpmux-launcher-{}", std::process::id()));
@@ -446,8 +666,8 @@ mod tests {
         assert!(launcher_ok(&argv(&broken)).unwrap_err().contains("prepare shared"));
         assert!(launcher_ok(&argv(&good)).is_ok());
         let mut cfg = Config::default();
-        cfg.agents.insert("claude-sr".into(), AgentProfile { kind: AgentKind::ClaudeStdio, argv: argv(&old), env: BTreeMap::new(), description: None, fallback: None });
-        cfg.agents.insert("claude".into(), AgentProfile { kind: AgentKind::ClaudeStdio, argv: vec!["claude".into()], env: BTreeMap::new(), description: None, fallback: Some("claude-sr".into()) });
+        cfg.agents.insert("claude-sr".into(), AgentProfile { kind: AgentKind::ClaudeStdio, argv: argv(&old), env: BTreeMap::new(), description: None, fallback: None, family: None });
+        cfg.agents.insert("claude".into(), AgentProfile { kind: AgentKind::ClaudeStdio, argv: vec!["claude".into()], env: BTreeMap::new(), description: None, fallback: Some("claude-sr".into()), family: None });
         verify_launchers(&mut cfg);
         assert!(!cfg.agents.contains_key("claude-sr"));
         assert_eq!(cfg.agents["claude"].fallback, None);
