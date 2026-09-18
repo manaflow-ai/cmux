@@ -583,7 +583,7 @@ describe("device token route", () => {
     ]);
   });
 
-  dbTest("does not transfer or delete a token during an active delivery", async () => {
+  dbTest("does not transfer a token during delivery but allows sign-out revocation", async () => {
     if (!sql) throw new Error("test database not initialized");
 
     const token = "c".repeat(64);
@@ -638,22 +638,13 @@ describe("device token route", () => {
     expect(await registration.json()).toMatchObject({
       error: "push_delivery_in_progress",
     });
-    expect(deletion.status).toBe(409);
-    expect(Number(deletion.headers.get("retry-after"))).toBeGreaterThan(0);
-    expect(await deletion.json()).toMatchObject({
-      error: "push_delivery_in_progress",
-    });
-    const [stored] = await sql<{
-      userId: string;
-      bundleId: string;
-    }[]>`
-      select user_id as "userId", bundle_id as "bundleId"
-      from device_tokens where device_token = ${token}
+    expect(deletion.status).toBe(200);
+    expect(await deletion.json()).toEqual({ ok: true });
+    const [stored] = await sql<{ total: number }[]>`
+      select count(*)::int as total
+      from device_tokens where device_token = ${ownedToken}
     `;
-    expect(stored).toEqual({
-      userId: "previous-user",
-      bundleId: "com.cmux.app",
-    });
+    expect(stored.total).toBe(0);
     const [owned] = await sql<{ total: number }[]>`
       select count(*)::int as total from device_tokens
       where user_id = 'push-user-1' and device_token = ${ownedToken}
