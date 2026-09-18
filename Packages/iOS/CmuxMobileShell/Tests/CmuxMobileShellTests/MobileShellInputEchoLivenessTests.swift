@@ -170,18 +170,13 @@ private func mountBaselinedSurface(
 
     clock.advance(by: 3)
     store.debugRunRenderGridLivenessCheckForTesting()
-    // Give a wrongly-armed probe a real-time window to surface before
-    // asserting quiet.
-    _ = await router.waitForCount(
-        of: "mobile.events.probe",
-        atLeast: 1,
-        timeoutNanoseconds: 300_000_000,
-        recordIssueOnTimeout: false
-    )
+    // The tick claims the single-flight probe slot synchronously, so a tick
+    // that declined to probe leaves it empty with no wall-clock wait.
     #expect(
-        await router.count(of: "mobile.events.probe") == 0,
+        store.debugRenderGridLivenessProbeInFlightForTesting == false,
         "output consumed after the typed input proves the stream is alive; the echo fast path must stay quiet"
     )
+    #expect(await router.count(of: "mobile.events.probe") == 0)
 }
 
 /// Hosts without `terminal.input.latency.v1` send no markers, so typed input
@@ -208,16 +203,11 @@ private func mountBaselinedSurface(
 
     clock.advance(by: 3)
     store.debugRunRenderGridLivenessCheckForTesting()
-    _ = await router.waitForCount(
-        of: "mobile.events.probe",
-        atLeast: 1,
-        timeoutNanoseconds: 300_000_000,
-        recordIssueOnTimeout: false
-    )
     #expect(
-        await router.count(of: "mobile.events.probe") == 0,
+        store.debugRenderGridLivenessProbeInFlightForTesting == false,
         "without markers there is no echo evidence; the ambient window governs"
     )
+    #expect(await router.count(of: "mobile.events.probe") == 0)
 }
 
 /// With echo-stall evidence, one failed probe is enough: the terminal is

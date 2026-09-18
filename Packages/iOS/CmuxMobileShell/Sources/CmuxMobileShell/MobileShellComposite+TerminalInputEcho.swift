@@ -35,7 +35,13 @@ extension MobileShellComposite {
     /// events have already defused (something was consumed after it was sent,
     /// so it can never satisfy the stall gate) is replaced, otherwise the
     /// older entry's earlier deadline is preserved across input bursts.
+    ///
+    /// Only surfaces with a registered output sink participate: without a
+    /// consumer there is no delivery path for the acknowledging watermark, so
+    /// a pending entry could never resolve and would spend the rate-limited
+    /// repair budget on a surface nothing renders.
     func recordTerminalInputAwaitingEcho(surfaceID: String, sequence: UInt64) {
+        guard hasTerminalOutputSink(surfaceID: surfaceID) else { return }
         let now = runtime?.now() ?? Date()
         if let existing = pendingTerminalInputEchoBySurfaceID[surfaceID],
            lastConsumedTerminalEventAt.map({ $0 < existing.sentAt }) ?? true {
@@ -71,6 +77,9 @@ extension MobileShellComposite {
         } else {
             pendingTerminalInputEchoBySurfaceID.removeAll()
             lastConsumedTerminalEventAt = nil
+            // The repair rate limit is per connection; a replacement
+            // connection starts with a fresh budget.
+            lastTerminalInputEchoRepairAt = nil
         }
     }
 

@@ -14228,6 +14228,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let listenerID = renderGridLivenessListenerID else { return }
         checkRenderGridLiveness(listenerID: listenerID)
     }
+
+    /// Test-only: whether a liveness probe is in flight. The tick claims the
+    /// single-flight probe slot synchronously before spawning the probe task,
+    /// so a tick that declined to probe leaves this false immediately — no
+    /// wall-clock absence wait is needed to assert "no probe fired".
+    var debugRenderGridLivenessProbeInFlightForTesting: Bool {
+        renderGridLivenessProbeTask != nil
+    }
     #endif
 
     /// One watchdog tick on the main actor: if the subscription generation still
