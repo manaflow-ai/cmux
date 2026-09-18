@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 
 extension WindowBrowserPortal {
     static func hasVisibleInspectorView(in root: NSView) -> Bool {
