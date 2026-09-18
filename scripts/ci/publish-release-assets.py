@@ -247,12 +247,12 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
     # Upload replacements under a unique temporary name first. The temporary
     # name must exist both remotely and locally because curl streams the local
     # path; clean it up even when GitHub or the network fails.
-    temporary_name = f".cmux-upload-{name}-{asset.digest[7:19]}"
+    temporary_name = f"cmux-upload-{name}-{asset.digest[7:19]}"
     temporary_path = asset.path.with_name(temporary_name)
     shutil.copyfile(asset.path, temporary_path)
     try:
         temporary = replace(asset, path=temporary_path, replace=False)
-        backup_name = f".cmux-backup-{name}"
+        backup_name = f"cmux-backup-{name}"
         listing = client.assets(release_id)
         temp_existing = listing.get(temporary_name)
         if temp_existing and not temporary.matches(temp_existing):

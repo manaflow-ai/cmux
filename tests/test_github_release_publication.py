@@ -151,18 +151,18 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(publisher.RequestError):
             self.publish([asset])
         self.assertEqual(self.client.stored[asset.path.name], old)
-        self.assertNotIn(".cmux-backup-latest.dmg", self.client.stored)
+        self.assertNotIn("cmux-backup-latest.dmg", self.client.stored)
 
     def test_failed_alias_replacement_preserves_the_current_asset(self):
         asset = self.asset("latest.dmg", True)
         old = {**remote(asset), "digest": "sha256:old"}
         self.client.stored[asset.path.name] = old
-        self.client.failures[".cmux-upload-latest.dmg-" + asset.digest[7:19]] = ["timeout"] * 3
+        self.client.failures["cmux-upload-latest.dmg-" + asset.digest[7:19]] = ["timeout"] * 3
         with self.assertRaises(publisher.RequestError):
             self.publish([asset])
         self.assertEqual(self.client.stored[asset.path.name], old)
         self.assertEqual([event[0] for event in self.client.events], ["upload", "upload", "upload"])
-        self.assertEqual(list(self.root.glob(".cmux-upload-*")), [])
+        self.assertEqual(list(self.root.glob("cmux-upload-*")), [])
 
     def test_immutable_digest_collision_is_fatal_without_deletion(self):
         asset = self.asset("build.dmg")
@@ -234,6 +234,13 @@ class PublicationTests(unittest.TestCase):
             text = (ROOT / ".github/workflows" / name).read_text()
             self.assertTrue("scripts/ci/publish-release-assets.py" in text, name)
             self.assertIn("--feed", text)
+
+    def test_replacement_names_are_preserved_by_github(self):
+        # GitHub normalizes leading-dot release asset names, so replacement
+        # staging and backup names must remain ordinary filenames.
+        text = (ROOT / "scripts/ci/publish-release-assets.py").read_text()
+        self.assertIn('f"cmux-upload-', text)
+        self.assertIn('f"cmux-backup-', text)
 
     def test_stable_release_stays_draft_until_downloads_are_verified(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()

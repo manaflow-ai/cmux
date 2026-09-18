@@ -1304,7 +1304,12 @@ jobs:
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
             --optional-immutable "nightly-out/${CHANNEL_DMG_PREFIX}-*-${NIGHTLY_BUILD}-*.delta" \
-            --immutable 'nightly-out/cmuxd-remote-*' \
+            --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD}" \
+            --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
+            --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
