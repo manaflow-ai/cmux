@@ -1112,8 +1112,7 @@ extension CMUXCLI {
                 }
                 params["reuse"] = true
             }
-            // --no-open: stage the workspace on the machine headlessly (it shows in
-            // `vm tree` and the sidebar; nothing opens or focuses locally).
+            // --no-open stages the workspace without opening or focusing locally.
             if noOpen { params["open"] = false }
             let response = try client.sendV2(method: "vm.workspace_new", params: params, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
@@ -1127,11 +1126,12 @@ extension CMUXCLI {
         case "open":
             guard positional.count == 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]
-            // "Open All Here" / "Open All in New Tabs" / a drop on a pane edge: the same
-            // destination flags `surface open` takes, on top of the remote workspace.
             here = here || tabs || pane != nil || localWorkspace != nil
             if direction != nil, pane == nil {
                 throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
+            }
+            if tabs, direction != nil {
+                throw CLIError(message: String(localized: "cli.vm.workspace.open.tabsAndSide", defaultValue: "vm workspace open: --tabs and a pane side (--left/--right/--up/--down) are two different placements; pass one") + "\n\n\(Self.vmWorkspaceUsage)")
             }
             if here {
                 params["here"] = true

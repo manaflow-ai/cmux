@@ -2,16 +2,9 @@ import CmuxFoundation
 import CmuxSettings
 import Foundation
 
-/// Owns one ``CmuxTuiSurfaceProvider`` per cloud machine and keeps the catalog's machine
-/// list in step with the control plane: registers a provider for every machine the
-/// account can see, unregisters deleted ones, and drives refreshes on the same 45 s
-/// cadence the Machines panel uses. Signing out tears everything down.
-///
-/// The periodic fleet read is the only Cloud API traffic an idle app makes, so it
-/// runs only while ``CloudActivationPolicy`` allows background Cloud work (Cloud
-/// Machines on, or this Mac used Cloud before) and follows the Beta Features
-/// toggle at runtime. Demand-driven reads (`refresh(force:)`, a `cmux vm` verb)
-/// are explicit user actions and are not gated here.
+/// Registers one provider per visible machine and removes deleted machines.
+/// Polls every 45 seconds while CloudActivationPolicy permits background work;
+/// explicit reads are user actions. Signing out tears down all providers.
 @MainActor
 final class CmuxTuiSurfaceProviderRegistry {
     static let shared = CmuxTuiSurfaceProviderRegistry()
@@ -295,6 +288,16 @@ final class CmuxTuiSurfaceProviderRegistry {
             guard !isRetired, epoch == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return nil }
             return discovered
         }
+    }
+
+    /// Shared explicit Refresh for the sidebar and unfiltered catalog queries.
+    /// Discover newly created machines before refreshing the remaining providers.
+    func refreshEverything(catalog: SurfaceCatalog) async {
+        let listed = await refresh(force: true)
+        let refreshedCloud = listed ? Set(providers.keys) : []
+        await catalog.refreshAll(force: true, where: { machine in
+            machine.cloudMachineID.map { !refreshedCloud.contains($0) } ?? true
+        })
     }
 
     func provider(machineID: String) -> CmuxTuiSurfaceProvider? {

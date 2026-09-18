@@ -242,8 +242,8 @@ final class SurfaceCatalog {
         await provider.refresh(force: force)
     }
 
-    func refreshAll(force: Bool = false) async {
-        for provider in providers.values {
+    func refreshAll(force: Bool = false, where include: (SurfaceMachineID) -> Bool = { _ in true }) async {
+        for provider in providers.values where include(provider.machine) {
             await provider.refresh(force: force)
         }
     }

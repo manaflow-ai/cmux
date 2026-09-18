@@ -5,13 +5,16 @@ import Foundation
 @MainActor
 struct SurfaceCatalogQueryService {
     private let catalog: SurfaceCatalog
+    private let refreshCatalog: @MainActor () async -> Void
     private let discoverCloudMachine: @MainActor (String) async -> Void
 
     init(
         catalog: SurfaceCatalog,
+        refreshCatalog: (@MainActor () async -> Void)? = nil,
         discoverCloudMachine: @escaping @MainActor (String) async -> Void
     ) {
         self.catalog = catalog
+        self.refreshCatalog = refreshCatalog ?? { await catalog.refreshAll(force: true) }
         self.discoverCloudMachine = discoverCloudMachine
     }
 
@@ -32,7 +35,7 @@ struct SurfaceCatalogQueryService {
                 _ = await provider(for: machine)
                 await catalog.refresh(machine: machine, force: true)
             } else {
-                await catalog.refreshAll(force: true)
+                await refreshCatalog()
             }
         }
         return catalog.export

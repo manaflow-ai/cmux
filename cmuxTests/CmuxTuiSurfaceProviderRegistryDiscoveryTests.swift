@@ -10,6 +10,32 @@ import Testing
 @MainActor
 @Suite
 struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
+    @Test("Explicit Refresh discovers new machines and refreshes each provider once")
+    func explicitRefreshDiscoversTheFleet() async {
+        let catalog = SurfaceCatalog()
+        var lists = 0
+        var refreshed: [String] = []
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return VMListPage(vms: [machine("vm-new")], limits: nil)
+            },
+            refreshProvider: { provider, force in
+                #expect(force)
+                refreshed.append(provider.machine.rawValue)
+            },
+            notificationCenter: NotificationCenter()
+        )
+        registry.start(catalog: catalog)
+        await registry.refreshEverything(catalog: catalog)
+        #expect(lists == 1)
+        #expect(refreshed == ["vm-new"])
+        #expect(catalog.snapshot.machines.map(\.id) == [.cloud("vm-new")])
+        await registry.accessDidEnd()
+    }
+
     @Test("Discovering a new VM does not wait for another VM's blocked refresh")
     func missingProviderDiscoveryDoesNotWaitForUnrelatedLinks() async {
         let catalog = SurfaceCatalog()

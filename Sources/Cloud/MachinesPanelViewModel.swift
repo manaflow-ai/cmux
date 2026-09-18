@@ -432,7 +432,7 @@ final class MachinesPanelViewModel: ObservableObject {
         treeTask?.cancel()
         treeTask = Task { [weak self] in
             if force {
-                await SurfaceCatalog.shared.refreshAll()
+                await CmuxTuiSurfaceProviderRegistry.shared.refreshEverything(catalog: SurfaceCatalog.shared)
             }
             guard !Task.isCancelled, let self else { return }
             self.treeErrorDescription = nil

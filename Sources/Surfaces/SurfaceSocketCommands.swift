@@ -99,8 +99,6 @@ extension TerminalController {
         }
     }
 
-    // MARK: - vm.* wrappers (kept for existing callers; same catalog underneath)
-
     nonisolated func socketWorkerVMTreeResponse(id: Any?, params: [String: Any]) -> String {
         if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
             return v2Error(id: id, code: "cloud_disabled", message: CloudMachinesFeature.disabledMessage)
@@ -920,7 +918,9 @@ extension TerminalController {
 
     @MainActor
     private static func surfaceCatalogQuery(catalog: SurfaceCatalog) -> SurfaceCatalogQueryService {
-        SurfaceCatalogQueryService(catalog: catalog) { machineID in
+        SurfaceCatalogQueryService(catalog: catalog, refreshCatalog: {
+            await CmuxTuiSurfaceProviderRegistry.shared.refreshEverything(catalog: catalog)
+        }) { machineID in
             _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
         }
     }

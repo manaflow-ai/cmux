@@ -10,6 +10,26 @@ import Testing
 @MainActor
 @Suite
 struct SurfaceCatalogQueryServiceTests {
+    @Test("Only an explicit unfiltered read runs the shared fleet refresh")
+    func unfilteredRefreshUsesSharedAction() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = try CloudCatalogQueryTestProvider(machine: .cloud("vm-new"), catalog: catalog)
+        var refreshes = 0
+        let query = SurfaceCatalogQueryService(catalog: catalog, refreshCatalog: {
+            refreshes += 1
+            catalog.register(provider)
+            await catalog.refreshAll(force: true)
+        }) { _ in }
+        _ = await query.read(machine: nil, refresh: false)
+        #expect(refreshes == 0)
+        let result = await query.read(machine: nil, refresh: true)
+        #expect(refreshes == 1)
+        #expect(provider.forcedRefreshes == [true])
+        #expect(result.catalog.resources.map(\.id.key) == ["term-seeded"])
+        _ = await query.read(machine: provider.machine, refresh: true)
+        #expect(refreshes == 1, "A machine-scoped refresh never refreshes the fleet")
+    }
+
     @Test("A just-created machine is discovered before its seeded terminal is resolved")
     func refreshedReadDiscoversMissingCloudProvider() async throws {
         let catalog = SurfaceCatalog()
