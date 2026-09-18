@@ -99,9 +99,9 @@ before records appear. Sources: [agent installation](https://learn.microsoft.com
 
 Remaining before production: transport byte and latency histograms, per-team quotas,
 notification routing, a non-empty-circuit handover drill and a continuous
-authenticated synthetic probe. Additional alerts must cover no healthy serving
-generation, permission-denial spikes and certificate expiry. Readiness must never
-be inferred from VM provisioning alone.
+authenticated synthetic probe. The alert set now includes no healthy serving
+generation; additional alerts must cover permission-denial spikes and certificate
+expiry. Readiness must never be inferred from VM provisioning alone.
 
 ## Evidence
 
