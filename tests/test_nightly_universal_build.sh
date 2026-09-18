@@ -510,13 +510,14 @@ if ! awk '
   in_first && /id: publish-nightly-attempt-1/ { saw_first_id=1 }
   in_first && /continue-on-error: true/ { saw_first_continue=1 }
   in_first && /^      - name:/ && !/Publish nightly release assets/ { in_first=0 }
-  /^      - name: Retry nightly release asset publication/ { saw_retry=1 }
-  saw_retry && /id: publish-nightly-attempt-2/ { saw_retry_id=1 }
-  saw_retry && /steps\.publish-nightly-attempt-1\.outcome == '\''failure'\''/ { saw_retry_if=1 }
-  saw_retry && /continue-on-error: true/ { saw_retry_continue=1 }
-  /^      - name: Require nightly release asset publication/ { saw_require=1 }
-  saw_require && /steps\.publish-nightly-attempt-1\.outcome == '\''failure'\''/ { saw_first_guard=1 }
-  saw_require && /steps\.publish-nightly-attempt-2\.outcome != '\''success'\''/ { saw_require_guard=1 }
+  /^      - name:/ { in_retry=0; in_require=0 }
+  /^      - name: Retry nightly release asset publication/ { saw_retry=1; in_retry=1 }
+  in_retry && /id: publish-nightly-attempt-2/ { saw_retry_id=1 }
+  in_retry && /steps\.publish-nightly-attempt-1\.outcome == '\''failure'\''/ { saw_retry_if=1 }
+  in_retry && /continue-on-error: true/ { saw_retry_continue=1 }
+  /^      - name: Require nightly release asset publication/ { saw_require=1; in_require=1 }
+  in_require && /steps\.publish-nightly-attempt-1\.outcome == '\''failure'\''/ { saw_first_guard=1 }
+  in_require && /steps\.publish-nightly-attempt-2\.outcome != '\''success'\''/ { saw_require_guard=1 }
   END { exit !(saw_first && saw_first_id && saw_first_continue && saw_first_guard && saw_retry && saw_retry_id && saw_retry_if && saw_retry_continue && saw_require && saw_require_guard) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly publication must retry transient GitHub asset-upload failures and fail closed before feeds/tag updates"
