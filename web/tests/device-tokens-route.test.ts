@@ -16,6 +16,9 @@ const pushFieldsFor = (deviceToken: string, installationId?: string) => ({
   pushKeyId: "key-test",
   pushPublicKey: `${"A".repeat(43)}=`,
 });
+const testAccessHeader = `Bearer header.${Buffer.from(
+  JSON.stringify({ refresh_token_id: "test-session" }),
+).toString("base64url")}.signature`;
 
 const getUser = mock(async () => ({
   id: "push-user-1",
@@ -51,7 +54,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   if (!sql) return;
-  await sql`truncate device_tokens, account_deletion_tombstones restart identity cascade`;
+  await sql`truncate device_tokens, device_token_revocations, account_deletion_tombstones restart identity cascade`;
   getUser.mockClear();
 });
 
@@ -61,7 +64,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.app.demo",
         },
@@ -85,7 +88,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.app.internal",
         },
@@ -111,7 +114,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -165,7 +168,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "DELETE",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -215,7 +218,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "DELETE",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({ deviceToken: token }),
@@ -246,7 +249,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -283,7 +286,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -312,7 +315,7 @@ describe("device token route", () => {
           new Request("https://cmux.test/api/device-tokens", {
             method: "POST",
             headers: {
-              authorization: "Bearer access-token",
+              authorization: testAccessHeader,
               "x-stack-refresh-token": "refresh-token",
             },
             body: JSON.stringify({
@@ -365,7 +368,7 @@ describe("device token route", () => {
     }
 
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
     };
     const register = (deviceToken: string) => POST(
@@ -411,7 +414,7 @@ describe("device token route", () => {
         new Request("https://cmux.test/api/device-tokens", {
           method: "POST",
           headers: {
-            authorization: "Bearer access-token",
+            authorization: testAccessHeader,
             "x-stack-refresh-token": "refresh-token",
             "x-cmux-app-namespace": bundleId,
           },
@@ -461,7 +464,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.ios.overflow",
         },
@@ -487,7 +490,7 @@ describe("device token route", () => {
 
     const token = "a".repeat(64);
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
       "x-cmux-app-namespace": "dev.cmux.ios.push1",
     };
@@ -541,7 +544,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method,
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": bundleId,
         },
@@ -583,7 +586,7 @@ describe("device token route", () => {
     ]);
   });
 
-  dbTest("does not transfer or delete a token during an active delivery", async () => {
+  dbTest("does not transfer a token during delivery but allows sign-out revocation", async () => {
     if (!sql) throw new Error("test database not initialized");
 
     const token = "c".repeat(64);
@@ -609,7 +612,7 @@ describe("device token route", () => {
       )
     `;
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
     };
 
@@ -638,27 +641,108 @@ describe("device token route", () => {
     expect(await registration.json()).toMatchObject({
       error: "push_delivery_in_progress",
     });
-    expect(deletion.status).toBe(409);
-    expect(Number(deletion.headers.get("retry-after"))).toBeGreaterThan(0);
-    expect(await deletion.json()).toMatchObject({
-      error: "push_delivery_in_progress",
-    });
-    const [stored] = await sql<{
-      userId: string;
-      bundleId: string;
-    }[]>`
-      select user_id as "userId", bundle_id as "bundleId"
-      from device_tokens where device_token = ${token}
+    expect(deletion.status).toBe(200);
+    expect(await deletion.json()).toEqual({ ok: true });
+    const [stored] = await sql<{ total: number; revokedAt: Date | null }[]>`
+      select count(*)::int as total, max(revoked_at) as "revokedAt"
+      from device_tokens where device_token = ${ownedToken}
     `;
-    expect(stored).toEqual({
-      userId: "previous-user",
-      bundleId: "com.cmux.app",
-    });
+    expect(stored.total).toBe(0);
+    expect(stored.revokedAt).toBeNull();
     const [owned] = await sql<{ total: number }[]>`
       select count(*)::int as total from device_tokens
       where user_id = 'push-user-1' and device_token = ${ownedToken}
     `;
-    expect(owned.total).toBe(1);
+    expect(owned.total).toBe(0);
+  });
+
+  dbTest("does not let a delayed old-session registration clear sign-out revocation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "f".repeat(64);
+    const rotatedToken = "e".repeat(64);
+    const installationId = "installation-revocation-1";
+    const bundleId = "dev.cmux.ios.revocation";
+    const accessTokenFor = (sessionID: string) =>
+      `header.${Buffer.from(
+        JSON.stringify({ refresh_token_id: sessionID }),
+      ).toString("base64url")}.signature`;
+    const requestHeaders = (accessToken: string, refreshToken: string) => ({
+      authorization: `Bearer ${accessToken}`,
+      "x-stack-refresh-token": refreshToken,
+      "x-cmux-app-namespace": bundleId,
+    });
+    const register = (accessToken: string, refreshToken: string) => POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: requestHeaders(accessToken, refreshToken),
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(token, installationId),
+        }),
+      }),
+    );
+
+    const oldAccessToken = accessTokenFor("old-session");
+    const newAccessToken = accessTokenFor("new-session");
+    expect((await register(oldAccessToken, "old-refresh")).status).toBe(200);
+    const signOut = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers: requestHeaders(oldAccessToken, "old-refresh"),
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId,
+          installationId,
+          revokeSession: true,
+        }),
+      }),
+    );
+    expect(signOut.status).toBe(200);
+
+    const delayedOldRegistration = await register(oldAccessToken, "old-refresh");
+    expect(delayedOldRegistration.status).toBe(409);
+    expect(await delayedOldRegistration.json()).toEqual({
+      error: "push_registration_revoked",
+    });
+
+    const delayedOldRotatedRegistration = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: requestHeaders(oldAccessToken, "old-refresh"),
+        body: JSON.stringify({
+          deviceToken: rotatedToken,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(rotatedToken, installationId),
+        }),
+      }),
+    );
+    expect(delayedOldRotatedRegistration.status).toBe(409);
+    expect(await delayedOldRotatedRegistration.json()).toEqual({
+      error: "push_registration_revoked",
+    });
+
+    const newSessionRegistration = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: requestHeaders(newAccessToken, "new-refresh"),
+        body: JSON.stringify({
+          deviceToken: rotatedToken,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(rotatedToken, installationId),
+        }),
+      }),
+    );
+    expect(newSessionRegistration.status).toBe(200);
+    const [row] = await sql<{ revokedAt: Date | null }[]>`
+      select revoked_at as "revokedAt"
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${rotatedToken}
+    `;
+    expect(row?.revokedAt).toBeNull();
   });
 
   dbTest("returns only keyed recipients for the authenticated account and bundle", async () => {
@@ -693,7 +777,7 @@ describe("device token route", () => {
     const response = await GET(
       new Request("https://cmux.test/api/device-tokens?bundleId=dev.cmux.ios.push1", {
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.ios.push1",
         },
@@ -719,7 +803,7 @@ describe("device token route", () => {
     const firstToken = "5".repeat(64);
     const secondToken = "6".repeat(64);
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
       "x-cmux-app-namespace": bundleId,
     };
@@ -782,7 +866,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": bundleId,
         },
