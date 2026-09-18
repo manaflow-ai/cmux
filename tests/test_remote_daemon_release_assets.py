@@ -20,7 +20,9 @@ class RemoteDaemonReleaseTests(unittest.TestCase):
         for channel, suffix in (("stable", ""), ("nightly", "12345601"), ("rc", "12345602")):
             with self.subTest(channel=channel), tempfile.TemporaryDirectory() as directory:
                 output = Path(directory)
-                version = "0.64.25" + (f"-{channel}.{suffix}" if suffix else "")
+                # nightly carries its build in the version; a release candidate keeps
+                # the plain stable version and only suffixes its asset names.
+                version = "0.64.25" + (f"-{channel}.{suffix}" if channel == "nightly" else "")
                 tag = channel if suffix else "v0.64.25"
                 args = [str(ROOT / "scripts/build_remote_daemon_release_assets.sh"),
                         "--version", version, "--release-tag", tag,
