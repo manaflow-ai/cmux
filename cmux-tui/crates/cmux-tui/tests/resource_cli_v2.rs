@@ -176,7 +176,6 @@ fn old_action_first_commands_are_all_usage_errors() {
         "send-key",
         "copy",
         "ids",
-        "notify",
         "list-agents",
         "report-agent",
         "vt-state",

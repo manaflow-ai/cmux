@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-
 /// Closure bundle handed to Cloud outline rows for the nodes below a machine.
 struct CloudTreeNodeActions {
     /// Project a resource into the selected local workspace.
@@ -63,8 +62,11 @@ struct CloudTreeNodeActions {
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
-        @discardableResult
-        func run(_ label: String, _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void) -> Task<Void, Never> {
+        @MainActor @discardableResult
+        func run(
+            _ label: String,
+            _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+        ) -> Task<Void, Never> {
             onWillMutate(label)
             return Task { @MainActor in
                 defer { onDidMutate() }
@@ -378,7 +380,7 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
-        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = { run($0, $1) }
+        let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
             run: navigationRun,
@@ -387,7 +389,6 @@ struct CloudTreeNodeActions {
         actions.openRemoteTerminal = { navigation.open(machine: $0, group: $1, resource: $2, view: $3, openIn: $4) }
         return actions
     }
-
     /// The local workspace's title: the remote workspace's own name — what a
     /// person actually named it, or typed into its terminal — never the
     /// machine's raw provider id. `hostName` (the machine's friendly label)
@@ -396,7 +397,6 @@ struct CloudTreeNodeActions {
         let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? hostName : name
     }
-
     /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
     /// preferred name its own sidebar row shows), never the raw provider VM
     /// id. Shared by every caller that needs a machine's name in

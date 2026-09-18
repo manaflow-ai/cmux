@@ -27,6 +27,14 @@ def immutable_asset_patterns(name_prefix: str) -> list[re.Pattern[str]]:
         # Sparkle delta from an older build to <build>; pruned together with <build>.
         re.compile(rf"^{prefix}(?:arm64|x86_64|universal)-(?P<build>\d+)-\d+\.delta$"),
     ]
+    # SSH daemon assets share the lifetime of the immutable app build. Keep
+    # these patterns channel-independent so nightly and RC releases prune the
+    # matching daemon binaries, checksums, and manifest together.
+    patterns.extend([
+        re.compile(r"^cmuxd-remote-(?:darwin|linux)-(?:arm64|amd64)-(?P<build>\d+)$"),
+        re.compile(r"^cmuxd-remote-checksums-(?P<build>\d+)\.txt$"),
+        re.compile(r"^cmuxd-remote-manifest-(?P<build>\d+)\.json$"),
+    ])
     if name_prefix == DEFAULT_NAME_PREFIX:
         # Pre-variant nightly naming that still exists on the nightly release.
         patterns.append(re.compile(r"^cmux-nightly-universal-macos-(?P<build>\d+)\.dmg$"))
