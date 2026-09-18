@@ -6,10 +6,10 @@
 
 CMUX_APP_BUNDLE_IDENTIFIER = dev.cmux.app.beta
 PRODUCT_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
-# The notification service extension derives its identifier from this value.
-# The App Store lane overrides CMUX_APP_BUNDLE_IDENTIFIER at archive time and
-# passes the same value as CMUX_HOST_BUNDLE_IDENTIFIER so the extension stays
-# under the production app's bundle identifier.
+// The notification service extension derives its identifier from this value.
+// The App Store lane overrides CMUX_APP_BUNDLE_IDENTIFIER at archive time and
+// passes the same value as CMUX_HOST_BUNDLE_IDENTIFIER so the extension stays
+// under the production app's bundle identifier.
 CMUX_HOST_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
 DEVELOPMENT_TEAM = 7WLXT3NR37
 
