@@ -945,6 +945,13 @@ function SessionSurface({
   // a hooks configuration warning). Keep the GUI landing state focused on
   // the welcome composer until a real conversation has begun.
   const hasGuiConversation = state.transcript.some((entry) => entry.role !== "notice");
+  const lastGuiConversationEntry = [...state.transcript]
+    .reverse()
+    .find((entry) => entry.role !== "notice");
+  const isGuiThinking = isGuiMode && state.status === "running" && (
+    lastGuiConversationEntry?.role === "user" ||
+    (lastGuiConversationEntry?.role === "assistant" && lastGuiConversationEntry.isComplete === false && lastGuiConversationEntry.text.length === 0)
+  );
 
   return h(
     "section",
@@ -956,6 +963,9 @@ function SessionSurface({
           entries: state.transcript,
           hideNotices: isGuiMode,
         }),
+    isGuiThinking
+      ? h(GuiModeThinkingIndicator, { label: state.context?.copy.runningStatus ?? "Running" })
+      : null,
     h(
       "div",
       { className: CODEX_COMPOSER_STACK },
@@ -1011,6 +1021,15 @@ function SessionSurface({
       ),
       h(RateLimitFooter, { state, providerDisplayName: provider?.displayName ?? renderer }),
     ),
+  );
+}
+
+function GuiModeThinkingIndicator({ label }: { label: string }) {
+  return h("div", { className: "gui-mode-thinking-indicator", role: "status", "aria-live": "polite" },
+    h("span", { className: "gui-mode-thinking-dots", "aria-hidden": true },
+      h("span", null), h("span", null), h("span", null),
+    ),
+    h("span", { className: "gui-mode-thinking-label" }, label),
   );
 }
 

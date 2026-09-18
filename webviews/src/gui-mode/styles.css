@@ -187,6 +187,55 @@
 
 .gui-mode-composer {
   min-width: 0;
+  overflow: visible !important;
+}
+
+.gui-mode-thinking-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: var(--thread-content-max-width);
+  max-width: 100%;
+  margin: 0 auto 8px;
+  padding: 0 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-xs);
+}
+
+.gui-mode-thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.gui-mode-thinking-dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--agent-accent);
+  animation: gui-mode-thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.gui-mode-thinking-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.gui-mode-thinking-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes gui-mode-thinking-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
 }
 
 .gui-mode-composer-footer {

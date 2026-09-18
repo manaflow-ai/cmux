@@ -11,6 +11,19 @@ import Testing
 @MainActor
 struct AgentSessionRuntimeTests {
     @Test
+    func childEnvironmentPinsCmuxCliToTheTaggedSocket() {
+        let environment = AgentSessionLaunchPlan.withCmuxRuntimeEnvironment([
+            "CMUX_SOCKET": "/tmp/stale-cmux.sock",
+            "CMUX_SOCKET_PATH": "/tmp/cmux-debug-gui.sock",
+            "PATH": "/usr/bin:/bin"
+        ], resourceURL: nil)
+        #expect(environment["CMUX_SOCKET_PATH"] == "/tmp/cmux-debug-gui.sock")
+        #expect(environment["CMUX_SOCKET"] == nil)
+        #expect(environment["CMUX_SOCKET_ENABLE"] == "1")
+        #expect(environment["PATH"] == "/usr/bin:/bin")
+    }
+
+    @Test
     func discoversAllModelPagesWithProviderReasoningOptions() async throws {
         let (requests, continuation) = AsyncStream<String>.makeStream()
         var models: [[String: Any]] = []

@@ -87,6 +87,7 @@ test("Enter during startup retains the prompt and sends it once after readiness"
     app.start();
     await waitFor(() => app.sends().length === 1);
     await waitFor(() => dom.window.document.querySelector(".ProseMirror")?.textContent === "");
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-thinking-indicator") !== null);
     app.event({ type: "provider.output", providerId: "codex", sessionId: "session-1", stream: "stdout", text: "2" });
     expect(dom.window.document.querySelector(".transcript")?.textContent ?? dom.window.document.body.textContent).toContain("2");
   } finally { await app.cleanup(); }
