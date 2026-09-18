@@ -52,6 +52,7 @@ XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
 CAN_PUBLISH_RELOAD_STATE=1
 RELOAD_PUBLICATION_SKIP_REASON=""
+KEEP_RUNNING_TAG_APP=0
 
 reload_socket_is_live() {
   local socket_path="$1"
@@ -1382,6 +1383,9 @@ reload_finalize() {
     echo "CLI helpers:"
     if [[ "$NO_GLOBAL_CLI_LINKS" == "1" ]]; then
       echo "  preserved existing global cmux CLI links (--no-global-cli-links)"
+      if [[ "$KEEP_RUNNING_TAG_APP" -eq 1 && "${CAN_PUBLISH_RELOAD_STATE:-1}" -ne 1 ]]; then
+        echo "  tag state not republished: ${RELOAD_PUBLICATION_SKIP_REASON}"
+      fi
     elif [[ "${CAN_PUBLISH_RELOAD_STATE:-1}" -ne 1 ]]; then
       echo "  not published: ${RELOAD_PUBLICATION_SKIP_REASON:-tag discovery ownership could not be verified}"
     else
@@ -1697,6 +1701,13 @@ if [[ -n "${TAG_SLUG:-}" ]]; then
   fi
 fi
 
+# CMUX_RELOAD_KEEP_RUNNING=1 opts a build-only tagged run out of tearing down the
+# running same-tag instance (its cmuxd below, then the app itself). --launch needs
+# the new binary, so it ignores the variable.
+if [[ -n "$TAG" && "$LAUNCH" -ne 1 && "${CMUX_RELOAD_KEEP_RUNNING:-0}" == "1" ]]; then
+  KEEP_RUNNING_TAG_APP=1
+fi
+
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
@@ -1767,7 +1778,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         set_plist_env "$INFO_PLIST" CMUX_DEV_AUTH_PROFILE "$AUTH_PROFILE"
         set_plist_env "$INFO_PLIST" CMUX_DEV_AUTH_REPLACE_SESSION "1"
       fi
-      if [[ -S "$CMUXD_SOCKET" ]]; then
+      if [[ "$KEEP_RUNNING_TAG_APP" -ne 1 && -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
         done
@@ -1859,12 +1870,7 @@ fi
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
 # instead of launching the newly built binary when the user cmd-clicks the .app.
-# CMUX_RELOAD_KEEP_RUNNING=1 opts a build-only run out of that and accepts the
-# stale instance; --launch still terminates, because it needs the new binary.
-KEEP_RUNNING_TAG_APP=0
-if [[ -n "$TAG" && "$LAUNCH" -ne 1 && "${CMUX_RELOAD_KEEP_RUNNING:-0}" == "1" ]]; then
-  KEEP_RUNNING_TAG_APP=1
-fi
+# KEEP_RUNNING_TAG_APP (decided above) opts out of that and accepts the stale instance.
 if [[ -n "$TAG" && "$KEEP_RUNNING_TAG_APP" -ne 1 ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
