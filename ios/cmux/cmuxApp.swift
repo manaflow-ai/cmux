@@ -148,6 +148,10 @@ struct cmuxApp: App {
             controlOrigin: origin,
             audience: environment["CMUX_V3_AUDIENCE"] ?? "cmux-v3-\(auth.authEnvironment.rawValue)",
             authorityKeys: keys,
+            relayAddresses: (environment["CMUX_V3_RELAY_ADDRESSES"] ?? "")
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
             keychainAccessGroup: auth.keychainAccessGroup
         ) else { return nil }
         return MobileV3RuntimeComposition(configuration: configuration)

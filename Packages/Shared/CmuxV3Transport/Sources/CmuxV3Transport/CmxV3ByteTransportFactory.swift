@@ -9,6 +9,8 @@ public protocol CmxV3GrantProviding: Sendable {
     func authorization(for request: CmxByteTransportRequest, source: String) async throws -> CmxV3Authorization
     /// Request a grant for one exact application lane action.
     func authorization(for request: CmxByteTransportRequest, source: String, action: String) async throws -> CmxV3Authorization
+    /// Mint the infrastructure-only reservation grant for one configured relay.
+    func relayGrant(for request: CmxByteTransportRequest, source: String, relay: String) async throws -> String?
 }
 
 public extension CmxV3GrantProviding {

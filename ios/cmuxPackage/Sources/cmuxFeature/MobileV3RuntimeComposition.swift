@@ -13,17 +13,20 @@ public actor MobileV3RuntimeComposition {
         public let controlOrigin: URL
         public let audience: String
         public let authorityKeys: [String: Data]
+        public let relayAddresses: [String]
         public let keychainAccessGroup: String?
 
-        public init(controlOrigin: URL, audience: String, authorityKeys: [String: Data], keychainAccessGroup: String? = nil) throws {
+        public init(controlOrigin: URL, audience: String, authorityKeys: [String: Data], relayAddresses: [String] = [], keychainAccessGroup: String? = nil) throws {
             guard controlOrigin.scheme?.lowercased() == "https" || controlOrigin.host == "127.0.0.1" || controlOrigin.host == "localhost" else {
                 throw Error.invalidConfiguration
             }
             guard !audience.isEmpty, !authorityKeys.isEmpty, authorityKeys.count <= 32,
-                  authorityKeys.values.allSatisfy({ $0.count == 32 }) else { throw Error.invalidConfiguration }
+                  authorityKeys.values.allSatisfy({ $0.count == 32 }), relayAddresses.count <= 8,
+                  relayAddresses.allSatisfy({ $0.hasPrefix("/") && $0.utf8.count <= 2048 }) else { throw Error.invalidConfiguration }
             self.controlOrigin = controlOrigin
             self.audience = audience
             self.authorityKeys = authorityKeys
+            self.relayAddresses = relayAddresses
             self.keychainAccessGroup = keychainAccessGroup
         }
     }
@@ -174,9 +177,11 @@ public actor MobileV3RuntimeComposition {
             address: "/ip4/0.0.0.0/udp/0/quic-v1",
             operation: CmuxV3Native.Operation()
         )
-        let advertisedAddresses = try await endpoint.addresses(operation: CmuxV3Native.Operation())
+        let directAddresses = try await endpoint.addresses(operation: CmuxV3Native.Operation())
             .compactMap { address -> String? in
-                guard !address.isEmpty, !address.contains("/p2p/") else { return nil }
+                guard !address.isEmpty, !address.contains("/p2p/"),
+                      !address.contains("/ip4/0.0.0.0/"),
+                      !address.contains("/ip6/::/") else { return nil }
                 return "\(address)/p2p/\(endpoint.peerId())"
             }
         let provider = try CmxV3HTTPGrantProvider.Configuration(
@@ -192,6 +197,14 @@ public actor MobileV3RuntimeComposition {
             }
         )
         let grants = CmxV3HTTPGrantProvider(configuration: provider)
+        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: directAddresses)
+        let relayAddresses = try await CmxV3RelayReservation.reserve(
+            endpoint: endpoint,
+            grants: grants,
+            source: endpoint.peerId(),
+            addresses: configuration.relayAddresses
+        )
+        let advertisedAddresses = directAddresses + relayAddresses
         try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: advertisedAddresses)
         guard desiredScope == next else {
             endpoint.close()

@@ -184,9 +184,21 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
             userID: { try await auth.authenticatedSessionSnapshot().accountID }
         )
         let grants = CmxV3HTTPGrantProvider(configuration: grantConfiguration)
-        let addresses = try await endpoint.addresses(operation: CmuxV3Native.Operation())
-            .filter { !$0.isEmpty && !$0.contains("/p2p/") }
+        let directAddresses = try await endpoint.addresses(operation: CmuxV3Native.Operation())
+            .filter {
+                !$0.isEmpty && !$0.contains("/p2p/")
+                    && !$0.contains("/ip4/0.0.0.0/")
+                    && !$0.contains("/ip6/::/")
+            }
             .map { "\($0)/p2p/\(endpoint.peerId())" }
+        try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: directAddresses)
+        let relayAddresses = try await CmxV3RelayReservation.reserve(
+            endpoint: endpoint,
+            grants: grants,
+            source: endpoint.peerId(),
+            addresses: configuration.relayAddresses
+        )
+        let addresses = directAddresses + relayAddresses
         try await grants.enroll(peerID: endpoint.peerId(), deviceID: deviceID, addresses: addresses)
         guard generation == token, desiredScope == next, isNetworkingAllowed else {
             endpoint.close()
@@ -345,6 +357,7 @@ private struct V3HostConfiguration: Sendable {
     let controlOrigin: URL
     let audience: String
     let authorityKeys: [String: Data]
+    let relayAddresses: [String]
     let identityService: String
 
     init(environment: [String: String]) throws {
@@ -368,6 +381,15 @@ private struct V3HostConfiguration: Sendable {
         controlOrigin = origin
         audience = environment["CMUX_V3_AUDIENCE"] ?? "cmux-v3-production"
         authorityKeys = keys
+        let relayAddresses = (environment["CMUX_V3_RELAY_ADDRESSES"] ?? "")
+            .split(separator: ",")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard relayAddresses.count <= 8,
+              relayAddresses.allSatisfy({ $0.hasPrefix("/") && $0.utf8.count <= 2048 }) else {
+            throw Error.invalidConfiguration
+        }
+        self.relayAddresses = relayAddresses
         identityService = environment["CMUX_V3_IDENTITY_SERVICE"] ?? "dev.cmux.transport-v3.host"
     }
 
