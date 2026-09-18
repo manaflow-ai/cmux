@@ -471,7 +471,7 @@ struct CloudWireGuardHubTests {
 
     @Test
     func developmentBackendDeadlineWinsOverAHeartbeatStream() async throws {
-        await #expect(throws: DevBackendStartup.StartupError.self) {
+        await #expect(throws: URLError.self) {
             _ = try await DevBackendStartup.withDeadline(.milliseconds(1)) {
                 try await Task.sleep(for: .seconds(30))
                 return true

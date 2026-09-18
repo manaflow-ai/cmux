@@ -5,10 +5,6 @@ import Observation
 /// panel. Production builds never open this diagnostic route.
 @MainActor @Observable
 final class DevBackendStartup {
-    enum StartupError: Error {
-        case timedOut
-    }
-
     struct Status: Decodable, Equatable {
         let state: String
         let message: String
@@ -33,7 +29,7 @@ final class DevBackendStartup {
             group.addTask { try await operation() }
             group.addTask {
                 try await sleep(timeout)
-                throw StartupError.timedOut
+                throw URLError(.timedOut)
             }
             defer { group.cancelAll() }
             return try await group.next()!
@@ -64,7 +60,7 @@ final class DevBackendStartup {
             }
         } catch is CancellationError {
             return
-        } catch is StartupError {
+        } catch let error as URLError where error.code == .timedOut {
             guard !Task.isCancelled else { return }
             status = Status(state: "failed", message: String(localized: "devBackend.timeout", defaultValue: "The development backend took too long to start. Try again."))
         } catch {
