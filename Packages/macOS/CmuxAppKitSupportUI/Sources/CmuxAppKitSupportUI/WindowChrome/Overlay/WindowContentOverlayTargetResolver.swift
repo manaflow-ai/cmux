@@ -45,7 +45,7 @@ public final class WindowContentOverlayTargetResolver {
         if let browserHost = Self.descendant(
             in: contentView,
             matching: WindowContentOverlayBrowserHostView.identifier
-        ) {
+        ) as? WindowContentOverlayBrowserHostView {
             cachedBrowserWindow = window
             cachedBrowserHost = browserHost
             return WindowContentOverlayInstallationTarget(container: browserHost, reference: browserHost)
