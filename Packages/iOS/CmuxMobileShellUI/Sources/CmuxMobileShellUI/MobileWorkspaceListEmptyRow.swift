@@ -7,27 +7,17 @@ struct MobileWorkspaceListEmptyRow: View {
     @State private var isRetrying = false
 
     var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "macbook.and.iphone")
-                .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.tint)
-                .symbolRenderingMode(.hierarchical)
-                .accessibilityHidden(true)
-            VStack(spacing: 7) {
-                Text(
-                    L10n.string(
-                        "mobile.workspaces.empty.title",
-                        defaultValue: "No workspaces yet"
-                    )
-                )
-                .font(.title3.weight(.semibold))
-                .multilineTextAlignment(.center)
-                Text(MobilePairingCopy().emptyWorkspaceMessage)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            }
+        ContentUnavailableView {
+            Label(
+                L10n.string(
+                    "mobile.workspaces.empty.title",
+                    defaultValue: "No workspaces yet"
+                ),
+                systemImage: "macbook.and.iphone"
+            )
+        } description: {
+            Text(MobilePairingCopy().emptyWorkspaceMessage)
+        } actions: {
             VStack(spacing: 12) {
                 if let retry {
                     Button {
@@ -65,7 +55,6 @@ struct MobileWorkspaceListEmptyRow: View {
                 }
                 .accessibilityIdentifier("MobileWorkspaceEmptySetupGuide")
             }
-            .padding(.top, 6)
         }
         .frame(maxWidth: 420)
         .frame(maxWidth: .infinity)
