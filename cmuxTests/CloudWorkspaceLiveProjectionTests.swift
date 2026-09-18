@@ -116,7 +116,10 @@ struct CloudWorkspaceLiveProjectionTests {
         let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 6969)
         install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [port])
         await coordinator.waitForIdle()
-        let opened = try await catalog.project(port.id, into: .workspace(id: local, placement: .split), focus: false)
+        let opened = try await catalog.openCloudPort(
+            machine: machine, port: 6969, into: .workspace(id: local, placement: .split),
+            focus: false, reuseExisting: true, reuseInWorkspace: local
+        )
         await placement.waitForPendingMutations()
         await coordinator.waitForIdle()
         #expect(catalog.projection(forPanel: opened.projection.panelID)?.remoteWorkspaceID == "a")
