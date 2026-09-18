@@ -893,6 +893,7 @@ Options:
                          so macOS launches the freshly-built binary on cmd-click or --launch.
                          Set CMUX_RELOAD_KEEP_RUNNING=1 to skip that termination when the
                          build is not meant to replace a session you are still using.
+                         Ignored with --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
   --prod-auth            Point this tagged Debug build at production Stack auth,
@@ -1854,11 +1855,17 @@ if [[ -n "${TAG_SLUG:-}" ]]; then
   TAG_LAUNCHD_DOMAIN="gui/$(id -u)"
 fi
 
-# Tag mode: always terminate the existing same-tag instance after a successful build,
+# Tag mode: terminate the existing same-tag instance after a successful build,
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
 # instead of launching the newly built binary when the user cmd-clicks the .app.
-if [[ -n "$TAG" && "${CMUX_RELOAD_KEEP_RUNNING:-0}" != "1" ]]; then
+# CMUX_RELOAD_KEEP_RUNNING=1 opts a build-only run out of that and accepts the
+# stale instance; --launch still terminates, because it needs the new binary.
+KEEP_RUNNING_TAG_APP=0
+if [[ -n "$TAG" && "$LAUNCH" -ne 1 && "${CMUX_RELOAD_KEEP_RUNNING:-0}" == "1" ]]; then
+  KEEP_RUNNING_TAG_APP=1
+fi
+if [[ -n "$TAG" && "$KEEP_RUNNING_TAG_APP" -ne 1 ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
@@ -1870,7 +1877,12 @@ if [[ -n "$TAG" && "${CMUX_RELOAD_KEEP_RUNNING:-0}" != "1" ]]; then
   /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
 fi
 
-if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
+if [[ "$KEEP_RUNNING_TAG_APP" -eq 1 ]] && reload_socket_is_live "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
+  # The kept instance still owns this tag's socket lock, marker and CLI pointer.
+  # Waiting for a release that will not come would only time out.
+  CAN_PUBLISH_RELOAD_STATE=0
+  RELOAD_PUBLICATION_SKIP_REASON="CMUX_RELOAD_KEEP_RUNNING=1 left the running tagged app in place"
+elif [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
   CAN_PUBLISH_RELOAD_STATE=0
 fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
