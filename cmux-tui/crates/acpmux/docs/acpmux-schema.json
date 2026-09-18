@@ -36,7 +36,7 @@
     "_acpmux/lagged": {"params": {"dropped": "number"}}
   },
   "types": {
-    "SessionDefaults": {"model": "string?", "effort": "string?", "policy": "string?", "prefer": "string[]? (profiles to use for the family, in order)", "env": "{key: value}?"},
+    "SessionDefaults": {"model": "string?", "models": "{profile: modelId}? (per-profile id, wins over model)", "effort": "string?", "policy": "string?", "prefer": "string[]? (profiles to use, in order; skipped when their reported model list lacks the model)", "env": "{key: value}?", "note": "keyed by family, profile, or an alias (any other name); an alias's entry lands on top of the resolved profile's defaults"},
     "SessionSummary": {"sessionId": "string", "name": "string", "agent": "string", "family": "string|null", "cwd": "string", "status": "idle|ready|running|waiting|disconnected|closed", "peer": "string? (host name for remote sessions)", "stateSeq": "number (bumps on status, permission and turn changes)", "unread": "boolean (a turn ended while no client was attached)", "attached": "number (clients attached now)", "pendingPermissions": "number", "queued": "number", "turnCount": "number", "lastSeq": "number", "lastPrompt": "string|null", "preview": "string|null", "model": "string|null", "currentModeId": "string|null", "policy": "string|null", "rules": "boolean", "tags": "{key: value}", "createdAt": "number", "updatedAt": "number"},
     "SessionDetail": "SessionSummary plus modes, configOptions, models, agentInfo, agentCapabilities, usage, pending: [{permissionId, request}], rulesJson",
     "Event": {"sessionId": "string", "seq": "number", "at": "number (unix ms)", "dir": "in|out|mux|peer", "kind": "string (method, sessionUpdate value, or mux kind)", "msg": "object"},

@@ -68,6 +68,8 @@ errors are one JSON object on stderr: `{"error": {"code", "detail", "message"}}`
   `--on-permission deny|fail` keeps a script from hanging on a prompt.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.
 - `-a claude` and `-a codex` are family names: acpmux picks the configured profile
-  (an account pool, a router) and applies the family defaults. Pass `-m`/`-e`/`--policy`
-  only when the task needs something else.
+  (an account pool, a router) and applies the family defaults. Aliases such as
+  `-a deepseek` or `-a local` (see `acpmux defaults`, marked `*`) route to OpenCode or
+  pi with the right `provider/model` id. Pass `-m`/`-e`/`--policy` only when the task
+  needs something else.
 - Sessions on other machines show as `host/name`; commands take that form.

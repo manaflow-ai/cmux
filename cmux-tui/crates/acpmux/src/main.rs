@@ -96,12 +96,13 @@ enum Command {
     /// Print the agent skill: how an agent drives acpmux. Also `guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
-    /// Show or set session defaults per model family: `defaults`, `defaults claude`,
-    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`.
-    /// `key=` clears one key; `--clear` removes the family's entry.
+    /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
+    /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`,
+    /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
+    /// A name that is not a family or profile is an alias: `-a deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     Defaults {
         family: Option<String>,
-        /// key=value pairs: model, effort, policy, prefer (comma list), env.KEY
+        /// key=value pairs: model, models.PROFILE, effort, policy, prefer (comma list), env.KEY
         pairs: Vec<String>,
         #[arg(long)]
         clear: bool,

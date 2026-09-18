@@ -75,6 +75,11 @@ pub struct AgentProfile {
 pub struct SessionDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Model per profile, for an alias that spans harnesses whose ids
+    /// differ: `{"opencode": "opencode-go/deepseek-v4-pro", "pi":
+    /// "openrouter/deepseek/deepseek-v4"}`. Wins over `model` for that profile.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,6 +101,9 @@ impl SessionDefaults {
         if top.model.is_some() {
             self.model = top.model.clone();
         }
+        for (k, v) in &top.models {
+            self.models.insert(k.clone(), v.clone());
+        }
         if top.effort.is_some() {
             self.effort = top.effort.clone();
         }
@@ -111,6 +119,10 @@ impl SessionDefaults {
     }
     pub fn is_empty(&self) -> bool {
         *self == SessionDefaults::default()
+    }
+    /// The model for one profile: the per-profile entry, else `model`.
+    pub fn model_for(&self, profile: &str) -> Option<String> {
+        self.models.get(profile).cloned().or_else(|| self.model.clone())
     }
 }
 
@@ -298,15 +310,52 @@ impl Config {
     /// name or a family name: the family's `prefer` list wins, then a
     /// profile with that exact name, then the first profile in the family.
     pub fn resolve_agent(&self, requested: &str) -> Option<String> {
+        self.resolve_agent_where(requested, |_, _| true)
+    }
+
+    /// `resolve_agent` with a filter on the `prefer` candidates: `ok(profile,
+    /// model)` says whether that profile can run the model the request
+    /// would get (the hub checks the model list it learned). When no
+    /// candidate passes, the first installed one is used and the model
+    /// setting fails loudly later.
+    pub fn resolve_agent_where(&self, requested: &str, ok: impl Fn(&str, Option<&str>) -> bool) -> Option<String> {
         if let Some(d) = self.defaults.get(requested) {
-            if let Some(p) = d.prefer.iter().find(|p| self.agents.contains_key(*p)) {
-                return Some(p.clone());
+            let installed: Vec<&String> = d.prefer.iter().filter(|p| self.agents.contains_key(*p)).collect();
+            if let Some(p) = installed.iter().find(|p| {
+                let model = self.defaults_for_request(requested, p).model_for(p);
+                ok(p, model.as_deref())
+            }) {
+                return Some((*p).clone());
+            }
+            if let Some(p) = installed.first() {
+                return Some((*p).clone());
             }
         }
         if self.agents.contains_key(requested) {
             return Some(requested.to_owned());
         }
         self.agents.iter().find(|(n, p)| derive_family(n, p) == requested).map(|(n, _)| n.clone())
+    }
+
+    /// Defaults for a request that named `requested` (a family, a profile,
+    /// or an alias such as `deepseek`) and resolved to `profile`: the
+    /// profile's own defaults, then the alias entry on top. An alias is a
+    /// `defaults` key that is neither the profile nor its family.
+    pub fn defaults_for_request(&self, requested: &str, profile: &str) -> SessionDefaults {
+        let mut d = self.defaults_for(profile);
+        let family = self.family(profile);
+        if requested != profile && family.as_deref() != Some(requested) {
+            if let Some(alias) = self.defaults.get(requested) {
+                d.overlay(alias);
+            }
+        }
+        d
+    }
+
+    /// Alias names: `defaults` keys that are neither a family nor a profile.
+    pub fn aliases(&self) -> Vec<String> {
+        let fams = self.families();
+        self.defaults.keys().filter(|k| !fams.contains_key(*k) && !self.agents.contains_key(*k)).cloned().collect()
     }
 
     /// Defaults that apply to a profile: its family's entry under its own.
@@ -604,7 +653,7 @@ mod tests {
         assert_eq!(cfg.resolve_agent("opencode").as_deref(), Some("oc"));
         assert_eq!(cfg.resolve_agent("nope"), None);
         // prefer sends the family to the pool first, and skips missing profiles.
-        cfg.defaults.insert("claude".into(), SessionDefaults { model: Some("claude-opus-5".into()), effort: Some("high".into()), policy: Some(PermissionPolicy::ApproveEdits), prefer: vec!["missing".into(), "claude-sr".into()], env: BTreeMap::from([("A".to_owned(), "1".to_owned())]) });
+        cfg.defaults.insert("claude".into(), SessionDefaults { model: Some("claude-opus-5".into()), models: BTreeMap::new(), effort: Some("high".into()), policy: Some(PermissionPolicy::ApproveEdits), prefer: vec!["missing".into(), "claude-sr".into()], env: BTreeMap::from([("A".to_owned(), "1".to_owned())]) });
         cfg.defaults.insert("claude-sr".into(), SessionDefaults { effort: Some("max".into()), ..Default::default() });
         assert_eq!(cfg.resolve_agent("claude").as_deref(), Some("claude-sr"));
         let d = cfg.defaults_for("claude-sr");
@@ -613,6 +662,23 @@ mod tests {
         assert_eq!(d.policy, Some(PermissionPolicy::ApproveEdits));
         assert_eq!(d.env["A"], "1");
         assert!(cfg.defaults_for("codex").is_empty());
+        // An alias: a defaults key that is neither family nor profile. Its
+        // entry lands on top of the resolved profile's defaults, and its
+        // per-profile model ids pick the right id for each harness.
+        cfg.defaults.insert("deepseek".into(), SessionDefaults { prefer: vec!["oc".into(), "pi".into()], models: BTreeMap::from([("oc".to_owned(), "opencode-go/deepseek-v4-pro".to_owned()), ("pi".to_owned(), "openrouter/deepseek/deepseek-v4".to_owned())]), effort: Some("low".into()), ..Default::default() });
+        assert_eq!(cfg.aliases(), vec!["deepseek".to_owned()]);
+        assert_eq!(cfg.resolve_agent("deepseek").as_deref(), Some("oc"));
+        let d = cfg.defaults_for_request("deepseek", "oc");
+        assert_eq!(d.model_for("oc").as_deref(), Some("opencode-go/deepseek-v4-pro"));
+        assert_eq!(d.effort.as_deref(), Some("low"));
+        // The availability filter skips a preferred profile that cannot run the model.
+        let r = cfg.resolve_agent_where("deepseek", |p, m| !(p == "oc" && m == Some("opencode-go/deepseek-v4-pro")));
+        assert_eq!(r.as_deref(), Some("pi"));
+        // No candidate passes: the first installed one is used.
+        let r = cfg.resolve_agent_where("deepseek", |_, _| false);
+        assert_eq!(r.as_deref(), Some("oc"));
+        // A family or profile request never picks up an alias entry.
+        assert!(cfg.defaults_for_request("opencode", "oc").models.is_empty());
         // Round-trips through JSON as camelCase under "defaults".
         let text = serde_json::to_string(&cfg).unwrap();
         assert!(text.contains("\"defaults\":{\"claude\""), "{text}");

@@ -256,6 +256,24 @@ acpmux run -a claude "…"                                       # goes to claud
 acpmux run -a claude -m claude-sonnet-5 "…"                    # flags still win
 ```
 
+Open models come through OpenCode and pi, which already talk to Ollama, OpenRouter, LM Studio,
+Kimi, Z.ai, DeepSeek and any OpenAI-compatible endpoint from their own provider configs
+(`opencode.json`, `~/.pi/agent/models.json`). acpmux reads the full catalog each one reports
+over ACP (`provider/model` ids) and lets you name a model class once, as an **alias**: a
+`defaults` entry that is neither a family nor a profile.
+
+```sh
+acpmux defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4 effort=low
+acpmux defaults local    prefer=opencode model=ollama/qwen3-coder policy=approve-all
+acpmux run -a deepseek "…"      # OpenCode with its DeepSeek id; pi with pi's id when OpenCode is not installed
+acpmux run -a local "…"
+```
+
+`prefer` skips a harness whose reported model list does not contain the alias's model for it,
+so the same alias works on a laptop with Ollama and on a server with OpenRouter. When no
+preferred harness reports the model, the first installed one is used and the model setting
+fails with the ids it does know. Aliases show in `acpmux defaults` with a `*`.
+
 Families are derived from the harness (`claude` for the stdio backend and `sr claude proxy`,
 `codex` for `codex-acp`, `opencode`, `pi`, `gemini`) or set with `"family"` on a profile.
 `prefer` lists the profiles to use for a family in order, so `-a claude` can go to the

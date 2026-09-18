@@ -423,7 +423,7 @@ async fn family_defaults_pick_the_profile_model_effort_and_policy() {
     agents.insert("fake-pool".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
     let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
-    cfg.defaults.insert("fake".into(), acpmux::config::SessionDefaults { model: Some("m2".into()), effort: None, policy: Some(PermissionPolicy::ApproveAll), prefer: vec!["fake-pool".into()], env: BTreeMap::new() });
+    cfg.defaults.insert("fake".into(), acpmux::config::SessionDefaults { model: Some("m2".into()), models: BTreeMap::new(), effort: None, policy: Some(PermissionPolicy::ApproveAll), prefer: vec!["fake-pool".into()], env: BTreeMap::new() });
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     let (in_tx, in_rx) = mpsc::channel(64);
@@ -454,4 +454,14 @@ async fn family_defaults_pick_the_profile_model_effort_and_policy() {
     // Unknown families name what exists.
     let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "gpt"}}})).await.unwrap_err();
     assert!(err.contains("families: fake"), "{err}");
+    // An alias routes to its preferred profile with its own model id.
+    let set = c.request(method::MUX_DEFAULTS, json!({"family": "fast", "set": {"prefer": ["fake"], "models": {"fake": "m1"}, "policy": "deny-all"}})).await.unwrap();
+    assert_eq!(set["kind"], "alias");
+    assert_eq!(set["model"], "m1");
+    let s3 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "fast", "name": "al"}}})).await.unwrap();
+    assert_eq!(s3["_meta"]["acpmux"]["agent"], "fake");
+    assert_eq!(s3["_meta"]["acpmux"]["model"], "m1");
+    assert_eq!(s3["_meta"]["acpmux"]["policy"], "deny-all");
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "gpt"}}})).await.unwrap_err();
+    assert!(err.contains("aliases: fast"), "{err}");
 }

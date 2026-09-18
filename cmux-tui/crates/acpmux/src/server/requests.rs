@@ -343,11 +343,13 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                                 "policy" => merged.policy = None,
                                 "prefer" => merged.prefer.clear(),
                                 "env" => merged.env.clear(),
+                                "models" => merged.models.clear(),
                                 _ => {}
                             }
                         }
                     }
                     if patch.model.is_some() { merged.model = patch.model; }
+                    for (k, v) in patch.models { merged.models.insert(k, v); }
                     if patch.effort.is_some() { merged.effort = patch.effort; }
                     if patch.policy.is_some() { merged.policy = patch.policy; }
                     if !patch.prefer.is_empty() { merged.prefer = patch.prefer; }
@@ -364,11 +366,14 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             }
             let cfg = hub.config.read().await;
             let mut resolved = serde_json::Map::new();
-            for f in cfg.families().keys().chain(cfg.defaults.keys()) {
+            let fams = cfg.families();
+            for f in fams.keys().chain(cfg.defaults.keys()) {
                 if resolved.contains_key(f) { continue; }
-                let profile = cfg.resolve_agent(f);
-                let d = profile.as_deref().map(|p| cfg.defaults_for(p)).unwrap_or_default();
-                resolved.insert(f.clone(), json!({"profile": profile, "profiles": cfg.families().get(f).cloned().unwrap_or_default(), "model": d.model, "effort": d.effort, "policy": d.policy, "prefer": d.prefer, "env": d.env}));
+                let profile = hub.resolve_agent_in(&cfg, f);
+                let d = profile.as_deref().map(|p| cfg.defaults_for_request(f, p)).unwrap_or_default();
+                let model = profile.as_deref().and_then(|p| d.model_for(p));
+                let kind = if fams.contains_key(f) { "family" } else if cfg.agents.contains_key(f) { "profile" } else { "alias" };
+                resolved.insert(f.clone(), json!({"kind": kind, "profile": profile, "profiles": fams.get(f).cloned().unwrap_or_default(), "model": model, "models": d.models, "effort": d.effort, "policy": d.policy, "prefer": d.prefer, "env": d.env}));
             }
             match family {
                 Some(f) => Ok(resolved.get(&f).cloned().unwrap_or(json!({"profile": null, "profiles": []}))),

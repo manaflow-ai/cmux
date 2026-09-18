@@ -554,6 +554,7 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
         }
         let mut set = serde_json::Map::new();
         let mut env = serde_json::Map::new();
+        let mut models = serde_json::Map::new();
         for pair in &pairs {
             let (k, v) = pair.split_once('=').ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
             match k {
@@ -566,11 +567,20 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
                 _ if k.starts_with("env.") => {
                     env.insert(k[4..].into(), json!(v));
                 }
-                _ => return Err(AppError::usage(format!("unknown key {k:?}; use model, effort, policy, prefer, env.KEY")).into()),
+                _ if k.starts_with("models.") => {
+                    models.insert(k[7..].into(), json!(v));
+                }
+                "models" if v.is_empty() => {
+                    set.insert("models".into(), Value::Null);
+                }
+                _ => return Err(AppError::usage(format!("unknown key {k:?}; use model, models.PROFILE, effort, policy, prefer, env.KEY")).into()),
             }
         }
         if !env.is_empty() {
             set.insert("env".into(), Value::Object(env));
+        }
+        if !models.is_empty() {
+            set.insert("models".into(), Value::Object(models));
         }
         req["set"] = Value::Object(set);
     }
@@ -583,9 +593,10 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
         let g = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
         let prefer = d.get("prefer").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(",")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
         let env = d.get("env").and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>().join(",")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
-        println!("{f:<10} {:<12} {:<22} {:<8} {:<14} {:<20} {env}", g("profile"), g("model"), g("effort"), g("policy"), prefer);
+        let name = if d.get("kind").and_then(Value::as_str) == Some("alias") { format!("{f} *") } else { f.to_owned() };
+        println!("{name:<12} {:<12} {:<34} {:<8} {:<14} {:<20} {env}", g("profile"), g("model"), g("effort"), g("policy"), prefer);
     };
-    println!("{:<10} {:<12} {:<22} {:<8} {:<14} {:<20} ENV", "FAMILY", "PROFILE", "MODEL", "EFFORT", "POLICY", "PREFER");
+    println!("{:<12} {:<12} {:<34} {:<8} {:<14} {:<20} ENV", "NAME", "PROFILE", "MODEL", "EFFORT", "POLICY", "PREFER");
     match (&family, v.get("families").and_then(Value::as_object)) {
         (Some(f), _) => row(f, &v),
         (None, Some(fams)) => {

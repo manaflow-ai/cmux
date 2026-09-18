@@ -16,20 +16,27 @@ impl Hub {
     ) -> Result<Arc<Session>, RpcError> {
         // `agent` may be a family (`claude`, `codex`): the family's prefer
         // list, then an exact profile, then the first profile in the family.
+        let requested = agent;
         let (agent, profile, defaults) = {
             let cfg = self.config.read().await;
-            let resolved = cfg.resolve_agent(agent).ok_or_else(|| {
+            let resolved = self.resolve_agent_in(&cfg, requested).ok_or_else(|| {
                 let fams: Vec<String> = cfg.families().keys().cloned().collect();
-                RpcError::invalid_params(format!("unknown agent {agent:?}; profiles: {}; families: {}", cfg.agents.keys().cloned().collect::<Vec<_>>().join(", "), fams.join(", ")))
+                let aliases = cfg.aliases();
+                RpcError::invalid_params(format!(
+                    "unknown agent {requested:?}; profiles: {}; families: {}{}",
+                    cfg.agents.keys().cloned().collect::<Vec<_>>().join(", "),
+                    fams.join(", "),
+                    if aliases.is_empty() { String::new() } else { format!("; aliases: {}", aliases.join(", ")) }
+                ))
             })?;
             let profile = cfg.agents[&resolved].clone();
-            let defaults = cfg.defaults_for(&resolved);
+            let defaults = cfg.defaults_for_request(requested, &resolved);
             (resolved, profile, defaults)
         };
         let agent = agent.as_str();
         let family = crate::config::derive_family(agent, &profile);
         let policy = policy.or(defaults.policy);
-        let model = model.or(defaults.model);
+        let model = model.or_else(|| defaults.model_for(agent));
         let effort = effort.or(defaults.effort);
         let cwd = if cwd.is_absolute() {
             cwd
@@ -537,6 +544,23 @@ impl Hub {
             (profile, cfg.defaults_for(&agent))
         };
         self.ensure_child(session, &self.with_default_env(&profile, &defaults.env)).await
+    }
+
+    /// Whether a profile can run a model, judged by the model list it
+    /// reported (Claude and unprobed harnesses accept anything).
+    pub fn knows_model(&self, profile: &str, model: Option<&str>) -> bool {
+        let Some(m) = model else { return true };
+        let known = self.known_models.lock().unwrap();
+        match known.get(profile).filter(|l| !l.is_empty()) {
+            Some(list) => list.iter().any(|(id, _)| id == m),
+            None => true,
+        }
+    }
+
+    /// The profile for a family, profile or alias name, skipping preferred
+    /// profiles whose reported model list lacks the model they would get.
+    pub fn resolve_agent_in(&self, cfg: &crate::config::Config, requested: &str) -> Option<String> {
+        cfg.resolve_agent_where(requested, |p, m| self.knows_model(p, m))
     }
 
     /// The profile with the family's default env underneath its own.
