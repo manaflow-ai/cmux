@@ -2,6 +2,11 @@
 members = ["crates/grants", "crates/authority", "crates/transport", "crates/relay-server", "crates/control-server", "crates/ffi"]
 resolver = "2"
 
+# The UniFFI boundary never permits Rust unwinding into Swift or C. The final
+# application link still requires removal of legacy native Rust runtimes.
+[profile.release]
+panic = "abort"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
