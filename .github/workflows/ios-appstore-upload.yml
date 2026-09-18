@@ -179,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           # Version comes from CMUX_IOS_APPSTORE_MARKETING_VERSION in main.
-          ARGS=(--lane appstore --signing manual --skip-notes)
+          ARGS=(--lane appstore --signing automatic --skip-notes)
           if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
             ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
           fi
@@ -223,6 +223,8 @@ jobs:
             ${{ runner.temp }}/cmux-final-build-number.txt
             ${{ runner.temp }}/cmux-app-upload.log
             ${{ runner.temp }}/cmux-ios-upload/*.log
+            ${{ runner.temp }}/cmux-ios-upload/export/*.ipa
+            ${{ runner.temp }}/cmux-ios-upload/export/*.xcarchive/dSYMs
             ${{ runner.temp }}/cmux-ios-upload/*.xcarchive/dSYMs
 
       - name: Summary
