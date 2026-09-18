@@ -787,8 +787,8 @@ enum CloudLinkPipe {
 
     /// Lines (without their newline; a trailing CR is dropped) as they arrive; a final
     /// unterminated line is delivered at EOF. One consumer.
-    static func lines(from handle: FileHandle) -> AsyncStream<String> {
-        AsyncStream(bufferingPolicy: .unbounded) { continuation in
+    static func lines(from handle: FileHandle, bufferingPolicy: AsyncStream<String>.Continuation.BufferingPolicy = .unbounded) -> AsyncStream<String> {
+        AsyncStream(bufferingPolicy: bufferingPolicy) { continuation in
             let buffer = LineBuffer()
             handle.readabilityHandler = { fh in
                 let data = fh.availableData
