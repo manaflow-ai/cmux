@@ -13,7 +13,7 @@ on:
 
 concurrency:
   # Serialize with the production App Review workflow.
-  group: ios-app-store-emergency-auto-fix
+  group: ios-app-store-production
   queue: max
   cancel-in-progress: false
 
@@ -24,7 +24,7 @@ permissions:
 jobs:
   decide:
     name: Check for new main revision
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-appstore-extension-fix'
+    if: github.ref == 'refs/heads/main'
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       upload: ${{ steps.decide.outputs.upload }}
@@ -77,7 +77,7 @@ jobs:
     # Only ever publish from main: the ASC secrets ship reviewed main, and a
     # dispatch against a feature branch must not upload arbitrary code.
     needs: decide
-    if: needs.decide.outputs.upload == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-appstore-extension-fix')
+    if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
     runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     outputs:
