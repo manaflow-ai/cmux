@@ -45,6 +45,17 @@ const { Freestyle, FreestyleApiError } = await import("freestyle");
 
 const env = loadTargetEnv(project);
 requireEnvKeys(env, ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", "STACK_SECRET_SERVER_KEY"], `${project.projectName} bench`);
+// Cleanup is verified against the provider's own inventory (a create can
+// allocate a machine the control plane never records), so the deployment's
+// provider key is required. A Vercel "sensitive" variable pulls as an empty
+// string; the operator's own key (~/.secrets/cmux.env, the same account)
+// covers that.
+const providerApiKey = env.FREESTYLE_API_KEY?.trim() || process.env.FREESTYLE_API_KEY?.trim();
+if (!providerApiKey) {
+  console.error("bench-vm-startup: FREESTYLE_API_KEY is required (pulled target env or process env) so cleanup can verify provider inventory");
+  process.exit(2);
+}
+const providerSdk = new Freestyle({ apiKey: providerApiKey });
 const app = new StackServerApp({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
   publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
@@ -290,23 +301,71 @@ async function destroyLeftovers() {
   return verified && liveVmIds.size === 0;
 }
 
+/** The provider's view of the throwaway user's owner network, or null when none exists. */
+async function ownerVpc(userId) {
+  try {
+    return await providerSdk.vpc.get(ownerNetworkSlug(userId));
+  } catch (error) {
+    if (error instanceof FreestyleApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/** Every provider machine attached to `vpcId`, paged through the account inventory. */
+async function machinesOnVpc(vpcId) {
+  const ids = [];
+  for (let offset = 0; offset < 5_000; offset += 200) {
+    const page = await providerSdk.vms.list({ limit: 200, offset });
+    for (const vm of page.vms) {
+      if ((vm.vpcs ?? vm.networks ?? []).some((network) => (network.vpcId ?? network.vpc) === vpcId)) ids.push(vm.id);
+    }
+    if (page.vms.length < 200) break;
+  }
+  return ids;
+}
+
 /**
- * Removes the throwaway user's owner network (the VPC its first create made)
- * straight at the provider, by the same slug the application derives, with
- * the deployment's provider key from the pulled environment. The fallback for
- * an account deletion that failed after its own data cleanup; a 404 means the
- * route (or nothing) already removed it.
+ * Provider-side reconciliation: the control plane's list only knows rows
+ * with a persisted provider id, but a create can allocate a machine and lose
+ * it before that write (seen during the #12905 runs). Every machine on the
+ * throwaway user's own network is this run's, so delete them all and verify
+ * the network is empty. Returns true only when verified.
  */
-async function reapOwnerNetwork(userId) {
-  // A Vercel "sensitive" variable pulls as an empty string; the operator's
-  // own key (~/.secrets/cmux.env, the same provider account) covers that.
-  const apiKey = env.FREESTYLE_API_KEY?.trim() || process.env.FREESTYLE_API_KEY?.trim();
-  if (!apiKey) {
-    console.error("cleanup_network_skipped=no FREESTYLE_API_KEY in the target environment or the process environment");
+async function reapOwnerVpcMachines(userId) {
+  try {
+    const vpc = await ownerVpc(userId);
+    if (!vpc) return true;
+    for (const id of await machinesOnVpc(vpc.id)) {
+      console.error(`cleanup_reconcile_vm=${id}`);
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await providerSdk.vms.delete(id);
+          break;
+        } catch (error) {
+          if (error instanceof FreestyleApiError && error.status === 404) break;
+          if (attempt === 2) console.error(`cleanup_delete_failed_vm=${id} error=${error instanceof Error ? error.message : String(error)}`);
+          else await sleep(2_000);
+        }
+      }
+    }
+    const remaining = await machinesOnVpc(vpc.id);
+    for (const id of remaining) console.error(`cleanup_needed_vm=${id}`);
+    return remaining.length === 0;
+  } catch (error) {
+    console.error(`cleanup_provider_inventory_failed error=${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
+}
+
+/**
+ * Removes the throwaway user's owner network (the VPC its first create made)
+ * straight at the provider, by the same slug the application derives. The
+ * fallback for an account deletion that failed after its own data cleanup; a
+ * 404 means the route (or nothing) already removed it.
+ */
+async function reapOwnerNetwork(userId) {
   const slug = ownerNetworkSlug(userId);
-  const provider = new Freestyle({ apiKey });
+  const provider = providerSdk;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     try {
       await provider.vpc.delete(slug);
@@ -364,7 +423,11 @@ try {
   });
   // Provisioning is paid-plan gated; the plan is metadata on the throwaway user only.
   await user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
-  const session = await user.createSession({ expiresInMillis: 60 * 60 * 1000, isImpersonation: true });
+  // The session must outlive the whole run and its cleanup: budget the worst
+  // case per trial (a 630 s create plus attach, resume and destroy budgets)
+  // and cap at a day, past which the run fails closed and keeps the user.
+  const sessionMs = Math.min(24 * 60 * 60 * 1000, 30 * 60 * 1000 + trials * 20 * 60 * 1000);
+  const session = await user.createSession({ expiresInMillis: sessionMs, isImpersonation: true });
   const tokens = await session.getTokens();
   if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return bench session tokens");
   authHeaders = { authorization: `Bearer ${tokens.accessToken}`, "x-stack-refresh-token": tokens.refreshToken };
@@ -403,8 +466,11 @@ try {
 } finally {
   const machinesGone = await destroyLeftovers();
   for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
+  // The control plane's list is not the provider's inventory: sweep the
+  // user's own network at the provider before any account cleanup.
+  const providerClean = user ? await reapOwnerVpcMachines(user.id) : true;
   let accountDeleted = false;
-  if (user && machinesGone) {
+  if (user && machinesGone && providerClean) {
     try {
       accountDeleted = await deleteAccount();
     } catch (cleanupError) {

@@ -15,7 +15,7 @@
  * failure. Never modifies existing machines. Modeled on
  * verify-devbox-private-link.ts.
  */
-import { Duration, Effect } from "effect";
+import { Duration, Effect, Schedule } from "effect";
 import { Freestyle } from "freestyle";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
@@ -164,10 +164,10 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
  * this run) is the one identity the provider persists for them.
  */
 function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
-  return Effect.gen(function* () {
-    const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
+  const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
+  const listRunMachines = Effect.gen(function* () {
     const ids: string[] = [];
-    for (let offset = 0; offset < 2_000; offset += 200) {
+    for (let offset = 0; offset < 5_000; offset += 200) {
       const page = yield* attempt("list machines", () => sdk.vms.list({ metadata: "cmux:cloud", limit: 200, offset }));
       for (const data of page.vms) {
         const networks = data.vpcs ?? data.networks ?? [];
@@ -175,11 +175,27 @@ function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
       }
       if (page.vms.length < 200) break;
     }
-    for (const id of ids) {
+    return ids;
+  });
+  // Every discovered machine is attempted; failures are aggregated and the
+  // finalizer then fails, so the run exits non-zero instead of reporting a
+  // clean teardown over a machine it could not remove.
+  return Effect.gen(function* () {
+    const failures: string[] = [];
+    const listed = yield* Effect.either(listRunMachines);
+    if (listed._tag === "Left") failures.push(listed.left.message);
+    for (const id of listed._tag === "Right" ? listed.right : []) {
       console.error(`cleanup_reconcile_vm=${id}`);
-      yield* cleanup(`VM ${id}`, () => provider.destroy(id));
+      const destroyed = yield* Effect.either(
+        attempt(`destroy ${id}`, () => provider.destroy(id)).pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("2500 millis") })),
+      );
+      if (destroyed._tag === "Left") failures.push(destroyed.left.message);
     }
-  }).pipe(Effect.catchAll((error) => Effect.sync(() => { console.error(`cleanup_reconcile_failed ${String(error)}`); })), Effect.orDie);
+    if (failures.length > 0) {
+      for (const failure of failures) console.error(`cleanup_reconcile_failed ${failure}`);
+      return yield* Effect.fail(new Error(`cleanup incomplete: ${failures.join("; ")}`));
+    }
+  }).pipe(Effect.orDie);
 }
 
 function bench() {

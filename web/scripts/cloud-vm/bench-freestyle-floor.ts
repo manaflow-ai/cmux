@@ -129,10 +129,15 @@ async function waitForDaemon(vm: Vm, origin: number, budgetMs = 90_000): Promise
  */
 async function reconcileRunVms(): Promise<void> {
   try {
-    const listed = await fs.vms.list({ metadata: `cmux:bench,run:${runId}`, limit: 200 });
-    for (const data of listed.vms) {
-      console.error(`cleanup_reconcile_vm=${data.id}`);
-      await deleteVm(fs.vms.ref(data.id), data.id);
+    const ids: string[] = [];
+    for (let offset = 0; offset < 10_000; offset += 200) {
+      const page = await fs.vms.list({ metadata: `cmux:bench,run:${runId}`, limit: 200, offset });
+      ids.push(...page.vms.map((data) => data.id));
+      if (page.vms.length < 200) break;
+    }
+    for (const id of ids) {
+      console.error(`cleanup_reconcile_vm=${id}`);
+      await deleteVm(fs.vms.ref(id), id);
     }
   } catch (error) {
     cleanupFailures.push(`list run machines: ${error instanceof Error ? error.message : String(error)}`);
