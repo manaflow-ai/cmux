@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Oczekiwanie na usunięcie pozostałości maszyny Cloud VM",
+      "message": "Konfiguracja maszyny Cloud VM nie powiodła się, a usuwanie pozostałości nadal oczekuje.",
+      "action": "Przed utworzeniem kolejnej maszyny skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",

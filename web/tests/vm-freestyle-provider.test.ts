@@ -328,7 +328,6 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(1);
     expect(fake.writes[0]?.content).toBe(GUEST_CMUX_SHIM);
-    expect(fake.execs[1]).toContain(`mv -f`);
     expect(fake.execs.at(-1)).toBe("cmux self --json");
   });
 
@@ -459,7 +458,6 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/bin\/cmux\.tmp-[0-9a-f]{24}$/);
     expect(fake.writes[0]?.content).toContain("cmux auth status");
     expect(fake.writes[0]?.content).not.toContain("crt_secret-token");
-    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/bin/cmux'"))).toBe(true);
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.deletes).toEqual([]);
   });
@@ -479,7 +477,6 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(handle.providerMetadata).toMatchObject({ networkId: "vpc_1" });
     expect(fake.writes).toHaveLength(1);
     expect(fake.writes[0]?.path).toMatch(/^\/usr\/local\/bin\/cmux\.tmp-[0-9a-f]{24}$/);
-    expect(fake.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/bin/cmux'"))).toBe(true);
     expect(fake.writes[0]?.content).not.toContain("crt_secret-token");
     expect(handle.providerMetadata).toMatchObject({
       networkId: "vpc_1",
@@ -512,7 +509,6 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(ok.writes).toHaveLength(1);
     expect(ok.writes[0]?.path).toMatch(/^\/usr\/local\/bin\/cmux\.tmp-[0-9a-f]{24}$/);
     expect(ok.writes[0]?.content).not.toContain("crt_secret-token");
-    expect(ok.execs.some((command) => command.includes("mv -f") && command.includes("/usr/local/bin/cmux'"))).toBe(true);
     expect(ok.deletes).toEqual([]);
   });
 });

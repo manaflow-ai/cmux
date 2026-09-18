@@ -1,5 +1,10 @@
 {
   "vmErrors": {
+    "createCleanupPending": {
+      "title": "Limpeza da VM Cloud pendente",
+      "message": "A configuração da VM Cloud falhou e a limpeza ainda está pendente.",
+      "action": "Entre em contato com o suporte e informe o ID de rastreamento antes de criar outra máquina."
+    },
     "unsupported": {
       "title": "Operação de Cloud VM indisponível",
       "reason": "Este tipo de máquina não oferece esta operação.",
