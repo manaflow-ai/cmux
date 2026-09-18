@@ -42,7 +42,7 @@ actor CloudMachineLinkManager {
     private let isCloudEnabled: @Sendable () -> Bool
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
-    private var cachedClientCapabilities: [String]?
+    private var cachedClientCapabilities: [URL: [String]] = [:]
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
@@ -536,9 +536,9 @@ actor CloudMachineLinkManager {
     /// Cache successful probes, while allowing a failed probe to be retried by
     /// later connection attempts instead of poisoning the actor-wide cache.
     private func resolvedClientCapabilities(clientURL: URL) -> [String] {
-        if let cached = cachedClientCapabilities { return cached }
+        if let cached = cachedClientCapabilities[clientURL] { return cached }
         guard let probed = Self.clientCapabilities(clientURL: clientURL) else { return [] }
-        cachedClientCapabilities = probed
+        cachedClientCapabilities[clientURL] = probed
         return probed
     }
 
