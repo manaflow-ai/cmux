@@ -1,4 +1,3 @@
-import CMUXMobileCore
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -8,9 +7,8 @@ import Foundation
 /// Every dimension is scoped per surface — entry queues, reapers, the
 /// lane-transition barrier, and ambiguous-failure poisoning — because input
 /// ordering is a property of one PTY, and the host applies each surface's
-/// ordered requests independently. The client-side window uses the host's
-/// shared request quota, while the host remains the final admission authority
-/// for all work on the connection.
+/// ordered requests independently. Admission is handled by the host's shared
+/// RPC work quota; this client object only tracks settlement and ordering.
 @MainActor
 final class MobileTerminalInputRPCPipeline {
     typealias SettlementHandler = @MainActor (
@@ -23,15 +21,8 @@ final class MobileTerminalInputRPCPipeline {
         let settlementHandler: SettlementHandler
     }
 
-    /// Use the host's shared quota instead of a private four-request cap. The
-    /// old client-only cap left capacity unused and added avoidable input
-    /// stalls while the host still had room.
-    private static let maximumUnsettledRequestCount =
-        MobileHostRPCWorkQuota.recommendedMaximumConcurrentRequestCount
-
     private var entriesBySurfaceID: [String: [Entry]] = [:]
     private var reaperTasksBySurfaceID: [String: Task<Void, Never>] = [:]
-    private var capacityWaiters: [CheckedContinuation<Void, Never>] = []
     /// Lane-transition barriers are per surface: ordering only matters within
     /// one PTY, and an app-wide wait would let one terminal's slow response
     /// stall a different terminal's healthy lane.
@@ -44,10 +35,6 @@ final class MobileTerminalInputRPCPipeline {
     /// connection-lifecycle clear().
     private var surfacesWithAmbiguousFailures: Set<String> = []
     private var generation = UUID()
-
-    private var totalUnsettledCount: Int {
-        entriesBySurfaceID.values.reduce(0) { $0 + $1.count }
-    }
 
     func hasUnsettledRequests(surfaceID: String) -> Bool {
         entriesBySurfaceID[surfaceID]?.isEmpty == false
@@ -63,14 +50,6 @@ final class MobileTerminalInputRPCPipeline {
         settlementHandler: @escaping SettlementHandler
     ) async throws {
         let enqueueGeneration = generation
-        while totalUnsettledCount >= Self.maximumUnsettledRequestCount {
-            await withCheckedContinuation { continuation in
-                capacityWaiters.append(continuation)
-            }
-            guard generation == enqueueGeneration else {
-                throw CancellationError()
-            }
-        }
         let request = try await makeRequest()
         guard generation == enqueueGeneration else {
             // clear() ran while makeRequest() was suspended, so this handle
@@ -127,7 +106,6 @@ final class MobileTerminalInputRPCPipeline {
             let request = entry.request
             Task { await request.abandon() }
         }
-        resumeCapacityWaiters()
         resumeAllSettledWaiters()
     }
 
@@ -167,10 +145,6 @@ final class MobileTerminalInputRPCPipeline {
             if !hasUnsettledRequests(surfaceID: surfaceID) {
                 resumeSettledWaiters(surfaceID: surfaceID)
             }
-            // One settlement frees exactly one slot; waking only the
-            // longest-parked producer keeps enqueue arrival order even if a
-            // second producer ever appears. clear() still wakes everyone.
-            resumeNextCapacityWaiter()
         }
         guard generation == reaperGeneration else { return }
         reaperTasksBySurfaceID[surfaceID] = nil
@@ -179,19 +153,6 @@ final class MobileTerminalInputRPCPipeline {
         } else {
             entriesBySurfaceID[surfaceID] = nil
             resumeSettledWaiters(surfaceID: surfaceID)
-        }
-    }
-
-    private func resumeNextCapacityWaiter() {
-        guard !capacityWaiters.isEmpty else { return }
-        capacityWaiters.removeFirst().resume()
-    }
-
-    private func resumeCapacityWaiters() {
-        let waiters = capacityWaiters
-        capacityWaiters = []
-        for waiter in waiters {
-            waiter.resume()
         }
     }
 
