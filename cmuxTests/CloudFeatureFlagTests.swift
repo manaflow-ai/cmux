@@ -13,29 +13,59 @@ import Testing
 struct CloudFeatureFlagTests {
 
     #if DEBUG
+    @Test("Every recognized DEBUG bundle keeps Cloud on despite remote or local off values")
+    func debugCloudIsAlwaysOn() throws {
+        let suite = "cmux.cloud.debug.always-on.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let definition = CmuxFeatureFlags.cloudMachinesFlag
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            overrideCapability: .init(
+                bundleIdentifier: "com.cmuxterm.app.debug.cloud",
+                isDebugBuild: true
+            ),
+            remoteFlagValueProvider: { _ in false }
+        )
+        flags.applyLoadedFlags()
+        #expect(flags.isCloudMachinesEnabled)
+        #expect(flags.overrideValue(for: definition) == true)
+        flags.setOverride(false, for: definition)
+        flags.setOverride(nil, for: definition)
+        flags.clearAllOverrides()
+        #expect(flags.isCloudMachinesEnabled)
+    }
+
     @Test("A Debug Cloud override enables the remote-disabled availability observer immediately")
     func dogfoodOverrideReopensCloud() throws {
         let suite = "cmux.cloud.dogfood.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let definition = CmuxFeatureFlags.cloudMachinesFlag
-        let flags = CmuxFeatureFlags(defaults: defaults, remoteFlagValueProvider: { _ in false })
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            overrideCapability: .init(
+                bundleIdentifier: "com.cmuxterm.app.debug.cloud",
+                isDebugBuild: true
+            ),
+            remoteFlagValueProvider: { _ in false }
+        )
         flags.applyLoadedFlags()
         var transitions: [Bool] = []
         let observer = CloudFeatureAvailabilityObserver(
             isEnabled: { flags.isCloudMachinesEnabled },
             didChange: { transitions.append($0) }
         )
-        #expect(transitions == [false])
+        #expect(transitions == [true])
 
         flags.setOverride(true, for: definition)
         #expect(flags.isCloudMachinesEnabled)
         #expect(flags.overrideValue(for: definition) == true)
-        #expect(transitions == [false, true])
+        #expect(transitions == [true])
 
         flags.setOverride(nil, for: definition)
-        #expect(!flags.isCloudMachinesEnabled)
-        #expect(transitions == [false, true, false])
+        #expect(flags.isCloudMachinesEnabled)
+        #expect(transitions == [true])
         withExtendedLifetime(observer) {}
     }
     #endif

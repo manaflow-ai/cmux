@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.cmux.invalid/iroh-v2/V2WorkspaceSnapshotResponse.json",
+  "type": "object",
+  "properties": {
+    "schemaId": {
+      "type": "string",
+      "const": "workspace.snapshot.result.v1"
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "vmId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "generation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "workspaces": {
+          "maxItems": 4096,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "focused": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "index",
+              "focused"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "terminals": {
+          "maxItems": 16384,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 512
+              },
+              "workspaceId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cwd": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 4096
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "agent": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "workspaceId",
+              "cwd",
+              "agent"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "workspaces",
+        "terminals"
+      ],
+      "additionalProperties": false
+    },
+    "deliveryReceipt": {
+      "allOf": [
+        {
+          "$ref": "https://contracts.cmux.invalid/iroh-v2/V2DeliveryReceipt.json"
+        }
+      ]
+    }
+  },
+  "required": [
+    "schemaId",
+    "requestId",
+    "vmId",
+    "generation",
+    "revision",
+    "snapshot"
+  ],
+  "additionalProperties": false
+}

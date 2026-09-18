@@ -1,10 +1,10 @@
-import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 import { CliAuthConfirmation, type CliAuthIdentityMessages } from "../cli-auth-confirmation";
+import { ClientMagicLinkSignIn, ClientStackHandler } from "../stack-handler-client";
 import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
 import { loadMessages } from "../../../i18n/messages";
 
@@ -30,33 +30,11 @@ export default async function StackHandlerPage(
     stack.length === 1 &&
     stack[0] === "sign-in";
 
-  const handlerContent = stack.length === 1 && stack[0] === "cli-auth-confirm" ? (
-    <CliAuthConfirmation
-      fullPage
-      identityMessages={(await loadMessages(preferredLocaleFromAcceptLanguage(
+  const identityMessages = stack.length === 1 && stack[0] === "cli-auth-confirm"
+    ? (await loadMessages(preferredLocaleFromAcceptLanguage(
         requestHeaders.get("accept-language") ?? "",
-      ))).cliAuthIdentity as CliAuthIdentityMessages}
-    />
-  ) : isCoderouterSignIn ? (
-    // The shared cmux Google connector requests Drive, Gmail, and Calendar
-    // scopes for optional integrations. Those scopes are inappropriate for
-    // coderouter authentication, so coderouter deliberately offers
-    // passwordless email only.
-    <main className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-6 text-[#25231f]">
-      <section className="w-full max-w-sm border border-[#ded9cf] bg-white p-7 shadow-[4px_4px_0_#eee8dc]">
-        <p className="mb-2 font-mono text-xs lowercase tracking-[0.16em] text-[#9a5b22]">
-          coderouter
-        </p>
-        <h1 className="mb-2 text-xl font-medium">sign in</h1>
-        <p className="mb-6 text-sm leading-6 text-[#6f6a61]">
-          use your cmux account email. we’ll send a one-time code.
-        </p>
-        <MagicLinkSignIn />
-      </section>
-    </main>
-  ) : (
-    <StackHandler fullPage app={stackServerApp} params={props.params} />
-  );
+      ))).cliAuthIdentity as CliAuthIdentityMessages
+    : null;
 
   // Stack handler pages use client hooks for session and query state. Keep the
   // complete handler, including custom host variants, behind one boundary so
@@ -64,9 +42,53 @@ export default async function StackHandlerPage(
   // a missing-boundary error.
   return (
     <Suspense fallback={<StackHandlerLoading />}>
-      {handlerContent}
+      <StackHandlerContent
+        isCliAuthConfirmation={stack.length === 1 && stack[0] === "cli-auth-confirm"}
+        isCoderouterSignIn={isCoderouterSignIn}
+        identityMessages={identityMessages}
+      />
     </Suspense>
   );
+}
+
+function StackHandlerContent({
+  isCliAuthConfirmation,
+  isCoderouterSignIn,
+  identityMessages,
+}: {
+  isCliAuthConfirmation: boolean;
+  isCoderouterSignIn: boolean;
+  identityMessages: CliAuthIdentityMessages | null;
+}) {
+  if (isCliAuthConfirmation) {
+    return (
+      <CliAuthConfirmation
+        fullPage
+        identityMessages={identityMessages as CliAuthIdentityMessages}
+      />
+    );
+  }
+  if (isCoderouterSignIn) {
+    // The shared cmux Google connector requests Drive, Gmail, and Calendar
+    // scopes for optional integrations. Those scopes are inappropriate for
+    // coderouter authentication, so coderouter deliberately offers
+    // passwordless email only.
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#faf9f6] px-6 text-[#25231f]">
+        <section className="w-full max-w-sm border border-[#ded9cf] bg-white p-7 shadow-[4px_4px_0_#eee8dc]">
+          <p className="mb-2 font-mono text-xs lowercase tracking-[0.16em] text-[#9a5b22]">
+            coderouter
+          </p>
+          <h1 className="mb-2 text-xl font-medium">sign in</h1>
+          <p className="mb-6 text-sm leading-6 text-[#6f6a61]">
+            use your cmux account email. we’ll send a one-time code.
+          </p>
+          <ClientMagicLinkSignIn />
+        </section>
+      </main>
+    );
+  }
+  return <ClientStackHandler />;
 }
 
 function StackHandlerLoading() {

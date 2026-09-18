@@ -16,6 +16,7 @@ public actor V2ControlService {
     var failure: V2ControlFailure?
     var sequence: UInt64 = 0
     var observers: [UUID: AsyncStream<V2ControlSnapshot>.Continuation] = [:]
+    var workspaceObservers: [UUID: AsyncStream<V2WorkspaceSnapshotResponse>.Continuation] = [:]
     var runID: UUID?
     var runTask: Task<Void, Never>?
     var socketID: UUID?
@@ -87,6 +88,18 @@ public actor V2ControlService {
         return pair.stream
     }
 
+    /// Subscribes to authoritative workspace snapshots fetched after a team
+    /// workspace change notification. The stream keeps only the newest snapshot.
+    public func workspaceEvents() -> AsyncStream<V2WorkspaceSnapshotResponse> {
+        let id = UUID()
+        let pair = AsyncStream<V2WorkspaceSnapshotResponse>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        pair.continuation.onTermination = { [weak self] _ in
+            Task { await self?.removeWorkspaceObserver(id) }
+        }
+        workspaceObservers[id] = pair.continuation
+        return pair.stream
+    }
+
     /// Reads current values without conflating control connectivity with peer connectivity.
     /// - Returns: A complete snapshot in this service's identity scope.
     public func snapshot() -> V2ControlSnapshot {
@@ -155,7 +168,12 @@ public actor V2ControlService {
         for observer in observers.values { observer.yield(value) }
     }
 
+    func publishWorkspace(_ response: V2WorkspaceSnapshotResponse) {
+        for observer in workspaceObservers.values { observer.yield(response) }
+    }
+
     private func removeObserver(_ id: UUID) { observers.removeValue(forKey: id) }
+    private func removeWorkspaceObserver(_ id: UUID) { workspaceObservers.removeValue(forKey: id) }
 
     func assertCurrent(_ run: UUID) throws {
         guard runID == run, !Task.isCancelled else { throw V2ControlFailure.stopped }

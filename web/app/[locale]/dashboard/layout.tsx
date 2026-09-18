@@ -16,19 +16,20 @@ import {
 } from "./dashboard-account-menu";
 import { DashboardShell } from "./dashboard-shell";
 
-// The shell is static. Every session read sits behind its own Suspense
-// boundary, so navigations into and between dashboard pages paint the
-// sidebar and page frames from the prefetched app shell.
-export const instant = true;
+// A dashboard shell must never stream to a signed-out visitor. The auth guard
+// runs before the shell so an expired cookie redirects without a visible flash.
+export const instant = false;
 
-export default function DashboardLayout({
+export default async function DashboardLayout({
   children,
   params,
 }: {
   children: React.ReactNode;
   params: Promise<{ locale: string }>;
 }) {
+  const { locale } = await params;
   if (!isStackConfigured()) redirect("/");
+  await DashboardSessionGuard({ locale });
 
   return (
     <StackProvider app={getStackServerApp()}>
@@ -42,9 +43,6 @@ export default function DashboardLayout({
               </Suspense>
             }
           >
-            <Suspense fallback={null}>
-              <DashboardSessionGuard params={params} />
-            </Suspense>
             {children}
           </DashboardShell>
         </DashboardQueryProvider>
@@ -64,8 +62,7 @@ async function DashboardAccountSlot() {
 // Middleware already turns away requests with no session cookie. This covers
 // a cookie whose session Stack rejects, for pages with no private section of
 // their own, without holding the page content behind the check.
-async function DashboardSessionGuard({ params }: { params: Promise<{ locale: string }> }) {
-  const { locale } = await params;
+async function DashboardSessionGuard({ locale }: { locale: string }) {
   try {
     await requireDashboardUser(locale, await dashboardReturnPath());
   } catch (error) {

@@ -13,6 +13,21 @@ const services = {
 };
 
 describe("Dashboard browser bootstrap", () => {
+  test("answers the browser preflight with the approved origin and headers", async () => {
+    const response = await routeDashboard(new Request("https://worker/v2/dashboard/session", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://cmux.com",
+        "access-control-request-method": "POST",
+        "access-control-request-headers": "authorization, content-type",
+      },
+    }), services);
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe("https://cmux.com");
+    expect(response.headers.get("access-control-allow-methods")).toBe("POST");
+    expect(response.headers.get("access-control-allow-headers")).toBe("authorization, content-type");
+  });
+
   test("allows only the configured origin and returns a scoped ticket", async () => {
     calls.length = 0;
     const requestId = "dashboard-open";
@@ -49,5 +64,21 @@ describe("Dashboard browser bootstrap", () => {
     expect(calls[calls.length - 1]?.headers.get("x-cmux-v2-dashboard-authority")).toContain("team");
     expect(calls[calls.length - 1]?.url.includes(token)).toBe(false);
     expect(calls[calls.length - 1]?.headers.get("x-cmux-v2-dashboard-authority")).toContain("team");
+  });
+
+  test("preserves an immutable Durable Object WebSocket upgrade", async () => {
+    const ready = await routeDashboard(new Request("https://worker/v2/dashboard/session", {
+      method: "POST", headers: { origin: "https://cmux.com", authorization: "Bearer stack", "content-type": "application/json" },
+      body: JSON.stringify({ schemaId: "dashboard.open.v1", requestId: "upgrade-ticket", environment: "staging", projectId: "project", teamId: "team", userId: "user", clientInstanceId: "tab" }),
+    }), services);
+    const token = (await ready.json() as any).ticket.token;
+    const upgrade = {
+      status: 101,
+      headers: { set: () => { throw new TypeError("Can't modify immutable headers"); } },
+    } as unknown as Response;
+    const response = await routeDashboard(new Request("https://worker/v2/dashboard/socket", {
+      headers: { origin: "https://cmux.com", upgrade: "websocket", "sec-websocket-protocol": `cmux-v2-dashboard, ticket.${token}` },
+    }), { ...services, dispatchTeam: async () => upgrade });
+    expect(response).toBe(upgrade);
   });
 });
