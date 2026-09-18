@@ -8,6 +8,7 @@ Behaviour per prompt text:
 """
 import json
 import sys
+import os
 import threading
 import time
 
@@ -70,6 +71,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "die: X" prints X on stderr and exits without answering, like a
+    # launcher that fails before the harness starts.
+    if text.startswith("die:"):
+        sys.stderr.write(text[4:].strip() + "\n")
+        sys.stderr.flush()
+        os._exit(3)
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
         return

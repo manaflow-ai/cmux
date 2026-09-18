@@ -65,12 +65,21 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                             let _ = peer.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await;
                         }
                     }
-                    let mut result = peer.request(m, p).await?;
+                    let mut result = peer.request(m, p).await.map_err(|e| {
+                        if e.message.contains("Method not found") {
+                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                        } else {
+                            e
+                        }
+                    })?;
                     if m == method::SESSION_FORK {
                         if let Some(new_id) = result.get("sessionId").and_then(Value::as_str) {
                             attach(hub, conn, new_id);
                             peer.mark_attached(new_id);
                         }
+                    }
+                    if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
+                        hub.forget_remote(&id);
                     }
                     if let Some(obj) = result.as_object_mut() {
                         obj.insert("peer".into(), Value::String(peer.name.clone()));
@@ -94,7 +103,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "extensions": [
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_AGENTS, method::MUX_ATTACH,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
@@ -123,7 +132,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                     return Ok(result);
                 }
             }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()));
             let meta = mux_meta(&params);
             let agent = meta
                 .and_then(|m| m.get("agent"))

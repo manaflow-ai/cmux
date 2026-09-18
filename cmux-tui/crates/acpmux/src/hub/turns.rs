@@ -62,6 +62,7 @@ impl Hub {
             prompt_preview: short_text(&text, 200),
         });
         self.append(session, "mux", "user_message", json!({"text": text, "client": client}));
+        session.stderr_tail.lock().unwrap().clear();
         let turn_seq = self.append(session, "mux", "turn_started", json!({"prompt": short_text(&text, 200), "client": client})).seq;
         self.set_status(session, SessionStatus::Running);
         let mut result = child
@@ -90,6 +91,16 @@ impl Hub {
             }
         }
         *session.turn.lock().unwrap() = None;
+        // A process that died without answering: say what it printed last.
+        if let Err(e) = &mut result {
+            if e.message == "agent process closed" {
+                let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
+                if let Some(last) = tail.iter().rev().find(|l| !l.trim().is_empty()) {
+                    let agent = session.meta().agent;
+                    e.message = format!("agent process closed ({agent}): {}", last.trim());
+                }
+            }
+        }
         match &result {
             Ok(v) => {
                 let stop = v.get("stopReason").cloned().unwrap_or(Value::Null);
@@ -417,6 +428,12 @@ impl Hub {
         if purge {
             session.purged.store(true, Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
+            // Tell watchers (peers, TUIs) the session is gone.
+            let _ = self.events.send(HubEvent {
+                session_id: session.id.clone(),
+                record: EventRecord { seq: session.meta().last_seq + 1, at: now_ms(), dir: "mux".into(), kind: "purged".into(), msg: json!({"sessionId": session.id}) },
+                remote: None,
+            });
             self.store
                 .delete(&session.id)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
@@ -444,11 +461,18 @@ impl Hub {
 
 }
 
-/// Does an agent error mean the account is out of quota, not that the
-/// prompt was wrong? Matches Claude's limit messages and common API ones.
+/// Does an agent error mean the account cannot serve, not that the prompt
+/// was wrong? Usage and rate limits, and missing or rejected credentials:
+/// all of them are solved by another account, which the fallback provides.
 pub fn is_limit_error(message: &str) -> bool {
     let m = message.to_lowercase();
-    (m.contains("reached your") && m.contains("limit"))
+    m.contains("not logged in")
+        || m.contains("/login")
+        || m.contains("unauthorized")
+        || m.contains("authentication")
+        || m.contains("invalid api key")
+        || m.contains("401")
+        || (m.contains("reached your") && m.contains("limit"))
         || m.contains("usage limit")
         || m.contains("rate limit")
         || m.contains("rate_limit")
@@ -466,6 +490,7 @@ mod limit_tests {
         assert!(super::is_limit_error("You've reached your Fable limit. Switch to another model"));
         assert!(super::is_limit_error("rate_limit_error: too many requests"));
         assert!(super::is_limit_error("HTTP 429 overloaded"));
+        assert!(super::is_limit_error("Not logged in · Please run /login"));
         assert!(!super::is_limit_error("simulated internal error"));
         assert!(!super::is_limit_error("permission denied"));
     }

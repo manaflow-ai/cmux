@@ -21,6 +21,13 @@ impl Hub {
                 Inbound::Stderr(line) => {
                     let line = short_text(&line, 4000);
                     tracing::debug!(session = %session.id, "stderr: {line}");
+                    if !line.trim().is_empty() {
+                        let mut tail = session.stderr_tail.lock().unwrap();
+                        if tail.len() >= 6 {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line.clone());
+                    }
                     self.append(&session, "mux", "stderr", json!({"text": line}));
                 }
                 Inbound::Exited(code) => {

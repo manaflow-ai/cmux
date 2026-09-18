@@ -7,7 +7,7 @@ mod cli;
 use cli::run::run_client;
 
 #[derive(Parser)]
-#[command(name = "acpmux", version, about = "tmux for ACP agents", long_about = None)]
+#[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for ACP agents", long_about = None)]
 struct Cli {
     /// Print raw JSON instead of text.
     #[arg(long, global = true)]
@@ -61,6 +61,9 @@ enum Command {
         name: String,
         #[arg(long, short)]
         agent: Option<String>,
+        /// Create on this peer when missing.
+        #[arg(long)]
+        host: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
         #[arg(long)]
@@ -324,6 +327,23 @@ enum PeerCmd {
     Ls,
     /// Remove a peer.
     Rm { name: String },
+    /// Install this binary and a daemon on a machine over ssh, then add it as a peer.
+    Setup {
+        /// ssh target, e.g. cmux-lawrence or user@host
+        host: String,
+        /// Peer name (default: the host's first label).
+        #[arg(long)]
+        name: Option<String>,
+        /// Port the remote daemon listens on (loopback; tunnelled over ssh).
+        #[arg(long, default_value_t = 47811)]
+        port: u16,
+    },
+    /// Copy this binary to an ssh peer (or every one with --all) and restart its daemon.
+    Update {
+        name: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Args)]
@@ -331,6 +351,9 @@ struct NewArgs {
     /// Agent profile name (codex, claude, ...). Defaults to the configured default.
     #[arg(long, short)]
     agent: Option<String>,
+    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
+    #[arg(long)]
+    host: Option<String>,
     /// Session name. Generated when omitted.
     #[arg(long, short)]
     name: Option<String>,

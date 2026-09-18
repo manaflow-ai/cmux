@@ -27,6 +27,8 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Git hash and date stamped at build time (see build.rs).
+pub const BUILD: &str = env!("ACPMUX_BUILD");
 
 /// Fan-out item: one appended record for one session. `remote` carries the
 /// peer name and the peer's session summary when the session lives elsewhere.
@@ -87,6 +89,9 @@ pub struct Session {
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
     pub(super) attached: std::sync::atomic::AtomicUsize,
+    /// Last stderr lines of the current turn, quoted when the agent
+    /// process dies without an answer ("Not logged in", a launcher error).
+    pub(super) stderr_tail: StdMutex<std::collections::VecDeque<String>>,
 }
 
 impl Session {
@@ -242,6 +247,7 @@ impl Hub {
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
+            stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
         })
     }
 

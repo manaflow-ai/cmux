@@ -109,6 +109,15 @@ impl Hub {
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
                     let Some(id) = session.get("sessionId").and_then(Value::as_str).map(str::to_owned) else { continue };
+                    if kind == "purged" {
+                        self.remote_sessions.lock().unwrap().remove(&id);
+                        let _ = self.events.send(HubEvent {
+                            session_id: id,
+                            record: EventRecord { seq, at: now_ms(), dir: "peer".into(), kind, msg: Value::Null },
+                            remote: Some(RemoteRef { peer: peer.clone(), summary: json!({"sessionId": session.get("sessionId")}) }),
+                        });
+                        continue;
+                    }
                     let summary = Self::remote_summary(&peer, session);
                     self.remote_sessions.lock().unwrap().insert(id.clone(), RemoteSession { peer: peer.clone(), summary: summary.clone() });
                     let _ = self.events.send(HubEvent {
@@ -164,6 +173,12 @@ impl Hub {
         let (peer_name, id, summary) = hit?;
         let peer = self.peer(&peer_name)?;
         Some((peer, id, summary))
+    }
+
+    /// A remote session was deleted through us: drop it now rather than at
+    /// the next reconnect.
+    pub fn forget_remote(&self, id: &str) {
+        self.remote_sessions.lock().unwrap().remove(id);
     }
 
     pub fn remote_sessions(&self) -> Vec<Value> {

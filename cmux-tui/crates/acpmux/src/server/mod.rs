@@ -343,6 +343,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             }
             return;
         }
+        if rec.dir == "mux" && rec.kind == "purged" {
+            conn.send(&Message::notification(method::MUX_SESSION_CHANGED, json!({"session": {"sessionId": ev.session_id}, "kind": "purged", "seq": rec.seq})));
+            return;
+        }
         if rec.dir == "mux"
             && matches!(
                 rec.kind.as_str(),

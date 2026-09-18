@@ -70,6 +70,7 @@ impl Hub {
         }
         json!({
             "version": VERSION,
+            "build": BUILD,
             "pid": std::process::id(),
             "startedAt": self.started_at,
             "home": crate::config::home(),

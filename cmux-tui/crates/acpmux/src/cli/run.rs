@@ -22,7 +22,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             };
             orchestrate::wait(client, orchestrate::WaitOpts { sessions, until, all, timeout, print, notify, matcher }, json_out).await
         }
-        Command::Ensure { name, agent, cwd, policy, model, effort } => orchestrate::ensure(connect(true).await?, &name, agent, cwd, policy, model, effort, json_out).await,
+        Command::Ensure { name, agent, host, cwd, policy, model, effort } => orchestrate::ensure(connect(true).await?, &name, agent, host, cwd, policy, model, effort, json_out).await,
         Command::History { session, limit } => orchestrate::history(connect(true).await?, &session, limit, json_out).await,
         Command::TagCmd { session, assignments, remove, ttl } => orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out).await,
         Command::RulesCmd { session, rules, clear } => orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await,
@@ -151,20 +151,30 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             if let Some(n) = &args.name {
                 acpmux::session_name::validate(n).map_err(|e| anyhow!(e))?;
             }
-            let cwd = args.cwd.unwrap_or(std::env::current_dir()?);
             let mut meta = json!({});
             if let Some(a) = &args.agent {
                 meta["agent"] = json!(a);
             }
+            if let Some(h) = &args.host {
+                meta["peer"] = json!(h);
+            }
+            // On a peer the directory is a remote path; leave it to the
+            // remote daemon (its home) unless given.
+            let cwd: Option<PathBuf> = match (&args.host, args.cwd) {
+                (Some(_), c) => c,
+                (None, c) => Some(c.unwrap_or(std::env::current_dir()?)),
+            };
             if let Some(n) = &args.name {
                 meta["name"] = json!(n);
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
             }
-            let v = client
-                .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}))
-                .await?;
+            let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+            if let Some(c) = cwd {
+                p["cwd"] = json!(c);
+            }
+            let v = client.request(method::SESSION_NEW, p).await?;
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             let name = v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
             if let Some(m) = &args.model {
@@ -175,7 +185,8 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             let one_shot = !args.prompt.is_empty() && (args.quiet || json_out);
             if json_out && !one_shot {
-                print_json(&v);
+                let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap_or(v.clone());
+                print_json(&info);
             } else if !one_shot {
                 println!("created {name} ({})", &id[..8.min(id.len())]);
             }
@@ -367,7 +378,25 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let mut p = json!({"sessionId": id});
             if let Some(d) = dest { p["dest"] = json!(std::path::absolute(d)?); }
             let v = client.request(method::MUX_EXPORT, p).await?;
-            if json_out { print_json(&v) } else { println!("{}", v.get("path").and_then(Value::as_str).unwrap_or("")) }
+            // A bundle made on an ssh peer is fetched here with scp.
+            let mut out = v.clone();
+            if let Some(peer) = v.get("peer").and_then(Value::as_str) {
+                let peers = client.request("_acpmux/peers", json!({})).await?;
+                let url = peers.get("peers").and_then(Value::as_array).and_then(|a| a.iter().find(|x| x.get("name").and_then(Value::as_str) == Some(peer))).and_then(|x| x.get("url").and_then(Value::as_str)).unwrap_or("").to_owned();
+                if let Some(host) = url.strip_prefix("ssh://").map(|h| h.rsplit_once(':').map(|(h, _)| h).unwrap_or(h)) {
+                    let remote_path = v.get("path").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let local = acpmux::config::home().join("bundles").join(format!("{peer}-{}", std::path::Path::new(&remote_path).file_name().and_then(|f| f.to_str()).unwrap_or("bundle")));
+                    std::fs::create_dir_all(local.parent().unwrap())?;
+                    let status = std::process::Command::new("scp").args(["-rq", "-o", "BatchMode=yes", &format!("{host}:{remote_path}"), &local.to_string_lossy()]).status()?;
+                    if status.success() {
+                        out["remotePath"] = json!(remote_path);
+                        out["path"] = json!(local);
+                    } else {
+                        eprintln!("acpmux: bundle stays on {peer} at {remote_path} (scp failed)");
+                    }
+                }
+            }
+            if json_out { print_json(&out) } else { println!("{}", out.get("path").and_then(Value::as_str).unwrap_or("")) }
             Ok(())
         }
         Command::Import { path, name } => {
@@ -465,6 +494,8 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
                 PeerCmd::Rm { name } => client.request("_acpmux/peer_remove", json!({"name": name})).await?,
+                PeerCmd::Setup { host, name, port } => return crate::cli::hosts::setup(client, &host, name, port, json_out).await,
+                PeerCmd::Update { name, all } => return crate::cli::hosts::update(client, name, all, json_out).await,
             };
             if json_out { print_json(&v); return Ok(()); }
             let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -473,12 +504,16 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             for p in peers {
                 let connected = p.get("connected").and_then(Value::as_bool).unwrap_or(false);
+                let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
+                let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
-                    "{:<16} {:<10} {:>3} sessions  {}{}",
+                    "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
                     if connected { "connected" } else { "offline" },
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                     p.get("url").and_then(Value::as_str).unwrap_or(""),
+                    if build.is_empty() { String::new() } else { format!("build {build}") },
+                    if outdated { "  (differs from this build: acpmux host update NAME)" } else { "" },
                     p.get("error").and_then(Value::as_str).map(|e| format!("  ({e})")).unwrap_or_default(),
                 );
             }

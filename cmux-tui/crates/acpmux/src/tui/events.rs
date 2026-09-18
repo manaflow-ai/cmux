@@ -29,12 +29,25 @@ impl App {
             method::MUX_SESSION_CHANGED => {
                 if let Some(s) = p.get("session") {
                     let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                    if p.get("kind").and_then(Value::as_str) == Some("purged") {
+                        self.sessions.retain(|x| x.get("sessionId").and_then(Value::as_str) != Some(&id));
+                        self.transcripts.remove(&id);
+                        self.attention.remove(&id);
+                        self.selected = self.selected.min(self.row_count().saturating_sub(1));
+                        return;
+                    }
                     if let Some(slot) = self.sessions.iter_mut().find(|x| x.get("sessionId").and_then(Value::as_str) == Some(&id)) {
                         *slot = s.clone();
                     } else {
                         self.sessions.push(s.clone());
                     }
                     self.sort_sessions();
+                    // The bar said a permission was needed: clear it once nobody waits.
+                    if self.status.starts_with("permission needed in")
+                        && !self.sessions.iter().any(|x| x.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0)
+                    {
+                        self.status = super::DEFAULT_STATUS.into();
+                    }
                 }
             }
             method::MUX_PERMISSION_PENDING => {

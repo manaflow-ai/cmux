@@ -399,3 +399,18 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     assert_eq!(ok["stopReason"], "end_turn");
     assert_eq!(hub.session_summary(&session)["preview"], "echo: after");
 }
+
+#[tokio::test]
+async fn process_death_quotes_the_last_stderr_line() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "die"}}})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let r = c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "die: Not logged in · Please run /login"}]})).await;
+    let err = r.unwrap_err();
+    assert!(err.contains("agent process closed (fake): Not logged in"), "{err}");
+    let session = hub.resolve(&id).unwrap();
+    let last = hub.events(&id, 0, 1000).unwrap().into_iter().filter(|e| e.kind == "turn_result").last().unwrap();
+    assert_eq!(last.msg["status"], "failed");
+    assert!(last.msg["error"].as_str().unwrap().contains("Not logged in"));
+    assert_eq!(hub.session_summary(&session)["status"], "disconnected");
+}

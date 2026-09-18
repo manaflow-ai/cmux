@@ -36,6 +36,8 @@ pub struct Peer {
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
     pub connected: AtomicBool,
     pub last_error: StdMutex<Option<String>>,
+    /// Version and build the peer reported at handshake.
+    pub remote_version: StdMutex<Option<(String, String)>>,
     attached: StdMutex<HashSet<String>>,
     notices: mpsc::Sender<(String, PeerNotice)>,
     stop: AtomicBool,
@@ -65,6 +67,7 @@ impl Peer {
             pending: Arc::new(Mutex::new(HashMap::new())),
             connected: AtomicBool::new(false),
             last_error: StdMutex::new(None),
+            remote_version: StdMutex::new(None),
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
@@ -152,12 +155,20 @@ impl Peer {
             .ok_or_else(|| format!("remote {host} config has no websocket token"))
     }
 
+    pub fn remote_build(&self) -> Option<String> {
+        self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone())
+    }
+
     pub fn summary(&self) -> Value {
         json!({
             "name": self.name,
             "url": self.url,
             "connected": self.connected.load(Ordering::SeqCst),
             "error": self.last_error.lock().unwrap().clone(),
+            "remoteVersion": self.remote_version.lock().unwrap().as_ref().map(|(v, _)| v.clone()),
+            "remoteBuild": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone()),
+            "localBuild": crate::hub::BUILD,
+            "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
         })
     }
 
@@ -243,11 +254,15 @@ impl Peer {
         // Handshake in a task so the read loop below can serve the responses.
         let me = self.clone();
         let handshake = tokio::spawn(async move {
-            me.request(
-                method::INITIALIZE,
-                json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-peer", "version": crate::hub::VERSION}}),
-            )
-            .await?;
+            let init = me
+                .request(
+                    method::INITIALIZE,
+                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-peer", "version": crate::hub::VERSION}}),
+                )
+                .await?;
+            let v = init.pointer("/_meta/acpmux/version").and_then(Value::as_str).unwrap_or("?").to_owned();
+            let b = init.pointer("/_meta/acpmux/build").and_then(Value::as_str).unwrap_or("unknown").to_owned();
+            *me.remote_version.lock().unwrap() = Some((v, b));
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
             let _ = me.notices.send((me.name.clone(), PeerNotice::Sessions(sessions))).await;

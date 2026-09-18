@@ -203,14 +203,14 @@ async fn wait_match(client: Arc<Client>, ids: &[(String, String)], matcher: &Mat
 }
 
 /// `acpmux ensure NAME`: the session if it exists, else create it.
-pub(crate) async fn ensure(client: Arc<Client>, name: &str, agent: Option<String>, cwd: Option<std::path::PathBuf>, policy: Option<String>, model: Option<String>, effort: Option<String>, json_out: bool) -> Result<()> {
+pub(crate) async fn ensure(client: Arc<Client>, name: &str, agent: Option<String>, host: Option<String>, cwd: Option<std::path::PathBuf>, policy: Option<String>, model: Option<String>, effort: Option<String>, json_out: bool) -> Result<()> {
     acpmux::session_name::validate(name).map_err(|e| AppError::usage(e))?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
-    let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| a.iter().find(|s| s.get("name").and_then(Value::as_str) == Some(name)).cloned());
+    let full = match &host { Some(h) => format!("{h}/{name}"), None => name.to_owned() };
+    let found = existing.get("sessions").and_then(Value::as_array).and_then(|a| a.iter().find(|s| s.get("name").and_then(Value::as_str) == Some(full.as_str())).cloned());
     let (v, created) = match found {
         Some(s) => (s, false),
         None => {
-            let cwd = cwd.unwrap_or(std::env::current_dir()?);
             let mut meta = json!({"name": name});
             if let Some(a) = &agent {
                 meta["agent"] = json!(a);
@@ -218,7 +218,16 @@ pub(crate) async fn ensure(client: Arc<Client>, name: &str, agent: Option<String
             if let Some(p) = &policy {
                 meta["policy"] = json!(p);
             }
-            let v = client.request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}})).await?;
+            if let Some(h) = &host {
+                meta["peer"] = json!(h);
+            }
+            let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+            match (&host, cwd) {
+                (Some(_), Some(c)) => p["cwd"] = json!(c),
+                (Some(_), None) => {}
+                (None, c) => p["cwd"] = json!(c.unwrap_or(std::env::current_dir()?)),
+            }
+            let v = client.request(method::SESSION_NEW, p).await?;
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             if let Some(m) = &model {
                 client.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": m})).await?;

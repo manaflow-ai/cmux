@@ -64,7 +64,7 @@ Five everyday commands, three groups for the rest:
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open]` | Print the dashboard URL and open it. |
-| `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. URL is `ssh://host`, `ws://…`, or `wss://…`. |
+| `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|agents` | The daemon itself. |
 
@@ -246,19 +246,24 @@ A daemon can mirror other daemons. Add a peer and its sessions appear locally as
 `<peer>/<name>`. `ls`, `attach`, `send`, `fork`, `set`, `allow`, and the TUI all work on them; every
 request is forwarded over the peer's WebSocket and every event streams back.
 
-The simplest peer is an SSH host. acpmux opens and supervises the tunnel itself and reads the
-remote daemon's token over the same SSH access, so nothing is typed or copied:
+The simplest peer is an SSH host, and `host setup` does the whole install from the Mac:
 
 ```sh
-# on the remote (any Mac or Linux box you can ssh to)
-scp target/release/acpmux HOST:~/.local/bin/acpmux
-ssh HOST '~/.local/bin/acpmux daemon'          # or install it under launchd / systemd
-
-# on the Mac
-acpmux host add HOST ssh://HOST                # ssh://user@host:port also works
-acpmux ls                                      # HOST/session-name next to local sessions
-acpmux attach HOST/session-name                # or plain `acpmux attach` for the full sidebar
+acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
+acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
+acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux ls                              # HOST/session-name next to local sessions
+acpmux new -a claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
+acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
+acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>
 ```
+
+`acpmux --version` prints the build id (`git hash+dirty date`), and peers compare it in the
+initialize handshake, so a "Method not found" from a peer names the build gap instead of a
+missing feature. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
+(Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still
+work: `acpmux host add HOST ssh://HOST` (`ssh://user@host:port` is fine) reads the remote token
+over the same ssh access.
 
 Plain WebSocket peers work too, for hosts with a public address or an existing tunnel:
 
@@ -266,14 +271,22 @@ Plain WebSocket peers work too, for hosts with a public address or an existing t
 acpmux host add sandbox-a wss://sandbox-a.example.com:47811 --token "$TOKEN"
 ```
 
-Everything works on a peered session: `send`, the TUI, permission prompts, fork, model and
-mode changes. `Ctrl-t` from a peered session drafts a new session on that peer, and the
-`Ctrl-l` picker lists remote harnesses as `HOST/agent`, so picking one starts the session
-there. Peers reconnect with backoff, the tunnel included; while one is down its sessions show
-`unreachable`. Peers are saved in `config.json` under `peers`.
+Everything works on a peered session: `send`, `wait`, `history`, tags, rules, the TUI,
+permission prompts, fork, model and mode changes. `Ctrl-t` from a peered session drafts a new
+session on that peer, and the `Ctrl-l` picker lists remote harnesses as `HOST/agent`, so
+picking one starts the session there. Peers reconnect with backoff, the tunnel included; while
+one is down its sessions show `unreachable`, and a purge on either side removes the session
+everywhere. Peers are saved in `config.json` under `peers`.
 
-A remote daemon needs a logged-in agent. Claude Code keeps its login in the macOS keychain, so
-on a headless Mac run `claude` once in a terminal and log in before starting the daemon.
+A remote daemon needs a working agent. launchd starts the daemon with a bare environment, so
+the daemon reads the login shell's environment once at start (`zsh -lic env`) and fills in
+what launchd left out: PATH, `ANTHROPIC_*` proxies, tool settings. The same `claude` that works
+in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist turns this off,
+`=1` forces it for a daemon started by hand. Claude Code keeps its login in the macOS keychain,
+so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
+discovered `claude-sr` launcher is checked at daemon start (`sr claude proxy --version`) and
+dropped, with a log line, when the installed subrouter cannot run it; `claude` then has no
+fallback instead of failing over into a launcher that dies at once.
 
 ## Claude Code: native stdio backend
 

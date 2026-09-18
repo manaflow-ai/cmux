@@ -318,6 +318,56 @@ pub fn discover_agents() -> BTreeMap<String, AgentProfile> {
     agents
 }
 
+/// Drop discovered launcher profiles whose binary cannot actually run the
+/// harness: an older subrouter without `claude proxy`, or one whose proxy
+/// setup fails before Claude starts. Runs once at daemon start, so a
+/// `claude` session never fails over into a launcher that dies at once.
+pub fn verify_launchers(cfg: &mut Config) {
+    let candidates: Vec<(String, Vec<String>)> = cfg
+        .agents
+        .iter()
+        .filter(|(_, p)| p.argv.get(1).map(String::as_str) == Some("claude") && p.argv.get(2).map(String::as_str) == Some("proxy"))
+        .map(|(n, p)| (n.clone(), p.argv.clone()))
+        .collect();
+    for (name, argv) in candidates {
+        if let Err(reason) = launcher_ok(&argv) {
+            tracing::warn!(agent = %name, "launcher disabled: {reason}");
+            cfg.agents.remove(&name);
+            for p in cfg.agents.values_mut() {
+                if p.fallback.as_deref() == Some(name.as_str()) {
+                    p.fallback = None;
+                }
+            }
+        }
+    }
+}
+
+fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
+    let mut cmd = std::process::Command::new(&argv[0]);
+    cmd.args(&argv[1..]).arg("--version").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    scrub_nested_claude_env(&mut cmd);
+    let mut child = cmd.spawn().map_err(|e| format!("{}: {e}", argv[0]))?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(100)),
+            Ok(None) => {
+                let _ = child.kill();
+                return Err(format!("{} claude proxy --version did not finish in 20s", argv[0]));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_owned();
+    if !out.status.success() || first.starts_with("subrouter:") || text.to_lowercase().contains("unknown command") {
+        return Err(format!("`{} claude proxy --version` failed: {}", argv[0], if first.is_empty() { out.status.to_string() } else { first }));
+    }
+    Ok(())
+}
+
 fn which(bin: &str) -> Option<String> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
@@ -370,5 +420,37 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
         if key.starts_with("CLAUDE") || key.starts_with("ANTHROPIC_") || key.starts_with("CMUX_CLAUDE_") || key.starts_with("SUBROUTER_CLAUDE_") || key == "NODE_OPTIONS" {
             cmd.env_remove(&k);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn launcher_check_rejects_old_subrouter() {
+        let dir = std::env::temp_dir().join(format!("acpmux-launcher-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let old = dir.join("sr-old");
+        std::fs::write(&old, "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n").unwrap();
+        let broken = dir.join("sr-broken");
+        std::fs::write(&broken, "#!/bin/sh\necho 'subrouter: prepare shared Claude proxy history: file exists' >&2\nexit 0\n").unwrap();
+        let good = dir.join("sr-good");
+        std::fs::write(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n").unwrap();
+        for p in [&old, &broken, &good] {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let argv = |p: &std::path::Path| vec![p.to_string_lossy().into_owned(), "claude".into(), "proxy".into()];
+        assert!(launcher_ok(&argv(&old)).unwrap_err().contains("unknown command"));
+        assert!(launcher_ok(&argv(&broken)).unwrap_err().contains("prepare shared"));
+        assert!(launcher_ok(&argv(&good)).is_ok());
+        let mut cfg = Config::default();
+        cfg.agents.insert("claude-sr".into(), AgentProfile { kind: AgentKind::ClaudeStdio, argv: argv(&old), env: BTreeMap::new(), description: None, fallback: None });
+        cfg.agents.insert("claude".into(), AgentProfile { kind: AgentKind::ClaudeStdio, argv: vec!["claude".into()], env: BTreeMap::new(), description: None, fallback: Some("claude-sr".into()) });
+        verify_launchers(&mut cfg);
+        assert!(!cfg.agents.contains_key("claude-sr"));
+        assert_eq!(cfg.agents["claude"].fallback, None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

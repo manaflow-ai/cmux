@@ -4,6 +4,7 @@
 //! failure to one exit code and envelope.
 
 pub mod errors;
+pub mod hosts;
 pub mod orchestrate;
 pub mod output;
 pub mod run;
