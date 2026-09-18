@@ -71,8 +71,11 @@ function checkInterrupted(): void {
 // `[s]tart` keeps pgrep from matching this probe's own shell.
 const PROBE_COMMAND = "l=0; grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null && l=1; r=0; pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && r=1; echo \"$l $r\"";
 const WORK_USER_ENV = "setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty";
-const LOGIN_SHELL_MS = "s=$(date +%s%N); bash -lc true; e=$(date +%s%N); echo $(((e-s)/1000000))";
-const INTERACTIVE_PTY_MS = "s=$(date +%s%N); printf 'exit\\n' | timeout 25 script -q -e -c 'bash -il' /dev/null >/dev/null 2>&1; e=$(date +%s%N); echo $(((e-s)/1000000))";
+// Each wrapper prints the elapsed milliseconds and then exits with the
+// measured command's own status, so a shell that failed or was killed by
+// `timeout` is a failed sample, not a fast one.
+const LOGIN_SHELL_MS = "s=$(date +%s%N); bash -lc true; rc=$?; e=$(date +%s%N); echo $(((e-s)/1000000)); exit $rc";
+const INTERACTIVE_PTY_MS = "s=$(date +%s%N); printf 'exit\\n' | timeout 25 script -q -e -c 'bash -il' /dev/null >/dev/null 2>&1; rc=$?; e=$(date +%s%N); echo $(((e-s)/1000000)); exit $rc";
 
 async function timed<T>(run: () => Promise<T>): Promise<{ ms: number; value: T }> {
   const startedAt = performance.now();
@@ -157,7 +160,10 @@ async function createVm(vpcId: string | null, name: string) {
     // The run id in metadata is what exit-time reconciliation lists by, so a
     // create whose response was lost still gets its machine deleted.
     metadata: { cmux: "bench", run: runId },
-    firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !vpcId }) },
+    // Egress only, with or without a VPC: the baked daemon grants every link
+    // on its listener (trusted carrier), so it must never face the Internet,
+    // and this benchmark only ever reaches the guest through the exec API.
+    firewall: { rules: freestyleFirewallRules() },
     ...(vpcId ? { vpcs: [{ vpcId, ipv4: true, ipv6: true }] } : {}),
   }));
   return { allocMs: ms, vm: value.vm, vmId: value.vmId, data: value.data };

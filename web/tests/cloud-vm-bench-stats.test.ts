@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import {
   formatSummary,
+  ownerNetworkSlug,
   parseServerTiming,
   percentile,
   summarize,
   summarizeFields,
   summarizeStages,
 } from "../scripts/cloud-vm/benchStats.mjs";
+import { networkSlugForUser } from "../services/vms/privateNetwork";
 
 describe("percentile", () => {
   test("uses nearest rank on a sorted copy", () => {
@@ -84,6 +86,15 @@ describe("summarizeStages and summarizeFields", () => {
     expect(summary.createMs).toMatchObject({ n: 2, p50: 900, max: 1100 });
     expect(summary.attachMs).toMatchObject({ n: 1, p50: 700 });
     expect(summary.destroyMs).toEqual({ n: 0 });
+  });
+});
+
+describe("ownerNetworkSlug", () => {
+  test("derives the same provider slug as the application", () => {
+    for (const userId of ["user-1", "a6f2c1d0-3b4e-4f5a-9c8d-1e2f3a4b5c6d", ""]) {
+      expect(ownerNetworkSlug(userId)).toBe(networkSlugForUser(userId));
+    }
+    expect(ownerNetworkSlug("user-1")).toMatch(/^cmux-net-[0-9a-f]{32}$/);
   });
 });
 

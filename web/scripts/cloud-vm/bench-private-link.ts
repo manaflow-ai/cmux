@@ -53,7 +53,6 @@ const selection = resolveVmImage("freestyle", option("--image"), process.env, { 
 const image = selection.image;
 const PROMPT_PATTERN = "λ";
 const runId = randomUUID().slice(0, 8);
-const machineNamePrefix = `bench-link-${runId}-`;
 
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (error) => new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`) });
@@ -92,6 +91,13 @@ function terminalId(runOutput: string): string {
   return id;
 }
 
+/** `terminal … screen wait` answers `{matched:false}` with exit 0 when its timeout expires. */
+function requireMatched(waitOutput: string): void {
+  const parsed = JSON.parse(waitOutput) as Record<string, unknown>;
+  const value = (parsed.value as Record<string, unknown> | undefined) ?? parsed;
+  if (value.matched !== true) throw new Error("the prompt did not appear before the screen wait timed out");
+}
+
 function workspaceId(snapshot: string): string {
   const parsed = JSON.parse(snapshot) as { workspaces?: Array<{ id?: string; focused?: boolean }> };
   const workspaces = parsed.workspaces ?? [];
@@ -108,7 +114,7 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
     // destroy finalizer is registered atomically with the machine's id.
     const created = yield* timed(Effect.acquireRelease(
       attempt("provider.create", () => provider.create({
-        image, network: { id: networkId }, displayName: `${machineNamePrefix}${index}`, imageSize: selection.size ?? undefined,
+        image, network: { id: networkId }, displayName: `bench-link-${runId}-${index}`, imageSize: selection.size ?? undefined,
       })),
       (value) => Effect.gen(function* () {
         const destroyed = yield* timed(cleanup(`VM ${value.providerVmId}`, () => provider.destroy(value.providerVmId)));
@@ -137,6 +143,7 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
       const run = yield* timed(command(client, ["--socket", firstSocket, "--json", "workspace", workspace, "run", "--", "bash", "-l"], "workspace run"));
       const terminal = terminalId(run.value);
       const prompt = yield* timed(command(client, ["--socket", firstSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", PROMPT_PATTERN, "--timeout-ms", "60000"], "prompt wait", "70 seconds"));
+      requireMatched(prompt.value);
       return { linkMs: link.ms, snapshotMs: snapshot.ms, terminalRunMs: run.ms, promptWaitMs: prompt.ms, runToPromptMs: elapsedMs(runStartedAt) };
     }));
     Object.assign(trial, first);
@@ -151,15 +158,20 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
   }));
 }
 
-/** Destroys every machine named for this run that is still listed on the account. */
-function reconcileRunMachines(provider: FreestyleProvider) {
+/**
+ * Destroys every machine still attached to the benchmark's VPC. The driver
+ * names every machine "cmux Cloud VM", so the VPC (created by and only for
+ * this run) is the one identity the provider persists for them.
+ */
+function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
   return Effect.gen(function* () {
     const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
     const ids: string[] = [];
     for (let offset = 0; offset < 2_000; offset += 200) {
       const page = yield* attempt("list machines", () => sdk.vms.list({ metadata: "cmux:cloud", limit: 200, offset }));
       for (const data of page.vms) {
-        if (data.displayName?.startsWith(machineNamePrefix)) ids.push(data.id);
+        const networks = data.vpcs ?? data.networks ?? [];
+        if (networks.some((network) => (network.vpcId ?? network.vpc) === networkId)) ids.push(data.id);
       }
       if (page.vms.length < 200) break;
     }
@@ -190,8 +202,9 @@ function bench() {
     ));
     // Registered right after the VPC so it runs before the VPC delete: any
     // machine of this run that survived its own finalizer (a create whose
-    // response was lost) is found by name and destroyed.
-    yield* Effect.addFinalizer(() => reconcileRunMachines(provider));
+    // response was lost) is found by its membership in the benchmark-owned
+    // VPC and destroyed.
+    yield* Effect.addFinalizer(() => reconcileRunMachines(provider, network.value.id));
     const { privateKey, publicKey } = generateKeyPairSync("x25519");
     const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
     const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");

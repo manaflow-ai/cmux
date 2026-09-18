@@ -12,7 +12,7 @@ import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { elapsedMs, formatSummary, parseServerTiming, summarizeFields, summarizeStages } from "./benchStats.mjs";
+import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys } from "./projects.mjs";
 
 const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--skip-pause] [--skip-exec] [--edge-check] [--label <text>] [--out <file.json>]";
@@ -40,6 +40,8 @@ const ATTACH_BUDGET_MS = 180_000;
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
 const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@stackframe/js")).href);
+// ESM-only package (no require entry): resolved from this script's own tree.
+const { Freestyle, FreestyleApiError } = await import("freestyle");
 
 const env = loadTargetEnv(project);
 requireEnvKeys(env, ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", "STACK_SECRET_SERVER_KEY"], `${project.projectName} bench`);
@@ -250,23 +252,28 @@ async function runBatches() {
  * owns nothing else, so every listed machine is ours to destroy.
  */
 async function reconcileOwnedVms() {
-  try {
-    const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
-    if (list.status !== 200) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
+      if (list.status === 200) {
+        for (const vm of json(list.text).vms ?? []) {
+          if (typeof vm.id === "string" && vm.status !== "destroyed") liveVmIds.add(vm.id);
+        }
+        return true;
+      }
       console.error(`cleanup_list_failed status=${list.status}`);
-      return;
+    } catch (error) {
+      console.error(`cleanup_list_failed error=${error instanceof Error ? error.message : String(error)}`);
     }
-    for (const vm of json(list.text).vms ?? []) {
-      if (typeof vm.id === "string" && vm.status !== "destroyed") liveVmIds.add(vm.id);
-    }
-  } catch (error) {
-    console.error(`cleanup_list_failed error=${error instanceof Error ? error.message : String(error)}`);
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
+  return false;
 }
 
+/** True only when an authoritative fleet listing was read and every machine on it is gone. */
 async function destroyLeftovers() {
-  if (!authHeaders) return;
-  await reconcileOwnedVms();
+  if (!authHeaders) return true;
+  const verified = await reconcileOwnedVms();
   for (const vmId of [...liveVmIds]) {
     // Three attempts: a transient DELETE failure must not strand a machine.
     for (let attempt = 0; attempt < 3 && liveVmIds.has(vmId); attempt += 1) {
@@ -280,6 +287,62 @@ async function destroyLeftovers() {
       if (liveVmIds.has(vmId)) await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
   }
+  return verified && liveVmIds.size === 0;
+}
+
+/**
+ * Removes the throwaway user's owner network (the VPC its first create made)
+ * straight at the provider, by the same slug the application derives, with
+ * the deployment's provider key from the pulled environment. The fallback for
+ * an account deletion that failed after its own data cleanup; a 404 means the
+ * route (or nothing) already removed it.
+ */
+async function reapOwnerNetwork(userId) {
+  // A Vercel "sensitive" variable pulls as an empty string; the operator's
+  // own key (~/.secrets/cmux.env, the same provider account) covers that.
+  const apiKey = env.FREESTYLE_API_KEY?.trim() || process.env.FREESTYLE_API_KEY?.trim();
+  if (!apiKey) {
+    console.error("cleanup_network_skipped=no FREESTYLE_API_KEY in the target environment or the process environment");
+    return false;
+  }
+  const slug = ownerNetworkSlug(userId);
+  const provider = new Freestyle({ apiKey });
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    try {
+      await provider.vpc.delete(slug);
+      console.error(`cleanup_network_deleted=${slug}`);
+      return true;
+    } catch (error) {
+      if (error instanceof FreestyleApiError && error.status === 404) return true;
+      // Addresses are released asynchronously after the last machine delete.
+      if (!(error instanceof FreestyleApiError && error.status === 409)) {
+        console.error(`cleanup_network_failed=${slug} error=${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+      await sleep(2_500);
+    }
+  }
+  console.error(`cleanup_network_failed=${slug} error=still reserved after retries`);
+  return false;
+}
+
+/**
+ * Deletes the throwaway account through the application's own account
+ * deletion, which also removes the owner network the first create made
+ * (`deletePrivateNetworkingForAccountDeletion`), tunnels, leases and usage
+ * rows. Deleting only the Stack identity would leave that provider VPC behind.
+ */
+async function deleteAccount() {
+  // The route is resumable: a retryable answer records a checkpoint and the
+  // next call continues from it, so a few attempts are part of its contract.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const response = await fetchTimed(`${targetUrl}/api/account`, { method: "DELETE", headers: authHeaders }, 300_000);
+    if (response.status === 200 || response.status === 202) return true;
+    console.error(`cleanup_delete_account_failed attempt=${attempt + 1} status=${response.status} body=${response.text.slice(0, 200)}`);
+    if (json(response.text).retryable !== true) break;
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+  return false;
 }
 
 function positiveInteger(raw, flag) {
@@ -338,20 +401,37 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
-  await destroyLeftovers();
+  const machinesGone = await destroyLeftovers();
   for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
-  if (liveVmIds.size > 0) process.exitCode = 1;
-  if (user && liveVmIds.size > 0) {
-    // The throwaway user is the only credential that still owns those
-    // machines; deleting it would make them unreachable to any retry.
-    console.error(`cleanup_needed_user=${user.primaryEmail ?? user.id} (kept so the machines above can still be destroyed)`);
-  } else if (user) {
+  let accountDeleted = false;
+  if (user && machinesGone) {
     try {
-      await user.delete();
+      accountDeleted = await deleteAccount();
     } catch (cleanupError) {
-      console.error(`cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
-      process.exitCode = 1;
+      console.error(`cleanup_delete_account_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
     }
+    if (!accountDeleted) {
+      // The route can fail at its final Stack step after it already removed
+      // the cmux-owned data; either way, take the provider network out by
+      // its slug and only then drop the identity with the server key, so no
+      // billable resource can outlive the account.
+      try {
+        if (await reapOwnerNetwork(user.id)) {
+          await user.delete();
+          accountDeleted = true;
+          console.error("cleanup_note=account deletion route failed; the owner network was removed at the provider and the Stack identity with the server key (a cloud_vm_networks row for the deleted user may remain)");
+        }
+      } catch (cleanupError) {
+        console.error(`cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      }
+    }
+  }
+  if (user && !accountDeleted) {
+    // The throwaway user is the only credential that still owns whatever is
+    // left (machines, or the owner network the app deletes with the account);
+    // deleting the identity now would make them unreachable to any retry.
+    console.error(`cleanup_needed_user=${user.primaryEmail ?? user.id} (kept so its resources can still be cleaned up: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account, which also removes its owner network)`);
+    process.exitCode = 1;
   }
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", interrupt);
