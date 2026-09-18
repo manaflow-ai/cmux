@@ -12,6 +12,8 @@ The HTTP control service verifies Stack user and team membership, device proof-o
 
 Swift has generated UniFFI bindings, a native endpoint owner, HTTPS-only Stack grant/proof requests, Keychain identity storage, asynchronous v3 enrollment, lane adapters, replay cursors and server-configured renewal scheduling. The iOS composition can project the authenticated directory into v3 routes. The Mac now has an explicit `CMUX_V3_HOST=1` staged host owner with Keychain identity, Stack enrollment, directory publication and native control-lane admission. The production composition still defaults to IRX/iroh, and v3 event/application lane handlers, final switching and iroh removal are outstanding.
 
+Relay circuit addresses are operator configuration (`CMUX_V3_RELAY_ADDRESSES`). Devices enroll once for direct hints, obtain server-issued `relay_reserve` grants, reserve each configured relay and publish target-complete `/p2p-circuit` hints. No relay address is accepted from untrusted discovery data.
+
 ## Verified evidence
 
 - Rust workspace: full tests pass, including Cedar policy tests, grant expiry/revocation tests, native FFI duplex/cancellation tests, relay process/drain tests, three connectivity tests and six session tests. Strict workspace Clippy passes.

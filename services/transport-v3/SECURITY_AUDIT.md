@@ -12,6 +12,7 @@ Scope: Rust grants, Cedar authority, HTTP control service, libp2p session/relay 
 - Relay authorization binds the Noise-authenticated source and destination to the signed grant. Reservations and circuits are team scoped. Forged grants, cross-team destinations and wrong directions are denied.
 - Session input is bounded at every layer. Hello, frame, queue, concurrent session, connection, relay reservation, circuit and cached-permit limits are explicit. Expiry/revocation cancels blocked I/O and buffered data is rechecked before delivery.
 - Swift sends Stack bearer tokens only to the configured HTTPS control origin. Endpoint signing material and transport identity are device-only Keychain items. Native ownership and cancellation remain inside generated UniFFI handles.
+- Relay addresses are operator configuration. Devices first enroll their direct hints, then obtain a server-issued `relay_reserve` grant before reserving a circuit; untrusted directory data cannot cause an arbitrary relay reservation.
 - Relay containers run without capabilities, with a read-only root, no-new-privileges, non-root UID, bounded CPU/memory/PIDs, digest-pinned images and a managed identity limited to ACR pull. Management binds to loopback and public NSGs do not expose SSH, management or internal WebSocket ports.
 - Dependency audit reports no selected known vulnerability. Hickory advisories were removed through the in-org libp2p fork. `paste` remains an allowed unmaintained dependency warning.
 
