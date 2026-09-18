@@ -80,13 +80,7 @@ final class CmuxSettingsFileStore {
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         startWatching: Bool = true,
         isUserDefaultsKeyForcedByProfile: @escaping (String) -> Bool = { key in
-            let policy = ManagedDevicePolicy()
-            if key == BrowserURLAllowlistPolicy.userDefaultsKey {
-                return policy.isBrowserURLAllowlistLocked(
-                    userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
-                )
-            }
-            return policy.isKeyForcedInAppDomain(key)
+            ManagedDevicePolicy().isSettingsWriteLockedByProfile(userDefaultsKey: key)
         },
         onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) {

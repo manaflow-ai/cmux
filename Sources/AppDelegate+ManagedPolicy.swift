@@ -3,9 +3,9 @@ import CmuxSettings
 import Foundation
 
 /// Runtime enforcement for MDM managed policies (`DisableEmbeddedBrowser`,
-/// `DisableRemoteControl`, `DisableCloud`, and `DisableRemoteConnections`):
-/// installs the transition observer and tears down live resources when a
-/// policy activates mid-session.
+/// `DisableRemoteControl`, `DisableCloud`, `DisableRemoteConnections`, and
+/// `SocketControlMode`): installs the transition observer and tears down live
+/// resources when a policy activates mid-session.
 extension AppDelegate {
     /// Installs the managed-policy transition observer once at startup.
     func installManagedPolicyEnforcement() {
@@ -16,6 +16,9 @@ extension AppDelegate {
             },
             enforceBrowserURLAllowlistPolicy: { [weak self] in
                 self?.enforceBrowserURLAllowlistPolicy()
+            },
+            enforceSocketControlModePolicy: { [weak self] in
+                self?.applyManagedSocketControlModePolicy()
             },
             enforceRemoteControlPolicy: {
                 // syncToSettings() tears the mobile host down under the
@@ -84,6 +87,16 @@ extension AppDelegate {
             // keeps a lift symmetrical with activation.
             await service.setEnabled(userEnabled)
         }
+    }
+
+    /// `SocketControlMode` transitions, both directions. The listener is
+    /// re-resolved from the live policy: activation narrows it to the forced
+    /// mode (or stops it outright under `off`), and a lift returns it to the
+    /// user's own mode. Reconfiguring rotates the listener's authorization
+    /// generation, so a client admitted under the previous, wider mode loses
+    /// its connection instead of outliving the policy change.
+    func applyManagedSocketControlModePolicy() {
+        reconcileSocketListenerConfiguration(source: "managedPolicy.socketControlMode")
     }
 
     /// `DisableAutoUpdate`: a manual "Check for Updates…" explains the managed

@@ -10,8 +10,20 @@ extension CmuxSettingsFileStore {
     }
 
     /// Returns the effective socket access policy represented by live defaults.
-    static func liveSocketAccessMode(defaults: UserDefaults = .standard) -> SocketControlMode {
-        SocketControlSettings.effectiveMode(userMode: configuredSocketMode(defaults: defaults))
+    ///
+    /// A profile-forced ``SocketControlModePolicy`` wins over both the user's
+    /// choice and the `CMUX_SOCKET_ENABLE` / `CMUX_SOCKET_MODE` environment
+    /// variables. This is the single site that resolves the listener's mode,
+    /// so startup, the reconcile pass, a restart, and the path monitor all
+    /// honor the policy.
+    static func liveSocketAccessMode(
+        defaults: UserDefaults = .standard,
+        managedMode: SocketControlMode? = nil
+    ) -> SocketControlMode {
+        SocketControlSettings.effectiveMode(
+            userMode: configuredSocketMode(defaults: defaults),
+            managedMode: managedMode ?? SocketControlModePolicy(defaults: defaults).mode
+        )
     }
 
     /// Preserves restrictive policies; broader invalid policies fall back to `cmuxOnly`.

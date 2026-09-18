@@ -183,6 +183,67 @@ struct ManagedDevicePolicyTests {
         ) != nil)
     }
 
+    @Test func settingsWritesAreLockedByADirectlyForcedKey() throws {
+        let (defaults, cleanup) = try makeSuite("writeLockDirect")
+        defer { cleanup() }
+
+        defaults.set(true, forKey: Self.forcedMirrorPrefix + "warnBeforeQuit")
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: Self.probe
+        )
+
+        #expect(policy.isSettingsWriteLockedByProfile(userDefaultsKey: "warnBeforeQuit"))
+        #expect(!policy.isSettingsWriteLockedByProfile(userDefaultsKey: "confirmQuitMode"))
+    }
+
+    @Test func settingsWritesAreLockedByADedicatedPolicyKey() throws {
+        let (defaults, cleanup) = try makeSuite("writeLockDedicated")
+        defer { cleanup() }
+
+        // Neither user-level key is forced. The dedicated policy keys are, and
+        // a `cmux.json` writer must still skip both settings.
+        defaults.set(
+            ["internal.example.com"],
+            forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.browserURLAllowlist.rawValue
+        )
+        defaults.set(
+            SocketControlMode.cmuxOnly.rawValue,
+            forKey: Self.forcedMirrorPrefix + ManagedDevicePolicyKey.socketControlMode.rawValue
+        )
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: Self.probe
+        )
+
+        #expect(policy.isSettingsWriteLockedByProfile(
+            userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
+        ))
+        #expect(policy.isSettingsWriteLockedByProfile(
+            userDefaultsKey: SocketControlModePolicy.userDefaultsKey
+        ))
+    }
+
+    @Test func settingsWritesAreUnlockedWhenNoProfileIsInstalled() throws {
+        let (defaults, cleanup) = try makeSuite("writeLockAbsent")
+        defer { cleanup() }
+
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: Self.probe
+        )
+
+        #expect(!policy.isSettingsWriteLockedByProfile(
+            userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
+        ))
+        #expect(!policy.isSettingsWriteLockedByProfile(
+            userDefaultsKey: SocketControlModePolicy.userDefaultsKey
+        ))
+    }
+
     @Test func documentedPolicyKeyNamesAreStable() {
         // These strings are the administrator-facing contract documented in
         // docs/managed-device-policies.md; renaming them breaks deployed
@@ -200,6 +261,7 @@ struct ManagedDevicePolicyTests {
         #expect(ManagedDevicePolicyKey.disableComputerUse.rawValue == "DisableComputerUse")
         #expect(ManagedDevicePolicyKey.disableCustomSidebars.rawValue == "DisableCustomSidebars")
         #expect(ManagedDevicePolicyKey.disableAICredentialUpload.rawValue == "DisableAICredentialUpload")
+        #expect(ManagedDevicePolicyKey.socketControlMode.rawValue == "SocketControlMode")
         #expect(ManagedDevicePolicyKey.browserURLAllowlist.rawValue == "BrowserURLAllowlist")
         #expect(ManagedDevicePolicyKey.browserAllowLocalhost.rawValue == "BrowserAllowLocalhost")
         #expect(ManagedDevicePolicyKey.browserAllowLocalFiles.rawValue == "BrowserAllowLocalFiles")

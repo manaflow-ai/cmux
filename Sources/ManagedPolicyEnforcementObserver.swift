@@ -15,7 +15,10 @@ import Foundation
 /// construction when the policy is already forced; when the remote-connections
 /// policy activates it runs the injected remote-connections enforcement
 /// (disconnecting live remote workspaces and remote tmux mirrors), also at
-/// construction. Every transition also posts
+/// construction; when the socket-control-mode policy changes either way it
+/// runs the injected socket enforcement (re-resolving the listener, which
+/// drops clients admitted under the previous mode), also at construction
+/// when a profile already forces the mode. Every transition also posts
 /// `ManagedDevicePolicy.didChangeNotification` so Settings UI re-reads the
 /// resolver.
 ///
@@ -34,12 +37,14 @@ final class ManagedPolicyEnforcementObserver {
     private let notificationCenter: NotificationCenter
     private let isBrowserDisabledByPolicy: () -> Bool
     private let browserURLAllowlistPolicy: () -> BrowserURLAllowlistPolicy
+    private let socketControlModePolicy: () -> SocketControlModePolicy
     private let isRemoteControlDisabledByPolicy: () -> Bool
     private let isCloudDisabledByPolicy: () -> Bool
     private let isIrohDisabledByPolicy: () -> Bool
     private let capabilityPolicy: ManagedDevicePolicy
     private let enforceBrowserPolicy: () -> Void
     private let enforceBrowserURLAllowlistPolicy: () -> Void
+    private let enforceSocketControlModePolicy: () -> Void
     private let enforceRemoteControlPolicy: () -> Void
     private let enforceCloudPolicy: () -> Void
     private let enforceRemoteConnectionsPolicy: () -> Void
@@ -55,6 +60,7 @@ final class ManagedPolicyEnforcementObserver {
     private var settingsVisiblePolicyStates: [ManagedDevicePolicyKey: Bool]
     private var browserPolicyActive: Bool
     private var observedBrowserURLAllowlistPolicy: BrowserURLAllowlistPolicy
+    private var observedSocketControlModePolicy: SocketControlModePolicy
     private var remoteControlPolicyActive: Bool
     private var cloudPolicyActive: Bool
     private var irohPolicyActive: Bool
@@ -70,6 +76,9 @@ final class ManagedPolicyEnforcementObserver {
         browserURLAllowlistPolicy: @escaping () -> BrowserURLAllowlistPolicy = {
             BrowserURLAllowlistPolicy(defaults: .standard)
         },
+        socketControlModePolicy: @escaping () -> SocketControlModePolicy = {
+            SocketControlModePolicy(defaults: .standard)
+        },
         isRemoteControlDisabledByPolicy: @escaping () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
         },
@@ -80,6 +89,7 @@ final class ManagedPolicyEnforcementObserver {
         capabilityPolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         enforceBrowserPolicy: @escaping () -> Void,
         enforceBrowserURLAllowlistPolicy: @escaping () -> Void,
+        enforceSocketControlModePolicy: @escaping () -> Void = {},
         enforceRemoteControlPolicy: @escaping () -> Void,
         enforceCloudPolicy: @escaping () -> Void = {},
         enforceRemoteConnectionsPolicy: @escaping () -> Void = {},
@@ -88,12 +98,14 @@ final class ManagedPolicyEnforcementObserver {
         self.notificationCenter = notificationCenter
         self.isBrowserDisabledByPolicy = isBrowserDisabledByPolicy
         self.browserURLAllowlistPolicy = browserURLAllowlistPolicy
+        self.socketControlModePolicy = socketControlModePolicy
         self.isRemoteControlDisabledByPolicy = isRemoteControlDisabledByPolicy
         self.isCloudDisabledByPolicy = isCloudDisabledByPolicy
         self.isIrohDisabledByPolicy = isIrohDisabledByPolicy
         self.capabilityPolicy = capabilityPolicy
         self.enforceBrowserPolicy = enforceBrowserPolicy
         self.enforceBrowserURLAllowlistPolicy = enforceBrowserURLAllowlistPolicy
+        self.enforceSocketControlModePolicy = enforceSocketControlModePolicy
         self.enforceRemoteControlPolicy = enforceRemoteControlPolicy
         self.enforceCloudPolicy = enforceCloudPolicy
         self.enforceRemoteConnectionsPolicy = enforceRemoteConnectionsPolicy
@@ -101,12 +113,18 @@ final class ManagedPolicyEnforcementObserver {
         settingsVisiblePolicyStates = Self.settingsVisibleStates(capabilityPolicy)
         browserPolicyActive = isBrowserDisabledByPolicy()
         observedBrowserURLAllowlistPolicy = browserURLAllowlistPolicy()
+        observedSocketControlModePolicy = socketControlModePolicy()
         remoteControlPolicyActive = isRemoteControlDisabledByPolicy()
         cloudPolicyActive = isCloudDisabledByPolicy()
         irohPolicyActive = isIrohDisabledByPolicy()
         remoteConnectionsPolicyActive = capabilityPolicy.isEnforced(.disableRemoteConnections)
         fileTransferPolicyActive = capabilityPolicy.isEnforced(.disableFileTransfer)
         if irohPolicyActive { enforceRemoteControlPolicy() }
+        if observedSocketControlModePolicy.isManaged {
+            // A profile may already be installed before launch. Re-resolve the
+            // listener now so it never runs a session under the user's mode.
+            enforceSocketControlModePolicy()
+        }
         if cloudPolicyActive {
             // A profile may already be installed before launch. Enforce it at
             // startup so restored Cloud workspaces and providers are removed.
@@ -176,6 +194,16 @@ final class ManagedPolicyEnforcementObserver {
             observedBrowserURLAllowlistPolicy = browserURLAllowlistNow
             anyTransition = true
             enforceBrowserURLAllowlistPolicy()
+        }
+        let socketControlModeNow = socketControlModePolicy()
+        if socketControlModeNow != observedSocketControlModePolicy {
+            observedSocketControlModePolicy = socketControlModeNow
+            anyTransition = true
+            // Both directions re-resolve the listener: activation narrows it
+            // to the forced mode, and a lift returns it to the user's own.
+            // Reconfiguring rotates the listener's authorization generation,
+            // so clients admitted under the previous mode are dropped.
+            enforceSocketControlModePolicy()
         }
         let remoteNow = isRemoteControlDisabledByPolicy()
         if remoteNow != remoteControlPolicyActive {

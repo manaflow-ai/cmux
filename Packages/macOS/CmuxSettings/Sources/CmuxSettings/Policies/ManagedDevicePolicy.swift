@@ -189,6 +189,27 @@ public struct ManagedDevicePolicy: Sendable {
         forcedObject(defaults, userDefaultsKey) != nil
     }
 
+    /// Whether a settings writer must skip `userDefaultsKey` because a profile
+    /// owns it.
+    ///
+    /// This is the single definition the `cmux.json` importer and the settings
+    /// reset path consult. It answers `true` when the key itself is forced in
+    /// the app's own domain, and also when a *dedicated* policy key owns the
+    /// same setting — `BrowserURLAllowlist` for `browserURLAllowlist`, and
+    /// `SocketControlMode` for `socketControlMode`. Without the second case a
+    /// writer would keep overwriting a setting whose effective value the
+    /// profile already decides.
+    public func isSettingsWriteLockedByProfile(userDefaultsKey: String) -> Bool {
+        switch userDefaultsKey {
+        case BrowserURLAllowlistPolicy.userDefaultsKey:
+            return isBrowserURLAllowlistLocked(userDefaultsKey: userDefaultsKey)
+        case SocketControlModePolicy.userDefaultsKey:
+            return isSocketControlModeLocked(userDefaultsKey: userDefaultsKey)
+        default:
+            return isKeyForcedInAppDomain(userDefaultsKey)
+        }
+    }
+
     /// Whether the embedded-browser URL allowlist is locked by MDM.
     ///
     /// The dedicated policy key and the user-level key are checked across the
