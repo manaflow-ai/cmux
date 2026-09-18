@@ -261,11 +261,12 @@ struct MobileSettingsView: View {
                 }
 
                 Section {
+                    let hapticFeedbackTitle = L10n.string(
+                        "mobile.settings.hapticFeedback",
+                        defaultValue: "Haptic Feedback"
+                    )
                     Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.hapticFeedback",
-                            defaultValue: "Haptic Feedback"
-                        ))
+                        Text(hapticFeedbackTitle)
                     }
                     .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
                 } header: {
