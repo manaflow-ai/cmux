@@ -24,6 +24,7 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
     private var acceptTask: Task<Void, Never>?
     private var acceptOperation: CmuxV3Native.Operation?
     private var endpoint: NativeEndpoint?
+    private let eventLanes = MobileHostV3EventLaneRegistry()
     private var scope: AuthenticatedTeamScope?
     private var desiredScope: AuthenticatedTeamScope?
     private var generation = UUID()
@@ -68,6 +69,7 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
         acceptTask = nil
         endpoint?.close()
         endpoint = nil
+        Task { await eventLanes.removeAll() }
         scope = nil
         listenerState = MobileHostListenerState()
         MobileHostPublicStatusCache.updateV3(peerID: nil)
@@ -105,6 +107,7 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
         endpoint?.close()
         endpoint = nil
         scope = nil
+        await eventLanes.removeAll()
         MobileHostPublicStatusCache.updateV3(peerID: nil)
         MobileHostPublicStatusCache.updateV2DeviceID(nil)
         guard let next else {
@@ -217,19 +220,31 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
         while !Task.isCancelled, generation == token, desiredScope == scope, isNetworkingAllowed {
             do {
                 let accepted = try await endpoint.accept(operation: operation)
+                if accepted.lane.kind == 1 {
+                    await eventLanes.install(
+                        peerID: accepted.peerId,
+                        transport: V3ByteTransport(stream: accepted.stream)
+                    )
+                    continue
+                }
                 guard accepted.lane.kind == 0 else {
-                    // Event and application lanes are deliberately rejected
-                    // until their host-side handlers are migrated to v3.
+                    // Terminal, artifact and simulator handlers are migrated
+                    // separately. Rejecting them here is fail-closed.
                     accepted.stream.close()
                     continue
                 }
                 let transport = V3ByteTransport(stream: accepted.stream)
                 let peer = CmxV3AdmittedPeer(peerID: accepted.peerId)
+                let eventWriter = MobileHostV3EventWriter(
+                    peerID: accepted.peerId,
+                    registry: eventLanes
+                )
                 Task {
                     _ = await MobileHostService.acceptTransport(
                         transport,
                         authorization: .v3Admission(peer),
                         hostDeviceID: deviceID.uuidString,
+                        independentEventWriter: eventWriter,
                         isCurrent: { [weak self] in
                             guard let self else { return false }
                             return await MainActor.run {
@@ -265,6 +280,64 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
 
     private enum Error: Swift.Error, Sendable {
         case stale
+    }
+}
+
+private actor MobileHostV3EventLaneRegistry {
+    private var lanes: [String: V3ByteTransport] = [:]
+
+    func install(peerID: String, transport: V3ByteTransport) {
+        lanes[peerID]?.close()
+        lanes[peerID] = transport
+    }
+
+    func current(peerID: String) -> V3ByteTransport? {
+        lanes[peerID]
+    }
+
+    func removeAll() {
+        let values = lanes.values
+        lanes.removeAll()
+        for value in values { value.close() }
+    }
+}
+
+private actor MobileHostV3EventWriter: MobileHostIndependentEventWriting {
+    private let peerID: String
+    private let registry: MobileHostV3EventLaneRegistry
+
+    init(peerID: String, registry: MobileHostV3EventLaneRegistry) {
+        self.peerID = peerID
+        self.registry = registry
+    }
+
+    func probe(_ framedData: Data) async -> Bool {
+        do {
+            try await send(framedData)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    func send(_ framedData: Data) async throws {
+        guard let lane = await registry.current(peerID: peerID) else {
+            throw Error.laneUnavailable
+        }
+        try await lane.send(framedData)
+    }
+
+    func reset() async {
+        guard let lane = await registry.current(peerID: peerID) else { return }
+        await lane.close()
+    }
+
+    func close() async {
+        await reset()
+    }
+
+    private enum Error: Swift.Error {
+        case laneUnavailable
     }
 }
 
