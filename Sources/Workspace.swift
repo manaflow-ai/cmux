@@ -13916,8 +13916,8 @@ extension Workspace: BonsplitDelegate {
         #endif
         let panel = panels[panelId]
         let shouldKeepEmptyPaneForCloudView = panel.map { candidate in
-            guard let projection = SurfaceCatalog.shared.projection(forPanel: panelId), projection.workspaceID == id, !projection.resource.machine.isLocal else { return false }
-            return candidate.panelType == .browser || projection.resource.kind == .display
+            guard let machine = SurfaceCatalog.shared.machineOwningPanel(panelId), !machine.isLocal else { return false }
+            return candidate.panelType == .browser
         } ?? false
         _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
