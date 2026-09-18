@@ -138,6 +138,50 @@ map every operational one-shot command and parameter in
 Sensitive renderer grants and connection-owned stream/viewer controls remain
 SDK and raw-only.
 
+## Shorthands
+
+`cmux help shorthands` lists the supported spellings. Every shorthand lowers to
+this same public resource grammar, with identical validation, idempotency keys,
+output modes, and exit codes. It never sends private protocol commands.
+
+| Short form | Canonical equivalent | Notes |
+| --- | --- | --- |
+| `ws`, `win` / `window`, `p`, `term`, `notif`, `srv` | `workspace`, `screen`, `pane`, `terminal`, `notification`, `server` | Resource positions, including nested paths |
+| `ls`, `new`, `get`, `rm`, `select` after a resource | `list`, `create`, `show`, `close`, `focus` | Only where the resource supports that action |
+| `pane split --right`, `p zoom`, `term read` | `pane current split --right`, `pane current zoom`, `terminal current read` | Omit `current` on instance actions |
+| `list-sessions` / `ls` | `session list` | Describes the selected local session, not every socket on the computer |
+| `list-windows` / `lsw` | `screen list` | `-t` / `--target` selects a workspace |
+| `list-panes` / `lsp` | `pane list` | `-t` / `--target` selects a screen |
+| `new-window` / `neww -n api` | `screen create --name api` | `-t` selects a workspace |
+| `split-window` / `splitw -h` | `pane current split --right` | Default / `-v` splits down; `-c` sets cwd; `-t` selects a pane |
+| `select-pane` / `selectp -L` | `pane current focus direction left` | One of `-L`, `-R`, `-U`, `-D`; `-t` selects a pane |
+| `select-window` / `selectw -t api` | `screen api focus` | Exact screen selector |
+| `rename-window` / `renamew -t api backend` | `screen api rename --name backend` | One new name |
+| `capture-pane` / `capturep -t term_…` | `terminal term_… screen read` | `-p` is accepted; uses normal cmux output |
+| `send-keys -t term_… C-c Enter` | `terminal term_… keys ctrl+c enter` | Named keys, including `C-`, `M-`, and `S-` modifiers |
+| `send-keys -l -- 'hello 世界'` | `terminal current write --text 'hello 世界'` | Literal arguments concatenate without inserted spaces |
+
+All `-t` values are cmux selectors. They do not interpret tmux numeric indexes,
+`%pane`, `@window`, or `session:window.pane` targets. Capture/input also accept a
+full `pane_…` ID, selecting its current tab's terminal. An omitted target uses
+`current` in the selected session, not a remembered client or shell.
+
+Explicit selector paths take precedence over shorthand actions. Use `name:` for
+names that collide with command words. Names, option values, key payloads, and
+argv after `--` are never rewritten. Resource aliases and action aliases are
+fixed spellings; partial prefixes are not automatically guessed.
+
+This is a bounded convenience vocabulary, not tmux script compatibility. Unknown
+flags, combined short flags, repeated targets, conflicting directions, arbitrary
+mixed text/key payloads, tmux formats, buffers, shell-command split arguments,
+and detached split flags are rejected. Use `send-keys -l` or `terminal write`
+for text, and `--help` for help (`splitw -h` means horizontal).
+
+There is no `new-session` alias because a cmux session owns a separate process.
+Use `cmux --session NAME` for interactive create/attach or
+`cmux server ensure --session NAME` to ensure a detached owner. `neww` creates a
+screen inside the selected session's workspace.
+
 ## Selectors
 
 An instance selector accepts:

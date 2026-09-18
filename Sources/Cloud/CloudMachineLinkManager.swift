@@ -331,7 +331,8 @@ actor CloudMachineLinkManager {
             return try await browserProxy(machineID: machineID)
         }
         guard let clientURL, let hub else { throw ManagerError.wireGuardHubMissing }
-        guard Self.clientCapabilities(clientURL: clientURL)?.contains("browser-proxy") == true else {
+        guard let clientCapabilities = Self.clientCapabilities(clientURL: clientURL),
+              clientCapabilities.contains("browser-proxy") else {
             throw ManagerError.retryLater(String(localized: "cloud.browser.clientUpdateRequired", defaultValue: "Update cmux to connect to this Cloud page."))
         }
         let proxy = CloudBrowserProxyProcess(addresses: addresses)
@@ -350,7 +351,7 @@ actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: Self.clientCapabilities(clientURL: clientURL) ?? []
+                    clientCapabilities: clientCapabilities
                 )
                 guard endpoint.trustedCarrier else {
                     throw ManagerError.retryLater(String(

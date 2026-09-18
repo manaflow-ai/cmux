@@ -38,7 +38,7 @@ extension MobileHostService {
                 macInstanceTag: macInstanceTag,
                 macBuildID: macBuildID
             )
-            try PhonePushPeerKeyStore.pin(
+            PhonePushPeerKeyStore.pin(
                 exchange.descriptor.publicKey,
                 keyID: exchange.descriptor.keyID,
                 for: tuple

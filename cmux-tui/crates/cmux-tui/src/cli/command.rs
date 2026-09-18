@@ -149,6 +149,7 @@ struct Tokens {
 
 pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
+    super::shorthand::normalize_words(&mut tokens.words);
     let scope = tokens
         .words
         .first()
@@ -297,7 +298,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "ignore-case",
 ];
 
-fn is_boolean_flag(name: &str) -> bool {
+pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
 }
 

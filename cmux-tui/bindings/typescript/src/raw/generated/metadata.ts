@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c. */
+/* cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c" as const;
+export const SDK_IR_SHA256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -602,6 +602,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "An out-of-range index clamps to the destination end."
+    ]
+  },
+  "move-tab-to-workspace": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-workspace-move-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
     ]
   },
   "move-terminal": {
@@ -8927,6 +8937,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "surface": {
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "move-tab-to-workspace": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "ref",
             "name": "Id"
