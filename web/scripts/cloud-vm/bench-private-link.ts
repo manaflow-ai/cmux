@@ -19,7 +19,7 @@ import { Duration, Effect, Schedule } from "effect";
 import { Freestyle } from "freestyle";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { cleanupPrivateLinkResource as cleanup } from "../devbox-private-link-cleanup";
@@ -93,9 +93,22 @@ async function settleInFlight(ms: number): Promise<void> {
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (error) => new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`) });
 
-/** An `attempt` with a deadline: the SDK polls a backgrounded request indefinitely, so a cleanup call must not wait on it forever. */
+/**
+ * An `attempt` with a deadline: the SDK polls a backgrounded request
+ * indefinitely, so a cleanup call must not wait on it forever. Finalizers
+ * run with interruption masked and a timeout is an interrupt, so the attempt
+ * is made interruptible first (as `cleanupPrivateLinkResource` does); the
+ * abandoned request keeps running and stays tracked where that matters.
+ */
 const attemptWithin = <A>(label: string, run: (signal: AbortSignal) => Promise<A>, timeout: Duration.DurationInput) =>
-  attempt(label, run).pipe(Effect.timeoutFail({ duration: timeout, onTimeout: () => new Error(`${label}: timed out`) }));
+  attempt(label, run).pipe(
+    Effect.interruptible,
+    Effect.timeoutFail({ duration: timeout, onTimeout: () => new Error(`${label}: timed out`) }),
+  );
+
+/** A synchronous check whose throw must fail the trial (recorded, run continues), not become a defect that aborts the whole run. */
+const validated = <A>(check: () => A) =>
+  Effect.try({ try: check, catch: (error) => (error instanceof Error ? error : new Error(String(error))) });
 
 /** One bounded client command over the link's local socket; stdout is the result. */
 function command(clientPath: string, commandArgs: string[], label: string, timeout: Duration.DurationInput = "30 seconds") {
@@ -207,7 +220,10 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
     const vmId = created.value.providerVmId;
     trial.vmId = vmId;
     trial.createMs = created.ms;
-    const attached = yield* timed(attempt("openCmuxRemote", () => provider.openCmuxRemote(vmId, { clientCapabilities: capabilities })));
+    // Bounded and tracked like the create: the attach bundle's provider calls
+    // can be backgrounded too, and an abandoned attach must settle before the
+    // sweep. The bound is the platform limit the app's attach route runs under.
+    const attached = yield* timed(attempt("openCmuxRemote", () => bounded(provider.openCmuxRemote(vmId, { clientCapabilities: capabilities }), 300_000, "openCmuxRemote")));
     trial.attachMs = attached.ms;
     trial.trustedCarrier = attached.value.trustedCarrier;
     trial.daemonCommit = attached.value.daemonBuild?.commit ?? null;
@@ -221,12 +237,12 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
         yield* connection.ready;
       }));
       const snapshot = yield* timed(command(client, ["--socket", firstSocket, "--json", "session", "current", "snapshot"], "session snapshot"));
-      const workspace = workspaceId(snapshot.value);
+      const workspace = yield* validated(() => workspaceId(snapshot.value));
       const runStartedAt = performance.now();
       const run = yield* timed(command(client, ["--socket", firstSocket, "--json", "workspace", workspace, "run", "--", "bash", "-l"], "workspace run"));
-      const terminal = terminalId(run.value);
+      const terminal = yield* validated(() => terminalId(run.value));
       const prompt = yield* timed(command(client, ["--socket", firstSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", PROMPT_PATTERN, "--timeout-ms", "60000"], "prompt wait", "70 seconds"));
-      requireMatched(prompt.value);
+      yield* validated(() => requireMatched(prompt.value));
       // Read the clock here, before the scope closes the first link: its
       // teardown (up to a 2 s SIGKILL escalation) is not startup.
       return { linkMs: link.ms, snapshotMs: snapshot.ms, terminalRunMs: run.ms, promptWaitMs: prompt.ms, runToPromptMs: elapsedMs(runStartedAt), createToPromptMs: elapsedMs(origin) };
@@ -365,7 +381,7 @@ try {
   const summary = await Effect.runPromise(Effect.scoped(bench()), { signal: controller.signal });
   const text = JSON.stringify(summary);
   if (outPath) writeFileSync(outPath, `${text}\n`);
-  console.log(text);
+  writeSync(1, `${text}\n`);
   if (!summary.ok) process.exitCode = 1;
 } catch (error: unknown) {
   console.error(String(error));
@@ -374,3 +390,8 @@ try {
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", interrupt);
 }
+// A provider request that outlived its bound is still polling (the SDK
+// follows a 202 with a referenced timer and offers no cancellation); nothing
+// waits on it any more, so exit now instead of idling until it settles. The
+// report went out with synchronous writes, so the exit cannot truncate it.
+process.exit(process.exitCode ?? 0);

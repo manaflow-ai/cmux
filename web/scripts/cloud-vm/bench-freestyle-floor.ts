@@ -19,7 +19,7 @@
  */
 import { Freestyle, FreestyleApiError, type Vm } from "freestyle";
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, writeSync } from "node:fs";
 import { shellQuote } from "../../services/vms/drivers/cmuxTuiDaemon";
 import { FREESTYLE_NETWORK_FIREWALL_RULES, freestyleFirewallRules } from "../../services/vms/drivers/freestyle";
 import { freestyleNetworkAnnouncementCommand } from "../../services/vms/drivers/freestyleNetworkAnnouncement";
@@ -394,8 +394,12 @@ const summary = {
   burstSummary: summarizeFields(results.burst.filter((trial) => !trial.error), ["allocMs", "allocDoneAtMs", "daemonProcessMs", "daemonListenMs"]),
   results,
 };
-console.error(formatSummary({ ...summary.sequential, ...summary.guest, ...Object.fromEntries(Object.entries(summary.burstSummary).map(([name, value]) => [`burst:${name}`, value])) }));
+writeSync(2, `${formatSummary({ ...summary.sequential, ...summary.guest, ...Object.fromEntries(Object.entries(summary.burstSummary).map(([name, value]) => [`burst:${name}`, value])) })}\n`);
 const text = JSON.stringify(summary);
 if (outPath) writeFileSync(outPath, `${text}\n`);
-console.log(text);
-if (!summary.ok) process.exitCode = 1;
+writeSync(1, `${text}\n`);
+// A provider request that outlived its bound is still polling (the SDK
+// follows a 202 with a referenced timer and offers no cancellation); nothing
+// waits on it any more, so exit now instead of idling until it settles. The
+// report went out with synchronous writes, so the exit cannot truncate it.
+process.exit(summary.ok ? 0 : 1);

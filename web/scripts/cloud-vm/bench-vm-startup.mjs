@@ -8,7 +8,7 @@
 // never touches an existing user's machines; every machine it creates is
 // destroyed before exit, including on failure.
 import { randomBytes } from "node:crypto";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -679,11 +679,11 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     results,
   };
   if (ok.length > 0) {
-    console.error(formatSummary({ ...summary.stages, ...Object.fromEntries(Object.entries(summary.createServerTiming).map(([name, value]) => [`server:${name}`, value])) }));
+    writeSync(2, `${formatSummary({ ...summary.stages, ...Object.fromEntries(Object.entries(summary.createServerTiming).map(([name, value]) => [`server:${name}`, value])) })}\n`);
   }
   const text = JSON.stringify(summary);
   if (outPath) writeFileSync(outPath, `${text}\n`);
-  console.log(text);
+  writeSync(1, `${text}\n`);
   if (!summary.ok) process.exitCode = 1;
 }
 
@@ -725,3 +725,8 @@ try {
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", interrupt);
 }
+// A provider request that outlived its bound is still polling (the SDK
+// follows a 202 with a referenced timer and offers no cancellation); nothing
+// waits on it any more, so exit now instead of idling until it settles. The
+// report went out with synchronous writes, so the exit cannot truncate it.
+process.exit(process.exitCode ?? 0);
