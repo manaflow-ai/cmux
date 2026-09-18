@@ -455,7 +455,7 @@ struct MobileSettingsView: View {
                 // toggle the app always had; the delivery-status diagnostics,
                 // Mac forwarding controls, and test actions are a dev surface
                 // and stay DEBUG-only.
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
+                AnyView(Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
 #if DEBUG
                     let pushMacStatus = store?.phonePushMacStatus
                     let pushReadiness = pushCoordinator.readiness(
@@ -510,7 +510,7 @@ struct MobileSettingsView: View {
                         applyEnabledIntent: setPhonePushEnabledIntent
                     )
 #endif
-                }
+                })
 
                 Section {
                     Toggle(isOn: $sendAnonymousTelemetry) {
