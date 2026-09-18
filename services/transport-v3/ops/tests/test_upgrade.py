@@ -32,7 +32,7 @@ class UpgradeTests(unittest.TestCase):
         query = alerts.queries(nodes)['no-healthy-generation']
         self.assertIn('healthy=countif', query)
         self.assertIn('no_healthy_generation', query)
-        self.assertIn('cmux-v3-serving-generation', query)
+        self.assertIn('take_any(ResourceId)', query)
 
     def test_requires_distinct_overlapping_generations(self):
         old = {'image': 'sha256:old', 'nodes': [node('old-east', 'eastus'), node('old-west', 'westus2')]}

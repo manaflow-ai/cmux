@@ -41,9 +41,10 @@ def queries(nodes):
         'no-healthy-generation': base + '''| summarize healthy=countif(
                 coalesce(tobool(payload.scrape_ok), false) == true
                 and toint(payload.cmux_v3_ready) == 1
-                and coalesce(tobool(payload.draining), false) == false)
+                and coalesce(tobool(payload.draining), false) == false),
+                ResourceId=take_any(ResourceId)
             | where healthy == 0
-            | extend ResourceId="cmux-v3-serving-generation", Reason="no_healthy_generation"
+            | extend Reason="no_healthy_generation"
             | project ResourceId, Reason''',
     }
 
