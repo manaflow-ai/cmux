@@ -364,6 +364,13 @@ bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider f
 bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
 ```
 
+The two SDK benchmarks read the provider credential the way the runtime does
+(`FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` with `FREESTYLE_TEAM_ID`,
+from `~/.secrets/cmux.env`). The API benchmark pulls the target's Vercel env, fills
+a sensitive (empty) value from the process environment, and sends its throwaway
+session only to the project's own https origin or a Vercel preview of it unless
+`--allow-any-url` is passed.
+
 ## Telemetry
 
 Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`), which owns one request context (`requestContext.ts`) and one route span. The client mints a W3C `traceparent` and an `X-Cmux-Client-Request-Id` per call and sends `X-Cmux-Client`, `X-Cmux-App-Version`, `X-Cmux-App-Build`, `X-Cmux-Channel`. The server answers every response with `x-cmux-trace-id` and `x-cmux-span-id`, and every error body carries `traceId` (also `ui.traceId`). The Mac app prints it as `Reference: <trace id>` on every Cloud VM error, and the socket `vm_error` payload carries it as `data.trace_id`. That id is the join key across the three sinks:

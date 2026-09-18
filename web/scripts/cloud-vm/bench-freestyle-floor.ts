@@ -5,6 +5,10 @@
  *
  *   FREESTYLE_API_KEY=… bun scripts/cloud-vm/bench-freestyle-floor.ts [--trials N] [--size md] [--image sh-…] [--burst K] [--no-vpc] [--out <file.json>]
  *
+ * The provider credential is read the way the runtime's client reads it:
+ * FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID
+ * (source ~/.secrets/cmux.env).
+ *
  * Per trial, from the manifest's default snapshot for the size: allocation
  * (`vms.create` returning), first successful guest exec, the baked daemon
  * process running and listening on 1337, the strict private-network
@@ -17,11 +21,11 @@
  * VPC are deleted before exit, including on failure; existing machines are
  * never read.
  */
-import { Freestyle, FreestyleApiError, type Vm } from "freestyle";
+import { type Freestyle, FreestyleApiError, type Vm } from "freestyle";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, writeSync } from "node:fs";
 import { shellQuote } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { FREESTYLE_NETWORK_FIREWALL_RULES, freestyleFirewallRules } from "../../services/vms/drivers/freestyle";
+import { FREESTYLE_NETWORK_FIREWALL_RULES, freestyleClient, freestyleFirewallRules } from "../../services/vms/drivers/freestyle";
 import { freestyleNetworkAnnouncementCommand } from "../../services/vms/drivers/freestyleNetworkAnnouncement";
 import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
@@ -49,13 +53,21 @@ if (trials === 0 && burst === 0) {
   console.error("bench-freestyle-floor: nothing to measure (--trials 0 and --burst 0)");
   process.exit(2);
 }
-if (!process.env.FREESTYLE_API_KEY) {
-  console.error("Set FREESTYLE_API_KEY (source ~/.secrets/cmux.env)");
-  process.exit(2);
-}
 const size = vmImageSize(sizeName);
 const image = option("--image") ?? resolveVmImage("freestyle", undefined, process.env, { kind: "desktop", memoryMb: size.memoryMb }).image;
-const fs = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
+// The runtime's own credential resolution (API key, or Stack access token
+// with a team id). Each fetch is bounded well above the longest guest exec;
+// the SDK backgrounds long requests anyway, and every await is raced by
+// `bounded`.
+const fs = providerClientOrExit();
+function providerClientOrExit(): Freestyle {
+  try {
+    return freestyleClient(180_000);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
+}
 const runId = `bench-${randomUUID().slice(0, 8)}`;
 const PROBE_INTERVAL_MS = 250;
 // Fail closed: a resource the run could not delete, or an interrupted run, is

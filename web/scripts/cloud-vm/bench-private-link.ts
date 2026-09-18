@@ -11,12 +11,16 @@
  *
  *   FREESTYLE_API_KEY=… bun scripts/cloud-vm/bench-private-link.ts [--trials N] [--size md] [--image sh-…] [--client <cmux-tui>] [--out <file.json>]
  *
+ * The provider credential is read the way the runtime's client reads it:
+ * FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID
+ * (source ~/.secrets/cmux.env).
+ *
  * Creates its own VPC, tunnel and machines and deletes them, including on
  * failure. Never modifies existing machines. Modeled on
  * verify-devbox-private-link.ts.
  */
 import { Duration, Effect, Schedule } from "effect";
-import { Freestyle } from "freestyle";
+import type { Freestyle } from "freestyle";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync, writeSync } from "node:fs";
@@ -24,7 +28,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { cleanupPrivateLinkResource as cleanup } from "../devbox-private-link-cleanup";
 import { startPrivateLinkClient } from "../devbox-private-link-process";
-import { FreestyleProvider } from "../../services/vms/drivers/freestyle";
+import { FreestyleProvider, freestyleClient } from "../../services/vms/drivers/freestyle";
 import type { GuestPromptIdentity } from "../../services/vms/guestPrompt";
 import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
@@ -45,11 +49,19 @@ if (!Number.isInteger(trials) || trials < 1 || !isVmImageSizeName(sizeName)) {
   console.error("bench-private-link: --trials takes a positive integer; --size is sm|md|lg|lgx|xl|2xl");
   process.exit(2);
 }
-if (!process.env.FREESTYLE_API_KEY) {
-  console.error("Set FREESTYLE_API_KEY (source ~/.secrets/cmux.env)");
-  process.exit(2);
-}
 const size = vmImageSize(sizeName);
+// The runtime's own credential resolution (API key, or Stack access token
+// with a team id), shared by the reconciliation sweeps; FreestyleProvider
+// resolves the same way for the measured path.
+const sdk = providerClientOrExit();
+function providerClientOrExit(): Freestyle {
+  try {
+    return freestyleClient(60_000);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
+}
 const selection = resolveVmImage("freestyle", option("--image"), process.env, { kind: "desktop", memoryMb: size.memoryMb });
 const image = selection.image;
 const PROMPT_PATTERN = "λ";
@@ -171,7 +183,6 @@ function workspaceId(snapshot: string): string {
 function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string) {
   const networking = provider.privateNetworking;
   return Effect.gen(function* () {
-    const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
     const failures: string[] = [];
     const settled = yield* Effect.either(attempt("settle in-flight provider requests", () => settleInFlight(300_000)));
     if (settled._tag === "Left") failures.push(settled.left.message);
@@ -273,7 +284,6 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
  * this run) is the one identity the provider persists for them.
  */
 function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
-  const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
   // Pages are read with retries; the ids found before a failed page are kept
   // so they are still destroyed, and an incomplete inventory is reported as
   // its own failure.

@@ -15,11 +15,11 @@ import { pathToFileURL } from "node:url";
 import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys } from "./projects.mjs";
 
-const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--skip-pause] [--skip-exec] [--edge-check] [--label <text>] [--out <file.json>]";
+const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--label <text>] [--out <file.json>]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const trials = positiveInteger(optionValue(rest, "--trials") ?? "3", "--trials");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "1", "--concurrency"), trials);
-const targetUrl = optionValue(rest, "--url") ?? project.url;
+const targetUrl = resolveTargetUrl(project, rest);
 const skipPause = rest.includes("--skip-pause");
 const skipExec = rest.includes("--skip-exec");
 // Full-feature readiness: poll the model-plane edge alias from inside the
@@ -51,18 +51,25 @@ const { StackServerApp } = await import(pathToFileURL(requireFromWeb.resolve("@s
 const { Freestyle, FreestyleApiError } = await import("freestyle");
 
 const env = loadTargetEnv(project);
-requireEnvKeys(env, ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", "STACK_SECRET_SERVER_KEY"], `${project.projectName} bench`);
+// A Vercel "sensitive" variable pulls as an empty string (projects.mjs); the
+// operator's own copy of the same value fills it, and
+// CMUX_CLOUD_VM_ENV_SOURCE=process skips the pull altogether.
+for (const key of ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", "STACK_SECRET_SERVER_KEY"]) {
+  if (!env[key]?.trim() && process.env[key]?.trim()) env[key] = process.env[key].trim();
+}
+requireEnvKeys(env, ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", "STACK_SECRET_SERVER_KEY"], `${project.projectName} bench (export the missing keys, or set CMUX_CLOUD_VM_ENV_SOURCE=process)`);
 // Cleanup is verified against the provider's own inventory (a create can
 // allocate a machine the control plane never records), so the deployment's
-// provider key is required. A Vercel "sensitive" variable pulls as an empty
-// string; the operator's own key (~/.secrets/cmux.env, the same account)
-// covers that.
-const providerApiKey = env.FREESTYLE_API_KEY?.trim() || process.env.FREESTYLE_API_KEY?.trim();
-if (!providerApiKey) {
-  console.error("bench-vm-startup: FREESTYLE_API_KEY is required (pulled target env or process env) so cleanup can verify provider inventory");
+// provider credentials are required, in either form the runtime's client
+// accepts (freestyleClient in services/vms/drivers/freestyle.ts): an API key,
+// or a Stack access token with a team id. A sensitive value pulls empty; the
+// operator's own copy (~/.secrets/cmux.env, the same account) covers that.
+const providerCredentials = resolveProviderCredentials(env);
+if (!providerCredentials) {
+  console.error("bench-vm-startup: FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID, is required (pulled target env or process env) so cleanup can verify provider inventory");
   process.exit(2);
 }
-const providerSdk = new Freestyle({ apiKey: providerApiKey });
+const providerSdk = new Freestyle(providerCredentials);
 const app = new StackServerApp({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
   publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
@@ -562,6 +569,48 @@ async function reconcileCreatedUser() {
     }
   }
   return { user: null, verified: false };
+}
+
+/** The provider credentials in either form the runtime's client accepts: the pulled value first, then the process environment. */
+function resolveProviderCredentials(env) {
+  const value = (key) => env[key]?.trim() || process.env[key]?.trim() || "";
+  const baseUrl = value("FREESTYLE_API_URL") || undefined;
+  const apiKey = value("FREESTYLE_API_KEY");
+  if (apiKey) return { apiKey, baseUrl };
+  const stackAccessToken = value("FREESTYLE_STACK_ACCESS_TOKEN");
+  const teamId = value("FREESTYLE_TEAM_ID");
+  if (stackAccessToken && teamId) return { stackAccessToken, teamId, baseUrl };
+  return null;
+}
+
+/**
+ * Every request carries the throwaway user's bearer and refresh tokens, so a
+ * mistyped or untrusted --url must not receive them: only an https origin of
+ * the selected project (its canonical host, or a Vercel preview of the
+ * project) is accepted, unless --allow-any-url records that the operator
+ * checked the host. Plain http is refused either way.
+ */
+function resolveTargetUrl(project, options) {
+  const raw = optionValue(options, "--url");
+  if (!raw) return project.url;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    console.error(`bench-vm-startup: --url is not a URL: ${raw}`);
+    process.exit(2);
+  }
+  if (url.protocol !== "https:") {
+    console.error(`bench-vm-startup: --url must be https, session tokens are sent with every request: ${raw}`);
+    process.exit(2);
+  }
+  const canonicalHost = new URL(project.url).host;
+  const previewHost = url.host.endsWith(".vercel.app") && url.host.startsWith(`${project.projectName}-`);
+  if (url.host !== canonicalHost && !previewHost && !options.includes("--allow-any-url")) {
+    console.error(`bench-vm-startup: --url host ${url.host} is neither ${canonicalHost} nor a ${project.projectName}-* Vercel preview; pass --allow-any-url only for a host you control`);
+    process.exit(2);
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
 function positiveInteger(raw, flag) {
