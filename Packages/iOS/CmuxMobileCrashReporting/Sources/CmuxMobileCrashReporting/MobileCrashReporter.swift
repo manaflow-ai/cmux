@@ -230,7 +230,9 @@ public struct MobileCrashReporter {
         options.sessionReplay.quality = .low
         options.sessionReplay.maskAllText = true
         options.sessionReplay.maskAllImages = true
-        options.sessionReplay.maskedViewClasses = replayMaskedViewClasses ?? []
+        options.sessionReplay.maskedViewClasses =
+            SentryReplayOptions.DefaultValues.maskedViewClasses
+            + (replayMaskedViewClasses ?? [])
         // CALayer-only rendering can omit views entirely; keep the complete
         // renderer so masked regions are drawn as blocks, not skipped.
         options.sessionReplay.enableFastViewRendering = false
