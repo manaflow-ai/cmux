@@ -1060,7 +1060,13 @@ final class SurfaceCatalog {
 
     /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
-        pendingRestoredProjections.remove(panelID: projection.panelID)
+        // A restored remote projection may be waiting for its provider while the
+        // local placeholder browser/terminal is registered first. Local
+        // placeholder records must not erase that pending Cloud identity; only
+        // the provider's remote materialization consumes it.
+        if !projection.resource.machine.isLocal {
+            pendingRestoredProjections.remove(panelID: projection.panelID)
+        }
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
