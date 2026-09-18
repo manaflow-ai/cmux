@@ -164,6 +164,13 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(self.client.stored[asset.path.name], old)
         self.assertNotIn("cmux-backup-latest.dmg", self.client.stored)
 
+    def test_null_digest_replacement_resolves_the_old_asset_before_rename(self):
+        asset = self.asset("latest.dmg", True)
+        old = {**remote(asset), "digest": None, "actual_digest": "sha256:old"}
+        self.client.stored[asset.path.name] = old
+        self.publish([asset])
+        self.assertEqual(self.client.stored[asset.path.name]["digest"], asset.digest)
+
     def test_failed_alias_replacement_preserves_the_current_asset(self):
         asset = self.asset("latest.dmg", True)
         old = {**remote(asset), "digest": "sha256:old"}
@@ -252,6 +259,11 @@ class PublicationTests(unittest.TestCase):
         text = (ROOT / "scripts/ci/publish-release-assets.py").read_text()
         self.assertIn('f"cmux-upload-', text)
         self.assertIn('f"cmux-backup-', text)
+
+    def test_nightly_finalization_targets_the_channel_release(self):
+        text = (ROOT / ".github/workflows/nightly.yml").read_text()
+        metadata = text.index("- name: Publish verified nightly release metadata")
+        self.assertIn("tag_name: ${{ needs.decide.outputs.release_tag }}", text[metadata:])
 
     def test_stable_release_stays_draft_until_downloads_are_verified(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()

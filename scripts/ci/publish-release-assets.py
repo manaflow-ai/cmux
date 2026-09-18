@@ -307,6 +307,7 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
         # temp is renamed. If the second PATCH is ambiguous or fails, the
         # backup remains available for immediate restoration and next-run
         # reconciliation.
+        backup_digest = None
         if current and current.get("state") == "starter":
             client.delete(int(current["id"]))
             current = None
@@ -314,10 +315,13 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
             if backup:
                 client.delete(int(backup["id"]))
                 backup = None
+            backup_digest = current.get("digest") or client.asset_digest(current)
             backup = _rename_verified(
                 client, release_id, current, backup_name,
-                size=int(current["size"]), digest=str(current["digest"]),
+                size=int(current["size"]), digest=backup_digest,
             )
+        elif backup:
+            backup_digest = backup.get("digest") or client.asset_digest(backup)
         try:
             _rename_verified(client, release_id, temp_remote, name, size=asset.size, digest=asset.digest)
         except Exception:
@@ -328,7 +332,7 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
             if backup:
                 _rename_verified(
                     client, release_id, backup, name,
-                    size=int(backup["size"]), digest=str(backup["digest"]),
+                    size=int(backup["size"]), digest=backup_digest,
                 )
             raise
         if backup:
