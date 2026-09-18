@@ -311,17 +311,38 @@ async function ownerVpc(userId) {
   }
 }
 
-/** Every provider machine attached to `vpcId`, paged through the account inventory. */
+/**
+ * Every provider machine attached to `vpcId`, paged through the account
+ * inventory until the provider's own `totalCount` is covered. Ids found
+ * before a failed page are still returned; `complete` is false when the
+ * inventory could not be read to the end, which callers treat as unverified.
+ */
 async function machinesOnVpc(vpcId) {
   const ids = [];
-  for (let offset = 0; offset < 5_000; offset += 200) {
-    const page = await providerSdk.vms.list({ limit: 200, offset });
+  let offset = 0;
+  let total = Number.POSITIVE_INFINITY;
+  let complete = false;
+  while (offset < total && offset < 100_000) {
+    let page = null;
+    for (let attempt = 0; attempt < 3 && page === null; attempt += 1) {
+      try {
+        page = await providerSdk.vms.list({ limit: 200, offset });
+      } catch (error) {
+        if (attempt === 2) console.error(`cleanup_provider_inventory_failed offset=${offset} error=${error instanceof Error ? error.message : String(error)}`);
+        else await sleep(1_500);
+      }
+    }
+    if (page === null) return { ids, complete };
     for (const vm of page.vms) {
       if ((vm.vpcs ?? vm.networks ?? []).some((network) => (network.vpcId ?? network.vpc) === vpcId)) ids.push(vm.id);
     }
-    if (page.vms.length < 200) break;
+    total = typeof page.totalCount === "number" ? page.totalCount : (page.vms.length < 200 ? offset + page.vms.length : total);
+    if (page.vms.length === 0) break;
+    offset += page.vms.length;
   }
-  return ids;
+  complete = offset >= total;
+  if (!complete) console.error(`cleanup_provider_inventory_failed truncated at ${offset} of ${total}`);
+  return { ids, complete };
 }
 
 /**
@@ -335,7 +356,8 @@ async function reapOwnerVpcMachines(userId) {
   try {
     const vpc = await ownerVpc(userId);
     if (!vpc) return true;
-    for (const id of await machinesOnVpc(vpc.id)) {
+    const found = await machinesOnVpc(vpc.id);
+    for (const id of found.ids) {
       console.error(`cleanup_reconcile_vm=${id}`);
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
@@ -349,8 +371,8 @@ async function reapOwnerVpcMachines(userId) {
       }
     }
     const remaining = await machinesOnVpc(vpc.id);
-    for (const id of remaining) console.error(`cleanup_needed_vm=${id}`);
-    return remaining.length === 0;
+    for (const id of remaining.ids) console.error(`cleanup_needed_vm=${id}`);
+    return found.complete && remaining.complete && remaining.ids.length === 0;
   } catch (error) {
     console.error(`cleanup_provider_inventory_failed error=${error instanceof Error ? error.message : String(error)}`);
     return false;
@@ -391,17 +413,29 @@ async function reapOwnerNetwork(userId) {
  * (`deletePrivateNetworkingForAccountDeletion`), tunnels, leases and usage
  * rows. Deleting only the Stack identity would leave that provider VPC behind.
  */
+/**
+ * Outcomes: "deleted" (200), "cleanup_incomplete" (202: the Stack identity
+ * is gone but the route's post-Stack cleanup did not finish, so the network
+ * must be verified separately), "failed". A `202 {deletionPending}` means
+ * another deletion of the same account is still running and is waited on.
+ */
 async function deleteAccount() {
   // The route is resumable: a retryable answer records a checkpoint and the
   // next call continues from it, so a few attempts are part of its contract.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
     const response = await fetchTimed(`${targetUrl}/api/account`, { method: "DELETE", headers: authHeaders }, 300_000);
-    if (response.status === 200 || response.status === 202) return true;
+    const body = json(response.text);
+    if (response.status === 200) return "deleted";
+    if (response.status === 202 && body.cleanupIncomplete === true) return "cleanup_incomplete";
+    if (response.status === 202 && body.deletionPending === true) {
+      await sleep(5_000);
+      continue;
+    }
     console.error(`cleanup_delete_account_failed attempt=${attempt + 1} status=${response.status} body=${response.text.slice(0, 200)}`);
-    if (json(response.text).retryable !== true) break;
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    if (body.retryable !== true || attempt >= 2) break;
+    await sleep(5_000);
   }
-  return false;
+  return "failed";
 }
 
 function positiveInteger(raw, flag) {
@@ -470,13 +504,22 @@ try {
   // user's own network at the provider before any account cleanup.
   const providerClean = user ? await reapOwnerVpcMachines(user.id) : true;
   let accountDeleted = false;
+  let identityGone = false;
   if (user && machinesGone && providerClean) {
+    let outcome = "failed";
     try {
-      accountDeleted = await deleteAccount();
+      outcome = await deleteAccount();
     } catch (cleanupError) {
       console.error(`cleanup_delete_account_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
     }
-    if (!accountDeleted) {
+    if (outcome === "deleted") accountDeleted = true;
+    if (outcome === "cleanup_incomplete") {
+      // The identity is already gone; only the network can still be verified.
+      identityGone = true;
+      accountDeleted = await reapOwnerNetwork(user.id);
+      if (!accountDeleted) console.error(`cleanup_needed_network=${ownerNetworkSlug(user.id)} (the account route deleted the identity but its cleanup did not finish)`);
+    }
+    if (outcome === "failed") {
       // The route can fail at its final Stack step after it already removed
       // the cmux-owned data; either way, take the provider network out by
       // its slug and only then drop the identity with the server key, so no
@@ -493,10 +536,12 @@ try {
     }
   }
   if (user && !accountDeleted) {
-    // The throwaway user is the only credential that still owns whatever is
-    // left (machines, or the owner network the app deletes with the account);
-    // deleting the identity now would make them unreachable to any retry.
-    console.error(`cleanup_needed_user=${user.primaryEmail ?? user.id} (kept so its resources can still be cleaned up: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account, which also removes its owner network)`);
+    if (!identityGone) {
+      // The throwaway user is the only credential that still owns whatever is
+      // left (machines, or the owner network the app deletes with the account);
+      // deleting the identity now would make them unreachable to any retry.
+      console.error(`cleanup_needed_user=${user.primaryEmail ?? user.id} (kept so its resources can still be cleaned up: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account, which also removes its owner network)`);
+    }
     process.exitCode = 1;
   }
   process.off("SIGINT", interrupt);

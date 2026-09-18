@@ -165,26 +165,38 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
  */
 function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
   const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
+  // Pages are read with retries; the ids found before a failed page are kept
+  // so they are still destroyed, and an incomplete inventory is reported as
+  // its own failure.
   const listRunMachines = Effect.gen(function* () {
     const ids: string[] = [];
-    for (let offset = 0; offset < 5_000; offset += 200) {
-      const page = yield* attempt("list machines", () => sdk.vms.list({ metadata: "cmux:cloud", limit: 200, offset }));
-      for (const data of page.vms) {
+    let listingError: string | null = null;
+    let offset = 0;
+    let total = Number.POSITIVE_INFINITY;
+    while (offset < total && offset < 100_000 && listingError === null) {
+      const page = yield* Effect.either(
+        attempt("list machines", () => sdk.vms.list({ metadata: "cmux:cloud", limit: 200, offset })).pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("1500 millis") })),
+      );
+      if (page._tag === "Left") { listingError = page.left.message; break; }
+      for (const data of page.right.vms) {
         const networks = data.vpcs ?? data.networks ?? [];
         if (networks.some((network) => (network.vpcId ?? network.vpc) === networkId)) ids.push(data.id);
       }
-      if (page.vms.length < 200) break;
+      total = typeof page.right.totalCount === "number" ? page.right.totalCount : (page.right.vms.length < 200 ? offset + page.right.vms.length : total);
+      if (page.right.vms.length === 0) break;
+      offset += page.right.vms.length;
     }
-    return ids;
+    if (listingError === null && offset < total) listingError = `inventory truncated at ${offset} of ${total}`;
+    return { ids, listingError };
   });
   // Every discovered machine is attempted; failures are aggregated and the
   // finalizer then fails, so the run exits non-zero instead of reporting a
   // clean teardown over a machine it could not remove.
   return Effect.gen(function* () {
     const failures: string[] = [];
-    const listed = yield* Effect.either(listRunMachines);
-    if (listed._tag === "Left") failures.push(listed.left.message);
-    for (const id of listed._tag === "Right" ? listed.right : []) {
+    const listed = yield* listRunMachines;
+    if (listed.listingError !== null) failures.push(`list machines: ${listed.listingError}`);
+    for (const id of listed.ids) {
       console.error(`cleanup_reconcile_vm=${id}`);
       const destroyed = yield* Effect.either(
         attempt(`destroy ${id}`, () => provider.destroy(id)).pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("2500 millis") })),

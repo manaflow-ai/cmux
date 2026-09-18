@@ -128,20 +128,35 @@ async function waitForDaemon(vm: Vm, origin: number, budgetMs = 90_000): Promise
  * listing on the run id the create wrote into metadata.
  */
 async function reconcileRunVms(): Promise<void> {
-  try {
-    const ids: string[] = [];
-    for (let offset = 0; offset < 10_000; offset += 200) {
-      const page = await fs.vms.list({ metadata: `cmux:bench,run:${runId}`, limit: 200, offset });
-      ids.push(...page.vms.map((data) => data.id));
-      if (page.vms.length < 200) break;
+  // Pages are listed with retries and every id found so far is deleted even
+  // when a later page fails; an incomplete inventory is then a cleanup
+  // failure of its own, never a silent "nothing left".
+  const ids = new Set<string>();
+  let listingError: string | null = null;
+  let offset = 0;
+  let total = Number.POSITIVE_INFINITY;
+  while (offset < total && offset < 100_000 && listingError === null) {
+    let page: Awaited<ReturnType<typeof fs.vms.list>> | null = null;
+    for (let attempt = 0; attempt < 3 && page === null; attempt += 1) {
+      try {
+        page = await fs.vms.list({ metadata: `cmux:bench,run:${runId}`, limit: 200, offset });
+      } catch (error) {
+        if (attempt === 2) listingError = error instanceof Error ? error.message : String(error);
+        else await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
     }
-    for (const id of ids) {
-      console.error(`cleanup_reconcile_vm=${id}`);
-      await deleteVm(fs.vms.ref(id), id);
-    }
-  } catch (error) {
-    cleanupFailures.push(`list run machines: ${error instanceof Error ? error.message : String(error)}`);
+    if (page === null) break;
+    for (const data of page.vms) ids.add(data.id);
+    total = typeof page.totalCount === "number" ? page.totalCount : (page.vms.length < 200 ? offset + page.vms.length : total);
+    if (page.vms.length === 0) break;
+    offset += page.vms.length;
   }
+  for (const id of ids) {
+    console.error(`cleanup_reconcile_vm=${id}`);
+    await deleteVm(fs.vms.ref(id), id);
+  }
+  if (listingError !== null) cleanupFailures.push(`list run machines: ${listingError}`);
+  else if (offset < total) cleanupFailures.push(`list run machines: inventory truncated at ${offset} of ${total}`);
 }
 
 /** A VM delete releases its VPC addresses asynchronously; the VPC delete answers 409 until then. */
