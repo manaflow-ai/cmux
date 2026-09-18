@@ -1275,8 +1275,13 @@ CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+if [[ -n "$TAG" && "$PROD_AUTH" -eq 0 ]]; then
+  source "$PWD/scripts/lib/dev-backend-origin.sh"
+  CMUX_DEV_ORIGIN="$(cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD")" || exit 1
+  export CMUX_DEV_BACKEND_URL="$CMUX_DEV_ORIGIN"
+fi
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
-CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
+CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_DEV_BACKEND_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
 CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
 CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-iroh-v2-development.debussy.workers.dev}"
 CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
@@ -1716,6 +1721,15 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
+      # Keep Cloud dogfood policy in the artifact so Finder and HQ cache
+      # restores enable both gates on the Mac that actually launches it.
+      # The app additionally requires a compiled Debug identity before using it.
+      case "${CMUX_DEV_CLOUD_ENABLED:-1}" in
+        0|1) ;;
+        *) echo "error: CMUX_DEV_CLOUD_ENABLED must be 0 or 1" >&2; exit 1 ;;
+      esac
+      /usr/libexec/PlistBuddy -c 'Delete :CMUXCloudDogfoodEnabled' "$INFO_PLIST" 2>/dev/null || true
+      /usr/libexec/PlistBuddy -c "Add :CMUXCloudDogfoodEnabled bool ${CMUX_DEV_CLOUD_ENABLED:-1}" "$INFO_PLIST"
       set_plist_env "$INFO_PLIST" CMUX_AUTH_CALLBACK_SCHEME "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
@@ -1729,6 +1743,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" PORT "$CMUX_DEV_PORT"
       set_plist_env "$INFO_PLIST" CMUX_AUTH_WWW_ORIGIN "$CMUX_AUTH_WWW_ORIGIN_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_WWW_ORIGIN "$CMUX_WWW_ORIGIN_VALUE"
+      if [[ -n "${CMUX_DEV_BACKEND_URL:-}" ]]; then
+        set_plist_env "$INFO_PLIST" CMUX_DEV_BACKEND_URL "$CMUX_DEV_BACKEND_URL"
+        set_plist_env "$INFO_PLIST" CMUX_DEV_BACKEND_TRANSPORT direct
+        set_plist_env "$INFO_PLIST" CMUX_DEV_BACKEND_TAILSCALE_HOST cmux-dev-backend-1.tail137216.ts.net
+      fi
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"

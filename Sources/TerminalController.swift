@@ -4292,23 +4292,10 @@ class TerminalController {
                     data: Self.cloudVMBackendErrorData(error)
                 )
             }
-            let message: String
-            if let vmError = error as? VMClientError {
-                // Preserve the typed backend code, action, and support
-                // reference. `VMClientError` formats HTTP bodies through the
-                // redacted Cloud error formatter, so this does not expose a
-                // raw provider response.
-                message = vmError.description
-            } else {
-                message = String(
-                    localized: "socket.cloudVM.requestFailed",
-                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
-                )
-            }
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: message,
+                message: Self.cloudVMSafeErrorMessage(error),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4331,6 +4318,9 @@ class TerminalController {
         if let code = object?["error"] as? String, !code.isEmpty {
             payload["backend_code"] = code
         }
+        if let retryable = object?["retryable"] as? Bool {
+            payload["retryable"] = retryable
+        }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
         if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
@@ -4338,6 +4328,60 @@ class TerminalController {
         }
         return payload
     }
+
+    /// Surface only the server's public copy, never a raw response body or
+    /// provider diagnostics. Keep the support reference after sanitization.
+    private nonisolated static func cloudVMSafeErrorMessage(_ error: Error) -> String {
+        let fallback = String(
+            localized: "socket.cloudVM.requestFailed",
+            defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+        )
+        if let catalogError = error as? SurfaceCatalogError {
+            switch catalogError {
+            case .unknownResource, .noProvider, .ambiguousRemotePlacement:
+                // These messages are app-owned copy with routing identifiers,
+                // not provider-supplied failure diagnostics.
+                let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(catalogError.localizedDescription)
+                return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+            default:
+                break
+            }
+        }
+        guard case let VMClientError.httpStatus(status, body) = error else {
+            guard let vmError = error as? VMClientError else { return fallback }
+            let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(describing: vmError))
+            return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+        }
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return formattedCloudVMHTTPError(status: status, body: "")
+        }
+        // Reuse the formatter's HTTP code and action copy, but pass only public
+        // fields. Provider details and unvalidated support references stay out.
+        var publicObject: [String: Any] = [:]
+        for key in ["error", "message", "reason", "action", "retryAfterSeconds"] {
+            publicObject[key] = object[key]
+        }
+        if let ui = object["ui"] as? [String: Any] {
+            var publicUI: [String: Any] = [:]
+            for key in ["title", "message", "retryAfterSeconds"] {
+                publicUI[key] = ui[key]
+            }
+            publicObject["ui"] = publicUI
+        }
+        let ui = object["ui"] as? [String: Any]
+        if let trace = (object["traceId"] as? String) ?? (ui?["traceId"] as? String),
+           trace.count == 32, trace.allSatisfy(\.isHexDigit) {
+            publicObject["traceId"] = trace
+        }
+        guard let publicData = try? JSONSerialization.data(withJSONObject: publicObject),
+              let publicBody = String(data: publicData, encoding: .utf8) else { return fallback }
+        let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(
+            formattedCloudVMHTTPError(status: status, body: publicBody)
+        )
+        return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+    }
+
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
         switch error {
         case .notSignedIn:
