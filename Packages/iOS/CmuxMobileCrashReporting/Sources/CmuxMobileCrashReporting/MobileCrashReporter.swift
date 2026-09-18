@@ -214,10 +214,13 @@ public struct MobileCrashReporter {
         let hasRequiredReplayMasks = replayMaskedViewClasses.map { classes in
             #if os(iOS)
             let names = Set(classes.map { NSStringFromClass($0) })
-            return names.contains { $0.hasSuffix("GhosttySurfaceView") }
-                && names.contains { $0.hasSuffix("BrowserStreamContentView") }
-                && names.contains { $0.hasSuffix("SimStreamDisplayView") }
-                && names.contains { $0.hasSuffix("CameraPreviewHostView") }
+            let requiredNames: Set<String> = [
+                "CmuxMobileTerminal.GhosttySurfaceView",
+                "CmuxMobileBrowserStream.BrowserStreamContentView",
+                "CmuxMobileSimulatorStream.SimStreamDisplayView",
+                "CmuxMobileCamera.CameraPreviewHostView",
+            ]
+            return requiredNames.isSubset(of: names)
             #else
             return !classes.isEmpty
             #endif

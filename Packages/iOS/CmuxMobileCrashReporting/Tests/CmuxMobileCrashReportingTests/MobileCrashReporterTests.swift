@@ -12,10 +12,6 @@ private struct FixedConsent: AnalyticsConsentProviding {
 import UIKit
 
 private final class ReplayMaskProbeView: UIView {}
-private final class GhosttySurfaceView: UIView {}
-private final class BrowserStreamContentView: UIView {}
-private final class SimStreamDisplayView: UIView {}
-private final class CameraPreviewHostView: UIView {}
 #endif
 
 @Suite struct MobileCrashReporterTests {
@@ -79,18 +75,7 @@ private final class CameraPreviewHostView: UIView {}
     }
 
     @Test func optionsFactoryMatchesMobileContract() {
-        #if os(iOS)
-        let options = MobileCrashReporter().makeOptions(
-            replayMaskedViewClasses: [
-                GhosttySurfaceView.self,
-                BrowserStreamContentView.self,
-                SimStreamDisplayView.self,
-                CameraPreviewHostView.self,
-            ]
-        )
-        #else
         let options = MobileCrashReporter().makeOptions()
-        #endif
 
         #expect(options.dsn == "https://834d19a3077c4adbff534dca1e93de4f@o4507547940749312.ingest.us.sentry.io/4510604800491520")
         #expect(options.tracesSampleRate?.doubleValue == 0.0)
@@ -111,8 +96,8 @@ private final class CameraPreviewHostView: UIView {}
         #expect(options.enableLogs == false)
         #expect(options.beforeBreadcrumb != nil)
         #if os(iOS)
-        #expect(options.sessionReplay.onErrorSampleRate == 1.0)
-        #expect(options.sessionReplay.sessionSampleRate == 0.1)
+        #expect(options.sessionReplay.onErrorSampleRate == 0.0)
+        #expect(options.sessionReplay.sessionSampleRate == 0.0)
         #expect(options.sessionReplay.quality == .low)
         // On-device masking is the privacy boundary: text/image defaults must
         // stay on, and CALayer-only fast rendering (which can skip views
@@ -120,7 +105,7 @@ private final class CameraPreviewHostView: UIView {}
         #expect(options.sessionReplay.maskAllText == true)
         #expect(options.sessionReplay.maskAllImages == true)
         #expect(options.sessionReplay.enableFastViewRendering == false)
-        #expect(options.sessionReplay.maskedViewClasses.count == 4)
+        #expect(options.sessionReplay.maskedViewClasses.isEmpty)
         #endif
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
@@ -158,30 +143,20 @@ private final class CameraPreviewHostView: UIView {}
     @Test func replayForceSessionEnvironmentOverridesSampleRateOnlyInDebug() {
         let forced = MobileCrashReporter().makeOptions(
             environment: ["CMUX_REPLAY_FORCE_SESSION": "1"],
-            replayMaskedViewClasses: [
-                GhosttySurfaceView.self,
-                BrowserStreamContentView.self,
-                SimStreamDisplayView.self,
-                CameraPreviewHostView.self,
-            ]
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
         )
         let normal = MobileCrashReporter().makeOptions(
             environment: [:],
-            replayMaskedViewClasses: [
-                GhosttySurfaceView.self,
-                BrowserStreamContentView.self,
-                SimStreamDisplayView.self,
-                CameraPreviewHostView.self,
-            ]
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
         )
 
         #if DEBUG
-        #expect(forced.sessionReplay.sessionSampleRate == 1.0)
+        #expect(forced.sessionReplay.sessionSampleRate == 0.0)
         #else
-        #expect(forced.sessionReplay.sessionSampleRate == 0.1)
+        #expect(forced.sessionReplay.sessionSampleRate == 0.0)
         #endif
-        #expect(normal.sessionReplay.sessionSampleRate == 0.1)
-        #expect(forced.sessionReplay.onErrorSampleRate == 1.0)
+        #expect(normal.sessionReplay.sessionSampleRate == 0.0)
+        #expect(forced.sessionReplay.onErrorSampleRate == 0.0)
     }
 
     @Test func replayStaysDisabledWithoutRequiredMaskClasses() {
