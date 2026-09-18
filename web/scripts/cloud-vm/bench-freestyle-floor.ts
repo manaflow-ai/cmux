@@ -119,6 +119,23 @@ async function waitForDaemon(vm: Vm, origin: number, budgetMs = 90_000): Promise
   return milestones;
 }
 
+/**
+ * Deletes every machine this run created, including one whose create
+ * response never arrived (the SDK rejected while the platform allocated), by
+ * listing on the run id the create wrote into metadata.
+ */
+async function reconcileRunVms(): Promise<void> {
+  try {
+    const listed = await fs.vms.list({ metadata: `cmux:bench,run:${runId}`, limit: 200 });
+    for (const data of listed.vms) {
+      console.error(`cleanup_reconcile_vm=${data.id}`);
+      await deleteVm(fs.vms.ref(data.id), data.id);
+    }
+  } catch (error) {
+    cleanupFailures.push(`list run machines: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /** A VM delete releases its VPC addresses asynchronously; the VPC delete answers 409 until then. */
 async function deleteVpcWithRetry(id: string): Promise<void> {
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -137,7 +154,9 @@ async function createVm(vpcId: string | null, name: string) {
     snapshotId: image,
     displayName: name,
     idleTimeoutSeconds: -1,
-    metadata: { cmux: "bench" },
+    // The run id in metadata is what exit-time reconciliation lists by, so a
+    // create whose response was lost still gets its machine deleted.
+    metadata: { cmux: "bench", run: runId },
     firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !vpcId }) },
     ...(vpcId ? { vpcs: [{ vpcId, ipv4: true, ipv6: true }] } : {}),
   }));
@@ -257,6 +276,7 @@ try {
     console.error(`burst: ${JSON.stringify(results.burst)}`);
   }
 } finally {
+  await reconcileRunVms();
   if (vpcId) {
     await deleteVpcWithRetry(vpcId).catch((error: unknown) => {
       cleanupFailures.push(`VPC ${vpcId}: ${error instanceof Error ? error.message : String(error)}`);

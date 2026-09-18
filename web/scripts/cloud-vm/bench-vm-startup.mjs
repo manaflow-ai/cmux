@@ -265,14 +265,19 @@ async function reconcileOwnedVms() {
 }
 
 async function destroyLeftovers() {
-  if (authHeaders) await reconcileOwnedVms();
+  if (!authHeaders) return;
+  await reconcileOwnedVms();
   for (const vmId of [...liveVmIds]) {
-    try {
-      const destroy = await fetchTimed(vmUrl(vmId), { method: "DELETE", headers: authHeaders });
-      if (destroy.status === 200) liveVmIds.delete(vmId);
-      else console.error(`cleanup_delete_failed_vm=${vmId} status=${destroy.status}`);
-    } catch (error) {
-      console.error(`cleanup_delete_failed_vm=${vmId} error=${error instanceof Error ? error.message : String(error)}`);
+    // Three attempts: a transient DELETE failure must not strand a machine.
+    for (let attempt = 0; attempt < 3 && liveVmIds.has(vmId); attempt += 1) {
+      try {
+        const destroy = await fetchTimed(vmUrl(vmId), { method: "DELETE", headers: authHeaders });
+        if (destroy.status === 200 || destroy.status === 404) liveVmIds.delete(vmId);
+        else console.error(`cleanup_delete_failed_vm=${vmId} status=${destroy.status}`);
+      } catch (error) {
+        console.error(`cleanup_delete_failed_vm=${vmId} error=${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (liveVmIds.has(vmId)) await new Promise((resolve) => setTimeout(resolve, 2_000));
     }
   }
 }
@@ -336,7 +341,11 @@ try {
   await destroyLeftovers();
   for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
   if (liveVmIds.size > 0) process.exitCode = 1;
-  if (user) {
+  if (user && liveVmIds.size > 0) {
+    // The throwaway user is the only credential that still owns those
+    // machines; deleting it would make them unreachable to any retry.
+    console.error(`cleanup_needed_user=${user.primaryEmail ?? user.id} (kept so the machines above can still be destroyed)`);
+  } else if (user) {
     try {
       await user.delete();
     } catch (cleanupError) {

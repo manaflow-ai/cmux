@@ -16,6 +16,7 @@
  * verify-devbox-private-link.ts.
  */
 import { Duration, Effect } from "effect";
+import { Freestyle } from "freestyle";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -51,6 +52,8 @@ const size = vmImageSize(sizeName);
 const selection = resolveVmImage("freestyle", option("--image"), process.env, { kind: "desktop", memoryMb: size.memoryMb });
 const image = selection.image;
 const PROMPT_PATTERN = "λ";
+const runId = randomUUID().slice(0, 8);
+const machineNamePrefix = `bench-link-${runId}-`;
 
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (error) => new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`) });
@@ -100,16 +103,21 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
   return Effect.scoped(Effect.gen(function* () {
     const trial: Trial = { index, image, size: size.name, startedAt: new Date().toISOString() };
     const origin = performance.now();
-    const created = yield* timed(attempt("provider.create", () => provider.create({
-      image, network: { id: networkId }, displayName: `bench-link-${index}`, imageSize: selection.size ?? undefined,
-    })));
+    // acquireRelease: the create cannot be interrupted half-way (the provider
+    // request is not cancellable, so an interrupt waits for it) and the
+    // destroy finalizer is registered atomically with the machine's id.
+    const created = yield* timed(Effect.acquireRelease(
+      attempt("provider.create", () => provider.create({
+        image, network: { id: networkId }, displayName: `${machineNamePrefix}${index}`, imageSize: selection.size ?? undefined,
+      })),
+      (value) => Effect.gen(function* () {
+        const destroyed = yield* timed(cleanup(`VM ${value.providerVmId}`, () => provider.destroy(value.providerVmId)));
+        trial.destroyMs = destroyed.ms;
+      }),
+    ));
     const vmId = created.value.providerVmId;
     trial.vmId = vmId;
     trial.createMs = created.ms;
-    yield* Effect.addFinalizer(() => Effect.gen(function* () {
-      const destroyed = yield* timed(cleanup(`VM ${vmId}`, () => provider.destroy(vmId)));
-      trial.destroyMs = destroyed.ms;
-    }));
     const attached = yield* timed(attempt("openCmuxRemote", () => provider.openCmuxRemote(vmId, { clientCapabilities: capabilities })));
     trial.attachMs = attached.ms;
     trial.trustedCarrier = attached.value.trustedCarrier;
@@ -143,6 +151,25 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
   }));
 }
 
+/** Destroys every machine named for this run that is still listed on the account. */
+function reconcileRunMachines(provider: FreestyleProvider) {
+  return Effect.gen(function* () {
+    const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
+    const ids: string[] = [];
+    for (let offset = 0; offset < 2_000; offset += 200) {
+      const page = yield* attempt("list machines", () => sdk.vms.list({ metadata: "cmux:cloud", limit: 200, offset }));
+      for (const data of page.vms) {
+        if (data.displayName?.startsWith(machineNamePrefix)) ids.push(data.id);
+      }
+      if (page.vms.length < 200) break;
+    }
+    for (const id of ids) {
+      console.error(`cleanup_reconcile_vm=${id}`);
+      yield* cleanup(`VM ${id}`, () => provider.destroy(id));
+    }
+  }).pipe(Effect.catchAll((error) => Effect.sync(() => { console.error(`cleanup_reconcile_failed ${String(error)}`); })), Effect.orDie);
+}
+
 function bench() {
   return Effect.gen(function* () {
     const rawProbe = yield* command(client, ["remote-probe", "--json"], "client probe");
@@ -156,11 +183,15 @@ function bench() {
       Effect.sync(() => mkdtempSync(path.join(tmpdir(), "cmux-bench-link-"))),
       (directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
     );
-    const slug = `cmux-bench-link-${randomUUID().slice(0, 12)}`;
+    const slug = `cmux-bench-link-${runId}`;
     const network = yield* timed(Effect.acquireRelease(
       attempt("ensureNetwork", () => networking.ensureNetwork({ slug })),
       (value) => cleanup(`VPC ${value.id}`, () => networking.deleteNetwork(value.id)),
     ));
+    // Registered right after the VPC so it runs before the VPC delete: any
+    // machine of this run that survived its own finalizer (a create whose
+    // response was lost) is found by name and destroyed.
+    yield* Effect.addFinalizer(() => reconcileRunMachines(provider));
     const { privateKey, publicKey } = generateKeyPairSync("x25519");
     const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
     const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
