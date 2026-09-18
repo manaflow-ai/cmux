@@ -107,7 +107,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     }
     return "remote PTY operation failed"
 }
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -183,6 +182,8 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
+    /// Cached authoritative mode used by socket workers for bounded admission reads.
+    nonisolated let socketAccessModeCache: SocketControlAccessModeCache
     /// App-owned discovery marker store injected into the listener event seam.
     nonisolated let socketPathMarkerStore: SocketPathMarkerStore
     // Accepted-connection consumer; runs until process exit (singleton).
@@ -234,7 +235,6 @@ class TerminalController {
         subsystem: "com.cmux.socket",
         category: .dynamicTracing
     )
-
     /// True while a tool (e.g. Instruments' os_signpost instrument) is
     /// recording the main-hop signposts. The single predicate consulted by
     /// both `withSocketCommandPolicy` (command-key stack bookkeeping) and
@@ -271,21 +271,18 @@ class TerminalController {
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
-
     nonisolated static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
             defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
-
     nonisolated static var terminalSurfaceUnavailableMessage: String {
         String(
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
-
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
@@ -481,6 +478,9 @@ class TerminalController {
         self.panelArtifactAuthorizationStore =
             panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
+        let initialSocketAccessMode = CmuxSettingsFileStore.socketControlPolicyResolution().mode
+        let socketAccessModeCache = SocketControlAccessModeCache(initialMode: initialSocketAccessMode)
+        self.socketAccessModeCache = socketAccessModeCache
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
         let socketMarkerEnvironment = ProcessInfo.processInfo.environment
@@ -554,7 +554,7 @@ class TerminalController {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
             },
             effectiveAccessModeProvider: {
-                CmuxSettingsFileStore.socketControlPolicyResolution().mode
+                socketAccessModeCache.current
             },
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(

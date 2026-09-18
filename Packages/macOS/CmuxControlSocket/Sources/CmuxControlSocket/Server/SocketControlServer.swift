@@ -135,7 +135,7 @@ public final class SocketControlServer {
     private let authorizationObserverBag: SocketAuthorizationObserverBag
     private nonisolated let connectionAuthorizationState: SocketConnectionAuthorizationState
     private nonisolated let effectivePasswordProvider: @Sendable () -> String?
-    private nonisolated let effectiveAccessModeProvider: @Sendable () -> SocketControlMode
+    private nonisolated let effectiveAccessModeProvider: (@Sendable () -> SocketControlMode)?
 
     /// Accepted, configured client connections, in accept order.
     ///
@@ -170,9 +170,10 @@ public final class SocketControlServer {
     ///     center; tests can inject an isolated center.
     ///   - effectivePasswordProvider: Reads the password currently enforced by
     ///     password mode. Called outside authorization-state lock sections.
-    ///   - effectiveAccessModeProvider: Resolves the current authoritative
-    ///     access mode before admission and continuation checks. The app
-    ///     supplies the managed-policy resolver; tests may inject a snapshot.
+    ///   - effectiveAccessModeProvider: Optional cached mode provider used by
+    ///     the app composition root before admission and continuation checks.
+    ///     When omitted, the mode passed to ``start``/``reconfigure`` remains
+    ///     authoritative for package consumers and tests.
     ///   - authorizationChangeSignals: Out-of-band signals for authoritative
     ///     password-file changes that do not post an in-process notification.
     ///   - events: Host callback seam.
@@ -184,7 +185,7 @@ public final class SocketControlServer {
         maximumBufferedConnections: Int = 32,
         notificationCenter: NotificationCenter,
         effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
-        effectiveAccessModeProvider: @escaping @Sendable () -> SocketControlMode = { .cmuxOnly },
+        effectiveAccessModeProvider: (@Sendable () -> SocketControlMode)? = nil,
         authorizationChangeSignals: AsyncStream<Void>? = nil,
         events: SocketControlServerEvents
     ) {
@@ -310,6 +311,9 @@ public final class SocketControlServer {
     /// The access mode of the current listener, reconciled through the
     /// injected authoritative policy provider before it is returned.
     public nonisolated var accessMode: SocketControlMode {
+        guard let effectiveAccessModeProvider else {
+            return connectionAuthorizationState.accessMode
+        }
         let resolved = effectiveAccessModeProvider()
         if connectionAuthorizationState.accessMode != resolved {
             configureConnectionAuthorization(accessMode: resolved)
