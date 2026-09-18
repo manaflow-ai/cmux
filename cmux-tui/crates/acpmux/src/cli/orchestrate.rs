@@ -16,6 +16,15 @@ use std::sync::Arc;
 
 pub(crate) const SKILL: &str = include_str!("../../skills/acpmux/SKILL.md");
 
+/// The guide text: the skill file without its frontmatter.
+pub(crate) fn guide() -> &'static str {
+    SKILL
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.find("\n---\n").map(|i| &rest[i + 5..]))
+        .unwrap_or(SKILL)
+        .trim_start()
+}
+
 /// `@` or `current` names the caller's own session (ACPMUX_SESSION_ID).
 pub(crate) fn expand_session_key(key: &str) -> Result<String> {
     if key == "@" || key == "current" || key == "--current" {

@@ -411,6 +411,11 @@ struct NewArgs {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // `acpmux ls | head` must end quietly, not panic on a closed pipe.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     // `acpmux daemon` with nothing after it means `daemon run`.
     let mut argv: Vec<std::ffi::OsString> = std::env::args_os().collect();
     if argv.len() == 2 && argv[1] == "daemon" {
@@ -447,7 +452,7 @@ async fn main() -> Result<()> {
         }
         Some(Command::Skill) => {
             use std::io::Write;
-            let _ = std::io::stdout().write_all(cli::orchestrate::SKILL.as_bytes());
+            let _ = std::io::stdout().write_all(cli::orchestrate::guide().as_bytes());
             Ok(())
         }
         Some(cmd) => {

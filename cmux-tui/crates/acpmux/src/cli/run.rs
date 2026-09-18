@@ -52,10 +52,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         Command::Defaults { family, pairs, clear } => orchestrate::defaults(connect(true).await?, family, pairs, clear, json_out).await,
         Command::Skill => {
             use std::io::Write;
-            // The file carries skill frontmatter; the guide starts after it.
-            let text = orchestrate::SKILL;
-            let body = text.strip_prefix("---\n").and_then(|rest| rest.find("\n---\n").map(|i| &rest[i + 5..])).unwrap_or(text);
-            let _ = std::io::stdout().write_all(body.trim_start().as_bytes());
+            let _ = std::io::stdout().write_all(orchestrate::guide().as_bytes());
             Ok(())
         }
         Command::Last { session, count } => {
