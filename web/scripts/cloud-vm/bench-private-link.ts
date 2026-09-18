@@ -53,10 +53,11 @@ const selection = resolveVmImage("freestyle", option("--image"), process.env, { 
 const image = selection.image;
 const PROMPT_PATTERN = "λ";
 const runId = randomUUID().slice(0, 8);
-// Provider requests cannot be cancelled: each create is tracked until it
-// settles, and the slug-based safety net waits for them before it lists the
-// inventory, so an interrupted or timed-out create cannot allocate behind
-// the sweep.
+// Provider requests cannot be cancelled: each create and each finalizer's
+// delete is tracked until it settles, and the slug-based safety net waits for
+// them before it lists the inventory and deletes the VPC, so an interrupted
+// or timed-out create cannot allocate behind the sweep and a timed-out delete
+// cannot race the VPC delete.
 const inFlight = new Set<Promise<unknown>>();
 function tracked<T>(promise: Promise<T>): Promise<T> {
   inFlight.add(promise);
@@ -185,7 +186,7 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
         image, network: { id: networkId }, displayName: `bench-link-${runId}-${index}`, imageSize: selection.size ?? undefined,
       }), 900_000, "provider.create")),
       (value) => Effect.gen(function* () {
-        const destroyed = yield* timed(cleanup(`VM ${value.providerVmId}`, () => provider.destroy(value.providerVmId)));
+        const destroyed = yield* timed(cleanup(`VM ${value.providerVmId}`, () => tracked(provider.destroy(value.providerVmId))));
         trial.destroyMs = destroyed.ms;
       }),
     ));
@@ -296,7 +297,7 @@ function bench() {
     yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug));
     const network = yield* timed(Effect.acquireRelease(
       attempt("ensureNetwork", () => bounded(networking.ensureNetwork({ slug }), 120_000, "ensureNetwork")),
-      (value) => cleanup(`VPC ${value.id}`, () => networking.deleteNetwork(value.id)),
+      (value) => cleanup(`VPC ${value.id}`, () => tracked(networking.deleteNetwork(value.id))),
     ));
     // Registered right after the VPC so it runs before the VPC delete: any
     // machine of this run that survived its own finalizer (a create whose
@@ -308,7 +309,7 @@ function bench() {
     const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
     const tunnel = yield* timed(Effect.acquireRelease(
       attempt("createTunnel", () => bounded(networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey }), 120_000, "createTunnel")),
-      (value) => cleanup(`tunnel ${value.tunnel.id}`, () => networking.deleteTunnel(value.tunnel.id)),
+      (value) => cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))),
     ));
     const config = tunnel.value.tunnel.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${privateBytes}`);
     const configPath = path.join(root, "wg.conf");

@@ -346,6 +346,11 @@ try {
 } finally {
   await settleInFlight(300_000);
   await reconcileRunVms();
+  // Reconciliation's own deletes are bounded too: one that timed out is
+  // still running at the provider, and the VPC delete below would race it
+  // (409 until the machine's addresses are released), so wait for those as
+  // well before touching the VPC.
+  await settleInFlight(120_000);
   if (withVpc) {
     // The VPC's slug is the run id, so a create whose response was lost (no
     // id in hand) is still deleted by name; a 404 means nothing was made.

@@ -30,12 +30,19 @@ const EDGE_PROBE = "curl -s -o /dev/null -w '%{http_code}' --max-time 4 https://
 const EDGE_BUDGET_MS = 90_000;
 const label = optionValue(rest, "--label") ?? "";
 const outPath = optionValue(rest, "--out");
-const REQUEST_TIMEOUT_MS = 120_000;
+// A request is never abandoned while the server may still be working on it:
+// the client waits past the platform's own bound, so teardown's DELETE can
+// never race an attach that is still healing the machine or writing its
+// lease. Routes without a maxDuration of their own (attach-endpoint, pause,
+// account) end at Vercel's Fluid compute default of 300 s (the project sets
+// no other default); the Mac client itself waits 16 minutes on these calls.
+const REQUEST_TIMEOUT_MS = 330_000;
 // The create route keeps provisioning for up to its own maxDuration (600 s);
 // aborting the client earlier would strand a machine this run never learns
 // the id of. Wait at least that long, and reconcile through the fleet list
 // at exit anyway (the throwaway user owns nothing else).
 const CREATE_TIMEOUT_MS = 630_000;
+// Bounds when a new attach attempt may start; it never cuts a request short.
 const ATTACH_BUDGET_MS = 180_000;
 
 const requireFromWeb = createRequire(path.join(webDir, "package.json"));
@@ -126,16 +133,17 @@ async function attachUntilReady(vmId, stage) {
   const startedAt = performance.now();
   const attempts = [];
   for (;;) {
-    // The stage deadline bounds the request itself, not only the retry sleep.
-    const budgetLeftMs = ATTACH_BUDGET_MS - (performance.now() - startedAt);
-    if (budgetLeftMs <= 0 || interrupted) {
+    // The stage budget gates new attempts only: a request in flight runs
+    // until the server answers or the platform ends it, so the client never
+    // walks away from an attach that is still mutating the machine.
+    if (performance.now() - startedAt >= ATTACH_BUDGET_MS || interrupted) {
       throw new Error(`${stage} attach for ${vmId} did not succeed within ${ATTACH_BUDGET_MS} ms (${attempts.length} attempts)`);
     }
     const response = await fetchTimed(vmUrl(vmId, "/attach-endpoint"), {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json" },
       body: JSON.stringify({ transport: "cmux-remote", clientCapabilities: ["wireguard-hub", "direct-ws-user-agent"] }),
-    }, Math.min(REQUEST_TIMEOUT_MS, budgetLeftMs));
+    });
     const body = json(response.text);
     attempts.push({ status: response.status, ms: response.ms, error: body.error ?? null });
     if (response.status === 200) {
@@ -434,7 +442,7 @@ async function deleteAccount() {
   let retryableFailures = 0;
   let incompleteAnswers = 0;
   for (let attempt = 0; attempt < 12; attempt += 1) {
-    const response = await fetchTimed(`${targetUrl}/api/account`, { method: "DELETE", headers: authHeaders }, 300_000);
+    const response = await fetchTimed(`${targetUrl}/api/account`, { method: "DELETE", headers: authHeaders });
     const body = json(response.text);
     if (response.status === 200) return "deleted";
     if (response.status === 202 && body.deletionPending === true) {
@@ -456,18 +464,26 @@ async function deleteAccount() {
   return "failed";
 }
 
-/** A user whose creation response was lost is found by its generated email with the server key. */
+/**
+ * A user whose creation response was lost is found by its generated email
+ * with the server key. `verified` is false when the lookup itself failed
+ * after retries: the caller then does not know whether an identity exists
+ * and must not claim there is nothing to clean up.
+ */
 async function reconcileCreatedUser() {
-  if (user) return user;
-  try {
-    const listed = await app.listUsers({ query: benchEmail, limit: 5 });
-    const found = listed.find((candidate) => candidate.primaryEmail === benchEmail);
-    if (found) console.error(`cleanup_reconciled_user=${benchEmail}`);
-    return found ?? null;
-  } catch (error) {
-    console.error(`cleanup_user_lookup_failed error=${error instanceof Error ? error.message : String(error)}`);
-    return null;
+  if (user) return { user, verified: true };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const listed = await app.listUsers({ query: benchEmail, limit: 5 });
+      const found = listed.find((candidate) => candidate.primaryEmail === benchEmail) ?? null;
+      if (found) console.error(`cleanup_reconciled_user=${benchEmail}`);
+      return { user: found, verified: true };
+    } catch (error) {
+      console.error(`cleanup_user_lookup_failed attempt=${attempt + 1} error=${error instanceof Error ? error.message : String(error)}`);
+      if (attempt < 2) await sleep(2_000);
+    }
   }
+  return { user: null, verified: false };
 }
 
 function positiveInteger(raw, flag) {
@@ -481,8 +497,21 @@ function positiveInteger(raw, flag) {
 
 /** Everything teardown learned, so the report can say what really happened. */
 async function runCleanup() {
-  const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, leftoverVmIds: [], keptUser: null };
-  if (!user && !authHeaders) user = await reconcileCreatedUser();
+  const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, leftoverVmIds: [], keptUser: null };
+  if (!user && !authHeaders) {
+    const lookup = await reconcileCreatedUser();
+    user = lookup.user;
+    if (!user && !lookup.verified) {
+      // createUser threw after Stack may already have persisted the identity,
+      // and the server-key lookup failed too: whether a user exists is
+      // unknown, which is a cleanup failure for an operator, never a clean exit.
+      cleanup.identityUnknown = true;
+      cleanup.keptUser = benchEmail;
+      cleanup.ok = false;
+      console.error(`cleanup_needed_user=${benchEmail} (creation response lost and the Stack lookup failed; check for this identity with the Stack server key and delete it)`);
+      return cleanup;
+    }
+  }
   if (user && !authHeaders) {
     // Setup failed before a session existed, so no API call and no machine
     // was ever made in this user's name; the provider sweep still runs by
