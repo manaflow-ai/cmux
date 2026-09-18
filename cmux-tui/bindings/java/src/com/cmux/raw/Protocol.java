@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "50238809008ab8ff9b71d4cd6f05262a57012182db1fad2e480ebc8b2827b96f";
+    public static final String IR_SHA256 = "e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -59,6 +59,7 @@ public final class Protocol {
             case "terminal-registry-changed" -> TerminalRegistryChangedEvent.fromWire(value);
             case "title-changed" -> TitleChangedEvent.fromWire(value);
             case "tree-changed" -> TreeChangedEvent.fromWire(value);
+            case "url-open" -> UrlOpenEvent.fromWire(value);
             case "vt-state" -> VtStateEvent.fromWire(value);
             case "window-title-requested" -> WindowTitleRequestedEvent.fromWire(value);
             case "workspace-added" -> WorkspaceAddedEvent.fromWire(value);

@@ -12,7 +12,7 @@ import {
 test("generated protocol coverage matches the canonical v12 IR", () => {
   assert.equal(MUX_PROTOCOL_VERSION, 12);
   assert.equal(SDK_SCHEMA_VERSION, 2);
-  assert.equal(Object.keys(COMMAND_METADATA).length, 110);
+  assert.equal(Object.keys(COMMAND_METADATA).length, 111);
   assert.equal(Object.keys(EVENT_METADATA).length, 49);
   assert.equal(SDK_IR_SHA256.length, 64);
   assert.deepEqual(Object.keys(PROFILES).sort(), [
@@ -28,8 +28,6 @@ test("generated active events exclude serialized-only shapes", () => {
     .filter(([, metadata]) => metadata.emission === "emitted")
     .map(([name]) => name);
   assert.equal(emitted.length, 48);
-  assert.equal(EVENT_METADATA["presence-changed"].emission, "emitted");
-  assert.equal(emitted.includes("presence-changed"), true);
   assert.equal(EVENT_METADATA["machine-usage-changed"].emission, "emitted");
   assert.equal(emitted.includes("machine-usage-changed"), true);
   assert.equal(EVENT_METADATA["client-list-invalidated"].emission, "serialized-never-emitted");

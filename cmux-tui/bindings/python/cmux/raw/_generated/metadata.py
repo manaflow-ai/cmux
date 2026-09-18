@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '50238809008ab8ff9b71d4cd6f05262a57012182db1fad2e480ebc8b2827b96f'
+IR_SHA256 = 'e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9'
 
 
 @dataclass(frozen=True)
@@ -1426,6 +1426,52 @@ COMMANDS = {
         {
         },
     ),
+    'url-open': CommandMetadata(
+        'url-open',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-claim': CommandMetadata(
+        'url-open-claim',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-result': CommandMetadata(
+        'url-open-result',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'opened': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-subscribe': CommandMetadata(
+        'url-open-subscribe',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        'subscribe',
+        {
+            'terminal_ids': CommandFieldMetadata(None, None),
+        },
+    ),
     'vt-state': CommandMetadata(
         'vt-state',
         'control',
@@ -1508,6 +1554,7 @@ EVENTS = {
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),
+    'url-open': EventMetadata('url-open', 12, None, ('control',), 'emitted'),
     'vt-state': EventMetadata('vt-state', 5, None, ('attach-byte',), 'emitted'),
     'window-title-requested': EventMetadata('window-title-requested', 6, None, ('subscribe',), 'emitted'),
     'workspace-added': EventMetadata('workspace-added', 7, None, ('subscribe-deltas',), 'emitted'),

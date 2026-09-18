@@ -241,7 +241,10 @@
       "attach-surface",
       "resize-attached-view",
       "release-attached-view-size",
-      "detach-attached-view"
+      "detach-attached-view",
+      "url-open-subscribe",
+      "url-open-claim",
+      "url-open-result"
     ],
     "local-admin": [
       "server-stats",
@@ -249,7 +252,8 @@
       "get-browser-provider",
       "unregister-browser-provider",
       "shutdown-daemon",
-      "pairing-response"
+      "pairing-response",
+      "url-open"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -561,6 +565,12 @@
       "name": "workspace-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "url-open",
+      "streams": [
+        "control"
       ]
     }
   ],

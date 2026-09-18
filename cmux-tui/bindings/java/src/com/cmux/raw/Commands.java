@@ -117,6 +117,10 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNREGISTER_BROWSER_PROVIDER = new CommandMetadata("unregister-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata URL_OPEN = new CommandMetadata("url-open", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata URL_OPEN_CLAIM = new CommandMetadata("url-open-claim", Authority.FRONTEND, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata URL_OPEN_RESULT = new CommandMetadata("url-open-result", Authority.FRONTEND, 12, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata URL_OPEN_SUBSCRIBE = new CommandMetadata("url-open-subscribe", Authority.FRONTEND, 12, null, StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata VT_STATE = new CommandMetadata("vt-state", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata WAIT_FOR = new CommandMetadata("wait-for", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ZOOM_PANE = new CommandMetadata("zoom-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -231,6 +235,10 @@ public final class Commands {
         values.put("terminal-events", TERMINAL_EVENTS);
         values.put("undo-layout", UNDO_LAYOUT);
         values.put("unregister-browser-provider", UNREGISTER_BROWSER_PROVIDER);
+        values.put("url-open", URL_OPEN);
+        values.put("url-open-claim", URL_OPEN_CLAIM);
+        values.put("url-open-result", URL_OPEN_RESULT);
+        values.put("url-open-subscribe", URL_OPEN_SUBSCRIBE);
         values.put("vt-state", VT_STATE);
         values.put("wait-for", WAIT_FOR);
         values.put("zoom-pane", ZOOM_PANE);

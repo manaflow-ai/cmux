@@ -37,7 +37,7 @@ private final class RecordingTerminalLinkContainer: TerminalLinkOpenContainer {
         return true
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool {
         false
     }
 }

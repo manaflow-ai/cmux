@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 50238809008ab8ff9b71d4cd6f05262a57012182db1fad2e480ebc8b2827b96f. */
+/* cmux-tui mux protocol 12, IR e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -213,6 +213,22 @@ export type GetCellPixelsResult = {
   "height_px": number;
   "surfaces": Array<CellPixelSurface>;
   "width_px": number;
+};
+
+export type GuestUrlAcknowledgeResult = {
+  "accepted": boolean;
+};
+
+export type GuestUrlClaimResult = {
+  "claimed": boolean;
+};
+
+export type GuestUrlOpenResult = {
+  "opened": boolean;
+};
+
+export type GuestUrlSubscribeResult = {
+  "url_open_ready": boolean;
 };
 
 export type Id = bigint;

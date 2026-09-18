@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 50238809008ab8ff9b71d4cd6f05262a57012182db1fad2e480ebc8b2827b96f. */
+/* cmux-tui mux protocol 12, IR e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9. */
 
 
 import type * as T from "./types.js";
@@ -965,6 +965,36 @@ export interface UnregisterBrowserProviderRequest extends CmuxRequestBase {
 }
 export type UnregisterBrowserProviderResult = T.BrowserProviderUnregisterResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface UrlOpenRequest extends CmuxRequestBase {
+  cmd: "url-open";
+  "terminal_id": string;
+  "url": string;
+}
+export type UrlOpenResult = T.GuestUrlOpenResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenClaimRequest extends CmuxRequestBase {
+  cmd: "url-open-claim";
+  "request_id": string;
+}
+export type UrlOpenClaimResult = T.GuestUrlClaimResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenResultRequest extends CmuxRequestBase {
+  cmd: "url-open-result";
+  "opened": boolean;
+  "request_id": string;
+}
+export type UrlOpenResultResult = T.GuestUrlAcknowledgeResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenSubscribeRequest extends CmuxRequestBase {
+  cmd: "url-open-subscribe";
+  "terminal_ids": Array<string>;
+}
+export type UrlOpenSubscribeResult = T.GuestUrlSubscribeResult;
+
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {
   cmd: "vt-state";
@@ -1096,6 +1126,10 @@ export type CmuxRequest =
   | TerminalEventsRequest
   | UndoLayoutRequest
   | UnregisterBrowserProviderRequest
+  | UrlOpenRequest
+  | UrlOpenClaimRequest
+  | UrlOpenResultRequest
+  | UrlOpenSubscribeRequest
   | VtStateRequest
   | WaitForRequest
   | ZoomPaneRequest;
@@ -1957,6 +1991,38 @@ export interface CmuxCommandDefinitionMap {
     since: 10;
     capability: "browser-provider-v1";
     stream: null;
+  };
+  "url-open": {
+    request: UrlOpenRequest;
+    result: UrlOpenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-claim": {
+    request: UrlOpenClaimRequest;
+    result: UrlOpenClaimResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-result": {
+    request: UrlOpenResultRequest;
+    result: UrlOpenResultResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-subscribe": {
+    request: UrlOpenSubscribeRequest;
+    result: UrlOpenSubscribeResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: "subscribe";
   };
   "vt-state": {
     request: VtStateRequest;
