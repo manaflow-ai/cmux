@@ -146,7 +146,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         _filterState = State(
             initialValue: WorkspaceListFilterState(filter: initialFilter)
         )
-        let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init) ?? 0
+        let seedCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT"].flatMap(Int.init)
         let reorderEnabled = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER"] == "1"
         let usesMixedGroupFixture = environment[
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_MIXED_GROUPS"
@@ -155,7 +155,7 @@ public struct WorkspaceListLayoutPreviewView: View {
         let initialGroups: [MobileWorkspaceGroupPreview]
         if usesMixedGroupFixture {
             (initialWorkspaces, initialGroups) = Self.mixedGroupFixture()
-        } else if seedCount > 0 {
+        } else if let seedCount, seedCount >= 0 {
             let groupCount = environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS"].flatMap(Int.init) ?? 0
             (initialWorkspaces, initialGroups) = Self.seeded(
                 count: seedCount,
