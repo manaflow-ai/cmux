@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 
 import CmuxSettings
 
@@ -42,6 +43,65 @@ import CmuxSettings
         #expect(
             SocketControlSettings.effectiveMode(userMode: .automation, environment: [:]) == .automation
         )
+    }
+
+    @Test(arguments: [SocketControlMode.cmuxOnly, .off])
+    func forcedRestrictiveModeWinsOverDefaultsAndEnvironment(mode: SocketControlMode) throws {
+        let suiteName = "SocketControlSettingsTests.forced.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SocketControlMode.allowAll.rawValue, forKey: SocketControlSettings.appStorageKey)
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: { store, key in
+                key == ManagedDevicePolicyKey.socketControlMode.rawValue
+                    ? store.object(forKey: "forced.SocketControlMode")
+                    : nil
+            }
+        )
+        defaults.set(mode.rawValue, forKey: "forced.SocketControlMode")
+        let resolution = SocketControlPolicyResolver(
+            defaults: defaults,
+            environment: [
+                "CMUX_SOCKET_ENABLE": "1",
+                "CMUX_SOCKET_MODE": "password",
+                "CMUX_SOCKET_PASSWORD": "secret",
+            ],
+            managedPolicy: policy
+        ).resolve()
+        #expect(resolution.mode == mode)
+        #expect(resolution.isManaged)
+        #expect(resolution.forcedValueStatus == "valid")
+    }
+
+    @Test func malformedForcedModeFailsClosedAndProfileRemovalRestoresUserMode() throws {
+        let suiteName = "SocketControlSettingsTests.malformed.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SocketControlMode.allowAll.rawValue, forKey: SocketControlSettings.appStorageKey)
+        let policy = ManagedDevicePolicy(
+            defaults: defaults,
+            releaseDomainDefaults: nil,
+            forcedObject: { store, key in
+                guard key == ManagedDevicePolicyKey.socketControlMode.rawValue else { return nil }
+                return store.object(forKey: "forced.SocketControlMode")
+            }
+        )
+        defaults.set("allowAll", forKey: "forced.SocketControlMode")
+        let resolver = SocketControlPolicyResolver(
+            defaults: defaults,
+            environment: [:],
+            managedPolicy: policy
+        )
+        let malformed = resolver.resolve()
+        #expect(malformed.mode == .off)
+        #expect(malformed.isManaged)
+        #expect(malformed.forcedValueStatus == "invalid")
+        defaults.removeObject(forKey: "forced.SocketControlMode")
+        let removed = resolver.resolve()
+        #expect(removed.mode == .allowAll)
+        #expect(!removed.isManaged)
     }
 
     @Test func truthyParsing() {
