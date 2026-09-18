@@ -8,18 +8,27 @@ struct CmuxFeatureFlagOverrideCapability: Equatable, Sendable {
     let enablesCloudDogfood: Bool
     let isDebugBuild: Bool
     let isTaggedDebugArtifact: Bool
+    let hasCloudDogfoodMarker: Bool
 
     init(bundle: Bundle = .main) {
         #if DEBUG
+        let marker = bundle.object(forInfoDictionaryKey: "CMUXCloudDogfoodEnabled") as? Bool
         self.init(bundleIdentifier: bundle.bundleIdentifier, isDebugBuild: true,
-                  cloudDogfoodRequested: bundle.object(forInfoDictionaryKey: "CMUXCloudDogfoodEnabled") as? Bool == true)
+                  cloudDogfoodRequested: marker == true,
+                  cloudDogfoodMarkerPresent: marker != nil)
         #else
         self.init(bundleIdentifier: bundle.bundleIdentifier, isDebugBuild: false)
         #endif
     }
 
-    init(bundleIdentifier: String?, isDebugBuild: Bool, cloudDogfoodRequested: Bool = false) {
+    init(
+        bundleIdentifier: String?,
+        isDebugBuild: Bool,
+        cloudDogfoodRequested: Bool = false,
+        cloudDogfoodMarkerPresent: Bool = false
+    ) {
         self.isDebugBuild = isDebugBuild
+        self.hasCloudDogfoodMarker = cloudDogfoodMarkerPresent
         // Only the shipping Nightly identity grants the exception in Release.
         // Debug also requires a debug bundle, so stable/staging identities fail closed.
         let debugID = SocketPathMarkerFiles.defaultBaseDebugBundleIdentifier

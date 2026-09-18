@@ -411,6 +411,10 @@ final class CmuxFeatureFlags {
             // cannot re-enable Cloud after a reload.
             defaults.removeObject(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+            if overrideCapability.hasCloudDogfoodMarker {
+                defaults.set(false, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+                defaults.set(false, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+            }
         }
         if let remoteFlagLoader {
             self.remoteFlagLoader = remoteFlagLoader
