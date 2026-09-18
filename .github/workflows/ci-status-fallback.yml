@@ -10,11 +10,11 @@ permissions: {}
 
 jobs:
   ci-status:
-    name: ci-status
+    name: CI diagnostic
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
-      - name: Report filtered CI as successful
+      - name: Report manual diagnostic status
         run: |
-          echo "CI workflow was skipped because no routed CI trigger path changed."
-          echo "No CI area was selected for this pull request; ci-status is satisfied."
+          echo "This operator-triggered diagnostic does not satisfy ci-status."
+          echo "Inspect the CI workflow to diagnose the missing required check."
