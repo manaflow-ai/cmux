@@ -1325,7 +1325,7 @@
             "full"
           ],
           "default": "cmuxOnly",
-          "description": "Socket control mode. Legacy aliases are accepted and normalized."
+          "description": "Socket control mode. Legacy aliases are accepted and normalized. Ignored while a managed-device policy forces the SocketControlMode key; run `cmux socket status` to see the mode in force."
         },
         "socketPassword": {
           "oneOf": [

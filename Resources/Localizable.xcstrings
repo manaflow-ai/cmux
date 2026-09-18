@@ -311727,6 +311727,125 @@
         }
       }
     },
+    "settings.automation.socketMode.managedNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحدد مؤسستك وضع التحكم بالمقبس على هذا الـ Mac. لا يمكن تغييره من هنا، ولا من cmux.json، ولا باستخدام متغيرات البيئة CMUX_SOCKET_ENABLE وCMUX_SOCKET_MODE وCMUX_SOCKET_PASSWORD. شغّل cmux socket status لمعرفة الوضع النافذ."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaša organizacija postavlja režim kontrole utičnice na ovom Macu. Ne može se promijeniti ovdje, iz cmux.json, niti pomoću varijabli okruženja CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE i CMUX_SOCKET_PASSWORD. Pokrenite cmux socket status da vidite režim koji je na snazi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din organisation fastsætter socket-kontroltilstanden på denne Mac. Den kan ikke ændres her, fra cmux.json eller med miljøvariablerne CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE og CMUX_SOCKET_PASSWORD. Kør cmux socket status for at se den gældende tilstand."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ihre Organisation legt den Socket-Steuerungsmodus auf diesem Mac fest. Er lässt sich weder hier noch über cmux.json oder die Umgebungsvariablen CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE und CMUX_SOCKET_PASSWORD ändern. Führen Sie cmux socket status aus, um den geltenden Modus zu sehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your organization sets the socket control mode on this Mac. It cannot be changed here, from cmux.json, or with the CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PASSWORD environment variables. Run cmux socket status to see the mode in force."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu organización establece el modo de control del socket en este Mac. No se puede cambiar aquí, desde cmux.json ni con las variables de entorno CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE y CMUX_SOCKET_PASSWORD. Ejecuta cmux socket status para ver el modo vigente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre organisation définit le mode de contrôle du socket sur ce Mac. Il ne peut être modifié ni ici, ni depuis cmux.json, ni avec les variables d'environnement CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE et CMUX_SOCKET_PASSWORD. Exécutez cmux socket status pour voir le mode en vigueur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua organizzazione imposta la modalità di controllo del socket su questo Mac. Non può essere modificata qui, da cmux.json né con le variabili d'ambiente CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE e CMUX_SOCKET_PASSWORD. Esegui cmux socket status per vedere la modalità in vigore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のソケット制御モードは組織によって設定されています。ここからも、cmux.json からも、環境変数 CMUX_SOCKET_ENABLE、CMUX_SOCKET_MODE、CMUX_SOCKET_PASSWORD からも変更できません。適用中のモードは cmux socket status で確認できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 소켓 제어 모드는 조직에서 설정합니다. 여기에서도, cmux.json에서도, CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, CMUX_SOCKET_PASSWORD 환경 변수로도 변경할 수 없습니다. 적용 중인 모드는 cmux socket status로 확인하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Organisasjonen din angir socket-kontrollmodusen på denne Macen. Den kan ikke endres her, fra cmux.json eller med miljøvariablene CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE og CMUX_SOCKET_PASSWORD. Kjør cmux socket status for å se gjeldende modus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja organizacja ustala tryb kontroli gniazda na tym Macu. Nie można go zmienić tutaj, w pliku cmux.json ani za pomocą zmiennych środowiskowych CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE i CMUX_SOCKET_PASSWORD. Uruchom cmux socket status, aby zobaczyć obowiązujący tryb."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua organização define o modo de controle do soquete neste Mac. Ele não pode ser alterado aqui, pelo cmux.json nem pelas variáveis de ambiente CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE e CMUX_SOCKET_PASSWORD. Execute cmux socket status para ver o modo em vigor."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим управления сокетом на этом Mac задаёт ваша организация. Его нельзя изменить здесь, из cmux.json или с помощью переменных среды CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE и CMUX_SOCKET_PASSWORD. Выполните cmux socket status, чтобы увидеть действующий режим."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "องค์กรของคุณเป็นผู้กำหนดโหมดควบคุมซ็อกเก็ตบน Mac เครื่องนี้ ไม่สามารถเปลี่ยนได้จากที่นี่ จาก cmux.json หรือด้วยตัวแปรสภาพแวดล้อม CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE และ CMUX_SOCKET_PASSWORD เรียกใช้ cmux socket status เพื่อดูโหมดที่บังคับใช้อยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'teki soket denetim modunu kuruluşunuz belirler. Buradan, cmux.json üzerinden ya da CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE ve CMUX_SOCKET_PASSWORD ortam değişkenleriyle değiştirilemez. Yürürlükteki modu görmek için cmux socket status komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Режим керування сокетом на цьому Mac визначає ваша організація. Його не можна змінити тут, із cmux.json або за допомогою змінних середовища CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE і CMUX_SOCKET_PASSWORD. Виконайте cmux socket status, щоб побачити чинний режим."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 的套接字控制模式由你的组织设置。无法在此处、通过 cmux.json 或使用 CMUX_SOCKET_ENABLE、CMUX_SOCKET_MODE 和 CMUX_SOCKET_PASSWORD 环境变量更改。运行 cmux socket status 可查看当前生效的模式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台 Mac 的通訊端控制模式由你的組織設定。無法在此處、透過 cmux.json 或使用 CMUX_SOCKET_ENABLE、CMUX_SOCKET_MODE 和 CMUX_SOCKET_PASSWORD 環境變數變更。執行 cmux socket status 可查看目前生效的模式。"
+          }
+        }
+      }
+    },
     "settings.automation.socketMode.note": {
       "extractionState": "manual",
       "localizations": {

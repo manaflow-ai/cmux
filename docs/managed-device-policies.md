@@ -41,6 +41,7 @@ domain wins over the release-domain fallback.
 | `DisableComputerUse` | Boolean | `false` | Disables Computer Use: new agent launches never receive the computer-use tools, the bundled helper stops (also when the policy is pushed mid-session), and Settings → Computer Use locks the toggle. Lifting the policy re-applies the user's own setting. |
 | `DisableCustomSidebars` | Boolean | `false` | Disables interpreted custom sidebars from `~/.config/cmux/sidebars` (user- or agent-authored `.js`/`.swift`/`.json` that can dispatch `cmux(...)` commands): none are listed or mounted, and Settings → Beta Features locks the toggle. |
 | `DisableAICredentialUpload` | Boolean | `false` | Disables uploading local AI credentials (Claude/Codex OAuth tokens, Anthropic/OpenAI API keys) to the cmux tenant: `cmux ai-accounts upload` (`aiAccounts.upload`) and `cmux coderouter claude add/update` fail closed at the socket (`ai_credential_upload_disabled`) and inside their clients. Listing and removing accounts still work. Independent of `DisableCloud`, which refuses these families entirely. |
+| `SocketControlMode` | String | unset (the user's own setting applies) | Pins the local automation socket's access mode. The forcible values are `off` (no socket at all) and `cmuxonly` (only processes started inside cmux may connect). The forced value wins over the Settings picker, the `automation.socketControlMode` key in `cmux.json`, and the `CMUX_SOCKET_ENABLE`, `CMUX_SOCKET_MODE`, and `CMUX_SOCKET_PASSWORD` environment variables. Any other forced value — `allowall`, `automation`, `password`, an unknown string, or a value of the wrong type — still counts as managed but resolves to `cmuxonly`, so a profile can lock the socket down and never open it. Settings → Automation shows the forced mode and locks the picker, and `cmux socket status` reports it. See [Socket control mode](#socket-control-mode). |
 | `BrowserURLAllowlist` | Array of strings | unset (allow all web origins) | Restricts every embedded-browser top-level navigation to matching URL patterns. Address-bar loads, links, redirects, `window.open`, automation, deep links, and restored panes are checked. A forced empty array denies all external web origins while cmux-owned internal documents (such as `about:blank` and diff pages), localhost, and local files remain available unless the two allow keys below turn them off. See [Browser allowlist](#browser-allowlist). |
 | `BrowserAllowLocalhost` | Boolean | `true` | Allow-style key. While `true`, a managed `BrowserURLAllowlist` permits `localhost`, `*.localhost`, `127.0.0.1`, `::1`, and `0.0.0.0` on any HTTP(S) port without a rule, so local development servers keep working. Forced to `false`, loopback origins are blocked in the embedded browser — even ones the list names, and even when no list is forced. |
 | `BrowserAllowLocalFiles` | Boolean | `true` | Allow-style key. While `true`, local `file:` documents opened through cmux (the address bar, `cmux browser open`, terminal links, a file dropped onto a browser pane, or a link from another local file) stay available under a managed list. Forced to `false`, local files are blocked whether or not a list is forced. |
@@ -60,6 +61,9 @@ Notes:
   non-Boolean value leaves the capability allowed.
   `BrowserURLAllowlist` must be an array of strings; a forced empty array is a
   valid policy that blocks all external web origins.
+  `SocketControlMode` must be a string naming a forcible mode (`off` or
+  `cmuxonly`); any other string, and any non-string value, is still managed but
+  resolves to `cmuxonly`.
 - Only **forced** (profile-delivered) values are honored as policy. A plain
   `defaults write` of these keys has no effect; this is deliberate, since
   an unmanaged value would not be enforceable anyway.
@@ -102,6 +106,14 @@ matching commands, and the CLI refuses with a managed-policy error —
 including when an administrator forces the user-level
 `browserDisabledOverride` key directly instead of the dedicated policy key.
 
+`SocketControlMode` is the one key whose forced value is a mode rather than a
+switch, so its precedence is worth stating plainly. While it is forced, the
+Settings picker, the `automation.socketControlMode` key in `cmux.json`, and the
+`CMUX_SOCKET_ENABLE` / `CMUX_SOCKET_MODE` environment variables all lose, and
+`CMUX_SOCKET_PASSWORD` becomes irrelevant because `password` is not a forcible
+mode. An environment variable that would only *narrow* the mode loses too: the
+effective mode on a managed Mac never depends on how the app was launched.
+
 `DisableEmbeddedBrowser` takes precedence over `BrowserURLAllowlist`: when the
 disable policy is forced, no embedded browser surface is created and the URL
 allowlist is not consulted. If the disable policy is later removed, the
@@ -122,6 +134,49 @@ remote workspaces disconnect (their configuration is dropped so no reconnect
 affordance can redial), remote tmux mirrors detach and close, and the SSH
 control masters cmux opened exit. Remote tmux sessions stay alive on their
 hosts; only cmux's connections end.
+
+## Socket control mode
+
+cmux exposes a local Unix socket so the `cmux` CLI and agent hooks can drive
+the app. Its access mode is the one security-relevant setting a user can widen
+on their own: the Settings picker, `cmux.json`, and two environment variables
+all reach it. `SocketControlMode` takes that decision away from the host.
+
+Force one of two values:
+
+```text
+off         # no socket at all; the CLI and agent hooks cannot reach the app
+cmuxonly    # only processes started inside cmux may connect (the default)
+```
+
+`cmuxonly` is what most deployments want. It is also cmux's own default, so
+forcing it changes nothing on a compliant host and prevents a drift to a wider
+mode. Under it a shell that cmux did not start is refused with "Access denied:
+only processes started inside cmux can connect".
+
+The three modes an administrator may **not** force are the ones that widen
+access: `automation` and `allowall` admit processes cmux did not start, and
+`password` admits any local process holding a credential that the
+`CMUX_SOCKET_PASSWORD` environment variable can supply. Forcing any of them —
+or a typo, or a value of the wrong type — leaves the key managed and resolves
+the mode to `cmuxonly`. A malformed payload therefore fails closed rather than
+opening the socket.
+
+The policy applies on the same schedule as the others: at launch, on
+preference-change notifications, when the app becomes active, and on the
+periodic re-check about once a minute. Applying it reconfigures the live
+listener, which rotates its authorization generation, so a client admitted
+under the previous, wider mode loses its connection rather than outliving the
+policy change. Removing the profile returns the listener to the user's own
+mode without a restart.
+
+Settings → Automation shows the forced mode, marks the row "Managed by your
+organization", and disables the picker; the password field disappears, since
+`password` cannot be in force. Verify from a shell with:
+
+```bash
+cmux socket status --json
+```
 
 ## Browser allowlist
 
@@ -169,9 +224,11 @@ without the entitlement continue to use the existing unavailable-backend path.
 ## Supported platforms and versions
 
 - macOS 14 (Sonoma) and later, matching the cmux system requirements.
-- cmux for macOS 1.x builds that include this feature (see the changelog
-  entry that shipped it). All release channels honor the release payload
-  domain as described above.
+- cmux for macOS 0.64.23 or later. Earlier builds, and the retired 1.0.x
+  stream, honor none of these keys — a host reporting a `1.0.x` version is on
+  that old stream, not a newer release. `SocketControlMode` is newer than the
+  rest; see the changelog entry that shipped it. All release channels honor the
+  release payload domain as described above.
 - These are macOS-side controls. The iOS companion app needs no separate
   policy: a Mac with `DisableRemoteControl` enforced refuses admission and
   pairing, so the phone cannot attach to it.
@@ -236,6 +293,12 @@ table above when a full browser disable is desired.
                                 <true/>
                                 <key>DisableAICredentialUpload</key>
                                 <true/>
+                                <!-- Pins the local automation socket. `cmuxonly`
+                                     is also the built-in default; forcing it
+                                     prevents a drift to a wider mode. Use `off`
+                                     to disable the socket entirely. -->
+                                <key>SocketControlMode</key>
+                                <string>cmuxonly</string>
                                 <!-- localhost and local files need no entries;
                                      force BrowserAllowLocalhost / BrowserAllowLocalFiles
                                      to false to block them. -->
@@ -269,6 +332,13 @@ table above when a full browser disable is desired.
 
 ## Verifying on a managed Mac
 
+`defaults read` is a convenience, not the authoritative check. It reads the
+domain as the invoking session sees it, so from a non-login shell (an `ssh`
+session, a CI runner, or a script run outside the user's GUI session) it can
+report `does not exist` for a key the running app is honoring. Treat the `cmux`
+status commands below as the reliable probe, and `defaults read` as a
+confirmation when it does report a value.
+
 ```bash
 # Shows the effective (forced) values for the release domain:
 defaults read com.cmuxterm.app DisableEmbeddedBrowser
@@ -284,6 +354,7 @@ defaults read com.cmuxterm.app DisableTLSTrustBypass
 defaults read com.cmuxterm.app DisableComputerUse
 defaults read com.cmuxterm.app DisableCustomSidebars
 defaults read com.cmuxterm.app DisableAICredentialUpload
+defaults read com.cmuxterm.app SocketControlMode
 defaults read com.cmuxterm.app BrowserURLAllowlist
 defaults read com.cmuxterm.app BrowserAllowLocalhost     # absent or 1 = allowed
 defaults read com.cmuxterm.app BrowserAllowLocalFiles    # absent or 1 = allowed
@@ -291,6 +362,12 @@ defaults read com.cmuxterm.app BrowserAllowLocalFiles    # absent or 1 = allowed
 # The CLI reports browser availability and URL-policy metadata:
 cmux browser status --json   # url_allowlist, url_allowlist_managed,
                              # url_allowlist_allows_localhost, url_allowlist_allows_local_files
+
+# The automation socket's effective mode, and whether a profile forces it.
+# This reads the preference domain rather than the socket, so it answers even
+# when the mode is `off` or the app is not running:
+cmux socket status --json    # mode, configured_mode, managed, source,
+                             # domain, key, socket_path
 
 # Cloud verbs are refused with a managed-policy error (socket code
 # `cloud_disabled`); `cmux vpn status`, `cmux vpn down`, and `cmux vpn revoke`
@@ -307,3 +384,6 @@ while the Cloud settings section and the right-sidebar Cloud tab are hidden.
 The telemetry toggle (Settings → App), the Computer Use toggle, and the
 Custom Sidebars toggle lock the same way under their keys, and
 "Check for Updates…" explains the managed state under `DisableAutoUpdate`.
+Settings → Automation shows the Socket Control Mode picker set to the forced
+mode and disabled, with "Managed by your organization" and a note that
+`cmux.json` and the socket environment variables no longer apply.
