@@ -5,13 +5,6 @@ import Observation
 /// panel. Production builds never open this diagnostic route.
 @MainActor @Observable
 final class DevBackendStartup {
-    struct Status: Decodable, Equatable {
-        let state: String
-        let message: String
-        var isFailure: Bool { state == "failed" }
-        var isReady: Bool { state == "ready" }
-    }
-
     private(set) var status: Status?
     private(set) var attempt = 0
 
