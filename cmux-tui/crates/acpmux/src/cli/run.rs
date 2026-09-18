@@ -30,6 +30,20 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let prompt = arg_or_stdin(&prompt)?;
             orchestrate::compare(connect(true).await?, agents, prompt, cwd, policy, timeout, json_out).await
         }
+        Command::Models => {
+            let client = connect(true).await?;
+            let v = client.request("_acpmux/models", json!({})).await?;
+            if json_out { print_json(&v); return Ok(()); }
+            for h in v.get("harnesses").and_then(Value::as_array).into_iter().flatten() {
+                let agent = h.get("agent").and_then(Value::as_str).unwrap_or("?");
+                let ids: Vec<&str> = h.get("models").and_then(Value::as_array).map(|a| a.iter().filter_map(|m| m.get("id").and_then(Value::as_str)).collect()).unwrap_or_default();
+                println!("{agent} ({})", ids.len());
+                for id in ids {
+                    println!("  {id}");
+                }
+            }
+            Ok(())
+        }
         Command::Schema => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(acpmux::schema::SCHEMA.as_bytes());
@@ -38,7 +52,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
         Command::Defaults { family, pairs, clear } => orchestrate::defaults(connect(true).await?, family, pairs, clear, json_out).await,
         Command::Skill => {
             use std::io::Write;
-            let _ = std::io::stdout().write_all(orchestrate::SKILL.as_bytes());
+            // The file carries skill frontmatter; the guide starts after it.
+            let text = orchestrate::SKILL;
+            let body = text.strip_prefix("---\n").and_then(|rest| rest.find("\n---\n").map(|i| &rest[i + 5..])).unwrap_or(text);
+            let _ = std::io::stdout().write_all(body.trim_start().as_bytes());
             Ok(())
         }
         Command::Last { session, count } => {

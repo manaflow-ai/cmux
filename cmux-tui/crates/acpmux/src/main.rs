@@ -188,6 +188,8 @@ enum Command {
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
+    Models,
+    #[command(hide = true)]
     Info { session: String },
     #[command(hide = true)]
     Cancel { session: String },
@@ -321,6 +323,8 @@ enum DaemonCmd {
     Agents,
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
+    /// Every model id each harness reports (`provider/model` for OpenCode and pi).
+    Models,
 }
 
 #[derive(Subcommand)]
@@ -482,6 +486,7 @@ fn flatten(c: Command) -> Command {
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Agents => Command::Agents,
             DaemonCmd::Schema => Command::Schema,
+            DaemonCmd::Models => Command::Models,
         },
         Command::Host(pc) => Command::Peer(pc),
         other => other,
