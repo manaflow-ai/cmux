@@ -167,6 +167,7 @@ jobs:
       - name: Install App Store provisioning profile
         env:
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
           IOS_APPSTORE_KEYCHAIN_NAME: ios-appstore.keychain
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 

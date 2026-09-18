@@ -126,6 +126,40 @@ try_secret_profile() {
   return 1
 }
 
+try_secret_extension_profile() {
+  local label="$1"
+  local value="$2"
+  if [ -z "$value" ]; then
+    return 1
+  fi
+
+  printf '%s' "$value" | base64 --decode > "$TMP_EXTENSION_PROFILE"
+  if validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "$label"; then
+    install_extension_profile
+    return 0
+  fi
+  return 1
+}
+
+try_installed_extension_profile() {
+  local profile_path app_id
+  for profile_path in "$PROFILE_DIR"/*.mobileprovision; do
+    [ -f "$profile_path" ] || continue
+    if ! security cms -D -i "$profile_path" > "$TMP_EXTENSION_PLIST" 2>/dev/null; then
+      continue
+    fi
+    app_id="$($PLISTBUDDY -c "Print :Entitlements:application-identifier" "$TMP_EXTENSION_PLIST" 2>/dev/null || true)"
+    if [ "$app_id" != "$EXPECTED_EXTENSION_APP_ID" ]; then
+      continue
+    fi
+    cp "$profile_path" "$TMP_EXTENSION_PROFILE"
+    validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "installed extension profile"
+    install_extension_profile
+    return 0
+  done
+  return 1
+}
+
 json_id_by_bundle_identifier() {
   python3 - "$1" "$2" <<'PY'
 import json
@@ -239,6 +273,13 @@ PY
 }
 
 ensure_extension_profile_from_asc() {
+  if try_secret_extension_profile "extension profile secret" "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64:-}"; then
+    return 0
+  fi
+  if try_installed_extension_profile; then
+    return 0
+  fi
+
   command -v asc >/dev/null || die "release upload CLI is required"
   command -v python3 >/dev/null || die "python3 is required"
   command -v openssl >/dev/null || die "openssl is required"

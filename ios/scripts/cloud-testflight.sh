@@ -333,8 +333,11 @@ resolve_appstore_extension_profile() {
   [[ "$LANE" == "appstore" ]] || return 0
   [[ -n "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}" ]] && return 0
 
-  local team_id plistbuddy profile_dir profile_path profile_plist app_id profile_name
+  local team_id plistbuddy app_bundle_identifier extension_bundle_identifier profile_dir profile_path profile_plist app_id profile_name
   team_id="${IOS_APPSTORE_TEAM_ID:-7WLXT3NR37}"
+  app_bundle_identifier="${IOS_APPSTORE_BUNDLE_ID:-${IOS_APPSTORE_BUNDLE_IDENTIFIER:-com.cmux.app}}"
+  extension_bundle_identifier="${app_bundle_identifier}.NotificationService"
+  export IOS_APPSTORE_BUNDLE_IDENTIFIER="$app_bundle_identifier"
   plistbuddy="/usr/libexec/PlistBuddy"
   profile_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
   profile_plist="$(mktemp "${TMPDIR:-/tmp}/cmux-appstore-extension-profile.XXXXXX")"
@@ -343,7 +346,7 @@ resolve_appstore_extension_profile() {
       [[ -f "$profile_path" ]] || continue
       security cms -D -i "$profile_path" > "$profile_plist" 2>/dev/null || continue
       app_id="$($plistbuddy -c 'Print :Entitlements:application-identifier' "$profile_plist" 2>/dev/null || true)"
-      [[ "$app_id" == "$team_id.${BETA_BUNDLE_ID}.NotificationService" ]] || continue
+      [[ "$app_id" == "$team_id.$extension_bundle_identifier" ]] || continue
       profile_name="$($plistbuddy -c 'Print :Name' "$profile_plist" 2>/dev/null || true)"
       [[ -n "$profile_name" ]] || continue
       export IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME="$profile_name"
