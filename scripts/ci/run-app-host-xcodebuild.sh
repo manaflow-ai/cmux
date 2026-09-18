@@ -98,6 +98,25 @@ if [ -n "$app_host_home_input" ]; then
 fi
 
 app_host_xcodebuild_arguments=("$@")
+
+# Xcode's package-product layout can recreate or empty the top-level
+# PackageFrameworks directory while resolving/test-without-building. The app
+# host's rpath expects package frameworks there, so restage from the canonical
+# test-bundle copy immediately before every invocation. This keeps focused
+# gates and the sharded batches identical after any Xcode package operation.
+if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
+  package_products_dir="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+  package_framework_source="$package_products_dir/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/Frameworks"
+  package_framework_destination="$package_products_dir/PackageFrameworks"
+  if [ -d "$package_framework_source" ]; then
+    if [ -L "$package_framework_destination" ]; then
+      rm "$package_framework_destination"
+    fi
+    mkdir -p "$package_framework_destination"
+    rsync -aL "$package_framework_source/" "$package_framework_destination/"
+  fi
+fi
+
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   # This compiled condition reaches the test bundle through Xcode build
   # settings, independently of the TEST_RUNNER_ runtime environment channel.
