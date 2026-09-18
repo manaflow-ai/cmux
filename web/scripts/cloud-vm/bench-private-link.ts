@@ -203,14 +203,15 @@ function workspaceId(snapshot: string): string {
  * net below look anything up by slug, and the created ids let it delete the
  * tunnel and the network again after their own finalizers.
  */
-type RunNetworkState = { networkLost: boolean; tunnelLost: boolean; networkId: string | null; tunnelId: string | null };
+type RunNetworkState = { networkLost: boolean; tunnelLost: boolean; networkId: string | null; tunnelId: string | null; networkMark: string };
 
 /**
  * Safety net for a VPC or tunnel whose create response was lost before its
  * acquireRelease finalizer existed: both carry this run's slug, so they are
  * found by name and removed (machines on the VPC first), but only for a
  * create marked lost, and only when they also carry the run's own marks (the
- * network its run label, the tunnel the run's client key); anything else
+ * network a label independent of the slug that only this run's create
+ * wrote, the tunnel the run's client key); anything else
  * with the slug is reported and left alone. Registered before anything is
  * created, so it runs after every other finalizer; every step treats "not
  * found" as done.
@@ -275,10 +276,11 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, cl
       // Same for the network: only a lost create response can have made one
       // this run does not know the id of.
     } else if (network._tag === "Right") {
-      // Nothing carried the slug before this run created it, and the create
-      // labelled the network with the slug; anything else is not ours.
-      if (network.right.displayName !== slug) {
-        failures.push(`network ${network.right.id} carries slug ${slug} but is not labelled by this run; not deleting it`);
+      // The mark is a label independent of the slug that only this run's
+      // create wrote, so a stale or colliding network that merely carries
+      // the slug is never taken for ours.
+      if (network.right.displayName !== state.networkMark) {
+        failures.push(`network ${network.right.id} carries slug ${slug} but not this run's mark; not deleting it`);
       } else {
         console.error(`cleanup_reconcile_network=${network.right.id}`);
         failures.push(...(yield* reconcileRunMachines(provider, network.right.id)));
@@ -445,7 +447,7 @@ function bench() {
     const { privateKey, publicKey } = generateKeyPairSync("x25519");
     const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
     const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
-    const state: RunNetworkState = { networkLost: false, tunnelLost: false, networkId: null, tunnelId: null };
+    const state: RunNetworkState = { networkLost: false, tunnelLost: false, networkId: null, tunnelId: null, networkMark: `${slug} ${randomUUID()}` };
     yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug, clientPublicKey, state));
     // The network is made with the SDK's plain create, which fails closed on
     // a slug conflict, not with the driver's ensureNetwork, which adopts an
@@ -455,7 +457,7 @@ function bench() {
     // proves the network is not ours; any other failure, a 5xx above all,
     // may have made it and marks the create lost for the safety net.
     const network = yield* timed(Effect.acquireRelease(
-      attempt("vpc.create", () => bounded(sdk.vpc.create({ slug, displayName: slug, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc.create").catch((error: unknown) => {
+      attempt("vpc.create", () => bounded(sdk.vpc.create({ slug, displayName: state.networkMark, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc.create").catch((error: unknown) => {
         state.networkLost = !(error instanceof FreestyleApiError && error.status === 409);
         throw error;
       }))

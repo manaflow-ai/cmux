@@ -176,12 +176,23 @@ const providerInFlight = new Set();
 function boundedSdk(promise, ms, label) {
   providerInFlight.add(promise);
   promise.then(() => providerInFlight.delete(promise), () => providerInFlight.delete(promise));
+  return withTimeout(promise, ms, label);
+}
+
+/**
+ * Races a call against a deadline without tracking it: the Stack SDK offers
+ * no cancellation either, but a slow identity service must not hold setup
+ * or teardown indefinitely, and unlike a provider request its completion
+ * never needs waiting for (a user created late is found by email).
+ */
+function withTimeout(promise, ms, label) {
   let timer;
   const deadline = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms} ms`)), ms);
   });
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
+const STACK_TIMEOUT_MS = 60_000;
 
 /**
  * Blocks until every tracked provider request has settled, reporting every
@@ -634,7 +645,7 @@ async function reconcileCreatedUser() {
   if (user) return { user, verified: true };
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      const listed = await app.listUsers({ query: benchEmail, limit: 5 });
+      const listed = await withTimeout(app.listUsers({ query: benchEmail, limit: 5 }), STACK_TIMEOUT_MS, "Stack listUsers");
       const found = listed.find((candidate) => candidate.primaryEmail === benchEmail) ?? null;
       if (found) {
         console.error(`cleanup_reconciled_user=${benchEmail}`);
@@ -757,7 +768,7 @@ async function runCleanup() {
     cleanup.providerSettled = true;
     if (cleanup.providerClean && (await reapOwnerNetwork(user.id))) {
       try {
-        await user.delete();
+        await withTimeout(user.delete(), STACK_TIMEOUT_MS, "Stack user delete");
         cleanup.accountDeleted = true;
         cleanup.accountOutcome = "no_session";
       } catch (cleanupError) {
@@ -864,21 +875,21 @@ let listMs = null;
 let startedAt = null;
 let runError = null;
 try {
-  user = await app.createUser({
+  user = await withTimeout(app.createUser({
     primaryEmail: benchEmail,
     primaryEmailVerified: true,
     primaryEmailAuthEnabled: true,
     password: randomBytes(24).toString("base64url"),
     displayName: `cmux ${project.stackLabel} startup bench`,
-  });
+  }), STACK_TIMEOUT_MS, "Stack createUser");
   // Provisioning is paid-plan gated; the plan is metadata on the throwaway user only.
-  await user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
+  await withTimeout(user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } }), STACK_TIMEOUT_MS, "Stack user update");
   // The session must outlive the whole run and its cleanup: budget the worst
   // case per trial (a 630 s create plus attach, resume and destroy budgets)
   // and cap at a day, past which the run fails closed and keeps the user.
   const sessionMs = Math.min(24 * 60 * 60 * 1000, 30 * 60 * 1000 + trials * 20 * 60 * 1000);
-  const session = await user.createSession({ expiresInMillis: sessionMs, isImpersonation: true });
-  const tokens = await session.getTokens();
+  const session = await withTimeout(user.createSession({ expiresInMillis: sessionMs, isImpersonation: true }), STACK_TIMEOUT_MS, "Stack createSession");
+  const tokens = await withTimeout(session.getTokens(), STACK_TIMEOUT_MS, "Stack getTokens");
   if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return bench session tokens");
   authHeaders = { authorization: `Bearer ${tokens.accessToken}`, "x-stack-refresh-token": tokens.refreshToken };
 

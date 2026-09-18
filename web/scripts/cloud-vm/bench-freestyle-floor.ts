@@ -71,6 +71,10 @@ function providerClientOrExit(): Freestyle {
   }
 }
 const runId = `bench-${randomUUID().slice(0, 8)}`;
+// The network's label: a mark independent of its slug, so a network that
+// merely carries the run's slug (a stale or colliding one) is never taken
+// for the one this run created when a create's response was lost.
+const runMark = `${runId} ${randomUUID()}`;
 const PROBE_INTERVAL_MS = 250;
 // Fail closed: a resource the run could not delete, or an interrupted run, is
 // a failed benchmark (exit 1 and `ok: false`), never a clean exit.
@@ -279,8 +283,9 @@ async function networkExists(slug: string): Promise<boolean> {
 /**
  * Deletes this run's VPC. Without an id in hand (the create's response was
  * lost) the network is read back by the run's slug and deleted only when it
- * is provably this run's: no network carried the slug before the create, and
- * the create labelled it with the run id. A 404 means nothing was made.
+ * carries this run's mark, a label independent of the slug that only this
+ * run's create wrote; anything else with the slug is left alone and
+ * reported. A 404 means nothing was made.
  */
 async function deleteRunVpc(id: string | null): Promise<void> {
   let target = id;
@@ -292,7 +297,7 @@ async function deleteRunVpc(id: string | null): Promise<void> {
       if (error instanceof FreestyleApiError && error.status === 404) return;
       throw error;
     }
-    if (found.displayName !== runId) throw new Error(`network ${found.id} carries slug ${runId} but is not labelled by this run; not deleting it`);
+    if (found.displayName !== runMark) throw new Error(`network ${found.id} carries slug ${runId} but not this run's mark; not deleting it`);
     target = found.id;
   }
   try {
@@ -446,7 +451,7 @@ try {
     }
     let created: Awaited<ReturnType<typeof timed<Awaited<ReturnType<typeof fs.vpc.create>>>>>;
     try {
-      created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runId, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
+      created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runMark, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
     } catch (error) {
       vpcCreateLost = !(error instanceof FreestyleApiError && error.status === 409);
       throw error;
