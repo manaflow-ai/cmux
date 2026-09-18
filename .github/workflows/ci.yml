@@ -740,7 +740,9 @@ jobs:
             rm "$products/PackageFrameworks"
           fi
           mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$products/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/Frameworks/" "$products/PackageFrameworks/"
+          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+          test -n "$framework_source"
+          rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
           python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
@@ -784,7 +786,9 @@ jobs:
             rm "$products/PackageFrameworks"
           fi
           mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$products/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/Frameworks/" "$products/PackageFrameworks/"
+          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+          test -n "$framework_source"
+          rsync -aL "$(dirname "$framework_source")/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
 
       - name: Run Ghostty split-theme appearance regression

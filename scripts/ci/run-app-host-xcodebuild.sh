@@ -106,14 +106,16 @@ app_host_xcodebuild_arguments=("$@")
 # gates and the sharded batches identical after any Xcode package operation.
 if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
   package_products_dir="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
-  package_framework_source="$package_products_dir/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/Frameworks"
   package_framework_destination="$package_products_dir/PackageFrameworks"
-  if [ -d "$package_framework_source" ]; then
+  package_framework_source="$(find "$package_products_dir" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+  if [ -n "$package_framework_source" ]; then
     if [ -L "$package_framework_destination" ]; then
       rm "$package_framework_destination"
     fi
     mkdir -p "$package_framework_destination"
-    rsync -aL "$package_framework_source/" "$package_framework_destination/"
+    package_framework_root="$(dirname "$package_framework_source")"
+    rsync -aL "$package_framework_root/" "$package_framework_destination/"
+    test -f "$package_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
   fi
 fi
 
