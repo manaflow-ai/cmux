@@ -317,10 +317,14 @@ try {
   }
 } finally {
   await reconcileRunVms();
-  if (vpcId) {
-    await deleteVpcWithRetry(vpcId).catch((error: unknown) => {
-      cleanupFailures.push(`VPC ${vpcId}: ${error instanceof Error ? error.message : String(error)}`);
-      console.error(`cleanup_needed_vpc=${vpcId}`);
+  if (withVpc) {
+    // The VPC's slug is the run id, so a create whose response was lost (no
+    // id in hand) is still deleted by name; a 404 means nothing was made.
+    const vpcRef = vpcId ?? runId;
+    await deleteVpcWithRetry(vpcRef).catch((error: unknown) => {
+      if (error instanceof FreestyleApiError && error.status === 404) return;
+      cleanupFailures.push(`VPC ${vpcRef}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`cleanup_needed_vpc=${vpcRef}`);
     });
   }
   process.off("SIGINT", interrupt);

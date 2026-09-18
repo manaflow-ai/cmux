@@ -98,11 +98,52 @@ function requireMatched(waitOutput: string): void {
   if (value.matched !== true) throw new Error("the prompt did not appear before the screen wait timed out");
 }
 
+/** The daemon's focused (else first) workspace id; a snapshot without one fails the trial rather than measuring an implicit context. */
 function workspaceId(snapshot: string): string {
   const parsed = JSON.parse(snapshot) as { workspaces?: Array<{ id?: string; focused?: boolean }> };
   const workspaces = parsed.workspaces ?? [];
   const focused = workspaces.find((workspace) => workspace.focused) ?? workspaces[0];
-  return typeof focused?.id === "string" && focused.id !== "" ? focused.id : "current";
+  if (typeof focused?.id !== "string" || focused.id === "") throw new Error("session snapshot carries no workspace id");
+  return focused.id;
+}
+
+/**
+ * Safety net for a VPC or tunnel whose create response was lost before its
+ * acquireRelease finalizer existed: both carry this run's slug, so they are
+ * found by name and removed (machines on the VPC first). Registered before
+ * anything is created, so it runs after every other finalizer; every step
+ * treats "not found" as done.
+ */
+function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string) {
+  const networking = provider.privateNetworking;
+  return Effect.gen(function* () {
+    const sdk = new Freestyle({ apiKey: process.env.FREESTYLE_API_KEY });
+    const failures: string[] = [];
+    const tunnels = yield* Effect.either(attempt("list tunnels", () => sdk.tunnels.list()));
+    if (tunnels._tag === "Left") failures.push(tunnels.left.message);
+    else {
+      for (const tunnel of tunnels.right.tunnels ?? []) {
+        if (tunnel.slug !== slug) continue;
+        const id = tunnel.tunnelId ?? tunnel.id;
+        console.error(`cleanup_reconcile_tunnel=${id}`);
+        const deleted = yield* Effect.either(attempt(`delete tunnel ${id}`, () => networking.deleteTunnel(id)));
+        if (deleted._tag === "Left") failures.push(deleted.left.message);
+      }
+    }
+    const network = yield* Effect.either(attempt("read network by slug", () => sdk.vpc.get(slug)));
+    if (network._tag === "Right") {
+      console.error(`cleanup_reconcile_network=${network.right.id}`);
+      yield* reconcileRunMachines(provider, network.right.id);
+      const deleted = yield* Effect.either(attempt(`delete VPC ${slug}`, () => networking.deleteNetwork(network.right.id)).pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
+      if (deleted._tag === "Left") failures.push(deleted.left.message);
+    } else if (!/404|not found/i.test(network.left.message)) {
+      failures.push(network.left.message);
+    }
+    if (failures.length > 0) {
+      for (const failure of failures) console.error(`cleanup_reconcile_failed ${failure}`);
+      return yield* Effect.fail(new Error(`cleanup incomplete: ${failures.join("; ")}`));
+    }
+  }).pipe(Effect.orDie);
 }
 
 function runTrial(index: number, provider: FreestyleProvider, networkId: string, root: string, hubSocket: string, capabilities: string[]) {
@@ -225,6 +266,7 @@ function bench() {
       (directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
     );
     const slug = `cmux-bench-link-${runId}`;
+    yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug));
     const network = yield* timed(Effect.acquireRelease(
       attempt("ensureNetwork", () => networking.ensureNetwork({ slug })),
       (value) => cleanup(`VPC ${value.id}`, () => networking.deleteNetwork(value.id)),

@@ -459,6 +459,28 @@ function positiveInteger(raw, flag) {
 /** Everything teardown learned, so the report can say what really happened. */
 async function runCleanup() {
   const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, leftoverVmIds: [], keptUser: null };
+  if (user && !authHeaders) {
+    // Setup failed before a session existed, so no API call and no machine
+    // was ever made in this user's name; the provider sweep still runs by
+    // the user's slug, then the identity is removed with the server key.
+    cleanup.machinesGone = true;
+    cleanup.providerClean = await reapOwnerVpcMachines(user.id);
+    if (cleanup.providerClean && (await reapOwnerNetwork(user.id))) {
+      try {
+        await user.delete();
+        cleanup.accountDeleted = true;
+        cleanup.accountOutcome = "no_session";
+      } catch (cleanupError) {
+        console.error(`cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      }
+    }
+    if (!cleanup.accountDeleted) {
+      cleanup.keptUser = user.primaryEmail ?? user.id;
+      console.error(`cleanup_needed_user=${cleanup.keptUser} (session setup failed; delete this identity with the Stack server key)`);
+    }
+    cleanup.ok = cleanup.accountDeleted;
+    return cleanup;
+  }
   cleanup.machinesGone = await destroyLeftovers();
   for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
   cleanup.leftoverVmIds = [...liveVmIds];
