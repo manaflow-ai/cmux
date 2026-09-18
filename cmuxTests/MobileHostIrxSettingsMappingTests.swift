@@ -160,6 +160,10 @@ struct MobileHostIrxSettingsMappingTests {
         let updated = "Relay connection to relay.example.test failed: HostnameMismatch."
         runtime.setSettingsPhase(.failed, error: IrxEndpointError.bindFailed(updated))
         #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.activating)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
+        runtime.setSettingsPhase(.failed)
+        #expect(await runtime.irohSettingsSnapshot().failureDescription == updated)
         runtime.setSettingsPhase(.active)
         #expect(await runtime.irohSettingsSnapshot().failureDescription == nil)
     }

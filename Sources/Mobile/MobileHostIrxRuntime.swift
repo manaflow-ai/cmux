@@ -280,7 +280,17 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
     }
 
     func setSettingsPhase(_ phase: SettingsPhase, error: (any Error)? = nil) {
-        let nextFailure = phase == .failed ? (error as? IrxEndpointError)?.errorDescription : nil
+        let nextFailure: String?
+        if phase == .idle || phase == .active {
+            nextFailure = nil
+        } else if let error {
+            nextFailure = (error as? IrxEndpointError)?.errorDescription
+        } else {
+            // Activation retries briefly re-enter .activating and .failed
+            // without a new endpoint error. Keep the last safe diagnosis
+            // visible until the endpoint recovers or the scope is reset.
+            nextFailure = relayFailureDescription
+        }
         guard settingsPhase != phase || nextFailure != relayFailureDescription else { return }
         settingsPhase = phase
         relayFailureDescription = nextFailure
