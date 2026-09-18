@@ -14,7 +14,7 @@ const MAX_SAFE_UNSIGNED_INTEGER = 0xffff_ffff;
 
 const phases = new Set([
   "endpoint_start", "pairing", "transport_dial", "host_auth",
-  "rpc_ready", "recovery", "relay_policy", "discovery", "terminal_trace",
+  "rpc_ready", "recovery", "relay_policy", "discovery", "initial_connect", "terminal_trace",
 ]);
 const outcomes = new Set(["success", "failure", "timeout", "cancelled", "abandoned"]);
 const failures = new Set([
@@ -34,6 +34,7 @@ const allowedPropertyKeys = new Set([
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
   "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
+  "population", "attempt_id", "terminal_ready",
   "window_ms", "input_count", "output_count", "presented_count",
   "correlated_output_count", "dropped_count", "output_bytes", "max_queue_depth",
   "input_to_output_p50_ms", "input_to_output_p95_ms", "input_to_output_p99_ms",
@@ -51,6 +52,9 @@ export type MobileNetworkOutcome = {
   readonly durationMs: number;
   readonly runtimeRole: "mobileClient";
   readonly userUsable: boolean;
+  readonly population?: "cold_open" | "warm_open" | "reconnect" | "pairing_required";
+  readonly attemptId?: string;
+  readonly terminalReady?: boolean;
   readonly failure?: string;
   readonly transport?: string;
   readonly platform?: "ios";
@@ -219,7 +223,7 @@ export function parseMobileObservabilityEvent(candidate: unknown): MobileObserva
     ?? parseMobileTerminalLatencyAnomaly(candidate);
 }
 
-type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport">;
+type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady">;
 type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase">;
 
 function validTimestamp(value: unknown): value is string {
@@ -240,7 +244,8 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
   const durationMs = unsignedInteger(properties.duration_ms);
   const failure = optionalSetValue(properties.failure, failures);
   const transport = optionalSetValue(properties.transport, transports);
-  if (durationMs === null || failure === false || transport === false) return null;
+  const initialFields = parseInitialConnectionFields(properties);
+  if (durationMs === null || failure === false || transport === false || initialFields === null) return null;
   return {
     phase: properties.phase,
     outcome: properties.outcome as CoreObservation["outcome"],
@@ -248,6 +253,28 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
     userUsable: properties.user_usable,
     ...(typeof failure === "string" ? { failure } : {}),
     ...(typeof transport === "string" ? { transport } : {}),
+    ...initialFields,
+  };
+}
+
+function parseInitialConnectionFields(
+  properties: Record<string, unknown>,
+): Pick<CoreObservation, "population" | "attemptId" | "terminalReady"> | null {
+  const population = optionalSetValue(
+    properties.population,
+    new Set(["cold_open", "warm_open", "reconnect", "pairing_required"]),
+  ) as CoreObservation["population"] | false;
+  const attemptId = properties.attempt_id === undefined
+    ? undefined
+    : optionalMachineString(properties.attempt_id);
+  const terminalReady = properties.terminal_ready === undefined
+    ? undefined
+    : typeof properties.terminal_ready === "boolean" ? properties.terminal_ready : false;
+  if (population === false || attemptId === false || terminalReady === false) return null;
+  return {
+    ...(typeof population === "string" ? { population } : {}),
+    ...(typeof attemptId === "string" ? { attemptId } : {}),
+    ...(typeof terminalReady === "boolean" ? { terminalReady } : {}),
   };
 }
 
@@ -302,6 +329,9 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.outcome": observation.outcome,
       "cmux.mobile.duration_ms": observation.durationMs,
       "cmux.mobile.user_usable": observation.userUsable,
+      "cmux.mobile.population": observation.population,
+      "cmux.mobile.attempt_id": observation.attemptId,
+      "cmux.mobile.terminal_ready": observation.terminalReady,
       "cmux.mobile.occurred_at": observation.timestamp,
       "cmux.mobile.failure": observation.failure,
       "cmux.mobile.transport": observation.transport,

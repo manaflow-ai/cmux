@@ -153,12 +153,14 @@ final class AppCompositionRoot {
         self.analytics = analytics
         let networkOutcomeReporter = analytics.networkOutcomeReporter
         self.networkOutcomeReporter = networkOutcomeReporter
+        let initialConnectionReporter = analytics.initialConnectionReporter
         let terminalTraceReporter = analytics.terminalTraceReporter
         self.terminalTraceReporter = terminalTraceReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
             networkOutcomeReporter.ingest(event)
+            initialConnectionReporter.ingest(event)
             terminalTraceReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
@@ -446,11 +448,13 @@ final class AppCompositionRoot {
             }
             // Force a flush before the OS may suspend us, so queued events survive.
             let networkOutcomeReporter = self.networkOutcomeReporter
+            let initialConnectionReporter = self.analytics.initialConnectionReporter
             let terminalLatencyReporter = self.analytics.terminalLatencyReporter
             let terminalTraceReporter = self.terminalTraceReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
+                await initialConnectionReporter.flush()
                 await terminalLatencyReporter.flush()
                 await terminalTraceReporter.flush()
             }

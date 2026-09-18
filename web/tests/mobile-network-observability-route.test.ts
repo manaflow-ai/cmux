@@ -237,6 +237,26 @@ describe("iOS mobile network observability route", () => {
     expect(emitted).toHaveLength(1);
   });
 
+  test("accepts an initial-connect outcome with its population and attempt id", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({
+        phase: "initial_connect",
+        population: "cold_open",
+        attempt_id: "6F7B6E35-1B94-4B9D-9F8A-37F1D54B9C45",
+        terminal_ready: true,
+      }),
+    ]));
+
+    expect(response.status).toBe(200);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      phase: "initial_connect",
+      population: "cold_open",
+      attemptId: "6F7B6E35-1B94-4B9D-9F8A-37F1D54B9C45",
+      terminalReady: true,
+    });
+  });
+
   test("fails closed when deployed rate limiting is unconfigured", async () => {
     process.env.VERCEL = "1";
     delete process.env.CMUX_MOBILE_OBSERVABILITY_RATE_LIMIT_ID;

@@ -261,6 +261,21 @@
         "Sources/WorkspaceRemoteRelayCommandRewriter.swift"
       ],
       "severity": "high"
+    },
+    {
+      "id": "cmux-cloud-persistent-session-and-early-input",
+      "rule": "For Cloud terminal creation and transport, flag a new cmux-tui client or physical transport per request/event, waiting for remote PTY or shell readiness before showing a focused user-created manual Ghostty runtime, losing ordered input ownership during attachment, or weakening auth, idempotency, revision, or attachment lease fences. Permit independent logical streams over one authenticated carrier when they preserve cancellation, geometry, and byte routing. Permit snapshots for cold, stale, missing, or revision-conflict state and measured tests that keep stages separate. Manual renderers must not wait for local command-wrapper installation; keep that work on exec surfaces.",
+      "scope": [
+        "Sources/Cloud/**/*.swift",
+        "Sources/Surfaces/**/*.swift",
+        "Packages/macOS/CmuxTerminal/Sources/CmuxTerminal/Surface/**/*.swift",
+        "Sources/AppDelegate*.swift",
+        "Sources/Ghostty*.swift",
+        "cmux-tui/crates/**/src/**/*.rs",
+        "Sources/Workspace*.swift",
+        "Sources/TerminalSurfaceRuntimeWiring.swift"
+      ],
+      "severity": "high"
     }
   ]
 }
