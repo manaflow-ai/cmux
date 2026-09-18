@@ -653,6 +653,57 @@ describe("device token route", () => {
     expect(owned.total).toBe(1);
   });
 
+  dbTest("does not let a delayed old-session registration clear sign-out revocation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "f".repeat(64);
+    const bundleId = "dev.cmux.ios.revocation";
+    const requestHeaders = (accessToken: string, refreshToken: string) => ({
+      authorization: `Bearer ${accessToken}`,
+      "x-stack-refresh-token": refreshToken,
+      "x-cmux-app-namespace": bundleId,
+    });
+    const register = (accessToken: string, refreshToken: string) => POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: requestHeaders(accessToken, refreshToken),
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(token),
+        }),
+      }),
+    );
+
+    expect((await register("old-access", "old-refresh")).status).toBe(200);
+    const signOut = await DELETE(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "DELETE",
+        headers: requestHeaders("old-access", "old-refresh"),
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId,
+          revokeSession: true,
+        }),
+      }),
+    );
+    expect(signOut.status).toBe(200);
+
+    const delayedOldRegistration = await register("old-access", "old-refresh");
+    expect(delayedOldRegistration.status).toBe(409);
+    expect(await delayedOldRegistration.json()).toEqual({
+      error: "push_registration_revoked",
+    });
+
+    expect((await register("new-access", "new-refresh")).status).toBe(200);
+    const [row] = await sql<{ revokedAt: Date | null }[]>`
+      select revoked_at as "revokedAt"
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${token}
+    `;
+    expect(row?.revokedAt).toBeNull();
+  });
+
   dbTest("returns only keyed recipients for the authenticated account and bundle", async () => {
     if (!sql) throw new Error("test database not initialized");
     const token1 = "1".repeat(64);

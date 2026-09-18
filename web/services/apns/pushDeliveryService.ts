@@ -198,7 +198,6 @@ async function executePushDeliveryWithTargets(
   tokens: ApnsTarget[],
   deviceLeaseToken: string | null,
 ): Promise<DeliveryExecution> {
-  const { db } = dependencies;
   const preparation = await preparePushDelivery(
     input,
     dependencies,
@@ -208,6 +207,21 @@ async function executePushDeliveryWithTargets(
   if (preparation.kind === "error") {
     return { ok: false, error: preparation.error };
   }
+  return executePreparedPushDelivery(
+    input,
+    dependencies,
+    preparation,
+    deviceLeaseToken,
+  );
+}
+
+async function executePreparedPushDelivery(
+  input: PushDeliveryInput,
+  dependencies: PushDeliveryDependencies,
+  preparation: Extract<PushDeliveryPreparation, { kind: "ready" }>,
+  deviceLeaseToken: string | null,
+): Promise<DeliveryExecution> {
+  const { db } = dependencies;
   const {
     deliveryPayload,
     leaseToken,

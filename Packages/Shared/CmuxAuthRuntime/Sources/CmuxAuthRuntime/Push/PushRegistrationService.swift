@@ -566,7 +566,8 @@ public actor PushRegistrationService: PushRegistering {
         if await sendDelete(
             tokenHex: hex,
             capturedAccessToken: accessToken,
-            capturedRefreshToken: refreshToken
+            capturedRefreshToken: refreshToken,
+            revokeSession: true
         ), let ownerID {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
             clearRegisteredOwner(accountID: ownerID, tokenHex: hex)
@@ -863,7 +864,8 @@ public actor PushRegistrationService: PushRegistering {
         tokenHex: String,
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
-        sessionSnapshot: AuthenticatedSessionSnapshot? = nil
+        sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
+        revokeSession: Bool = false
     ) async -> Bool {
         guard case let .success(context) = await makeRequest(
             method: "DELETE",
@@ -871,7 +873,10 @@ public actor PushRegistrationService: PushRegistering {
             body: [
                 "deviceToken": tokenHex,
                 "bundleId": bundleID,
-            ],
+            ].merging(
+                revokeSession ? ["revokeSession": "true"] : [:],
+                uniquingKeysWith: { _, new in new }
+            ),
             capturedAccessToken: capturedAccessToken,
             capturedRefreshToken: capturedRefreshToken,
             sessionSnapshot: sessionSnapshot,

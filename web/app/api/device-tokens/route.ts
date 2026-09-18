@@ -2,13 +2,14 @@
 // Auth: Stack Bearer from the native client. A row only exists after the
 // user explicitly opts in on their device, so presence == "wants phone pushes".
 
+import crypto from "node:crypto";
 import { and, count, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokens } from "../../../db/schema";
 import { resolveApnsProviderConfiguration } from "../../../services/apns/config";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
-import { unauthorized, verifyRequest } from "../../../services/vms/auth";
+import { parseNativeStackTokens, unauthorized, verifyRequest } from "../../../services/vms/auth";
 import { recordApnsEncryptionKeyRejection, withApnsApiRoute } from "../../../services/apns/routeHandler";
 import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
@@ -79,6 +80,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   const input = parseRegistrationInput(request, body.value);
   if (!input.ok) return input.response;
   const { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey, isLegacy } = input.value;
+  const authFingerprint = requestAuthFingerprint(request);
 
   const db = cloudDb();
 
@@ -86,6 +88,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
     limitReached: boolean;
     deliveryBusyRetryAfterSeconds?: number;
     conflict?: boolean;
+    authRevoked?: boolean;
   };
   try {
     // The transaction deliberately keeps the lock, conflict, capacity, and
@@ -96,7 +99,15 @@ async function registerDeviceToken(request: Request): Promise<Response> {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
 
       let existingInstallation:
-        | { id: string; userId: string; deliveryLeaseUntil: Date | null; pushKeyId: string; pushPublicKey: string | null }
+        | {
+            id: string;
+            userId: string;
+            deliveryLeaseUntil: Date | null;
+            pushKeyId: string;
+            pushPublicKey: string | null;
+            revokedAt: Date | null;
+            revokedAuthFingerprint: string | null;
+          }
         | undefined;
       if (!isLegacy) {
         [existingInstallation] = await tx
@@ -106,6 +117,8 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
             pushKeyId: deviceTokens.pushKeyId,
             pushPublicKey: deviceTokens.pushPublicKey,
+            revokedAt: deviceTokens.revokedAt,
+            revokedAuthFingerprint: deviceTokens.revokedAuthFingerprint,
           })
           .from(deviceTokens)
           .where(and(
@@ -124,6 +137,8 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
           pushKeyId: deviceTokens.pushKeyId,
           pushPublicKey: deviceTokens.pushPublicKey,
+          revokedAt: deviceTokens.revokedAt,
+          revokedAuthFingerprint: deviceTokens.revokedAuthFingerprint,
         })
         .from(deviceTokens)
         .where(and(
@@ -137,6 +152,16 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         existingInstallation?.deliveryLeaseUntil?.getTime() ?? 0,
         existingToken?.deliveryLeaseUntil?.getTime() ?? 0,
       );
+      if (
+        authFingerprint !== null
+        && [existingInstallation, existingToken].some((row) =>
+          row?.userId === user.id
+          && row.revokedAt !== null
+          && row.revokedAuthFingerprint === authFingerprint
+        )
+      ) {
+        return { limitReached: false, authRevoked: true };
+      }
       if (deliveryLeaseUntilMs > Date.now()) {
         return {
           limitReached: false,
@@ -162,6 +187,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           .from(deviceTokens)
           .where(and(
             eq(deviceTokens.userId, user.id),
+            isNull(deviceTokens.revokedAt),
             or(
               ne(deviceTokens.bundleId, bundle.bundleId),
               ne(deviceTokens.deviceToken, deviceToken),
@@ -179,6 +205,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           .where(and(
             eq(deviceTokens.userId, user.id),
             eq(deviceTokens.bundleId, bundle.bundleId),
+            isNull(deviceTokens.revokedAt),
             ne(deviceTokens.deviceToken, deviceToken),
           ));
         if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
@@ -210,6 +237,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             pushKeyId: isLegacy ? "legacy" : pushKeyId,
             pushPublicKey: isLegacy ? null : pushPublicKey,
             revokedAt: null,
+            revokedAuthFingerprint: null,
             updatedAt: new Date(),
           })
           .where(eq(deviceTokens.id, rowToUpdate.id));
@@ -223,6 +251,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           installationId: isLegacy ? "legacy" : installationId,
           pushKeyId: isLegacy ? "legacy" : pushKeyId,
           pushPublicKey: isLegacy ? null : pushPublicKey,
+          revokedAuthFingerprint: null,
         });
       }
 
@@ -303,6 +332,7 @@ function registrationResponse(registration: {
   limitReached: boolean;
   deliveryBusyRetryAfterSeconds?: number;
   conflict?: boolean;
+  authRevoked?: boolean;
 }): Response {
   if (registration.limitReached) {
     return jsonResponse({
@@ -310,6 +340,9 @@ function registrationResponse(registration: {
       limit: MAX_DEVICE_TOKENS_PER_USER,
       action: "disable_push_on_another_device",
     }, 429);
+  }
+  if (registration.authRevoked) {
+    return jsonResponse({ error: "push_registration_revoked" }, 409);
   }
   if (registration.conflict) return jsonResponse({ error: "push_registration_conflict" }, 409);
   if (registration.deliveryBusyRetryAfterSeconds != null) {
@@ -355,6 +388,9 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
 
   const body = await readBoundedJsonObject(request, MAX_PUSH_REQUEST_BYTES);
   if (!body.ok) return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
+  const revokeSession = body.value.revokeSession === true
+    || body.value.revokeSession === "true";
+  const authFingerprint = revokeSession ? requestAuthFingerprint(request) : null;
   const deviceToken = typeof body.value.deviceToken === "string" ? body.value.deviceToken.trim().toLowerCase() : "";
   const bodyBundleId =
     typeof body.value.bundleId === "string"
@@ -380,6 +416,7 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
     );
     const matches = await tx
       .select({
+        id: deviceTokens.id,
         bundleId: deviceTokens.bundleId,
         deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
       })
@@ -400,13 +437,39 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
       return { outcome: "ambiguous" as const };
     }
     const existingToken = matches[0];
+    const [foreignToken] = !existingToken && revokeSession && clientNamespace
+      ? await tx
+        .select({ id: deviceTokens.id })
+        .from(deviceTokens)
+        .where(and(
+          eq(deviceTokens.deviceToken, deviceToken),
+          eq(deviceTokens.bundleId, clientNamespace),
+        ))
+        .limit(1)
+        .for("update")
+      : [];
+    if (revokeSession && existingToken) {
+      await tx
+        .update(deviceTokens)
+        .set({
+          revokedAt: new Date(),
+          revokedAuthFingerprint: authFingerprint,
+          updatedAt: new Date(),
+        })
+        .where(eq(deviceTokens.id, existingToken.id));
+      return { outcome: "revoked" as const };
+    }
     const deliveryLeaseUntilMs =
       existingToken?.deliveryLeaseUntil?.getTime() ?? 0;
     if (deliveryLeaseUntilMs > Date.now()) {
       if (existingToken) {
         await tx
           .update(deviceTokens)
-          .set({ revokedAt: new Date(), updatedAt: new Date() })
+          .set({
+            revokedAt: new Date(),
+            revokedAuthFingerprint: null,
+            updatedAt: new Date(),
+          })
           .where(eq(deviceTokens.id, existingToken.id));
       }
       return {
@@ -421,6 +484,21 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
           eq(deviceTokens.userId, user.id),
           eq(deviceTokens.bundleId, existingToken.bundleId),
         ));
+    } else if (revokeSession && clientNamespace && !foreignToken) {
+      const bundle = normalizeApnsBundle(clientNamespace);
+      if (bundle) {
+        await tx.insert(deviceTokens).values({
+          userId: user.id,
+          deviceToken,
+          bundleId: bundle.bundleId,
+          environment: bundle.environment,
+          platform: "ios",
+          installationId: "legacy",
+          pushKeyId: "legacy",
+          revokedAt: new Date(),
+          revokedAuthFingerprint: authFingerprint,
+        });
+      }
     }
     return { outcome: "deleted" as const };
   });
@@ -428,4 +506,13 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
     return jsonResponse({ error: "ambiguous_legacy_device_token" }, 409);
   }
   return jsonResponse({ ok: true });
+}
+
+function requestAuthFingerprint(request: Request): string | null {
+  const tokens = parseNativeStackTokens(request);
+  if (!tokens) return null;
+  return crypto
+    .createHash("sha256")
+    .update(`${tokens.accessToken}\n${tokens.refreshToken}`)
+    .digest("hex");
 }

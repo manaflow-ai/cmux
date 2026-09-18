@@ -1030,6 +1030,7 @@ export const deviceTokens = pgTable(
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedAuthFingerprint: text("revoked_auth_fingerprint"),
     deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
     deliveryLeaseToken: uuid("delivery_lease_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
