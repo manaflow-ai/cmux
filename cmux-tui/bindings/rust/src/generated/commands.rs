@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0672a3504dc1dbed95437e590805e972a9f12f42171c8c8bac8c87994277ca8c.
+// cmux-tui mux protocol 12, IR d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1320,6 +1320,44 @@ pub type UnregisterBrowserProviderResult = T::BrowserProviderUnregisterResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenRequest {
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenResult = T::GuestUrlOpenResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenClaimRequest {
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenClaimResult = T::GuestUrlClaimResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenResultRequest {
+    pub opened: bool,
+    pub request_id: String,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenResultResult = T::GuestUrlAcknowledgeResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenSubscribeRequest {
+    pub terminal_ids: Vec<String>,
+}
+
+#[rustfmt::skip]
+pub type UrlOpenSubscribeResult = T::GuestUrlSubscribeResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateRequest {
     pub surface: T::Id,
 }
@@ -1888,6 +1926,22 @@ impl CmuxClient {
 
     pub fn unregister_browser_provider(&mut self, request: UnregisterBrowserProviderRequest) -> Result<UnregisterBrowserProviderResult> {
         self.execute(&UNREGISTER_BROWSER_PROVIDER_METADATA, &request)
+    }
+
+    pub fn url_open(&mut self, request: UrlOpenRequest) -> Result<UrlOpenResult> {
+        self.execute(&URL_OPEN_METADATA, &request)
+    }
+
+    pub fn url_open_claim(&mut self, request: UrlOpenClaimRequest) -> Result<UrlOpenClaimResult> {
+        self.execute(&URL_OPEN_CLAIM_METADATA, &request)
+    }
+
+    pub fn url_open_result(&mut self, request: UrlOpenResultRequest) -> Result<UrlOpenResultResult> {
+        self.execute(&URL_OPEN_RESULT_METADATA, &request)
+    }
+
+    pub fn url_open_subscribe(&mut self, request: UrlOpenSubscribeRequest) -> Result<CmuxStream> {
+        self.execute_stream(&URL_OPEN_SUBSCRIBE_METADATA, &request)
     }
 
     pub fn vt_state(&mut self, request: VtStateRequest) -> Result<T::VtStateResult> {

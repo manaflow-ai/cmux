@@ -52,7 +52,9 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
                 index += 2;
             }
             "-h" | "--help" => {
-                return Err(anyhow!(crate::localization::catalog().remote_client.browser_proxy_help));
+                return Err(anyhow!(
+                    crate::localization::catalog().remote_client.browser_proxy_help
+                ));
             }
             value if value.starts_with('-') => {
                 // Keep all connection options for the normal authenticated route parser.
