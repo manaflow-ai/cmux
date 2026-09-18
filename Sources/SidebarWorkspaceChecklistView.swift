@@ -471,7 +471,7 @@ struct SidebarWorkspaceChecklistSection: View {
         return Button {
             actions.removeItem(item.id)
         } label: {
-            CmuxSystemSymbolImage(magnified: "xmark", pointSize: 9 * fontScale, tint: secondaryColor)
+            CmuxSystemSymbolImage(magnified: "xmark.circle.fill", pointSize: 9 * fontScale, tint: secondaryColor)
                 .frame(width: 9 * fontScale + 8, height: 9 * fontScale + 8, alignment: .center)
                 .contentShape(Rectangle())
         }

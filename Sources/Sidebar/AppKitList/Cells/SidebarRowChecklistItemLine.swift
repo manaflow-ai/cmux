@@ -133,7 +133,7 @@ final class SidebarRowChecklistItemLine: NSView {
         )
 
         removeButton.glyphImage = RenderableSystemSymbol.configuredAppKitImage(
-            systemName: "xmark", pointSize: model.scaled(9), weight: nil
+            systemName: "xmark.circle.fill", pointSize: model.scaled(9), weight: nil
         )
         removeButton.contentTintColor = secondary
         removeButton.toolTip = String(localized: "sidebar.checklist.removeItemTooltip", defaultValue: "Remove item")

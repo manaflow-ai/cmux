@@ -371,7 +371,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         return Button {
             actions.removeItem(item.id)
         } label: {
-            CmuxSystemSymbolImage(systemName: "xmark", pointSize: Self.checkboxPointSize - 2, tint: .secondary)
+            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2, tint: .secondary)
                 .frame(width: Self.checkboxPointSize + 6, height: Self.checkboxPointSize + 6, alignment: .center)
                 .contentShape(Rectangle())
         }
