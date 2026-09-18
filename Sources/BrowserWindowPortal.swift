@@ -388,14 +388,14 @@ final class WindowBrowserHostView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         performHitTest(
-            at: point,
+            at: convert(point, from: superview ?? self),
             currentEvent: NSApp.currentEvent,
             dragPasteboard: NSPasteboard(name: .drag)
         )
     }
 
-    // Treat the event and drag pasteboard as one routing snapshot; AppKit can
-    // otherwise advance either ambient value during nested hit testing.
+    // Routing uses host-local points; AppKit hitTest uses superview coordinates.
+    // Capture the event and drag pasteboard together across nested hit testing.
     func performHitTest(
         at point: NSPoint,
         currentEvent: NSEvent?,
@@ -403,7 +403,7 @@ final class WindowBrowserHostView: NSView {
     ) -> NSView? {
         let routingContext = WindowInputRoutingContext(event: currentEvent)
         guard routingContext.allowsPortalPointerHitTesting else {
-            let hitView = super.hitTest(point)
+            let hitView = super.hitTest(convert(point, to: superview ?? self))
             return hitView === self ? nil : hitView
         }
 
@@ -531,7 +531,7 @@ final class WindowBrowserHostView: NSView {
 #endif
             return self
         }
-        let hitView = super.hitTest(point)
+        let hitView = super.hitTest(convert(point, to: superview ?? self))
 #if DEBUG
         debugLogPointerRouting(
             stage: "hitTest.result",
@@ -800,7 +800,7 @@ final class WindowBrowserHostView: NSView {
             }
             let pointInSibling = sibling.convert(windowPoint, from: nil)
             guard sibling.bounds.contains(pointInSibling),
-                  let hitView = sibling.hitTest(pointInSibling) else {
+                  let hitView = sibling.cmuxHitTest(windowPoint: windowPoint) else {
                 continue
             }
 
@@ -848,7 +848,7 @@ final class WindowBrowserHostView: NSView {
         at point: NSPoint,
         hostedInspectorHit: HostedInspectorDividerHit
     ) -> NSView? {
-        guard let nativeHit = super.hitTest(point), nativeHit !== self else { return nil }
+        guard let nativeHit = super.hitTest(convert(point, to: superview ?? self)), nativeHit !== self else { return nil }
         if nativeHit === hostedInspectorHit.pageView ||
             nativeHit.isDescendant(of: hostedInspectorHit.pageView) {
             return nil
@@ -2143,7 +2143,7 @@ final class WindowBrowserPortal: NSObject {
             installedContainerView = container
             installedReferenceView = reference
         } else {
-            let aboveReference = reference === container || Self.isView(hostView, above: reference, in: container)
+            let aboveReference = reference === container ? container.subviews.last === hostView : Self.isView(hostView, above: reference, in: container)
             let abovePlacementReference = placementReference === reference
                 || Self.isView(hostView, above: placementReference, in: container)
             if !aboveReference || !abovePlacementReference {

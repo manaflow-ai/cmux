@@ -77,6 +77,12 @@ struct WindowOverlayChromeTests {
             #expect(browserFrame.width > 100 && browserFrame.height > 100)
             #expect(browser.webViewAtWindowPoint(browserPoint) === webView)
             #expect(terminal.viewAtWindowPoint(browserPoint) == nil)
+            let laterContent = NSView(frame: content.convert(browserAnchor.bounds, from: browserAnchor))
+            content.addSubview(laterContent)
+            _ = browser.webViewAtWindowPoint(browserPoint)
+            let browserHit = try #require(root.cmuxHitTest(windowPoint: browserPoint))
+            #expect(browserHit.isDescendant(of: webView))
+            laterContent.removeFromSuperview()
             let terminalFrame = terminalAnchor.convert(terminalAnchor.bounds, to: nil)
             let terminalPoint = NSPoint(x: terminalFrame.midX, y: terminalFrame.midY)
             let terminalHit = try #require(terminal.viewAtWindowPoint(terminalPoint))
@@ -96,6 +102,32 @@ struct WindowOverlayChromeTests {
                 #expect(chromeHit.isDescendant(of: chrome))
             }
         }
+    }
+
+    @Test("Native browser hit testing converts flipped parent coordinates exactly once")
+    func flippedContentPointerRouting() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        let content = FlippedContentView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        window.contentView = content
+        let host = WindowBrowserHostView(frame: NSRect(x: 30, y: 40, width: 400, height: 240))
+        content.addSubview(host)
+        let button = NSButton(frame: NSRect(x: 50, y: 160, width: 80, height: 30))
+        host.addSubview(button)
+        let point = NSPoint(x: button.frame.midX, y: button.frame.midY)
+        let event = try #require(NSEvent.mouseEvent(
+            with: .mouseMoved, location: host.convert(point, to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: 0, pressure: 0
+        ))
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+
+        #expect(host.performHitTest(at: point, currentEvent: event, dragPasteboard: pasteboard) === button)
+        #expect(host.cmuxHitTest(windowPoint: event.locationInWindow) === button)
     }
 
     private func makeWindow() -> NSWindow {
@@ -143,5 +175,9 @@ struct WindowOverlayChromeTests {
         }
 
         func updateNSView(_ nsView: NSView, context: Context) {}
+    }
+
+    private final class FlippedContentView: NSView {
+        override var isFlipped: Bool { true }
     }
 }
