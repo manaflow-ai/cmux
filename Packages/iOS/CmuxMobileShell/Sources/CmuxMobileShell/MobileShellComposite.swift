@@ -14963,6 +14963,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             replayBarrierToken: replayBarrierTokenForRequest
         )
         let diagnosticStartedAt = appDiagnosticNow()
+        let terminalTraceID = DiagnosticTerminalTraceID()
+        recordTerminalTrace(
+            operation: .replay,
+            phase: .started,
+            traceID: terminalTraceID,
+            surfaceID: surfaceID
+        )
         recordAppEvent(
             .terminalReplayStarted,
             correlationID: surfaceID
@@ -15008,11 +15015,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ? MobileTerminalScrollbackPreference.resolve()
                         : 0
                 }
+                params["trace_id"] = terminalTraceID.stringValue
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
                     params: params
                 )
-                replayResult = .success(try await client.sendRequest(request))
+                self?.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .requestSent,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt
+                )
+                let response = try await client.sendRequest(request)
+                self?.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .responseReceived,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: response.count
+                )
+                replayResult = .success(response)
             } catch {
                 replayResult = .failure(error)
             }
@@ -15035,11 +15059,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // suspension point, so every staleness guard below already
                 // observes post-decode state.
                 let decoded = await Self.decodeTerminalReplayResponseOffMain(data)
+                self.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .decoded,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: data.count
+                )
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request surface=\(surfaceID)")
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     return
                 }
                 guard self.remoteClient === client else {
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
                         requestID: replayRequestID
@@ -15069,6 +15115,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let replayBarrierTokenForRequest {
                     guard self.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierTokenForRequest else {
                         MobileDebugLog.anchormux("CMUX_REPLAY barrier_stale surface=\(surfaceID)")
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
                         return
                     }
                 }
@@ -15121,6 +15174,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let renderGrid {
                     guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt,
+                            detail: renderGrid.rowSpans.count
+                        )
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
                             replayBarrierToken: replayBarrierTokenForRequest,
@@ -15136,6 +15197,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         bypassReplayBarrier: replayBarrierTokenForRequest != nil
                     )
                     guard accepted else {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt,
+                            detail: renderGrid.rowSpans.count
+                        )
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
                             replayBarrierToken: replayBarrierTokenForRequest,
@@ -15170,6 +15239,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         startedAt: diagnosticStartedAt,
                         count: renderGrid.rowSpans.count
                     )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .applied,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt,
+                        detail: renderGrid.rowSpans.count
+                    )
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
@@ -15178,6 +15255,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         replayBarrierToken: replayBarrierTokenForRequest
                        ) {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
                         self.clearTerminalReplayInFlightIfCurrent(
                             surfaceID: surfaceID,
                             requestID: replayRequestID
@@ -15199,6 +15283,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
                         reason: "empty"
+                    )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
                     )
                     return
                 }
@@ -15246,9 +15337,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     failure: accepted ? nil : .protocolViolation,
                     count: accepted ? deliverBytes.count : nil
                 )
+                self.recordTerminalTrace(
+                    operation: .replay,
+                    phase: accepted ? .applied : .failed,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: accepted ? deliverBytes.count : nil
+                )
             case .failure(let error):
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request_failed surface=\(surfaceID)")
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     return
                 }
                 // A viewport transition is the host's expected readiness
@@ -15266,8 +15372,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         startedAt: diagnosticStartedAt,
                         failure: DiagnosticFailureKind.classify(error)
                     )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                 }
                 guard self.remoteClient === client else {
+                    if self.isTerminalReplayViewportTransition(error) {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
+                    }
                     self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
                         requestID: replayRequestID
@@ -15300,6 +15422,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // full grid. The next live grid is the synchronization
                     // signal; a dropped grid will request the replay through
                     // the normal barrier path once this task has settled.
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     _ = self.armTerminalReplayBarrierForViewportTransition(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest
