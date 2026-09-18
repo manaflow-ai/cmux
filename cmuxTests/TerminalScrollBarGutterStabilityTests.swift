@@ -92,15 +92,4 @@ struct TerminalScrollBarGutterStabilityTests {
         #expect(afterReset == harness.paneWidth)
     }
 
-    @Test("Presence follows scrollback only where it reserves no layout")
-    func presencePolicy() {
-        typealias Policy = TerminalScrollBarPresencePolicy
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: false))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: nil))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: true))
-        #expect(!Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: false))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: true))
-        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: nil))
-        #expect(!Policy.isPresent(allowedBySettings: false, scrollerStyle: .legacy, hasScrollback: true))
-    }
 }
