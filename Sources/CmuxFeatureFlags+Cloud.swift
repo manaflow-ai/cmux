@@ -3,15 +3,9 @@ import Foundation
 extension CmuxFeatureFlags {
     // FLAG(key: cloud-machines-enabled-release, owner: austinwang,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
-    // Release keeps the remote kill switch and defaults off. Recognized DEBUG
-    // bundles force the flag on so every tagged development build dogfoods the
-    // same Cloud surface regardless of the remote rollout value.
-#if DEBUG
-    fileprivate static let cloudMachinesDefault = true
-#else
-    fileprivate static let cloudMachinesDefault = false
-#endif
-
+    // The release fallback stays off. Recognized DEBUG bundles install an
+    // in-memory local override during initialization so dev builds still
+    // dogfood Cloud when the remote rollout is unavailable or false.
     nonisolated static let cloudMachinesFlag = CmuxFeatureFlagDefinition(
         key: "cloud-machines-enabled-release",
         title: String(localized: "featureFlags.cloudMachines.title", defaultValue: "Cloud Machines"),
@@ -19,7 +13,7 @@ extension CmuxFeatureFlags {
             localized: "featureFlags.cloudMachines.description",
             defaultValue: "Enables the macOS Cloud Machines integration, including entry points, attachments, and background sync."
         ),
-        defaultWhenUnavailable: cloudMachinesDefault
+        defaultWhenUnavailable: false
     )
 
     var isCloudMachinesEnabled: Bool { effectiveValue(for: Self.cloudMachinesFlag) }
