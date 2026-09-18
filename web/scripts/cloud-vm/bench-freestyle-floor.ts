@@ -128,9 +128,9 @@ function bounded<T>(promise: Promise<T>, ms: number, label: string): Promise<T> 
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
-/** Waits (bounded) for every timed-out provider request to settle, so reconciliation sees what they made. */
-async function settleInFlight(ms: number): Promise<void> {
-  if (inFlight.size === 0) return;
+/** Waits (bounded) for every timed-out provider request to settle; false when some are still running. */
+async function waitForInFlight(ms: number): Promise<boolean> {
+  if (inFlight.size === 0) return true;
   console.error(`cleanup_waiting_for_in_flight=${inFlight.size}`);
   // The deadline timer is cleared once the requests settle, or it would keep
   // the process alive for the rest of the wait after the report is written.
@@ -143,7 +143,12 @@ async function settleInFlight(ms: number): Promise<void> {
   } finally {
     clearTimeout(timer);
   }
-  if (inFlight.size > 0) cleanupFailures.push(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
+  return inFlight.size === 0;
+}
+
+/** As above, and a request still running afterwards is recorded as a cleanup failure. */
+async function settleInFlight(ms: number): Promise<void> {
+  if (!(await waitForInFlight(ms))) cleanupFailures.push(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
 }
 
 /** Polls until the VM reports `paused` (a `pausing` machine would race the start). */
@@ -410,6 +415,10 @@ async function runBurst(vpcId: string | null): Promise<Trial[]> {
 }
 
 let vpcId: string | null = null;
+// True only when the VPC create's response was lost (timeout, transport
+// failure): the network may exist under the run's slug with no id in hand.
+// A definitive provider answer, a conflict above all, means it is not ours.
+let vpcCreateLost = false;
 const results: { sequential: Trial[]; burst: Trial[] } = { sequential: [], burst: [] };
 try {
   if (withVpc) {
@@ -420,7 +429,13 @@ try {
       console.error(`bench-freestyle-floor: a network with slug ${runId} already exists; refusing to adopt it`);
       process.exit(2);
     }
-    const created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runId, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
+    let created: Awaited<ReturnType<typeof timed<Awaited<ReturnType<typeof fs.vpc.create>>>>>;
+    try {
+      created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runId, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
+    } catch (error) {
+      vpcCreateLost = !(error instanceof FreestyleApiError);
+      throw error;
+    }
     vpcId = created.value.data.id;
     console.error(`vpc ${vpcId} created in ${created.ms} ms`);
   }
@@ -445,7 +460,7 @@ try {
   // (409 until the machine's addresses are released), so wait for those as
   // well before touching the VPC.
   await settleInFlight(120_000);
-  if (withVpc) {
+  if (withVpc && (vpcId !== null || vpcCreateLost)) {
     await deleteRunVpc(vpcId).catch((error: unknown) => {
       cleanupFailures.push(`VPC ${vpcId ?? runId}: ${error instanceof Error ? error.message : String(error)}`);
       console.error(`cleanup_needed_vpc=${vpcId ?? runId}`);
@@ -478,8 +493,12 @@ writeSync(2, `${formatSummary({ ...summary.sequential, ...summary.guest, ...Obje
 const text = JSON.stringify(summary);
 if (outPath) writeFileSync(outPath, `${text}\n`);
 writeSync(1, `${text}\n`);
-// A provider request that outlived its bound is still polling (the SDK
-// follows a 202 with a referenced timer and offers no cancellation); nothing
-// waits on it any more, so exit now instead of idling until it settles. The
-// report went out with synchronous writes, so the exit cannot truncate it.
+// A provider request that outlived its bound is at worst a delete still in
+// progress: the report has already named it as a cleanup failure, and the
+// process waits (bounded) for it to settle so that delete can complete. It
+// then exits explicitly, because the SDK follows a 202 with a referenced
+// timer it never cancels, which would otherwise keep the process alive
+// indefinitely. The report went out with synchronous writes, so the exit
+// cannot truncate it.
+if (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} at exit`);
 process.exit(summary.ok ? 0 : 1);

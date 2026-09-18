@@ -137,15 +137,35 @@ async function fetchTimed(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
 /**
  * The provider SDK polls a backgrounded request indefinitely while the
  * platform answers 202, so every cleanup call to it is raced against a
- * deadline; the request itself cannot be cancelled, and the sweep that
- * follows re-reads the inventory anyway.
+ * deadline. The request itself cannot be cancelled: it stays tracked until
+ * it settles, and teardown waits for it (bounded) before the network and the
+ * account go, and again before the process exits.
  */
+const providerInFlight = new Set();
 function boundedSdk(promise, ms, label) {
+  providerInFlight.add(promise);
+  promise.then(() => providerInFlight.delete(promise), () => providerInFlight.delete(promise));
   let timer;
   const deadline = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms} ms`)), ms);
   });
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/** Waits (bounded) for every timed-out provider request to settle; false when some are still running. */
+async function settleProviderRequests(ms) {
+  if (providerInFlight.size === 0) return true;
+  console.error(`cleanup_waiting_for_in_flight=${providerInFlight.size}`);
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([Promise.allSettled([...providerInFlight]), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+  return providerInFlight.size === 0;
 }
 
 function json(text) {
@@ -647,7 +667,7 @@ function positiveInteger(raw, flag) {
 
 /** Everything teardown learned, so the report can say what really happened. */
 async function runCleanup() {
-  const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, unresolvedCreates: [], leftoverVmIds: [], keptUser: null };
+  const cleanup = { machinesGone: false, providerClean: false, providerSettled: true, accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, unresolvedCreates: [], leftoverVmIds: [], keptUser: null };
   if (!user && !authHeaders) {
     const lookup = await reconcileCreatedUser();
     user = lookup.user;
@@ -668,7 +688,8 @@ async function runCleanup() {
     // the user's slug, then the identity is removed with the server key.
     cleanup.machinesGone = true;
     cleanup.providerClean = await reapOwnerVpcMachines(user.id);
-    if (cleanup.providerClean && (await reapOwnerNetwork(user.id))) {
+    cleanup.providerSettled = await settleProviderRequests(120_000);
+    if (cleanup.providerClean && cleanup.providerSettled && (await reapOwnerNetwork(user.id))) {
       try {
         await user.delete();
         cleanup.accountDeleted = true;
@@ -691,7 +712,15 @@ async function runCleanup() {
   // The control plane's list is not the provider's inventory: sweep the
   // user's own network at the provider before any account cleanup.
   cleanup.providerClean = user ? await reapOwnerVpcMachines(user.id) : true;
-  if (user && cleanup.machinesGone && cleanup.providerClean) {
+  // A timed-out provider request may still be mutating a machine; it must
+  // settle before the network and the account are removed under it.
+  cleanup.providerSettled = await settleProviderRequests(120_000);
+  if (cleanup.unresolvedCreates.length > 0) {
+    // A create whose outcome is still unknown could yet record a machine;
+    // the account (and its network) stay until an operator reconciles it.
+    console.error(`cleanup_unresolved_creates=${cleanup.unresolvedCreates.join(",")} (the account is kept until they are reconciled)`);
+  }
+  if (user && cleanup.machinesGone && cleanup.providerClean && cleanup.providerSettled && cleanup.unresolvedCreates.length === 0) {
     let outcome = "failed";
     try {
       outcome = await deleteAccount();
@@ -724,7 +753,7 @@ async function runCleanup() {
     cleanup.keptUser = user.primaryEmail ?? user.id;
     console.error(`cleanup_needed_user=${cleanup.keptUser} (kept so the application's own account deletion can be retried: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account)`);
   }
-  cleanup.ok = !user || (cleanup.accountDeleted && cleanup.leftoverVmIds.length === 0);
+  cleanup.ok = !user || (cleanup.accountDeleted && cleanup.leftoverVmIds.length === 0 && cleanup.unresolvedCreates.length === 0 && cleanup.providerSettled);
   return cleanup;
 }
 
@@ -797,8 +826,11 @@ try {
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", interrupt);
 }
-// A provider request that outlived its bound is still polling (the SDK
-// follows a 202 with a referenced timer and offers no cancellation); nothing
-// waits on it any more, so exit now instead of idling until it settles. The
-// report went out with synchronous writes, so the exit cannot truncate it.
+// A provider request that outlived its bound is at worst a delete still in
+// progress: the report has already named it, and the process waits (bounded)
+// for it to settle so that delete can complete. It then exits explicitly,
+// because the SDK follows a 202 with a referenced timer it never cancels,
+// which would otherwise keep the process alive indefinitely. The report went
+// out with synchronous writes, so the exit cannot truncate it.
+if (!(await settleProviderRequests(600_000))) console.error(`cleanup_still_in_flight=${providerInFlight.size} at exit`);
 process.exit(process.exitCode ?? 0);
