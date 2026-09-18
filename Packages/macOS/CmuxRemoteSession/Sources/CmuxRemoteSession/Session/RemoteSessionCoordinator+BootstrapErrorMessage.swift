@@ -53,6 +53,25 @@ extension RemoteSessionCoordinator {
                 localized: "remoteDaemon.upload.installFailed",
                 defaultValue: "Failed to install remote daemon"
             )
+        case 40, 42:
+            let loweredMessage = message.lowercased()
+            guard loweredMessage.contains("permission denied") else {
+                return String(
+                    localized: "remoteDaemon.bootstrap.helloFailed",
+                    defaultValue: "Could not confirm that the remote daemon is ready"
+                )
+            }
+            let detail = String(
+                localized: "remoteDaemon.bootstrap.reason.permissionDenied",
+                defaultValue: "Permission denied"
+            )
+            return String(
+                format: String(
+                    localized: "remoteDaemon.bootstrap.helloFailedWithDetail",
+                    defaultValue: "Remote daemon launch failed: %@"
+                ),
+                detail
+            )
         case 41:
             return String(
                 localized: "remoteDaemon.bootstrap.helloFailed",
