@@ -14,19 +14,37 @@ public struct AgentRestorePlanner: Sendable {
     ]
 
     private let isExecutableFile: @Sendable (String) -> Bool
+    private let isReadableFile: @Sendable (String) -> Bool
 
     /// Creates a restore planner.
     ///
-    /// - Parameter isExecutableFile: Executable-path lookup used for optional wrapper shims.
-    public init(isExecutableFile: @escaping @Sendable (String) -> Bool) {
+    /// - Parameters:
+    ///   - isExecutableFile: Executable-path lookup used for optional wrapper shims.
+    ///   - isReadableFile: Readable-file lookup used to drop captured file-valued
+    ///     options (Claude `--settings <path>`) whose file no longer exists.
+    ///     Defaults to the live filesystem.
+    public init(
+        isExecutableFile: @escaping @Sendable (String) -> Bool,
+        isReadableFile: @escaping @Sendable (String) -> Bool = AgentRestoreReadableFileResolver().isReadableFile(atPath:)
+    ) {
         self.isExecutableFile = isExecutableFile
+        self.isReadableFile = isReadableFile
     }
 
-    /// Creates a restore planner backed by an injected executable-file resolver.
+    /// Creates a restore planner backed by injected filesystem resolvers.
     ///
-    /// - Parameter executableFileResolver: The filesystem dependency used to resolve wrapper shims.
-    public init(executableFileResolver: AgentRestoreExecutableFileResolver) {
-        self.init(isExecutableFile: executableFileResolver.isExecutableFile(atPath:))
+    /// - Parameters:
+    ///   - executableFileResolver: The filesystem dependency used to resolve wrapper shims.
+    ///   - readableFileResolver: The filesystem dependency used to validate captured
+    ///     file-valued options at plan time. Defaults to the live filesystem.
+    public init(
+        executableFileResolver: AgentRestoreExecutableFileResolver,
+        readableFileResolver: AgentRestoreReadableFileResolver = AgentRestoreReadableFileResolver()
+    ) {
+        self.init(
+            isExecutableFile: executableFileResolver.isExecutableFile(atPath:),
+            isReadableFile: readableFileResolver.isReadableFile(atPath:)
+        )
     }
 
     /// Produces the final direct process invocation for a persisted restore or fork request.
@@ -40,8 +58,16 @@ public struct AgentRestorePlanner: Sendable {
         ambientEnvironment: [String: String]
     ) -> AgentRestoreInvocation? {
         let kind = normalizedKind(request.kind)
-        guard let plannedArguments = plannedArguments(for: request, kind: kind),
-              !plannedArguments.values.isEmpty else {
+        let routedClaudeResume = routedClaudeResumeArguments(
+            for: request,
+            kind: kind,
+            ambientEnvironment: ambientEnvironment
+        )
+        guard let plannedArguments = plannedArguments(
+            for: request,
+            kind: kind,
+            routedClaudeResume: routedClaudeResume
+        ), !plannedArguments.values.isEmpty else {
             return nil
         }
 
@@ -70,10 +96,30 @@ public struct AgentRestorePlanner: Sendable {
         guard !sanitizedArguments.isEmpty else { return nil }
 
         var environment = ambientEnvironment
-        let restoredEnvironment = restoredEnvironment(for: request, kind: kind)
+        let restoredEnvironment = restoredEnvironment(
+            for: request,
+            kind: kind,
+            routedThroughSubrouter: routedClaudeResume != nil
+        )
         environment.merge(restoredEnvironment) { _, restored in restored }
+        if routedClaudeResume != nil {
+            // Subrouter recomputes the Claude auth selection from the live pool
+            // and re-exports its own markers; nothing captured or inherited may
+            // pin the restored session to launch-time routing.
+            for key in SubrouterClaudeResumeRouting.restoreOwnedEnvironmentKeys {
+                environment.removeValue(forKey: key)
+            }
+        }
 
         var routedArguments = sanitizedArguments
+        if kind == "claude", request.mode != .direct {
+            // A captured --settings path is checked here, not at capture: the file
+            // existed then, and only the restoring machine knows whether it still
+            // does. Claude refuses to start on a missing settings file.
+            routedArguments = ClaudeRestoreSettingsPathFilter(isReadableFile: isReadableFile)
+                .removingUnreadableSettingsPaths(from: routedArguments)
+            guard !routedArguments.isEmpty else { return nil }
+        }
         let hermesProfilePin: HermesAgentResumeProfilePin?
         if kind == "hermes-agent", request.mode != .direct {
             let pin = HermesAgentResumeProfilePin(
@@ -111,12 +157,73 @@ public struct AgentRestorePlanner: Sendable {
         )
     }
 
+    /// Returns the `sr claude proxy --resume <id>` argv for a resume whose launch
+    /// record proves it went through Subrouter and whose launcher is reachable on
+    /// the restore PATH, or `nil` to keep the ordinary claude replay.
+    ///
+    /// Provenance never looks at the captured `ANTHROPIC_BASE_URL`; the local
+    /// pool at `http://127.0.0.1:31415` is proven exactly like a hosted one, by
+    /// the launcher marker and the wrapper's launch-bound copy agreeing.
+    private func routedClaudeResumeArguments(
+        for request: AgentRestoreRequest,
+        kind: String,
+        ambientEnvironment: [String: String]
+    ) -> [String]? {
+        guard kind == "claude",
+              request.mode == .resumeAgent,
+              let checkpointID = normalized(request.checkpointID),
+              let launch = request.launchCommand else {
+            return nil
+        }
+        let router = SubrouterClaudeResumeRouting()
+        guard let routed = router.resumeArguments(
+            launcher: launch.launcher,
+            sessionID: checkpointID,
+            launchArguments: launch.arguments,
+            environment: launch.environment
+        ), let launcherExecutable = routed.first,
+        isResolvableOnRestorePath(launcherExecutable, ambientEnvironment: ambientEnvironment) else {
+            // Without the launcher the routed command could never start; the
+            // captured replay still launches and is what shipped before.
+            return nil
+        }
+        return AgentResumeArgv.claudeArgvApplyingObservedPermissionMode(
+            routed,
+            observedPermissionMode: request.observedPermissionMode
+        )
+    }
+
+    /// Mirrors the CLI's restore executable lookup: a bare name resolves only
+    /// through the ambient `PATH`, and an empty component never means `.`.
+    private func isResolvableOnRestorePath(
+        _ executable: String,
+        ambientEnvironment: [String: String]
+    ) -> Bool {
+        guard !executable.isEmpty else { return false }
+        if executable.contains("/") {
+            return isExecutableFile(executable)
+        }
+        let path = ambientEnvironment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        return path.split(separator: ":").contains { directory in
+            !directory.isEmpty
+                && isExecutableFile(
+                    URL(fileURLWithPath: String(directory), isDirectory: true)
+                        .appendingPathComponent(executable, isDirectory: false)
+                        .path
+                )
+        }
+    }
+
     private func plannedArguments(
         for request: AgentRestoreRequest,
-        kind: String
+        kind: String,
+        routedClaudeResume: [String]?
     ) -> (values: [String], removesCapturedWorkingDirectoryOptions: Bool)? {
         let preparedArguments = request.preparedArguments.flatMap {
             $0.isEmpty ? nil : $0
+        }
+        if let routedClaudeResume, request.mode == .resumeAgent {
+            return (routedClaudeResume, true)
         }
         switch request.mode {
         case .direct:
@@ -187,7 +294,8 @@ public struct AgentRestorePlanner: Sendable {
 
     private func restoredEnvironment(
         for request: AgentRestoreRequest,
-        kind: String
+        kind: String,
+        routedThroughSubrouter: Bool
     ) -> [String: String] {
         var captured = request.launchCommand?.environment ?? [:]
         captured.merge(request.environment) { _, binding in binding }
@@ -213,6 +321,17 @@ public struct AgentRestorePlanner: Sendable {
             kind: kind
         )
         if kind == "claude" {
+            if routedThroughSubrouter {
+                // The launcher owns auth selection for a routed resume.
+                for key in SubrouterClaudeResumeRouting.restoreOwnedEnvironmentKeys {
+                    selected.removeValue(forKey: key)
+                }
+                return selected
+            }
+            // The markers are restore-record evidence, not a child environment:
+            // a plain replay must not advertise a launcher that did not start it.
+            selected.removeValue(forKey: SubrouterClaudeResumeRouting.environmentKey)
+            selected.removeValue(forKey: SubrouterClaudeResumeRouting.launchBoundEnvironmentKey)
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)
             }
@@ -261,8 +380,33 @@ public struct AgentRestorePlanner: Sendable {
               let restoreLaunch = AgentRestoreLaunch(
                   kind: kind,
                   sessionID: request.checkpointID
-              ),
-              (first as NSString).lastPathComponent == restoreLaunch.executableName else {
+              ) else {
+            return arguments
+        }
+
+        if kind == "claude",
+           let checkpointID = normalized(request.checkpointID),
+           let routedPrefix = SubrouterClaudeResumeRouting().resumeArguments(
+               launcher: request.launchCommand?.launcher,
+               sessionID: checkpointID,
+               launchArguments: request.launchCommand?.arguments ?? [],
+               environment: request.launchCommand?.environment
+           ),
+           arguments.starts(with: routedPrefix.prefix(5)) {
+            // `sr` resolves `claude` through PATH, where the per-surface shim
+            // still routes into cmux-claude-wrapper. The wrapper must recognise
+            // this as an app-owned restore and keep launching the captured
+            // Claude binary; the launcher itself is not wrapped.
+            environment.merge(AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: kind,
+                executablePath: request.launchCommand?.executablePath,
+                arguments: request.launchCommand?.arguments ?? []
+            )) { _, captured in captured }
+            environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
+            return arguments
+        }
+
+        guard (first as NSString).lastPathComponent == restoreLaunch.executableName else {
             return arguments
         }
 
