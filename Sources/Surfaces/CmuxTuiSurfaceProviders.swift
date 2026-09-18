@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -1288,8 +1289,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Path, query, fragment, scheme, and port stay unchanged.
     nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
         guard let parts = URLComponents(string: raw),
-              let host = parts.host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
-              ["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(host) else { return nil }
+              RemoteLoopbackProxyAlias.isLoopbackHost(parts.host ?? "") else { return nil }
         return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
     }
 

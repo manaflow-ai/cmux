@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0672a3504dc1dbed95437e590805e972a9f12f42171c8c8bac8c87994277ca8c.
+// cmux-tui mux protocol 12, IR 50238809008ab8ff9b71d4cd6f05262a57012182db1fad2e480ebc8b2827b96f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -818,6 +818,32 @@ pub struct PingRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresenceClearRequest {
+}
+
+#[rustfmt::skip]
+pub type PresenceClearResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresenceListRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresenceUpdateRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub highlight: Optional<T::PresenceHighlight>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pointer: Optional<T::PresenceAnchor>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type PresenceUpdateResult = T::EmptyResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProcessInfoRequest {
     pub surface: T::Id,
@@ -1269,6 +1295,8 @@ pub enum SubscribeRequestTreeEvents {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SubscribeRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub presence_only: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tree_events: Optional<SubscribeRequestTreeEvents>,
@@ -1660,6 +1688,18 @@ impl CmuxClient {
         self.execute(&PING_METADATA, &request)
     }
 
+    pub fn presence_clear(&mut self, request: PresenceClearRequest) -> Result<PresenceClearResult> {
+        self.execute(&PRESENCE_CLEAR_METADATA, &request)
+    }
+
+    pub fn presence_list(&mut self, request: PresenceListRequest) -> Result<T::PresenceListResult> {
+        self.execute(&PRESENCE_LIST_METADATA, &request)
+    }
+
+    pub fn presence_update(&mut self, request: PresenceUpdateRequest) -> Result<PresenceUpdateResult> {
+        self.execute(&PRESENCE_UPDATE_METADATA, &request)
+    }
+
     pub fn process_info(&mut self, request: ProcessInfoRequest) -> Result<T::ProcessInfoResult> {
         self.execute(&PROCESS_INFO_METADATA, &request)
     }
@@ -1864,6 +1904,10 @@ impl CmuxClient {
     }
 
     pub fn subscribe(&mut self, request: SubscribeRequest) -> Result<CmuxStream> {
+        if !request.presence_only.is_missing() {
+            self.require_protocol_field("subscribe", 12)?;
+            self.require_capability_field("subscribe", "presence-v1")?;
+        }
         if !request.surface.is_missing() {
             self.require_protocol_field("subscribe", 9)?;
             self.require_capability_field("subscribe", "surface-subscribe-filter")?;

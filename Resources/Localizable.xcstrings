@@ -123224,6 +123224,56 @@
         }
       }
     },
+    "cloudTree.group.resources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
+      }
+    },
+    "cloudTree.resources.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
+      }
+    },
     "cloudTree.group.terminals": {
       "extractionState": "manual",
       "localizations": {
@@ -259995,6 +260045,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOS 페어링 활성화"
+          }
+        }
+      }
+    },
+    "mobile.pairing.error.preparationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إكمال الاقتران. تحقق من الاتصال وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopplung konnte nicht abgeschlossen werden. Überprüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not finish. Check your connection and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha podido completar el enlace. Comprueba tu conexión e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jumelage n’a pas pu être terminé. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링을 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成配对。请检查连接后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法完成配對。請檢查連線後再試一次。"
           }
         }
       }
@@ -519156,15 +519265,60 @@
     "cloud.operation.failure.placement": {
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "The Cloud terminal placement is unavailable. Refresh the machine, then retry."}},
-        "de": {"stringUnit": {"state": "translated", "value": "Die Cloud-Terminalplatzierung ist nicht verfügbar. Aktualisieren Sie die Maschine und versuchen Sie es erneut."}},
-        "fr": {"stringUnit": {"state": "translated", "value": "L’emplacement du terminal Cloud n’est pas disponible. Actualisez la machine, puis réessayez."}},
-        "ar": {"stringUnit": {"state": "translated", "value": "موضع طرفية Cloud غير متاح. حدّث الجهاز ثم أعد المحاولة."}},
-        "es": {"stringUnit": {"state": "translated", "value": "La ubicación del terminal de Cloud no está disponible. Actualiza la máquina y vuelve a intentarlo."}},
-        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Cloud 終端機位置無法使用。請重新整理機器後再試一次。"}},
-        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Cloud 终端位置不可用。请刷新机器后重试。"}},
-        "ko": {"stringUnit": {"state": "translated", "value": "Cloud 터미널 배치를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "Cloud ターミナルの配置を利用できません。マシンを更新して、もう一度お試しください。"}}
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud terminal placement is unavailable. Refresh the machine, then retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Terminalplatzierung ist nicht verfügbar. Aktualisieren Sie die Maschine und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’emplacement du terminal Cloud n’est pas disponible. Actualisez la machine, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع طرفية Cloud غير متاح. حدّث الجهاز ثم أعد المحاولة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ubicación del terminal de Cloud no está disponible. Actualiza la máquina y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 終端機位置無法使用。請重新整理機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 终端位置不可用。请刷新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 터미널 배치를 사용할 수 없습니다. 머신을 새로 고친 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud ターミナルの配置を利用できません。マシンを更新して、もう一度お試しください。"
+          }
+        }
       }
     },
     "cloud.operation.failure.unsupported": {
@@ -528198,6 +528352,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルを開けませんでした"
+          }
+        }
+      }
+    },
+    "cloud.browser.clientUpdateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux to connect to this Cloud page."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiere cmux, um diese Cloud-Seite zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettez cmux à jour pour accéder à cette page Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّث cmux للاتصال بصفحة Cloud هذه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiza cmux para conectarte a esta página de Cloud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新 cmux 以連線至此 Cloud 頁面。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新 cmux 以连接到此 Cloud 页面。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 페이지에 연결하려면 cmux를 업데이트하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud ページに接続するには cmux を更新してください。"
+          }
+        }
+      }
+    },
+    "cloud.browser.connectionEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud connection ended. Reload to reconnect."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Verbindung wurde beendet. Lade die Seite neu, um die Verbindung wiederherzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion Cloud a été interrompue. Rechargez la page pour vous reconnecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى اتصال Cloud. أعد التحميل للاتصال مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión con Cloud terminó. Recarga para volver a conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 連線已結束。請重新載入以重新連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 连接已结束。请重新加载以重新连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 연결이 종료되었습니다. 다시 연결하려면 새로고침하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 接続が終了しました。再読み込みして接続し直してください。"
           }
         }
       }

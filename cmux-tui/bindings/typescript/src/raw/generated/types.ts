@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0672a3504dc1dbed95437e590805e972a9f12f42171c8c8bac8c87994277ca8c. */
+/* cmux-tui mux protocol 12, IR 50238809008ab8ff9b71d4cd6f05262a57012182db1fad2e480ebc8b2827b96f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -383,6 +383,41 @@ export type PingResult = {
   "ok": true;
   "protocol": number;
   "version": string;
+};
+
+export type PresenceAnchor = ({ "kind": "cell" } & {
+  "col": number;
+  "kind": "cell";
+  "row": number;
+  "scroll_offset"?: bigint;
+}) | ({ "kind": "point" } & {
+  "kind": "point";
+  "x": number;
+  "y": number;
+});
+
+export type PresenceEntry = {
+  "client": bigint;
+  "color": bigint;
+  "generation": bigint;
+  "highlight": (PresenceHighlight) | null;
+  "kind": (string) | null;
+  "name": (string) | null;
+  "pointer": (PresenceAnchor) | null;
+  "surface": (Id) | null;
+  "updated_at_ms": bigint;
+};
+
+export type PresenceHighlight = {
+  "end": PresenceAnchor;
+  "mode": PresenceHighlightMode;
+  "start": PresenceAnchor;
+};
+
+export type PresenceHighlightMode = "laser" | "pin";
+
+export type PresenceListResult = {
+  "entries": Array<PresenceEntry>;
 };
 
 export type ProcessInfoResult = {

@@ -41,6 +41,15 @@ struct CloudTuiCommandLine: Sendable {
     /// The probe capability a client advertises when it understands `--wireguard-hub`.
     static let wireGuardHubCapability = "wireguard-hub"
 
+    /// Private addresses are browser identities; the daemon opens each requested port on its loopback.
+    static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
+        var args = ["remote", "browser-proxy", route, "--workspace-root", "/", "--state-dir", stateDir,
+                    "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent"]
+        for address in addresses { args += ["--allowed-host", address] }
+        if carrier { args.append("--carrier") }
+        return args
+    }
+
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
     static func snapshotArguments(socketPath: String) -> [String] {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]

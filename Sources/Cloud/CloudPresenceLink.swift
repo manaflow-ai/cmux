@@ -244,6 +244,10 @@ final class CloudPresenceLink {
             connection.send(commandBuilder.subscribePresence(requestID: subscribeRequestID))
         case .snapshot, .output, .resized, .colorsChanged, .detached:
             return
+        case .message:
+            // Resource-multiplexer envelopes are unrelated to this legacy
+            // presence-only connection. Keep the stream isolated from them.
+            return
         case .overflow:
             transition(to: .disconnected)
         }
