@@ -53,7 +53,7 @@ struct MobileWorkspaceListEmptyRow: View {
                     .disabled(isRetrying)
                     .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
                 }
-                Link(destination: URL(string: "https://cmux.com/docs/ios/setup")!) {
+                Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
                     Label(
                         L10n.string(
                             "mobile.workspaces.empty.setupGuide",
