@@ -9,7 +9,6 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
@@ -34,6 +33,7 @@ class FakeClient:
         self.active = 0
         self.peak = 0
         self.lock = threading.Lock()
+        self.overlap_event = None
 
     def assets(self, release_id):
         return dict(self.stored)
@@ -61,8 +61,13 @@ class FakeClient:
             self.active += 1
             self.peak = max(self.peak, self.active)
             self.events.append(("upload", name))
+            overlap_event = self.overlap_event
+            should_wait = overlap_event is not None and self.active < 2
+            if overlap_event is not None and self.active >= 2:
+                overlap_event.set()
         try:
-            time.sleep(0.005)
+            if should_wait:
+                overlap_event.wait(timeout=5)
             failure = self.failures.get(name, [])
             mode = failure.pop(0) if failure else None
             if mode == "auth":
@@ -126,6 +131,7 @@ class PublicationTests(unittest.TestCase):
     def test_payloads_finish_before_any_feed_changes(self):
         payloads = [self.asset(f"build-{index}.dmg") for index in range(5)]
         feeds = [self.asset("appcast-arm64.xml", True), self.asset("appcast.xml", True)]
+        self.client.overlap_event = threading.Event()
         self.publish(payloads, feeds)
         self.assertEqual([event[1] for event in self.client.events if event[0] == "rename"], [asset.path.name for asset in feeds])
         self.assertEqual(self.client.peak, 2)
