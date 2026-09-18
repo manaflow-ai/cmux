@@ -180,7 +180,9 @@ class GitHub:
 
     def asset_digest(self, remote: dict) -> str:
         """Hash an asset when GitHub's nullable API digest is absent."""
-        url = remote.get("browser_download_url") or remote.get("url")
+        # Draft releases cannot serve browser_download_url; the authenticated
+        # API asset endpoint works for both draft and published assets.
+        url = remote.get("url") or remote.get("browser_download_url")
         if not isinstance(url, str) or not url.startswith("https://"):
             raise RequestError("release asset has no safe download URL")
         request = urllib.request.Request(
