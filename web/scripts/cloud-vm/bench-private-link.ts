@@ -233,6 +233,10 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, cl
       // just above, so the known network is deleted again here; a 404
       // means its own finalizer already succeeded.
       const knownId = state.networkId;
+      // A machine create still in flight during the earlier sweep can have
+      // allocated after it; the in-flight requests settled above, so the
+      // membership sweep runs once more before the network goes.
+      failures.push(...(yield* reconcileRunMachines(provider, knownId)));
       const deleted = yield* Effect.either(attemptWithin(`delete VPC ${knownId}`, () => tracked(networking.deleteNetwork(knownId)), "60 seconds").pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
       if (deleted._tag === "Left") failures.push(deleted.left.message);
     }
@@ -249,7 +253,7 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, cl
         failures.push(`network ${network.right.id} carries slug ${slug} but is not labelled by this run; not deleting it`);
       } else {
         console.error(`cleanup_reconcile_network=${network.right.id}`);
-        yield* reconcileRunMachines(provider, network.right.id);
+        failures.push(...(yield* reconcileRunMachines(provider, network.right.id)));
         const deleted = yield* Effect.either(attemptWithin(`delete VPC ${slug}`, () => tracked(networking.deleteNetwork(network.right.id)), "60 seconds").pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
         if (deleted._tag === "Left") failures.push(deleted.left.message);
       }
@@ -358,9 +362,9 @@ function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
     if (listingError === null && offset < total) listingError = `inventory truncated at ${offset} of ${total}`;
     return { ids, listingError };
   });
-  // Every discovered machine is attempted; failures are aggregated and the
-  // finalizer then fails, so the run exits non-zero instead of reporting a
-  // clean teardown over a machine it could not remove.
+  // Every discovered machine is attempted; the failures are returned so the
+  // caller can fail the run instead of reporting a clean teardown over a
+  // machine it could not remove.
   return Effect.gen(function* () {
     const failures: string[] = [];
     const listed = yield* listRunMachines;
@@ -372,11 +376,16 @@ function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
       );
       if (destroyed._tag === "Left") failures.push(destroyed.left.message);
     }
-    if (failures.length > 0) {
-      for (const failure of failures) console.error(`cleanup_reconcile_failed ${failure}`);
-      return yield* Effect.fail(new Error(`cleanup incomplete: ${failures.join("; ")}`));
-    }
-  }).pipe(Effect.orDie);
+    for (const failure of failures) console.error(`cleanup_reconcile_failed ${failure}`);
+    return failures;
+  });
+}
+
+/** The machine sweep as a finalizer: an incomplete sweep fails the run. */
+function reconcileRunMachinesOrDie(provider: FreestyleProvider, networkId: string) {
+  return reconcileRunMachines(provider, networkId).pipe(
+    Effect.flatMap((failures) => (failures.length > 0 ? Effect.die(new Error(`cleanup incomplete: ${failures.join("; ")}`)) : Effect.void)),
+  );
 }
 
 function bench() {
@@ -421,10 +430,12 @@ function bench() {
     // machine of this run that survived its own finalizer (a create whose
     // response was lost) is found by its membership in the benchmark-owned
     // VPC and destroyed.
-    yield* Effect.addFinalizer(() => reconcileRunMachines(provider, network.value.id));
+    yield* Effect.addFinalizer(() => reconcileRunMachinesOrDie(provider, network.value.id));
     // The driver recovers an existing tunnel only for the same client key,
-    // and this run's key is fresh, so a slug conflict fails; `created` is
-    // still checked so an adopted tunnel could never be deleted as ours.
+    // and this run's key is fresh: a slug conflict with another key fails,
+    // while a recovered tunnel carries this run's key and is therefore this
+    // run's (a create whose response was lost, then retried), so it is
+    // deleted exactly like a created one.
     const tunnel = yield* timed(Effect.acquireRelease(
       attempt("createTunnel", () => bounded(networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey }), 120_000, "createTunnel").catch((error: unknown) => {
         // The driver wraps a provider answer in ProviderError; anything else
@@ -432,9 +443,8 @@ function bench() {
         state.tunnelLost = !(error instanceof ProviderError && error.cause instanceof FreestyleApiError);
         throw error;
       })),
-      (value) => (value.created ? cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))) : Effect.void),
+      (value) => cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))),
     ));
-    if (!tunnel.value.created) return yield* Effect.fail(new Error(`a tunnel with slug ${slug} already existed; refusing to adopt it`));
     const config = tunnel.value.tunnel.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${privateBytes}`);
     const configPath = path.join(root, "wg.conf");
     const hubSocket = path.join(root, "wg.sock");
