@@ -385,6 +385,19 @@
         ]
       }
     },
+    "updates": {
+      "type": "object",
+      "description": "Update channel and delivery settings.",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "enum": ["stable", "rc"],
+          "default": "stable",
+          "description": "Which update feed cmux polls. rc opts into release candidates: the next stable build published a few days early. Switching back to stable stops release-candidate updates but does not downgrade."
+        }
+      },
+      "additionalProperties": false
+    },
     "app": {
       "title": "app",
       "description": "General app preferences from Settings > App.",

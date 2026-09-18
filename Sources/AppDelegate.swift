@@ -940,11 +940,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let sidebarDragStateRegistry = SidebarDragStateRegistry()
     var debugFocusedTerminalKeyRepairObserverForTesting: ((NSWindow, NSEvent, NSResponder?) -> Void)?
     #endif
+    /// `updates.channel` observer; a switch re-checks so the new feed applies without a relaunch.
+    lazy var updateChannelBridge = UpdateChannelSelectionBridge(
+        store: settingsRuntime?.jsonStore ?? JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile),
+        onChange: { [weak self] _ in self?.checkForUpdatesInCustomUI() }
+    )
     private lazy var updateController = UpdateController(
         log: updateLog,
-        // `DisableAutoUpdate` (MDM): the updater never starts and manual checks
-        // are suppressed while forced; `managedAutoUpdateAllowsCheck()` explains.
-        isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
+        // `DisableAutoUpdate` (MDM): never starts and suppresses manual checks; `managedAutoUpdateAllowsCheck()` explains.
+        isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) },
+        selectedChannelProvider: { [weak self] in self?.updateChannelBridge.feedSelection ?? .stable }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
     private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
@@ -1361,16 +1366,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fileManager: fileManager
             )
         }
-        let sampleRunner = MainThreadHangSampleRunner(
-            executableURL: URL(fileURLWithPath: "/usr/bin/sample")
-        )
+        let sampleRunner = MainThreadHangSampleRunner(executableURL: URL(fileURLWithPath: "/usr/bin/sample"))
         let processIdentifier = ProcessInfo.processInfo.processIdentifier
-        let appVersion = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString"
-        ) as? String ?? "unknown"
-        let appBuild = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleVersion"
-        ) as? String ?? "unknown"
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let appBuild = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         mainThreadHangWatchdog = MainThreadHangWatchdog(
             uptime: { ProcessInfo.processInfo.systemUptime },
             date: { .now },

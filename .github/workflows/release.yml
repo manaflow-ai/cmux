@@ -38,7 +38,175 @@ jobs:
       languages: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
       upload: false
 
+  promote-release-candidate:
+    # A `vX.Y.Z` tag on the commit that produced the current release candidate
+    # publishes that candidate's universal DMG as the stable release without
+    # rebuilding, so the bits testers ran are the bits users get. The
+    # candidate is found by build number: nightly.yml publishes
+    # cmux-rc-macos-universal-<CURRENT_PROJECT_VERSION>.dmg on the `rc`
+    # release and moves the `rc` tag to the built commit. When the tagged
+    # commit is not the `rc` commit, or no such asset exists, `promoted` stays
+    # false and the full build below runs as before.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 40
+    outputs:
+      promoted: ${{ steps.resolve.outputs.promoted }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Validate Sparkle build number is monotonic
+        env:
+          CMUX_SPARKLE_MONOTONIC_MODE: enforce
+        run: ./tests/test_ci_sparkle_build_monotonic.sh
+
+      - name: Guard immutable release assets
+        id: guard_release_assets
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
+            const tag = context.ref.replace('refs/tags/', '');
+            core.setOutput('skip_upload', 'false');
+            try {
+              const release = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              const existingAssetNames = (release.data.assets || []).map((asset) => asset.name);
+              const { conflicts, missingImmutableAssets, hasPartialConflict, shouldSkipBuildAndUpload } =
+                evaluateReleaseAssetGuard({ existingAssetNames });
+              if (hasPartialConflict) {
+                core.setFailed(
+                  `Release ${tag} has a partial immutable asset state. Existing immutable assets: ` +
+                  `${conflicts.join(', ')}. Missing immutable assets: ${missingImmutableAssets.join(', ')}. ` +
+                  'Resolve release assets manually before rerunning.'
+                );
+                return;
+              }
+              if (shouldSkipBuildAndUpload) {
+                core.notice(`Release ${tag} already contains immutable assets (${conflicts.join(', ')}); nothing to promote.`);
+                core.setOutput('skip_upload', 'true');
+              }
+            } catch (error) {
+              if (error.status !== 404) throw error;
+            }
+
+      - name: Resolve the release candidate for this tag
+        id: resolve
+        if: steps.guard_release_assets.outputs.skip_upload != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "promoted=false" >> "$GITHUB_OUTPUT"
+          BUILD="$(grep -m1 'CURRENT_PROJECT_VERSION = ' cmux.xcodeproj/project.pbxproj | sed 's/.*= \(.*\);/\1/')"
+          VERSION="$(grep -m1 'MARKETING_VERSION = ' cmux.xcodeproj/project.pbxproj | sed 's/.*= \(.*\);/\1/')"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match MARKETING_VERSION $VERSION"
+            exit 1
+          fi
+          RC_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/rc" --jq '.object.sha' 2>/dev/null || true)"
+          if [ -n "$RC_SHA" ] && [ "$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$RC_SHA" --jq '.object.sha' 2>/dev/null || true)" != "" ]; then
+            RC_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$RC_SHA" --jq '.object.sha')"
+          fi
+          ASSET="cmux-rc-macos-universal-${BUILD}.dmg"
+          if [ "$RC_SHA" != "$GITHUB_SHA" ]; then
+            echo "::notice::$GITHUB_REF_NAME ($GITHUB_SHA) is not the current release candidate commit (${RC_SHA:-none}); building from source"
+            exit 0
+          fi
+          if ! gh release view rc --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' | grep -qx "$ASSET"; then
+            echo "::notice::rc release has no $ASSET; building from source"
+            exit 0
+          fi
+          gh release download rc --repo "$GITHUB_REPOSITORY" --pattern "$ASSET" --output cmux-macos.dmg
+          # The candidate's SSH daemon assets stay referenced from the `rc`
+          # release by the promoted app; archive a copy on the stable release.
+          mkdir -p remote-daemon-assets
+          gh release download rc --repo "$GITHUB_REPOSITORY" --pattern "cmuxd-remote-*-${BUILD}*" --dir remote-daemon-assets
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${BUILD}.json" \
+            --assets-dir remote-daemon-assets
+          # The candidate must be exactly what the tag says it is.
+          xcrun stapler validate cmux-macos.dmg
+          MOUNT="$(mktemp -d)"
+          hdiutil attach cmux-macos.dmg -nobrowse -readonly -mountpoint "$MOUNT" >/dev/null
+          APP="$(find "$MOUNT" -maxdepth 1 -name '*.app' -type d -print -quit)"
+          PLIST="$APP/Contents/Info.plist"
+          for pair in "CFBundleIdentifier=com.cmuxterm.app" "CFBundleShortVersionString=$VERSION" "CFBundleVersion=$BUILD"; do
+            key="${pair%%=*}"; want="${pair#*=}"
+            got="$(/usr/libexec/PlistBuddy -c "Print :$key" "$PLIST")"
+            if [ "$got" != "$want" ]; then
+              echo "::error::release candidate $ASSET has $key=$got, expected $want"
+              hdiutil detach "$MOUNT" -quiet
+              exit 1
+            fi
+          done
+          spctl -a -vv --type execute "$APP"
+          ./scripts/verify-app-bundle-channel-metadata.sh "$APP" stable
+          hdiutil detach "$MOUNT" -quiet
+          echo "Promoting $ASSET (build $BUILD, $GITHUB_SHA) as $GITHUB_REF_NAME"
+          echo "promoted=true" >> "$GITHUB_OUTPUT"
+
+      - name: Generate Sparkle appcast
+        if: steps.resolve.outputs.promoted == 'true'
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+          ./scripts/sparkle_generate_appcast.sh cmux-macos.dmg "$GITHUB_REF_NAME" appcast.xml
+          test -s appcast.xml
+          grep -q 'sparkle:edSignature' appcast.xml
+          grep -q 'cmux-macos.dmg' appcast.xml
+
+      - name: Upload release asset
+        if: steps.resolve.outputs.promoted == 'true'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          files: |
+            cmux-macos.dmg
+            appcast.xml
+            remote-daemon-assets/cmuxd-remote-*
+          generate_release_notes: true
+          overwrite_files: false
+
+      - name: Upload release appcast to R2
+        if: steps.resolve.outputs.promoted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          LATEST=$(gh release list --exclude-drafts --exclude-pre-releases \
+            --json tagName -q '.[].tagName' | sort -V | tail -1)
+          if [ -n "$LATEST" ] && [ "$LATEST" != "$GITHUB_REF_NAME" ]; then
+            echo "Skipping R2 stable upload: $GITHUB_REF_NAME is not the latest release ($LATEST)"
+            exit 0
+          fi
+          python3 scripts/ci/upload-r2-object.py \
+            --file appcast.xml \
+            --endpoint-url "$R2_ENDPOINT" \
+            --bucket cmux-binaries \
+            --key stable/appcast.xml \
+            --content-type "application/xml" \
+            --cache-control "no-cache, no-store, must-revalidate"
+          echo "R2 appcast upload complete: https://files.cmux.com/stable/appcast.xml"
+
   build-ghostty-cli-helper:
+    needs: promote-release-candidate
+    # Skipped promote job (non-tag dispatch) yields an empty output, which
+    # still means "build from source".
+    if: always() && needs.promote-release-candidate.result != 'failure' && needs.promote-release-candidate.outputs.promoted != 'true'
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     steps:
@@ -86,7 +254,8 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
-    needs: build-ghostty-cli-helper
+    needs: [promote-release-candidate, build-ghostty-cli-helper]
+    if: always() && needs.promote-release-candidate.result != 'failure' && needs.promote-release-candidate.outputs.promoted != 'true' && needs.build-ghostty-cli-helper.result == 'success'
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.

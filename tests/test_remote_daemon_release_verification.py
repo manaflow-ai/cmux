@@ -50,6 +50,34 @@ class ReleaseVerificationTests(unittest.TestCase):
     def write_manifest(self):
         self.manifest_path.write_text(json.dumps(self.manifest))
 
+    def test_release_candidate_uses_plain_version_and_build_suffix(self):
+        # nightly.yml publishes a release candidate as `cmuxd-remote-*-<build>` on the
+        # shared `rc` release with the plain stable version, because promotion ships
+        # those exact bits as the stable release.
+        release_url = "https://github.com/manaflow-ai/cmux/releases/download/rc"
+        for entry in self.manifest["entries"]:
+            name = f"{entry['assetName']}-108"
+            (self.root / name).write_bytes((self.root / entry["assetName"]).read_bytes())
+            entry["assetName"] = name
+            entry["downloadURL"] = f"{release_url}/{name}"
+        checksums = "".join(f"{e['sha256']}  {e['assetName']}\n" for e in self.manifest["entries"])
+        (self.root / "cmuxd-remote-checksums-108.txt").write_text(checksums)
+        self.manifest.update(releaseTag="rc", releaseURL=release_url,
+                             checksumsAssetName="cmuxd-remote-checksums-108.txt",
+                             checksumsURL=f"{release_url}/cmuxd-remote-checksums-108.txt")
+        self.manifest_path = self.root / "cmuxd-remote-manifest-108.json"
+        self.write_manifest()
+        verify.verify_assets(self.manifest_path, self.root)
+        self.manifest["appVersion"] = "0.64.25-rc.108"
+        self.write_manifest()
+        with self.assertRaisesRegex(Exception, "invalid rc daemon version"):
+            verify.verify_assets(self.manifest_path, self.root)
+        unsuffixed = self.root / "cmuxd-remote-manifest.json"
+        self.manifest["appVersion"] = "0.64.25"
+        unsuffixed.write_text(json.dumps(self.manifest))
+        with self.assertRaisesRegex(Exception, "build-number suffix"):
+            verify.verify_assets(unsuffixed, self.root)
+
     def test_complete_assets_embed_and_verify(self):
         manifest = verify.verify_assets(self.manifest_path, self.root)
         verify.verify_bundle(self.app, manifest, embed=True)

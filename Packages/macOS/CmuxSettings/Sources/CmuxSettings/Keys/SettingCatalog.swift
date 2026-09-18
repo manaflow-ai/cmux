@@ -50,6 +50,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()
+    /// Settings for the in-app updater (the `updates.*` keys).
+    public let updates = UpdatesCatalogSection()
 
     public init() {}
 }
