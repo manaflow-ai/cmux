@@ -96,7 +96,13 @@ const interrupt = () => {
 process.once("SIGINT", interrupt);
 process.once("SIGTERM", interrupt);
 
-/** A bounded wait that returns early on SIGINT/SIGTERM instead of holding teardown for the full delay. */
+/**
+ * A bounded wait that returns early on SIGINT/SIGTERM instead of holding
+ * teardown for the full delay. Only the waits in flight when the signal
+ * arrives are cut short; a wait started afterwards runs its full delay, so a
+ * cleanup retry loop keeps its backoff after an interrupt instead of
+ * spinning, and keeps running because every resource must still go.
+ */
 function sleep(ms) {
   return new Promise((resolve) => {
     const wake = () => {

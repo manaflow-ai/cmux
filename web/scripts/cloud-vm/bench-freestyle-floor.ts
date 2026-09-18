@@ -222,6 +222,43 @@ async function reconcileRunVms(): Promise<void> {
   else if (offset < total) cleanupFailures.push(`list run machines: inventory truncated at ${offset} of ${total}`);
 }
 
+/** Whether a network with this slug exists; a 404 is "no", anything else is an error. */
+async function networkExists(slug: string): Promise<boolean> {
+  try {
+    await bounded(fs.vpc.get(slug), 30_000, "vpc get");
+    return true;
+  } catch (error) {
+    if (error instanceof FreestyleApiError && error.status === 404) return false;
+    throw error;
+  }
+}
+
+/**
+ * Deletes this run's VPC. Without an id in hand (the create's response was
+ * lost) the network is read back by the run's slug and deleted only when it
+ * is provably this run's: no network carried the slug before the create, and
+ * the create labelled it with the run id. A 404 means nothing was made.
+ */
+async function deleteRunVpc(id: string | null): Promise<void> {
+  let target = id;
+  if (target === null) {
+    let found: Awaited<ReturnType<typeof fs.vpc.get>>;
+    try {
+      found = await bounded(fs.vpc.get(runId), 30_000, "vpc get");
+    } catch (error) {
+      if (error instanceof FreestyleApiError && error.status === 404) return;
+      throw error;
+    }
+    if (found.displayName !== runId) throw new Error(`network ${found.id} carries slug ${runId} but is not labelled by this run; not deleting it`);
+    target = found.id;
+  }
+  try {
+    await deleteVpcWithRetry(target);
+  } catch (error) {
+    if (!(error instanceof FreestyleApiError && error.status === 404)) throw error;
+  }
+}
+
 /** A VM delete releases its VPC addresses asynchronously; the VPC delete answers 409 until then. */
 async function deleteVpcWithRetry(id: string): Promise<void> {
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -348,6 +385,13 @@ let vpcId: string | null = null;
 const results: { sequential: Trial[]; burst: Trial[] } = { sequential: [], burst: [] };
 try {
   if (withVpc) {
+    // Ownership first: nothing may carry this run's slug before the run
+    // creates it, or teardown's slug fallback could delete a network this
+    // run did not make.
+    if (await networkExists(runId)) {
+      console.error(`bench-freestyle-floor: a network with slug ${runId} already exists; refusing to adopt it`);
+      process.exit(2);
+    }
     const created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runId, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
     vpcId = created.value.data.id;
     console.error(`vpc ${vpcId} created in ${created.ms} ms`);
@@ -374,13 +418,9 @@ try {
   // well before touching the VPC.
   await settleInFlight(120_000);
   if (withVpc) {
-    // The VPC's slug is the run id, so a create whose response was lost (no
-    // id in hand) is still deleted by name; a 404 means nothing was made.
-    const vpcRef = vpcId ?? runId;
-    await deleteVpcWithRetry(vpcRef).catch((error: unknown) => {
-      if (error instanceof FreestyleApiError && error.status === 404) return;
-      cleanupFailures.push(`VPC ${vpcRef}: ${error instanceof Error ? error.message : String(error)}`);
-      console.error(`cleanup_needed_vpc=${vpcRef}`);
+    await deleteRunVpc(vpcId).catch((error: unknown) => {
+      cleanupFailures.push(`VPC ${vpcId ?? runId}: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`cleanup_needed_vpc=${vpcId ?? runId}`);
     });
   }
   process.off("SIGINT", interrupt);

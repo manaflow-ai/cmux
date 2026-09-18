@@ -20,7 +20,7 @@
  * verify-devbox-private-link.ts.
  */
 import { Duration, Effect, Schedule } from "effect";
-import type { Freestyle } from "freestyle";
+import { type Freestyle, FreestyleApiError } from "freestyle";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync, writeSync } from "node:fs";
@@ -174,6 +174,22 @@ function workspaceId(snapshot: string): string {
 }
 
 /**
+ * Fails when a network or tunnel already carries the run's slug: the run
+ * would otherwise adopt, and at teardown delete, something it did not make.
+ */
+async function requireSlugFree(client: Freestyle, slug: string): Promise<void> {
+  const tunnels = await client.tunnels.list();
+  if ((tunnels.tunnels ?? []).some((tunnel) => tunnel.slug === slug)) throw new Error(`a tunnel with slug ${slug} already exists; refusing to adopt it`);
+  try {
+    await client.vpc.get(slug);
+  } catch (error) {
+    if (error instanceof FreestyleApiError && error.status === 404) return;
+    throw error;
+  }
+  throw new Error(`a network with slug ${slug} already exists; refusing to adopt it`);
+}
+
+/**
  * Safety net for a VPC or tunnel whose create response was lost before its
  * acquireRelease finalizer existed: both carry this run's slug, so they are
  * found by name and removed (machines on the VPC first). Registered before
@@ -199,10 +215,16 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string) {
     }
     const network = yield* Effect.either(attemptWithin("read network by slug", () => sdk.vpc.get(slug), "30 seconds"));
     if (network._tag === "Right") {
-      console.error(`cleanup_reconcile_network=${network.right.id}`);
-      yield* reconcileRunMachines(provider, network.right.id);
-      const deleted = yield* Effect.either(attemptWithin(`delete VPC ${slug}`, () => tracked(networking.deleteNetwork(network.right.id)), "60 seconds").pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
-      if (deleted._tag === "Left") failures.push(deleted.left.message);
+      // Nothing carried the slug before this run created it, and the create
+      // labelled the network with the slug; anything else is not ours.
+      if (network.right.displayName !== slug) {
+        failures.push(`network ${network.right.id} carries slug ${slug} but is not labelled by this run; not deleting it`);
+      } else {
+        console.error(`cleanup_reconcile_network=${network.right.id}`);
+        yield* reconcileRunMachines(provider, network.right.id);
+        const deleted = yield* Effect.either(attemptWithin(`delete VPC ${slug}`, () => tracked(networking.deleteNetwork(network.right.id)), "60 seconds").pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
+        if (deleted._tag === "Left") failures.push(deleted.left.message);
+      }
     } else if (!/404|not found/i.test(network.left.message)) {
       failures.push(network.left.message);
     }
@@ -343,9 +365,14 @@ function bench() {
       (directory) => Effect.sync(() => rmSync(directory, { recursive: true, force: true })),
     );
     const slug = `cmux-bench-link-${runId}`;
+    // Ownership first: nothing may carry this run's slug before the run
+    // creates it, or the slug-based safety net below could delete a network
+    // or tunnel this run did not make; the net is registered only after
+    // that check, and the create labels the network so teardown can verify.
+    yield* attemptWithin("check the run slug is free", () => requireSlugFree(sdk, slug), "60 seconds");
     yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug));
     const network = yield* timed(Effect.acquireRelease(
-      attempt("ensureNetwork", () => bounded(networking.ensureNetwork({ slug }), 120_000, "ensureNetwork")),
+      attempt("ensureNetwork", () => bounded(networking.ensureNetwork({ slug, displayName: slug }), 120_000, "ensureNetwork")),
       (value) => cleanup(`VPC ${value.id}`, () => tracked(networking.deleteNetwork(value.id))),
     ));
     // Registered right after the VPC so it runs before the VPC delete: any
