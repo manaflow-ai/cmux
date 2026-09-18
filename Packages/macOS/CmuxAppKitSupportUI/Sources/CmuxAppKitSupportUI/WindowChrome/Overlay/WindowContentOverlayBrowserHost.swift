@@ -15,6 +15,15 @@ public final class WindowContentOverlayBrowserHostView: NSView {
 
     deinit {}
 
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard let window else { return }
+        NotificationCenter.default.post(
+            name: .windowContentOverlayBrowserHostDidMount,
+            object: window
+        )
+    }
+
     override public func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
         return hit === self ? nil : hit
@@ -32,6 +41,12 @@ public final class WindowContentOverlayBrowserHostView: NSView {
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+}
+
+public extension Notification.Name {
+    public static let windowContentOverlayBrowserHostDidMount = Notification.Name(
+        "cmux.windowContentOverlay.browserHostDidMount"
+    )
 }
 
 /// Mounts the browser portal host inside SwiftUI's managed content hierarchy.
