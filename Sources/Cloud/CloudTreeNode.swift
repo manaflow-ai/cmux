@@ -1,7 +1,6 @@
 import CmuxCore
 import CmuxFoundation
 import Foundation
-
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
 /// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
 /// (cmux-tui on a machine, or the local workspace that projects a terminal), a
@@ -62,21 +61,18 @@ final class CloudTreeNode: NSObject {
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
-
     let id: String
     private(set) var kind: Kind
     var children: [CloudTreeNode]
     var isPinned = false
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
-
     init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
         self.id = id
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
     }
-
     var isExpandable: Bool { !children.isEmpty }
     var contentSnapshot: CloudTreeNodeContentSnapshot {
         .init(
@@ -145,7 +141,6 @@ final class CloudTreeNode: NSObject {
         case .browser(let row): return row.resource.machine
         }
     }
-
     var isMachineRow: Bool {
         switch kind {
         case .machine, .localMachine, .pendingMachine: return true
@@ -555,6 +550,13 @@ enum CloudTreeNodeBuilder {
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
+        let reconcilingByMachineID = Dictionary(
+            pendingCreates.compactMap { operation -> (String, MachineCreateOperation)? in
+                guard let machineID = operation.reconcilingMachineID else { return nil }
+                return (machineID, operation)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(
@@ -564,11 +566,6 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex
             ))
         }
-        // Creates the person just started go first: they are what the person is
-        // waiting on, and a failed one must not hide below a long fleet. A
-        // create whose machine the fleet list or the catalog already returned
-        // has a real row now and drops its stand-in (never the same machine
-        // twice while the CLI is still opening it).
         for operation in pendingCreates where !operation.isSuperseded(by: machines, catalogMachines: snapshot.machines) {
             nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
@@ -577,8 +574,10 @@ enum CloudTreeNodeBuilder {
         for machine in machines {
             seen.insert(machine.id)
             let info = infoByMachine[.cloud(machine.id)]
+            let stableID = reconcilingByMachineID[machine.id].map { nodeID(pendingCreate: $0.id) }
+                ?? nodeID(machine: .cloud(machine.id))
             nodes.append(CloudTreeNode(
-                id: nodeID(machine: .cloud(machine.id)),
+                id: stableID,
                 kind: .machine(machine, info),
                 children: cloudChildren(
                     machine: .cloud(machine.id),
@@ -605,7 +604,8 @@ enum CloudTreeNodeBuilder {
                 label: info.name == id ? nil : info.name
             )
             nodes.append(CloudTreeNode(
-                id: nodeID(machine: info.id),
+                id: reconcilingByMachineID[id].map { nodeID(pendingCreate: $0.id) }
+                    ?? nodeID(machine: info.id),
                 kind: .machine(placeholderSnapshot, info),
                 children: cloudChildren(
                     machine: info.id,

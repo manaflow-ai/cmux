@@ -57,7 +57,7 @@ final class MachineCreateCoordinator {
             CloudVMActionLauncher.shared.destroyMachineBestEffort(machineID)
         },
         cancelOperation: { operation in
-            guard let workspaceID = operation.request.baseWorkspaceID,
+            guard let workspaceID = operation.request.presentationWorkspaceID,
                   let appDelegate = AppDelegate.shared,
                   let tabManager = appDelegate.tabManagerFor(tabId: workspaceID),
                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else { return }
@@ -71,30 +71,34 @@ final class MachineCreateCoordinator {
     static let didChangeNotification = Notification.Name("cmux.machineCreate.didChange")
     nonisolated static let finishedUserInfoKey = "finished"
 
-    private(set) var operations: [MachineCreateOperation] = []
+    var operations: [MachineCreateOperation] = []
     /// The most recent completion, for observers that arrive late (tests,
     /// panels mounted after the fact).
-    private(set) var lastFinished: Finished?
+    var lastFinished: Finished?
 
     /// Bookkeeping, not row state: kept out of observation so a launcher swap
     /// never invalidates views, and so `deinit` (nonisolated) can reach the
     /// observer token without going through an isolated accessor.
-    @ObservationIgnored private var cancellableLaunches: [UUID: CancellableLaunch] = [:]
-    @ObservationIgnored private var cancellationHandles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
-    @ObservationIgnored private var progressOutput: [UUID: String] = [:]
-    @ObservationIgnored private var progressMarkerCarry: [UUID: String] = [:]
-    @ObservationIgnored private var cancelledCreates: [UUID: CancelledCreate] = [:]
-    @ObservationIgnored private var cleanupIssuedMachineIDs: Set<String> = []
-    @ObservationIgnored private let notifier: @MainActor (MachineCreateNotice) -> Void
-    @ObservationIgnored private let cancelCreatedMachine: @MainActor (String) -> Void
-    @ObservationIgnored private let cancelOperation: @MainActor (MachineCreateOperation) -> Void
+    @ObservationIgnored var cancellableLaunches: [UUID: CancellableLaunch] = [:]
+    @ObservationIgnored var cancellationHandles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
+    /// Callback generation per logical create. A retry advances this fence so
+    /// a late completion from the previous process cannot finish the retry.
+    @ObservationIgnored var attemptGeneration: [UUID: UInt64] = [:]
+    @ObservationIgnored var progressOutput: [UUID: String] = [:]
+    @ObservationIgnored var progressMarkerCarry: [UUID: String] = [:]
+    @ObservationIgnored var cancelledCreates: [UUID: CancelledCreate] = [:]
+    @ObservationIgnored var cleanupIssuedMachineIDs: Set<String> = []
+    @ObservationIgnored let notifier: @MainActor (MachineCreateNotice) -> Void
+    @ObservationIgnored let cancelCreatedMachine: @MainActor (String) -> Void
+    @ObservationIgnored let cancelOperation: @MainActor (MachineCreateOperation) -> Void
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private let notificationCenter: NotificationCenter
+    @ObservationIgnored let notificationCenter: NotificationCenter
     @ObservationIgnored private var accessDidEndObserver: NSObjectProtocol?
     @ObservationIgnored private var workspaceWaiters: [UUID: CheckedContinuation<UUID?, Never>] = [:]
 
-    private struct CancelledCreate {
+    struct CancelledCreate {
         let isBaseSetup: Bool
+        let generation: UInt64
         /// Only a bounded tail is retained so a cancelled CLI that continues
         /// streaming logs cannot turn late-result reconciliation into an
         /// unbounded buffer or an O(n²) rescan.
@@ -102,15 +106,15 @@ final class MachineCreateCoordinator {
         var cleanedMachineID: String?
     }
 
-    private static let outputParseLimit = 32 * 1024
+    static let outputParseLimit = 32 * 1024
     /// The marker parser only needs a short tail to bridge a token split across
     /// callbacks. The full callback is parsed before any transcript bound is
     /// applied, so a marker at the start of a large callback is not lost.
-    private static let markerCarryLimit = 512
+    static let markerCarryLimit = 512
     /// A process that never reports termination must not retain cancellation
     /// state forever. This cap keeps enough tombstones for late callbacks while
     /// bounding memory during a broken sign-out/CLI transport.
-    private static let maximumCancelledCreates = 64
+    static let maximumCancelledCreates = 64
 
     init(
         notifier: @escaping @MainActor (MachineCreateNotice) -> Void,
@@ -179,18 +183,20 @@ final class MachineCreateCoordinator {
         operations.append(operation)
         cancellableLaunches[operation.id] = cancellableLaunch
         progressOutput[operation.id] = ""
+        attemptGeneration[operation.id] = 1
         progressMarkerCarry[operation.id] = ""
         postDidChange(finished: nil)
         guard let cancellation = cancellableLaunch(
             request.arguments,
-            progressHandler(for: operation.id),
-            completionHandler(for: operation.id)
+            progressHandler(for: operation.id, generation: 1),
+            completionHandler(for: operation.id, generation: 1)
         ) else {
             if let index = operations.firstIndex(where: { $0.id == operation.id }) {
                 operations.remove(at: index)
             }
             cancellableLaunches.removeValue(forKey: operation.id)
             progressOutput.removeValue(forKey: operation.id)
+            attemptGeneration.removeValue(forKey: operation.id)
             progressMarkerCarry.removeValue(forKey: operation.id)
             postDidChange(finished: nil)
             return false
@@ -242,20 +248,29 @@ final class MachineCreateCoordinator {
     @discardableResult
     func retry(_ id: UUID) -> Bool {
         guard let index = operations.firstIndex(where: { $0.id == id }),
-              !operations[index].isRunning,
+              operations[index].failureOutput != nil,
               let launch = cancellableLaunches[id] else { return false }
         operations[index].phase = .running
         operations[index].createdMachineID = nil
+        let generation = (attemptGeneration[id] ?? 0) &+ 1
+        attemptGeneration[id] = generation
         progressOutput[id] = ""
         progressMarkerCarry[id] = ""
         cancellationHandles.removeValue(forKey: id)
         postDidChange(finished: nil)
-        guard let cancellation = launch(operations[index].request.arguments, progressHandler(for: id), completionHandler(for: id)) else {
+        guard let cancellation = launch(
+            operations[index].request.arguments,
+            progressHandler(for: id, generation: generation),
+            completionHandler(for: id, generation: generation)
+        ) else {
             if let failedIndex = operations.firstIndex(where: { $0.id == id }) {
                 operations[failedIndex].phase = .failed(output: String(
                     localized: "machines.new.error.launch",
                     defaultValue: "cmux could not start the create command. Sign in and try again."
                 ))
+                // Fence callbacks from the refused attempt as well. A launcher
+                // may have synchronously delivered a stale termination callback.
+                attemptGeneration[id] = (attemptGeneration[id] ?? generation) &+ 1
                 postDidChange(finished: nil)
             }
             return false
@@ -269,12 +284,14 @@ final class MachineCreateCoordinator {
     /// Drops a failed row. Running creates use ``cancel(_:)`` so the child is
     /// stopped and any machine it announced is cleaned up.
     func dismiss(_ id: UUID) {
-        guard let index = operations.firstIndex(where: { $0.id == id }), !operations[index].isRunning else { return }
-        operations.remove(at: index)
+        guard let index = operations.firstIndex(where: { $0.id == id }), operations[index].failureOutput != nil else { return }
+        let operation = operations.remove(at: index)
         cancellableLaunches.removeValue(forKey: id)
         cancellationHandles.removeValue(forKey: id)
         progressOutput.removeValue(forKey: id)
+        attemptGeneration.removeValue(forKey: id)
         progressMarkerCarry.removeValue(forKey: id)
+        cancelOperation(operation)
         postDidChange(finished: nil)
     }
 
@@ -288,8 +305,10 @@ final class MachineCreateCoordinator {
         let cancellation = cancellationHandles.removeValue(forKey: id)
         cancellableLaunches.removeValue(forKey: id)
         progressOutput.removeValue(forKey: id)
+        let generation = attemptGeneration.removeValue(forKey: id) ?? 0
         var cancelled = CancelledCreate(
             isBaseSetup: operation.request.isBaseSetup,
+            generation: generation,
             markerCarry: progressMarkerCarry.removeValue(forKey: id) ?? ""
         )
         if !operation.request.isBaseSetup, let machineID = operation.createdMachineID {
@@ -314,9 +333,11 @@ final class MachineCreateCoordinator {
         // announce its machine after the cancellation handle runs, and that
         // late output still needs to reach the cleanup path during sign-out.
         let runningOperations = operations.filter(\.isRunning)
+        let allOperations = operations
         for operation in runningOperations where cleanupCreatedMachines && !operation.request.isBaseSetup {
             var cancelled = CancelledCreate(
                 isBaseSetup: false,
+                generation: attemptGeneration[operation.id] ?? 0,
                 markerCarry: progressMarkerCarry[operation.id] ?? ""
             )
             if let machineID = operation.createdMachineID {
@@ -328,6 +349,7 @@ final class MachineCreateCoordinator {
         operations.removeAll()
         cancellableLaunches.removeAll()
         cancellationHandles.removeAll()
+        attemptGeneration.removeAll()
         progressOutput.removeAll()
         progressMarkerCarry.removeAll()
         // Keep new-machine tombstones until their process callbacks arrive so
@@ -341,6 +363,12 @@ final class MachineCreateCoordinator {
             if let machineID = operation.createdMachineID {
                 cleanupCancelledMachine(machineID)
             }
+        }
+        // A reserved loading workspace belongs to the create operation even
+        // when no provider id was announced. Tear it down with the operation
+        // so sign-out cannot leave an orphan local projection behind.
+        for operation in allOperations {
+            cancelOperation(operation)
         }
         for handle in handles { handle.cancel() }
         for operationID in Array(workspaceWaiters.keys) {
@@ -402,140 +430,5 @@ final class MachineCreateCoordinator {
         return "\(reason)\n\(safe)"
     }
 
-    private func completionHandler(for id: UUID) -> @MainActor (CloudVMActionLauncher.Completion) -> Void {
-        { [weak self] completion in
-            self?.finish(id: id, completion: completion)
-        }
-    }
 
-    private func progressHandler(for id: UUID) -> @MainActor (String) -> Void {
-        { [weak self] chunk in
-            guard let self else { return }
-            if let index = self.operations.firstIndex(where: { $0.id == id }) {
-                // Parse the complete callback before bounding the retained
-                // transcript. ProcessOutputCollector does not promise a small
-                // chunk, so a marker at the beginning of a large callback must
-                // still correlate the operation.
-                let markerInput = self.progressMarkerCarry[id, default: ""] + chunk
-                let machineID = Self.createdMachineID(fromOutput: markerInput)
-                self.progressMarkerCarry[id] = String(markerInput.suffix(Self.markerCarryLimit))
-                let bounded = (self.progressOutput[id, default: ""] + chunk).suffix(Self.outputParseLimit)
-                self.progressOutput[id] = String(bounded)
-                if let machineID {
-                    guard self.operations[index].createdMachineID != machineID else { return }
-                    self.operations[index].createdMachineID = machineID
-                    self.postDidChange(finished: nil)
-                }
-                return
-            }
-            // The row is intentionally gone after Cancel, but the process can
-            // still flush bytes. Keep parsing that tail for a provider id.
-            guard var cancelled = self.cancelledCreates[id] else { return }
-            let markerInput = cancelled.markerCarry + chunk
-            let machineID = Self.createdMachineID(fromOutput: markerInput)
-            cancelled.markerCarry = String(markerInput.suffix(Self.markerCarryLimit))
-            if !cancelled.isBaseSetup,
-               let machineID,
-               cancelled.cleanedMachineID != machineID {
-                cancelled.cleanedMachineID = machineID
-                self.cleanupCancelledMachine(machineID)
-            }
-            self.cancelledCreates[id] = cancelled
-        }
-    }
-
-    private func finish(id: UUID, completion: CloudVMActionLauncher.Completion) {
-        // Dropped by a sign-out (or dismissed after a retry was refused): the
-        // account this belonged to is gone, so there is nobody to tell.
-        guard let index = operations.firstIndex(where: { $0.id == id }) else {
-            guard var cancelled = cancelledCreates.removeValue(forKey: id) else { return }
-            guard !cancelled.isBaseSetup else { return }
-            let machineID = completion.machineId ?? Self.createdMachineID(fromOutput: completion.output)
-            if let machineID, cancelled.cleanedMachineID != machineID {
-                cancelled.cleanedMachineID = machineID
-                cleanupCancelledMachine(machineID)
-            }
-            return
-        }
-        var operation = operations[index]
-        let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The CLI's `machine=` token is the authoritative created-machine
-        // signal; the localized "Created Cloud VM" line is the fallback for
-        // older bundled CLIs.
-        let createdMachineID = completion.machineId
-            ?? operation.createdMachineID
-            ?? Self.createdMachineID(fromOutput: output)
-        if let createdMachineID {
-            operation.createdMachineID = createdMachineID
-            operations[index].createdMachineID = createdMachineID
-        }
-        if completion.wasCancelled {
-            operations.remove(at: index)
-            cancellableLaunches.removeValue(forKey: id)
-            cancellationHandles.removeValue(forKey: id)
-            progressOutput.removeValue(forKey: id)
-            progressMarkerCarry.removeValue(forKey: id)
-            if !operation.request.isBaseSetup, let createdMachineID {
-                cleanupCancelledMachine(createdMachineID)
-            }
-            postDidChange(finished: nil)
-            return
-        }
-        let outcome: Outcome
-        if completion.succeeded {
-            outcome = .created(machineID: createdMachineID, workspaceID: completion.workspaceId)
-            operations.remove(at: index)
-            cancellableLaunches.removeValue(forKey: id)
-            cancellationHandles.removeValue(forKey: id)
-            progressOutput.removeValue(forKey: id)
-            progressMarkerCarry.removeValue(forKey: id)
-        } else if !operation.request.isBaseSetup, let machineID = createdMachineID {
-            // Base setup is idempotent (`vm base open` reopens the same slot),
-            // so only `vm new` can leave a machine behind that must not be re-created.
-            outcome = .createdButOpenFailed(machineID: machineID, output: Self.displayableFailureOutput(output))
-            operations.remove(at: index)
-            cancellableLaunches.removeValue(forKey: id)
-            cancellationHandles.removeValue(forKey: id)
-            progressOutput.removeValue(forKey: id)
-            progressMarkerCarry.removeValue(forKey: id)
-        } else {
-            let failure = Self.displayableFailureOutput(output)
-            outcome = .failed(output: failure)
-            operations[index].phase = .failed(output: failure)
-            progressOutput.removeValue(forKey: id)
-            progressMarkerCarry.removeValue(forKey: id)
-        }
-        let finished = Finished(operation: operation, outcome: outcome)
-        if case let .created(_, workspaceID) = outcome, let workspaceID { selectCreatedWorkspace(workspaceID, for: operation.request) }
-        lastFinished = finished
-        notifier(MachineCreateNotice(finished: finished))
-        postDidChange(finished: finished)
-    }
-    /// De-duplicates cleanup requests when a machine id appears in progress
-    /// output and again in the process's final completion.
-    private func cleanupCancelledMachine(_ machineID: String) {
-        let normalized = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, cleanupIssuedMachineIDs.insert(normalized).inserted else { return }
-        cancelCreatedMachine(normalized)
-    }
-
-    /// Retains a bounded cancellation tombstone. The process completion normally
-    /// removes it; if a child disappears without a callback, the oldest entry is
-    /// evicted rather than allowing repeated failed launches to grow without
-    /// bound.
-    private func retainCancelledCreate(_ cancelled: CancelledCreate, for id: UUID) {
-        if cancelledCreates.count >= Self.maximumCancelledCreates,
-           let oldest = cancelledCreates.keys.first {
-            cancelledCreates.removeValue(forKey: oldest)
-        }
-        cancelledCreates[id] = cancelled
-    }
-
-    private func postDidChange(finished: Finished?) {
-        var userInfo: [AnyHashable: Any] = [:]
-        if let finished {
-            userInfo[Self.finishedUserInfoKey] = finished
-        }
-        notificationCenter.post(name: Self.didChangeNotification, object: self, userInfo: userInfo)
-    }
 }

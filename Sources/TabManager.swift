@@ -2425,12 +2425,11 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
-        // Only this manager's own workspaces close here. The teardown below frees
         // Ghostty surfaces, which SIGHUPs the child processes, empties `panels`, and
         // publishes a workspace-closed event, so running it for a workspace that
         // lives in another window or was already detached kills terminals nobody
-        // asked to close and announces a close that did not happen.
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
+        MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspace: workspace.id)
         panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // Closing a mirrored remote tmux workspace DETACHES from the remote session,
@@ -2507,6 +2506,7 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
 
         for workspace in closingWorkspaces {
+            MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspace: workspace.id)
             finalizeWorkspaceForRemoval(workspace, clearsWorkspaceGitProbes: false)
         }
 

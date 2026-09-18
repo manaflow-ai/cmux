@@ -1,7 +1,6 @@
 import CmuxCloudMachines
 import Foundation
 import SwiftUI
-
 extension Notification.Name {
     static let cmuxCloudVMAccessDidEnd = Notification.Name("cmux.cloudVM.accessDidEnd")
 }
@@ -676,12 +675,13 @@ final class MachinesPanelViewModel: ObservableObject {
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
             listProblem = nil
+            let authoritativeMachineIDs = Set(snapshots.map(\.id)); let catalogMachineIDs = Set(catalog.machines.compactMap { $0.id.cloudMachineID })
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.createCoordinator.reconcileAuthoritativeState(machineIDs: authoritativeMachineIDs, catalogMachineIDs: catalogMachineIDs)
+            }
         } catch let error as VMClientError {
             if case .notSignedIn = error {
-                // A request can race sign-out before the auth observation or
-                // notification arrives. Clear the authoritative-looking
-                // snapshot immediately; signed-out users must never see the
-                // previous account's machines during that race.
                 machines = []
                 plan = nil
                 activeOperation = nil
