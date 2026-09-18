@@ -70,6 +70,27 @@ def select_urls(xml: bytes, lookback_hours: int, now: datetime | None = None) ->
     return list(dict.fromkeys(url for url, date in entries if date >= earliest))
 
 
+def submit_batches(config: dict, urls: list[str]) -> dict:
+    endpoint = config["endpoint"]
+    key = config["key"]
+    key_location = f"{ORIGIN}/{key}.txt"
+    batch_count = (len(urls) + 9_999) // 10_000
+    submitted = 0
+    statuses: list[int] = []
+    for index in range(batch_count):
+        batch = urls[index * 10_000 : (index + 1) * 10_000]
+        payload = {"host": "cmux.com", "key": key, "keyLocation": key_location, "urlList": batch}
+        try:
+            status, _ = request(endpoint, data=json.dumps(payload).encode("utf-8"))
+        except Exception as error:
+            raise RuntimeError(
+                f"IndexNow batch {index + 1}/{batch_count} failed after {submitted} URLs: {error}"
+            ) from error
+        submitted += len(batch)
+        statuses.append(status)
+    return {"submitted": submitted, "batches": batch_count, "status": statuses[-1] if statuses else 0}
+
+
 def run(config: dict) -> dict:
     key = config["key"]
     if not isinstance(key, str) or not re.fullmatch(r"[a-zA-Z0-9-]{8,128}", key):
@@ -88,11 +109,7 @@ def run(config: dict) -> dict:
     urls = select_urls(sitemap, lookback)
     if not urls:
         return {"submitted": 0, "status": 0}
-    if len(urls) > 10_000:
-        raise ValueError("IndexNow accepts at most 10,000 URLs per request")
-    payload = {"host": "cmux.com", "key": key, "keyLocation": key_location, "urlList": urls}
-    status, _ = request(endpoint, data=json.dumps(payload).encode("utf-8"))
-    return {"submitted": len(urls), "status": status}
+    return submit_batches(config, urls)
 
 
 if __name__ == "__main__":

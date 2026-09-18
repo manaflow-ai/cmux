@@ -43,7 +43,7 @@ class IndexNowTests(unittest.TestCase):
     def test_public_key_and_live_sitemap_are_sufficient_without_cron_secret(self):
         with patch.object(notify, "request", side_effect=[(200, KEY.encode()), (200, XML), (202, b"")]) as request:
             result = notify.run(CONFIG)
-        self.assertEqual(result, {"submitted": 2, "status": 202})
+        self.assertEqual(result, {"submitted": 2, "batches": 1, "status": 202})
         self.assertEqual(request.call_args_list[0].args[0], f"https://cmux.com/{KEY}.txt")
         self.assertEqual(request.call_args_list[1].args[0], "https://cmux.com/sitemap.xml")
         payload = json.loads(request.call_args_list[2].kwargs["data"])
@@ -51,6 +51,17 @@ class IndexNowTests(unittest.TestCase):
         self.assertEqual(payload["host"], "cmux.com")
         self.assertEqual(len(payload["urlList"]), 2)
         self.assertNotIn("authorization", str(request.call_args_list).lower())
+
+    def test_large_url_windows_are_submitted_in_indexnow_batches(self):
+        urls = [f"https://cmux.com/page-{index}" for index in range(10_001)]
+        with patch.object(notify, "request", side_effect=[(202, b""), (200, b"")]) as request:
+            result = notify.submit_batches(CONFIG, urls)
+        self.assertEqual(result, {"submitted": 10_001, "batches": 2, "status": 200})
+        first = json.loads(request.call_args_list[0].kwargs["data"])
+        second = json.loads(request.call_args_list[1].kwargs["data"])
+        self.assertEqual(len(first["urlList"]), 10_000)
+        self.assertEqual(len(second["urlList"]), 1)
+        self.assertEqual(second["urlList"][0], urls[-1])
 
     def test_mismatched_deployed_key_prevents_post(self):
         with patch.object(notify, "request", return_value=(200, b"another-key")) as request:
@@ -85,6 +96,7 @@ class IndexNowTests(unittest.TestCase):
         self.assertIn("web/app/lib/indexnow.ts", workflow)
         self.assertIn("scripts/ci/notify-indexnow.py", workflow)
         self.assertIn("timeout-minutes: 6", workflow)
+        self.assertIn("ref: ${{ github.event.deployment.sha || github.sha }}", workflow)
 
 if __name__ == "__main__":
     unittest.main()
