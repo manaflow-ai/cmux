@@ -240,14 +240,8 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
   const durationMs = unsignedInteger(properties.duration_ms);
   const failure = optionalSetValue(properties.failure, failures);
   const transport = optionalSetValue(properties.transport, transports);
-  const population = optionalSetValue(properties.population, new Set(["cold_open", "warm_open", "reconnect", "pairing_required"])) as CoreObservation["population"] | false;
-  const attemptId = properties.attempt_id === undefined
-    ? undefined
-    : optionalMachineString(properties.attempt_id);
-  const terminalReady = properties.terminal_ready === undefined
-    ? undefined
-    : typeof properties.terminal_ready === "boolean" ? properties.terminal_ready : false;
-  if (durationMs === null || failure === false || transport === false || population === false || attemptId === false || terminalReady === false) return null;
+  const initialFields = parseInitialConnectionFields(properties);
+  if (durationMs === null || failure === false || transport === false || initialFields === null) return null;
   return {
     phase: properties.phase,
     outcome: properties.outcome as CoreObservation["outcome"],
@@ -255,6 +249,25 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
     userUsable: properties.user_usable,
     ...(typeof failure === "string" ? { failure } : {}),
     ...(typeof transport === "string" ? { transport } : {}),
+    ...initialFields,
+  };
+}
+
+function parseInitialConnectionFields(
+  properties: Record<string, unknown>,
+): Pick<CoreObservation, "population" | "attemptId" | "terminalReady"> | null {
+  const population = optionalSetValue(
+    properties.population,
+    new Set(["cold_open", "warm_open", "reconnect", "pairing_required"]),
+  ) as CoreObservation["population"] | false;
+  const attemptId = properties.attempt_id === undefined
+    ? undefined
+    : optionalMachineString(properties.attempt_id);
+  const terminalReady = properties.terminal_ready === undefined
+    ? undefined
+    : typeof properties.terminal_ready === "boolean" ? properties.terminal_ready : false;
+  if (population === false || attemptId === false || terminalReady === false) return null;
+  return {
     ...(typeof population === "string" ? { population } : {}),
     ...(typeof attemptId === "string" ? { attemptId } : {}),
     ...(typeof terminalReady === "boolean" ? { terminalReady } : {}),
