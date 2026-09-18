@@ -38,7 +38,7 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
     }
 
     var isNetworkingAllowed: Bool {
-        isEnabled && MobileHostService.isListeningEnabled && !MobileRemoteControlPolicy.isDisabled
+        Self.isEnabled && MobileHostService.isListeningEnabled && !MobileRemoteControlPolicy.isDisabled
     }
 
     func configure(auth: AuthCoordinator) {
@@ -298,8 +298,10 @@ final class MobileHostV3Runtime: MobileHostPairingRuntime {
 private actor MobileHostV3EventLaneRegistry {
     private var lanes: [String: V3ByteTransport] = [:]
 
-    func install(peerID: String, transport: V3ByteTransport) {
-        lanes[peerID]?.close()
+    func install(peerID: String, transport: V3ByteTransport) async {
+        if let previous = lanes[peerID] {
+            await previous.close()
+        }
         lanes[peerID] = transport
     }
 
@@ -307,10 +309,10 @@ private actor MobileHostV3EventLaneRegistry {
         lanes[peerID]
     }
 
-    func removeAll() {
+    func removeAll() async {
         let values = lanes.values
         lanes.removeAll()
-        for value in values { value.close() }
+        for value in values { await value.close() }
     }
 }
 
@@ -418,7 +420,7 @@ private struct MobileHostV3IdentityStore: Sendable {
         if let existing = read(account: "seed"), existing.count == 32 { return existing }
         var value = Data(repeating: 0, count: 32)
         let status = value.withUnsafeMutableBytes { bytes in
-            SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress)
+            SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
         }
         guard status == errSecSuccess else {
             throw Error.keychain
