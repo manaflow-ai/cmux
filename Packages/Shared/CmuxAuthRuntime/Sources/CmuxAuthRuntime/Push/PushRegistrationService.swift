@@ -4,6 +4,18 @@ import OSLog
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 
+public struct PushRegistrationIdentity: Equatable, Sendable {
+    public let installationID: String
+    public let keyID: String
+    public let publicKey: String
+
+    public init(installationID: String, keyID: String, publicKey: String) {
+        self.installationID = installationID
+        self.keyID = keyID
+        self.publicKey = publicKey
+    }
+}
+
 /// Owns the push opt-in state and the device-token sync with the cmux web API.
 ///
 /// Replaces the iOS `NotificationManager.shared` singleton and its
@@ -21,6 +33,11 @@ public actor PushRegistrationService: PushRegistering {
     private let apiBaseURL: String
     private let bundleID: String
     private let apnsEnvironment: String
+    private let pushInstallationID: String?
+    private let pushKeyID: String?
+    private let pushPublicKey: String?
+    private let initialPushIdentity: PushRegistrationIdentity?
+    private let pushIdentityProvider: (@Sendable () -> PushRegistrationIdentity?)?
     private let defaults: UserDefaults
     private let pendingUnregisterStoreURL: URL
     private var pendingUnregisterStore: PendingUnregisterStore?
@@ -108,6 +125,10 @@ public actor PushRegistrationService: PushRegistering {
         apiBaseURL: String,
         bundleID: String,
         apnsEnvironment: String,
+        pushInstallationID: String? = nil,
+        pushKeyID: String? = nil,
+        pushPublicKey: String? = nil,
+        pushIdentityProvider: (@Sendable () -> PushRegistrationIdentity?)? = nil,
         suiteName: String? = nil,
         pendingUnregisterStoreURL: URL? = nil,
         session: sending URLSession = .shared,
@@ -130,6 +151,19 @@ public actor PushRegistrationService: PushRegistering {
         self.apiBaseURL = apiBaseURL
         self.bundleID = bundleID
         self.apnsEnvironment = apnsEnvironment
+        self.pushInstallationID = pushInstallationID
+        self.pushKeyID = pushKeyID
+        self.pushPublicKey = pushPublicKey
+        if let pushInstallationID, let pushKeyID, let pushPublicKey {
+            self.initialPushIdentity = PushRegistrationIdentity(
+                installationID: pushInstallationID,
+                keyID: pushKeyID,
+                publicKey: pushPublicKey
+            )
+        } else {
+            self.initialPushIdentity = nil
+        }
+        self.pushIdentityProvider = pushIdentityProvider
         if let suiteName, let suite = UserDefaults(suiteName: suiteName) {
             self.defaults = suite
         } else {
@@ -615,6 +649,7 @@ public actor PushRegistrationService: PushRegistering {
             hasDeviceToken: true,
             backendState: .registering
         ))
+        let pushIdentity = pushIdentityProvider?() ?? initialPushIdentity
         let request = await makeRequest(
             method: "POST",
             path: "/api/device-tokens",
@@ -623,7 +658,16 @@ public actor PushRegistrationService: PushRegistering {
                 "bundleId": bundleID,
                 "environment": apnsEnvironment,
                 "platform": "ios",
-            ],
+            ].merging(
+                pushIdentity.map { ["installationId": $0.installationID] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                pushIdentity.map { ["pushKeyId": $0.keyID] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
+                pushIdentity.map { ["pushPublicKey": $0.publicKey] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ),
             authPhase: .pushRegistrationSession
         )
         let result: RegistrationResult
