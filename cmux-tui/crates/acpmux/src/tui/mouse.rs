@@ -278,7 +278,7 @@ impl App {
         let comp = self.areas.composer;
         if x >= comp.x && x < comp.x + comp.width && y >= comp.y && y < comp.y + comp.height {
             self.focus = Focus::Input;
-            if y > comp.y && y < comp.y + comp.height - 1 {
+            if y > comp.y && y < comp.y + comp.height - 2 {
                 let width = comp.width.saturating_sub(render::COMPOSER_INDENT + 1) as usize;
                 let row = self.editor().scroll + (y - comp.y - 1) as usize;
                 self.editor_mut().click(width, row, x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize);
@@ -360,7 +360,7 @@ impl App {
         if let Some((anchor, _)) = self.composer_sel {
             let comp = self.areas.composer;
             let width = comp.width.saturating_sub(render::COMPOSER_INDENT + 1) as usize;
-            let yy = y.clamp(comp.y + 1, (comp.y + comp.height).saturating_sub(2));
+            let yy = y.clamp(comp.y + 1, (comp.y + comp.height).saturating_sub(3));
             let row = self.editor().scroll + (yy - comp.y - 1) as usize;
             self.editor_mut().click(width, row, x.saturating_sub(comp.x + render::COMPOSER_INDENT) as usize);
             let head = self.editor().cursor();

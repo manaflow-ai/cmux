@@ -7,10 +7,20 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let focused = matches!(app.focus, Focus::Input | Focus::Command) && matches!(app.overlay, Overlay::None);
     let hover = app.hover;
     let buf = f.buffer_mut();
-    // Codex's shape: a blank row, `› text`, then the controls row. No rules.
-    let text_area = Rect { x: area.x + COMPOSER_INDENT, y: area.y + 1, width: area.width.saturating_sub(COMPOSER_INDENT + 1), height: area.height.saturating_sub(2) };
+    // A rule, `❯ text`, a rule, then the controls row. Grey throughout;
+    // focus only brightens the grey.
+    let rule_style = if focused { Style::default().fg(c.status_dim_fg) } else { Style::default().fg(c.border_fg) };
+    let bottom_rule_y = area.y + area.height - 2;
+    for y in [area.y, bottom_rule_y] {
+        for x in area.x..area.x + area.width {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.set_symbol("─").set_style(rule_style);
+            }
+        }
+    }
+    let text_area = Rect { x: area.x + COMPOSER_INDENT, y: area.y + 1, width: area.width.saturating_sub(COMPOSER_INDENT + 1), height: area.height.saturating_sub(3) };
     let prompt_style = if focused { Style::default().add_modifier(Modifier::BOLD) } else { c.dim() };
-    buf.set_stringn(area.x, text_area.y, "›", 1, prompt_style);
+    buf.set_stringn(area.x, text_area.y, "❯", 1, prompt_style);
     if app.focus == Focus::Command {
         let content = format!("/{}", app.command.text());
         buf.set_stringn(text_area.x, text_area.y, &content, text_area.width as usize, Style::default().fg(c.warn_fg));

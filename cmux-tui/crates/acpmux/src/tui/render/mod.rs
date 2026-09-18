@@ -488,8 +488,8 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let editor_w = main.width.saturating_sub(COMPOSER_INDENT + 1) as usize;
     // Top rule, the text (1-6 rows), bottom rule, controls row.
     let max_rows = app.composer_max_rows.min(main.height / 2).max(1);
-    // A blank row, the text, the controls row (Codex: no rules).
-    let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 2;
+    // Top rule, the text, bottom rule, controls row.
+    let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 3;
     let composer = Rect { x: main.x, y: main.y + main.height - input_h, width: main.width, height: input_h };
     let transcript = Rect { x: main.x, y: main.y, width: main.width, height: main.height - input_h };
     app.areas.sidebar = sidebar;

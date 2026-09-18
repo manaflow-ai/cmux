@@ -127,8 +127,8 @@ scrolls with the wheel, PgUp/PgDn, Home/End, track click or thumb drag, and a `N
 in the footer when rows overflow. Set `ACPMUX_THEME=light` or `dark` to override the
 `COLORFGBG` guess.
 
-The composer follows Codex's shape: a blank row, `› ` and the message (wrapping under the
-prompt, growing to twelve rows), then one row of clickable settings: `⏵⏵ mode`, model,
+The composer is boxed by two grey rules: a rule, `❯ ` and the message (wrapping under the
+prompt, growing to twelve rows), a rule, then one row of clickable settings: `⏵⏵ mode`, model,
 `◉ effort`, permissions, directory, and `? keys · / commands` on the right. Each chip opens its
 picker. The transcript title shows only the session name, its state and token usage. The
 status bar shows hosts (click one to filter the sidebar), the last message, and a
@@ -207,7 +207,7 @@ two-column gutter (`❯` for you, `▸`/`▾` for collapsibles), so text lines u
 Your messages look like Codex's: a tinted full-width band with `› ` before the text. The
 transcript looks like Codex's: one blank row before every block, a tinted band with plain text
 and a bold dim `❯` for your messages, a dim `•` on the first line of a reply, green and red
-bullets for tool outcomes, dim italic thinking, and no rules anywhere. Markdown follows
+bullets for tool outcomes, dim italic thinking, and no rules inside the transcript. Markdown follows
 Codex's renderer too: a blank row between blocks, list items kept together with `- ` and
 `N. ` markers indented four columns per level, headings bold (h1 underlined, h3 italic),
 code and links cyan, quotes green. Your message shows the instant you press Enter; the
