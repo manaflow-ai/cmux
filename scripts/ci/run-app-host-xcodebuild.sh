@@ -123,10 +123,7 @@ if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
     stable_framework_destination="${RUNNER_TEMP:-/tmp}/cmux-app-host-package-frameworks"
     mkdir -p "$stable_framework_destination"
     rsync -aL "$package_framework_root/" "$stable_framework_destination/"
-    app_host_binary="$package_products_dir/cmux DEV.app/Contents/MacOS/cmux DEV"
-    if [ -x "$app_host_binary" ] && ! otool -l "$app_host_binary" | grep -Fq "$stable_framework_destination"; then
-      install_name_tool -add_rpath "$stable_framework_destination" "$app_host_binary"
-    fi
+    export DYLD_LIBRARY_PATH="$stable_framework_destination:$app_framework_destination${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
     test -f "$stable_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
     app_host_test_runner_environment+=(
       "TEST_RUNNER_DYLD_LIBRARY_PATH=$package_framework_destination:$app_framework_destination"
