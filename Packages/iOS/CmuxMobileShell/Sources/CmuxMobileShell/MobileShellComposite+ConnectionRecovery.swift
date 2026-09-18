@@ -721,6 +721,7 @@ extension MobileShellComposite {
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         (await connectStoredMacOutcome(
@@ -731,6 +732,7 @@ extension MobileShellComposite {
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
+            directOnlyDialCandidates: directOnlyDialCandidates,
             ifStillCurrent: ifStillCurrent
         )).didConnect
     }
@@ -744,6 +746,7 @@ extension MobileShellComposite {
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         await connectStoredMacOutcome(
@@ -757,6 +760,7 @@ extension MobileShellComposite {
             automaticReconnectAccountID: automaticReconnectAccountID,
             recordsPairingAttempt: recordsPairingAttempt,
             knownPairing: knownPairing,
+            directOnlyDialCandidates: directOnlyDialCandidates,
             ifStillCurrent: ifStillCurrent
         )
     }
@@ -773,6 +777,7 @@ extension MobileShellComposite {
         automaticReconnectAccountID: String? = nil,
         recordsPairingAttempt: Bool = false,
         knownPairing: MobilePairedMac? = nil,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> StoredMacReconnectOutcome {
         guard ifStillCurrent?() ?? true else { return .superseded }
@@ -790,7 +795,9 @@ extension MobileShellComposite {
         // never be converted into an Iroh dial, even when both route kinds are
         // advertised by the pairing.
         let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
-        if resolvedMethod == .direct {
+        if let directOnlyDialCandidates {
+            methodPinnedCandidates = directOnlyDialCandidates
+        } else if resolvedMethod == .direct {
             methodPinnedCandidates = irohMethodPinnedDialCandidates(
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag,
@@ -1096,6 +1103,7 @@ extension MobileShellComposite {
     func connectAccountDiscoveredIrohMac(
         _ mac: MobileDiscoveredIrohMac,
         accountID: String,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         ifStillCurrent: (() -> Bool)? = nil
     ) async -> Bool {
         let supportedKinds = runtime?.supportedRouteKinds ?? []
@@ -1111,8 +1119,34 @@ extension MobileShellComposite {
             pairedMacDeviceID: mac.deviceID,
             instanceTagExpectation: .require(mac.instanceTag),
             automaticReconnectAccountID: accountID,
+            directOnlyDialCandidates: directOnlyDialCandidates,
             ifStillCurrent: ifStillCurrent
         )).didConnect
+    }
+
+    /// Connect a directory-only Mac after the user has supplied a private path.
+    /// Discovery rows are intentionally not persisted before host admission, so
+    /// this is the UI bridge from the Computers detail back into the same
+    /// authenticated first-pair path used by automatic recovery.
+    @discardableResult
+    public func connectDiscoveredIrohMac(
+        macDeviceID: String,
+        instanceTag: String?,
+        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
+    ) async -> Bool {
+        guard let accountID = identityProvider?.currentUserID else { return false }
+        let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        guard let candidate = discoveredIrohMacs.first(where: {
+            cmxCanonicalDeviceID($0.deviceID) == canonicalDeviceID
+                && ($0.instanceTag == (instanceTag ?? ""))
+        }) else {
+            return false
+        }
+        return await connectAccountDiscoveredIrohMac(
+            candidate,
+            accountID: accountID,
+            directOnlyDialCandidates: directOnlyDialCandidates
+        )
     }
 
     /// Re-fetch the authoritative workspace list from the connected Mac and apply

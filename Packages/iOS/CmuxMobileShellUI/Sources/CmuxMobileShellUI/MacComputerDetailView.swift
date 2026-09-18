@@ -13,6 +13,9 @@ struct MacComputerDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
     let instanceTag: String?
+    /// Directory-only rows have no persisted pairing yet, so retain the broker
+    /// display name while the user configures a private path.
+    var directoryDisplayName: String? = nil
     /// The route kind of the Connections row that opened this detail; its
     /// routes lead the routes section. `nil` when opened without a row.
     var focusedRouteKind: CmxAttachTransportKind? = nil
@@ -72,6 +75,19 @@ struct MacComputerDetailView: View {
             )
         }
     }
+    private var isDirectoryOnly: Bool {
+        guard pairedMac == nil else { return false }
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        return store.discoveredIrohMacs.contains { discovered in
+            MobilePairedMac.pairingID(
+                macDeviceID: discovered.deviceID,
+                instanceTag: discovered.instanceTag.isEmpty ? nil : discovered.instanceTag
+            ) == pairingID
+        }
+    }
     private var connectionStatus: MobileMacConnectionStatus? {
         store.macConnectionStatuses[
             MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
@@ -94,7 +110,7 @@ struct MacComputerDetailView: View {
     }
 
     private var displayTitle: String {
-        let baseName = pairedMac?.resolvedName ?? macDeviceID
+        let baseName = pairedMac?.resolvedName ?? directoryDisplayName ?? macDeviceID
         return MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
     }
     private var workspaceCount: Int {
@@ -112,9 +128,11 @@ struct MacComputerDetailView: View {
             connectionSection
             macPowerSection
             routesSection
-            // Iroh-scoped per-Mac networking. Hidden for Tailscale/Direct
-            // Computers, whose methods never dial Iroh paths.
-            if selectedMethod == .automatic, let irohSettingsModel {
+            // A directory-only Iroh row must expose private paths even when
+            // the app's method is Direct: those addresses are what makes the
+            // first authenticated dial possible. Existing Tailscale/Direct
+            // pairings keep the original method-specific surface.
+            if (selectedMethod == .automatic || isDirectoryOnly), let irohSettingsModel {
                 privateAddressesSection(irohSettingsModel)
             }
             identitySection
@@ -275,7 +293,26 @@ struct MacComputerDetailView: View {
                     path: thisMacPrivateNetwork,
                     availableMacs: privatePathEditorMacs
                 ) { draft in
-                    await irohSettingsModel.upsertCustomPrivatePath(draft)
+                    let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
+                    if saved, pairedMac == nil {
+                        let directOnlyDialCandidates = draft.addresses.compactMap { raw in
+                            guard let socket = try? CmxIrohLocalSocketAddress(raw) else {
+                                return nil
+                            }
+                            return CmxIrohDirectDialCandidate(
+                                address: socket.address.value,
+                                port: UInt16(socket.port)
+                            )
+                        }
+                        Task {
+                            _ = await store.connectDiscoveredIrohMac(
+                                macDeviceID: macDeviceID,
+                                instanceTag: instanceTag,
+                                directOnlyDialCandidates: directOnlyDialCandidates
+                            )
+                        }
+                    }
+                    return saved
                 }
             }
         }
@@ -457,7 +494,9 @@ struct MacComputerDetailView: View {
     /// dials (Iroh or Tailscale) and its private network addresses. Both are
     /// per (device, build) and local to this iPhone.
     private var selectedMethod: MobileConnectionMethod {
-        pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
+        pairedMac.map { store.connectionMethod(for: $0) }
+            ?? store.connectionMethodStore?.method
+            ?? .automatic
     }
 
     /// The Settings connection-method UI, moved here verbatim (same picker
@@ -532,7 +571,7 @@ struct MacComputerDetailView: View {
             Text(connectionMethodFooterText)
         }
 
-        if (pendingConnectionMethod ?? selectedMethod) == .direct {
+        if (pendingConnectionMethod ?? selectedMethod) == .direct, !isDirectoryOnly {
             directAddressesSection
         }
     }

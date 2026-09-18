@@ -1099,6 +1099,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Live same-account Iroh discovery. This is distinct from route refresh so
     /// only a current broker response may initiate a first pairing.
     let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
+    /// Broker-authorized Macs from the latest directory snapshot. These remain
+    /// ephemeral until an authenticated host connection persists them, but the
+    /// Computers screen must still render them so a user can configure a
+    /// private path before the first dial succeeds.
+    public internal(set) var discoveredIrohMacs: [MobileDiscoveredIrohMac] = []
     /// Revokes a hidden computer's account bindings when the user forgets it.
     /// Optional so tests and non-iOS hosts run without the transport graph; when
     /// `nil`, the Forget action is a no-op and the row stays put.
@@ -2215,6 +2220,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearStoredPairedMacCache()
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        discoveredIrohMacs = []
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
         hiddenComputers = []
@@ -2342,6 +2348,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearStoredPairedMacCache()
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
+        discoveredIrohMacs = []
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
         hiddenMacDeviceIDsByScope = [:]
@@ -3811,6 +3818,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Refresh the broker-authorized Iroh directory without dialing or
+    /// persisting any host. The Computers screen uses this to expose a Mac
+    /// before its first authenticated connection, which is required when a
+    /// relay-less host needs a user-entered private path.
+    public func refreshDirectoryCandidates() async {
+        guard let personalIrohDiscovery,
+              let scope = await currentScopeSnapshot() else { return }
+        let discovered = await personalIrohDiscovery.discoverLiveMacs()
+        guard await isScopeCurrent(scope) else { return }
+        discoveredIrohMacs = discovered
+    }
+
     /// The device-tree data source, honoring the registry's best-effort/fallback
     /// contract: the registry list when it loaded, otherwise the locally paired
     /// Macs synthesized into the same two-level shape.
@@ -4107,6 +4126,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearStoredPairedMacCache()
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
+            discoveredIrohMacs = []
             pairedMacLoadState = .failed
             hiddenComputers = []
             hasHiddenComputers = false

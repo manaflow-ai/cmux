@@ -67,10 +67,10 @@ import Testing
         let store = MobileShellComposite(
             isSignedIn: true,
             pairedMacStore: WorkspaceMacSelectionPairedMacStore(pairedMacs),
+            personalIrohDiscovery: discovery,
             clientIDRepository: MobileClientIDRepository(defaults: defaults),
             identityProvider: WorkspaceMacSelectionIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
-            personalIrohDiscovery: discovery,
             pairingHintDefaults: defaults,
             multiMacAggregationDefaults: defaults
         )
