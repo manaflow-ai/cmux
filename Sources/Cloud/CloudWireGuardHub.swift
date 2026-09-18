@@ -412,6 +412,7 @@ actor CloudWireGuardHub {
             // readiness won immediately before this callback, dropping it would
             // publish a running hub whose child is already dead.
             pendingStartupExit = (exitedProcessID, status)
+            removeSocketFile()
             return
         case .running:
             state = .stopped
