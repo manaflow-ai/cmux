@@ -15,9 +15,16 @@ public struct TunnelFileDescriptor: Equatable, Sendable {
         self.addresses = addresses
     }
 
-    /// Selects the device used by the adapter from its current open descriptors.
+    /// Selects the unique configured interface, ignoring empty cancelled devices.
+    /// Duplicate handles for one interface are safe; multiple matching interfaces
+    /// are ambiguous and fail closed rather than sending packets to an old tunnel.
     public static func select(from candidates: [Self], matching expected: Set<Data>) -> Self? {
-        candidates.first
+        let matches = candidates.filter {
+            !$0.addresses.isEmpty && expected.isSubset(of: $0.addresses)
+        }
+        guard let first = matches.first,
+              matches.allSatisfy({ $0.interfaceName == first.interfaceName }) else { return nil }
+        return first
     }
 
     /// Finds a process-owned utun after NetworkExtension applies network settings.

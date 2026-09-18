@@ -6,6 +6,7 @@ cd "$root"
 output="${CMUX_TUNNEL_BUILD_OUTPUT:?set a job-owned output directory}"
 mkdir -p "$output"
 swift test --package-path Packages/macOS/CmuxCloudTunnelCore
+swift test --package-path vendor/WireGuardKit --filter TunnelFileDescriptorTests
 ./scripts/download-prebuilt-ghosttykit.sh
 # Target-only builds use explicit product/intermediate directories instead of
 # derivedDataPath, which Xcode accepts only together with a scheme.
