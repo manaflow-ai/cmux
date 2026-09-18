@@ -375,8 +375,9 @@ for arch in "${ARCHS[@]}"; do
       cargo build --manifest-path "$CARGO_ROOT/Cargo.toml" --locked -p cmux-cua --release --target "$target"; then
       cargo_status=0
       break
+    else
+      cargo_status=$?
     fi
-    cargo_status=$?
     if [ "$cargo_attempt" -lt 3 ]; then
       echo "cmux-cua Cargo build failed for $target (attempt $cargo_attempt/3); retrying transient dependency fetches" >&2
       sleep $((cargo_attempt * 5))
