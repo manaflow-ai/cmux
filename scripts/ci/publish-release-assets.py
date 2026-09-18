@@ -17,6 +17,7 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -243,56 +244,64 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
         _upload_verified(client, release_id, asset, existing)
         return
 
-    # Upload replacements under a unique temporary name first. This preserves
-    # the currently working alias/feed if the network or GitHub fails.
+    # Upload replacements under a unique temporary name first. The temporary
+    # name must exist both remotely and locally because curl streams the local
+    # path; clean it up even when GitHub or the network fails.
     temporary_name = f".cmux-upload-{name}-{asset.digest[7:19]}"
-    temporary = replace(asset, path=asset.path.with_name(temporary_name), replace=False)
-    backup_name = f".cmux-backup-{name}"
-    listing = client.assets(release_id)
-    temp_existing = listing.get(temporary_name)
-    if temp_existing and not temporary.matches(temp_existing):
-        client.delete(int(temp_existing["id"]))
-        temp_existing = None
-    temp_remote = _upload_verified(client, release_id, temporary, temp_existing)
-
-    listing = client.assets(release_id)
-    current = listing.get(name)
-    backup = listing.get(backup_name)
-    if current and asset.matches(current):
-        client.delete(int(temp_remote["id"]))
-        if backup:
-            client.delete(int(backup["id"]))
-        return
-
-    # Keep the old bytes under a deterministic backup name while the new temp
-    # is renamed. If the second PATCH is ambiguous or fails, the backup remains
-    # available for immediate restoration and for the next run to reconcile.
-    if current and current.get("state") == "starter":
-        client.delete(int(current["id"]))
-        current = None
-    if current:
-        if backup:
-            client.delete(int(backup["id"]))
-            backup = None
-        backup = _rename_verified(
-            client, release_id, current, backup_name,
-            size=int(current["size"]), digest=str(current["digest"]),
-        )
+    temporary_path = asset.path.with_name(temporary_name)
+    shutil.copyfile(asset.path, temporary_path)
     try:
-        _rename_verified(client, release_id, temp_remote, name, size=asset.size, digest=asset.digest)
-    except Exception:
-        # The old public name is absent only after the backup rename succeeded.
-        # Restore it before propagating the failure; if restoration itself is
-        # ambiguous, _rename_verified leaves the backup for the next run.
-        if backup:
-            _rename_verified(
-                client, release_id, backup, name,
-                size=int(backup["size"]), digest=str(backup["digest"]),
+        temporary = replace(asset, path=temporary_path, replace=False)
+        backup_name = f".cmux-backup-{name}"
+        listing = client.assets(release_id)
+        temp_existing = listing.get(temporary_name)
+        if temp_existing and not temporary.matches(temp_existing):
+            client.delete(int(temp_existing["id"]))
+            temp_existing = None
+        temp_remote = _upload_verified(client, release_id, temporary, temp_existing)
+
+        listing = client.assets(release_id)
+        current = listing.get(name)
+        backup = listing.get(backup_name)
+        if current and asset.matches(current):
+            client.delete(int(temp_remote["id"]))
+            if backup:
+                client.delete(int(backup["id"]))
+            return
+
+        # Keep the old bytes under a deterministic backup name while the new
+        # temp is renamed. If the second PATCH is ambiguous or fails, the
+        # backup remains available for immediate restoration and next-run
+        # reconciliation.
+        if current and current.get("state") == "starter":
+            client.delete(int(current["id"]))
+            current = None
+        if current:
+            if backup:
+                client.delete(int(backup["id"]))
+                backup = None
+            backup = _rename_verified(
+                client, release_id, current, backup_name,
+                size=int(current["size"]), digest=str(current["digest"]),
             )
-        raise
-    if backup:
-        client.delete(int(backup["id"]))
-    print(f"Verified replacement {name}", flush=True)
+        try:
+            _rename_verified(client, release_id, temp_remote, name, size=asset.size, digest=asset.digest)
+        except Exception:
+            # The old public name is absent only after the backup rename
+            # succeeded. Restore it before propagating the failure; if
+            # restoration is ambiguous, _rename_verified leaves the backup for
+            # the next run.
+            if backup:
+                _rename_verified(
+                    client, release_id, backup, name,
+                    size=int(backup["size"]), digest=str(backup["digest"]),
+                )
+            raise
+        if backup:
+            client.delete(int(backup["id"]))
+        print(f"Verified replacement {name}", flush=True)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def publish(client: GitHub, release_id: int, phases: list[list[Asset]]) -> None:

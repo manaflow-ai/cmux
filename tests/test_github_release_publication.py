@@ -156,6 +156,7 @@ class PublicationTests(unittest.TestCase):
             self.publish([asset])
         self.assertEqual(self.client.stored[asset.path.name], old)
         self.assertEqual([event[0] for event in self.client.events], ["upload", "upload", "upload"])
+        self.assertEqual(list(self.root.glob(".cmux-upload-*")), [])
 
     def test_immutable_digest_collision_is_fatal_without_deletion(self):
         asset = self.asset("build.dmg")
