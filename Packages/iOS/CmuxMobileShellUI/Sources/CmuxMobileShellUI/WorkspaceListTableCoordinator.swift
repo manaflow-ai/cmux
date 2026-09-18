@@ -688,7 +688,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         ).height
-        let scale = tableView.window?.screen.scale ?? UIScreen.main.scale
+        // A two-display phone can have more than one valid screen. Resolve
+        // the scale from this table's window first, then its local traits while
+        // it is between window attachments; never consult the process-wide
+        // main screen.
+        let scale = tableView.window?.screen.scale ?? tableView.traitCollection.displayScale
         let exact = max(1, ceil(measured * scale) / scale)
         heightCache.insert(exact, for: key, rowID: item.id)
         return exact
@@ -1228,7 +1232,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         tableView: UITableView,
         configuration: WorkspaceListTable
     ) -> HeightCacheKey {
-        let scale = tableView.window?.screen.scale ?? UIScreen.main.scale
+        // Keep the cache key tied to this table's window. `UIScreen.main` is
+        // ambiguous on devices with an outer and inner display.
+        let scale = tableView.window?.screen.scale ?? tableView.traitCollection.displayScale
         let kind: HeightKind
         switch item {
         case .workspace(let id, _):
