@@ -4544,7 +4544,7 @@ struct CMUXCLI {
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
-    private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
+    private static let defaultManagedSettingsDomain = "com.cmuxterm.app"
     /// The shared MDM resolver, bound to the target `domain`'s suite with the
     /// channel → release-domain fallback keyed off that domain.
     private static func managedDevicePolicy(
@@ -4638,7 +4638,7 @@ struct CMUXCLI {
             throw CLIError(message: "Unexpected argument: \(args[0])")
         }
 
-        let domain = Self.browserSettingsDomain(environment: environment)
+        let domain = Self.managedSettingsDomain(environment: environment)
         let defaults = UserDefaults(suiteName: domain) ?? .standard
         let configuredMode = SocketControlSettings.migrateMode(
             defaults.string(forKey: SocketControlSettings.appStorageKey)
@@ -4666,10 +4666,14 @@ struct CMUXCLI {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
     }
 
-    private static func browserSettingsDomain(environment: [String: String]) -> String {
+    /// The preference domain whose settings and MDM policies this invocation
+    /// reads: the app that launched the CLI, the app bundle the CLI ships
+    /// inside, or the release domain. Shared by every local status command, so
+    /// `cmux browser status` and `cmux socket status` report the same Mac.
+    private static func managedSettingsDomain(environment: [String: String]) -> String {
         normalizedEnvValue(environment["CMUX_BUNDLE_ID"])
         ?? containingAppBundleIdentifier()
-        ?? defaultBrowserSettingsDomain
+        ?? defaultManagedSettingsDomain
     }
 
     private func runBrowserAvailabilityCommand(
@@ -4700,7 +4704,7 @@ struct CMUXCLI {
             throw CLIError(message: "Unexpected argument: \(args[0])")
         }
 
-        let domain = Self.browserSettingsDomain(environment: environment)
+        let domain = Self.managedSettingsDomain(environment: environment)
         let defaults = UserDefaults(suiteName: domain) ?? .standard
         let managedByProfile = Self.browserAvailabilityManagedByProfile(
             defaults: defaults,
