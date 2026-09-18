@@ -3,6 +3,17 @@ import Testing
 
 @Suite("AgentLaunchEnvironmentPolicy")
 struct AgentLaunchEnvironmentPolicyTests {
+    @Test("Custom Codex executable remains scoped to Codex restores")
+    func customCodexExecutableRemainsScopedToCodexRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = ["CMUX_CUSTOM_CODEX_PATH": "/opt/custom/codex"]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex") == environment)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "pi").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: nil).isEmpty)
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
@@ -38,6 +49,161 @@ struct AgentLaunchEnvironmentPolicyTests {
             "PATH": "/nix/store/pi/bin:/usr/bin",
             "PI_CONFIG_DIR": ".custom-pi",
         ])
+    }
+
+    @Test(
+        "Restore records retain only trusted Subrouter Codex routing metadata",
+        arguments: ["sr", "subrouter", "cx"]
+    )
+    func restoreRecordsRetainTrustedSubrouterCodexMetadata(command: String) {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let selected = policy.selectedRestoreRecordEnvironment(
+            from: [
+                "OPENAI_API_KEY": "secret-should-not-cross-socket",
+                "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+                "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                "SUBROUTER_CODEX_SERVER": "team",
+                "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ])
+        #expect(
+            policy.selectedRestoreEnvironment(from: selected, kind: "codex")[
+                "SUBROUTER_CODEX_RESUME_COMMAND"
+            ] == nil
+        )
+    }
+
+    @Test("Restore records reject unsafe Subrouter routing metadata")
+    func restoreRecordsRejectUnsafeSubrouterRoutingMetadata() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreRecordEnvironment(
+            from: [
+                "SUBROUTER_CODEX_ACCOUNT_ID": "team\ncodex",
+                "SUBROUTER_CODEX_BASE_URL": "https://user:secret@router.example.test/v1",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "SUBROUTER_CODEX_SERVER": "team\nstaging",
+                "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test\nX-Injected: yes",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+        ])
+    }
+
+    @Test("Restore records do not persist tenant credentials embedded in URLs")
+    func restoreRecordsRejectTenantCredentialURLs() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreRecordEnvironment(
+            from: [
+                "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/t/srt_secret/v1",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "SUBROUTER_CODEX_SERVER": "team",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+        ])
+    }
+
+    @Test("Hook capture retains safe Subrouter routing metadata with its marker")
+    func hookCaptureRetainsSafeSubrouterRoutingMetadataWithMarker() {
+        let captured = SubrouterCodexResumeRouting().capturedEnvironment(in: [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ])
+
+        #expect(captured == [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ])
+    }
+
+    @Test("Shell replay retains routed Subrouter inputs without replaying its marker")
+    func shellReplayRetainsRoutedSubrouterInputsWithoutMarker() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
+            from: [
+                "OPENAI_API_KEY": "secret-should-not-replay",
+                "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+                "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "SUBROUTER_CODEX_SERVER": "team",
+                "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ])
+    }
+
+    @Test("Restore records reject unproved or noncanonical Subrouter metadata")
+    func restoreRecordsRejectUntrustedSubrouterMetadata() {
+        let policy = AgentLaunchEnvironmentPolicy()
+
+        #expect(policy.selectedRestoreRecordEnvironment(
+            from: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        ).isEmpty)
+        #expect(policy.selectedRestoreRecordEnvironment(
+            from: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex"]
+        ).isEmpty)
+        #expect(policy.selectedRestoreRecordEnvironment(
+            from: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume; echo unsafe"],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        ).isEmpty)
     }
 
     @Test("Preserves Campfire config roots and drops Pi-managed env")
