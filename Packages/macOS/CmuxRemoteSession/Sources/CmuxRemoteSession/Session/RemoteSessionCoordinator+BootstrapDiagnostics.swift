@@ -186,6 +186,15 @@ extension RemoteSessionCoordinator {
             }
         }
         let logSummary = hasLogTail ? "daemon log tail captured" : "daemon log unavailable"
-        return "remote path: \(path); remote size: \(size) bytes; remote mode: \(mode); \(logSummary)"
+        return String(
+            format: String(
+                localized: "remoteDaemon.bootstrap.diagnostics.summary",
+                defaultValue: "remote path: %@; remote size: %@ bytes; remote mode: %@; %@"
+            ),
+            path,
+            size,
+            mode,
+            logSummary
+        )
     }
 }

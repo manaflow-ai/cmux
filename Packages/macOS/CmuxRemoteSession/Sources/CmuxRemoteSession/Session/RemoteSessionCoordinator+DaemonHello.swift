@@ -3,6 +3,7 @@ internal import Foundation
 // The stdio hello is a separate bootstrap phase: upload/finalize can succeed
 // while the remote kernel still rejects execution of the promoted artifact.
 extension RemoteSessionCoordinator {
+    /// Executes the remote daemon hello request and parses its capability response.
     func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
         let request = #"{"id":1,"method":"hello","params":{}}"#
         let script = "printf '%s\\n' \(request.shellSingleQuoted) | \(remotePath.shellSingleQuoted) serve --stdio"

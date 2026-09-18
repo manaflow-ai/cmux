@@ -6,6 +6,7 @@ import Testing
 
 @Suite("Remote daemon upload process")
 struct RemoteDaemonUploadProcessTests {
+    /// Maps a permission-denied hello into the phase-specific user message.
     @Test("Hello execution failures retain the launch phase and safe reason")
     func helloFailureMessageIdentifiesPermissionDenied() {
         let error = NSError(domain: "cmux.remote.daemon", code: 40, userInfo: [
@@ -27,6 +28,7 @@ struct RemoteDaemonUploadProcessTests {
         )
     }
 
+    /// Proves a promoted upload can execute after all writer descriptors close.
     @Test("Upload closes inherited writer descriptors before promotion")
     func uploadDoesNotLeavePromotedBinaryBusy() throws {
         let fileManager = FileManager.default
@@ -59,7 +61,9 @@ struct RemoteDaemonUploadProcessTests {
         }
         let coordinator = RemoteDaemonUploadTests().makeCoordinator(runner: runner)
         defer { coordinator.stop() }
-        let finalURL = root.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        let installDirectory = root.appendingPathComponent("install", isDirectory: true)
+        try fileManager.createDirectory(at: installDirectory, withIntermediateDirectories: true)
+        let finalURL = installDirectory.appendingPathComponent("cmuxd-remote", isDirectory: false)
         let location = RemoteDaemonInstallLocation(
             relativePath: ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote",
             absolutePath: finalURL.path
@@ -89,7 +93,7 @@ struct RemoteDaemonUploadProcessTests {
         uploadProcess.waitUntilExit()
         #expect(uploadProcess.terminationStatus == 0)
         let temporaryURL = try #require(
-            fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            fileManager.contentsOfDirectory(at: installDirectory, includingPropertiesForKeys: nil)
                 .first {
                     $0.lastPathComponent.contains(".tmp-") &&
                         !$0.lastPathComponent.hasSuffix(".pid") &&
