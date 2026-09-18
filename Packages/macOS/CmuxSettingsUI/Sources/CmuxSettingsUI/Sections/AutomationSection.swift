@@ -30,6 +30,10 @@ public struct AutomationSection: View {
     @State private var showOpenAccessConfirmation: Bool = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var modeBeforePendingOpenAccess: SocketControlMode?
+    /// The MDM socket-mode policy. Kept in `@State` and refreshed from
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)``, so a profile
+    /// pushed while Settings is open locks the picker without a relaunch.
+    @State private var socketModePolicy = SocketControlModePolicy()
 
     private struct SocketPasswordStatus: Equatable {
         let message: String
@@ -129,20 +133,27 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var socketControlCard: some View {
-        let isPassword = modeModel.current == .password
-        let isAllowAll = modeModel.current == .allowAll
+        // Under a profile the picker shows the forced mode, not the stored
+        // one: the stored value is inert while the policy owns the listener.
+        let isManaged = socketModePolicy.isManaged
+        let displayedMode = socketModePolicy.mode ?? modeModel.current
+        let isPassword = !isManaged && modeModel.current == .password
+        let isAllowAll = !isManaged && modeModel.current == .allowAll
         let hasPassword = !socketPasswordModel.current.isEmpty
 
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.socketControlMode"),
                 String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
-                subtitle: modeModel.current.description,
+                subtitle: isManaged
+                    ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                    : modeModel.current.description,
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(
-                    get: { modeModel.current },
+                    get: { displayedMode },
                     set: { newValue in
+                        guard !isManaged else { return }
                         if newValue == .allowAll && modeModel.current != .allowAll {
                             modeBeforePendingOpenAccess = modeModel.current
                             pendingOpenAccessMode = newValue
@@ -163,10 +174,21 @@ public struct AutomationSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .disabled(isManaged)
                 .accessibilityIdentifier("AutomationSocketModePicker")
             }
             SettingsCardDivider()
-            SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."))
+            SettingsCardNote(
+                isManaged
+                    ? String(
+                        localized: "settings.automation.socketMode.managedNote",
+                        defaultValue: "Your organization sets the socket control mode on this Mac. It cannot be changed here, from cmux.json, or with the CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PASSWORD environment variables. Run cmux socket status to see the mode in force."
+                    )
+                    : String(
+                        localized: "settings.automation.socketMode.note",
+                        defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."
+                    )
+            )
 
             if isPassword {
                 SettingsCardDivider()
@@ -221,7 +243,14 @@ public struct AutomationSection: View {
                     .padding(.vertical, 8)
             }
 
-            SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
+            if !isManaged {
+                SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
+            }
+        }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                socketModePolicy = SocketControlModePolicy()
+            }
         }
     }
 

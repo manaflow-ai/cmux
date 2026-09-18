@@ -4602,6 +4602,66 @@ struct CMUXCLI {
         )
     }
 
+    private static func socketControlModePolicy(
+        defaults: UserDefaults,
+        domain: String
+    ) -> SocketControlModePolicy {
+        SocketControlModePolicy(
+            defaults: defaults,
+            managedDevicePolicy: managedDevicePolicy(defaults: defaults, domain: domain)
+        )
+    }
+
+    /// Reports the automation socket's effective access mode without dialing
+    /// it. `off` and a stopped app both leave nothing to connect to, which is
+    /// exactly when an administrator needs to verify the policy on a host.
+    private func runSocketStatusCommand(
+        commandArgs: [String],
+        jsonOutput globalJSONOutput: Bool,
+        environment: [String: String]
+    ) throws {
+        var effectiveJSONOutput = globalJSONOutput
+        var args = commandArgs
+        if let jsonIndex = args.firstIndex(of: "--json") {
+            effectiveJSONOutput = true
+            args.remove(at: jsonIndex)
+        }
+
+        guard let action = args.first?.lowercased() else {
+            throw CLIError(message: "socket requires a subcommand")
+        }
+        args = Array(args.dropFirst())
+        guard action == "status" else {
+            throw CLIError(message: "Unknown socket command: \(action)")
+        }
+        guard args.isEmpty else {
+            throw CLIError(message: "Unexpected argument: \(args[0])")
+        }
+
+        let domain = Self.browserSettingsDomain(environment: environment)
+        let defaults = UserDefaults(suiteName: domain) ?? .standard
+        let configuredMode = SocketControlSettings.migrateMode(
+            defaults.string(forKey: SocketControlSettings.appStorageKey)
+                ?? SocketControlSettings.defaultMode.rawValue
+        )
+        let report = SocketControlStatusReport(
+            configuredMode: configuredMode,
+            policy: Self.socketControlModePolicy(defaults: defaults, domain: domain),
+            environment: environment,
+            domain: domain,
+            socketPath: SocketControlSettings.socketPath(
+                environment: environment,
+                bundleIdentifier: domain
+            )
+        )
+
+        if effectiveJSONOutput {
+            print(jsonString(report.jsonObject))
+        } else {
+            print(report.summary)
+        }
+    }
+
     private static func containingAppBundleIdentifier() -> String? {
         normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
     }
@@ -5226,6 +5286,15 @@ struct CMUXCLI {
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 explicitPassword: socketPasswordArg
+            )
+            return
+        }
+
+        if command == "socket" {
+            try runSocketStatusCommand(
+                commandArgs: commandArgs,
+                jsonOutput: jsonOutput,
+                environment: processEnv
             )
             return
         }
@@ -8173,6 +8242,11 @@ struct CMUXCLI {
             return commandArgs.first?.lowercased() != "tui"
         case "disable-browser", "enable-browser", "browser-status":
             return true
+        case "socket":
+            // `socket status` reads the preference domain, never the socket:
+            // it must answer on a Mac where the mode is `off` or the app is
+            // not running, which is when an administrator needs it most.
+            return commandArgs.filter { $0 != "--json" }.first?.lowercased() == "status"
         case "browser":
             let availabilityAction = commandArgs
                 .filter { $0 != "--json" }
@@ -18474,6 +18548,18 @@ struct CMUXCLI {
             Usage: cmux browser-status [--json]
 
             Print whether cmux browser creation and link interception are enabled.
+            """
+        case "socket":
+            return """
+            Usage: cmux socket status [--json]
+
+            Print the automation socket's effective access mode, and whether a
+            configuration profile forces it. Reads the preference domain rather
+            than the socket, so it answers when the mode is off or the app is
+            not running.
+
+            JSON fields: mode, configured_mode, managed, source, domain, key,
+            socket_path.
             """
         case "agent-hibernation":
             return """
@@ -41130,6 +41216,7 @@ export default CMUXSessionRestore;
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
+          socket status [--json]
           agent-hibernation <on|off>
           \(restoreCommandUsageLine)
           \(forkCommandUsageLine)
