@@ -74,22 +74,24 @@ if (!/^[a-z0-9.-]+$/i.test(edgeAliasHost)) {
   process.exit(2);
 }
 const EDGE_PROBE = `curl -s -o /dev/null -w '%{http_code}' --max-time 4 https://${edgeAliasHost}/api/vm/reflection`;
-// The pulled deployment values first, then the operator's own environment
-// (a Vercel "sensitive" value pulls empty; ~/.secrets/cmux.env is the same
-// account), in either credential form the runtime accepts.
-const providerEnv = { ...process.env };
-for (const key of ["FREESTYLE_API_KEY", "FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID", "FREESTYLE_API_URL"]) {
-  if (env[key]?.trim()) providerEnv[key] = env[key];
-}
-const providerCredentials = providerCredentialsFromEnv(providerEnv);
+// A complete credential form from the deployment's pulled env first (the
+// account that allocates the benchmark machines), in either form the
+// runtime accepts; the operator's own environment only when the pull holds
+// none (a Vercel "sensitive" value pulls empty; ~/.secrets/cmux.env is the
+// same account). The two are never mixed key by key, or a local API key
+// could shadow the deployment's token pair and cleanup would inspect the
+// wrong account.
+const providerCredentials = providerCredentialsFromEnv(env) ?? providerCredentialsFromEnv(process.env);
 if (!providerCredentials) {
   console.error("bench-vm-startup: FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID, is required (pulled target env or process env) so cleanup can verify provider inventory");
   process.exit(2);
 }
 // Every provider fetch is bounded and the SDK's polling of a backgrounded
 // request ends at a deadline (pollBoundedFetch), so teardown's wait for
-// tracked requests is bounded by construction.
-const providerSdk = new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: 60_000, pollDeadlineMs: 15 * 60 * 1000 }) });
+// tracked requests is bounded by construction; a request abandoned at that
+// deadline may still complete at the platform and is reported as unresolved.
+const providerPolling = pollBoundedFetch({ fetchTimeoutMs: 60_000, pollDeadlineMs: 15 * 60 * 1000 });
+const providerSdk = new Freestyle({ ...providerCredentials, fetch: providerPolling.fetch });
 const app = new StackServerApp({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
   publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
@@ -722,6 +724,12 @@ function positiveInteger(raw, flag) {
   return value;
 }
 
+/** The background requests abandoned at the polling deadline, each reported for an operator; their operations may still complete at the platform. */
+function reportAbandonedProviderRequests() {
+  for (const url of providerPolling.abandoned) console.error(`cleanup_unresolved_provider_request=${url}`);
+  return [...providerPolling.abandoned];
+}
+
 /** A fresh session for the throwaway user; its tokens go only to the target origin. */
 async function mintSessionHeaders(expiresInMillis) {
   const session = await withTimeout(user.createSession({ expiresInMillis, isImpersonation: true }), STACK_TIMEOUT_MS, "Stack createSession");
@@ -732,7 +740,7 @@ async function mintSessionHeaders(expiresInMillis) {
 
 /** Everything teardown learned, so the report can say what really happened. */
 async function runCleanup() {
-  const cleanup = { machinesGone: false, providerClean: false, providerSettled: true, accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, unresolvedCreates: [], leftoverVmIds: [], keptUser: null };
+  const cleanup = { machinesGone: false, providerClean: false, providerSettled: true, abandonedProviderRequests: [], accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, unresolvedCreates: [], leftoverVmIds: [], keptUser: null };
   if (!user && !authHeaders) {
     const lookup = await reconcileCreatedUser();
     user = lookup.user;
@@ -760,7 +768,8 @@ async function runCleanup() {
     if (!cleanup.providerClean) cleanup.providerClean = await reapOwnerVpcMachines(user.id);
     await waitProviderSettled();
     cleanup.providerSettled = true;
-    if (cleanup.providerClean && (await reapOwnerNetwork(user.id))) {
+    cleanup.abandonedProviderRequests = reportAbandonedProviderRequests();
+    if (cleanup.providerClean && cleanup.abandonedProviderRequests.length === 0 && (await reapOwnerNetwork(user.id))) {
       try {
         await withTimeout(user.delete(), STACK_TIMEOUT_MS, "Stack user delete");
         cleanup.accountDeleted = true;
@@ -799,12 +808,16 @@ async function runCleanup() {
   if (user && !cleanup.providerClean) cleanup.providerClean = await reapOwnerVpcMachines(user.id);
   await waitProviderSettled();
   cleanup.providerSettled = true;
+  // A background request abandoned at the polling deadline settled here but
+  // may still complete at the platform (a delete above all); the account
+  // and its network stay until an operator has confirmed it.
+  cleanup.abandonedProviderRequests = reportAbandonedProviderRequests();
   if (cleanup.unresolvedCreates.length > 0) {
     // A create whose outcome is still unknown could yet record a machine;
     // the account (and its network) stay until an operator reconciles it.
     console.error(`cleanup_unresolved_creates=${cleanup.unresolvedCreates.join(",")} (the account is kept until they are reconciled)`);
   }
-  if (user && cleanup.machinesGone && cleanup.providerClean && cleanup.providerSettled && cleanup.unresolvedCreates.length === 0) {
+  if (user && cleanup.machinesGone && cleanup.providerClean && cleanup.providerSettled && cleanup.unresolvedCreates.length === 0 && cleanup.abandonedProviderRequests.length === 0) {
     let outcome = "failed";
     try {
       outcome = await deleteAccount();
@@ -837,7 +850,7 @@ async function runCleanup() {
     cleanup.keptUser = user.primaryEmail ?? user.id;
     console.error(`cleanup_needed_user=${cleanup.keptUser} (kept so the application's own account deletion can be retried: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account)`);
   }
-  cleanup.ok = !user || (cleanup.accountDeleted && cleanup.leftoverVmIds.length === 0 && cleanup.unresolvedCreates.length === 0 && cleanup.providerSettled);
+  cleanup.ok = !user || (cleanup.accountDeleted && cleanup.leftoverVmIds.length === 0 && cleanup.unresolvedCreates.length === 0 && cleanup.providerSettled && cleanup.abandonedProviderRequests.length === 0);
   return cleanup;
 }
 

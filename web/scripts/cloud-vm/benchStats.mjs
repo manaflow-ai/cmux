@@ -133,21 +133,26 @@ export function providerCredentialsFromEnv(env = process.env) {
  * never finishes would otherwise be tracked forever. Each fetch carries a
  * timeout, and a background request still being polled `pollDeadlineMs`
  * after its first poll is refused, which makes the SDK give up (after five
- * consecutive failures) and settles the request; the platform's own work
- * continues and the inventory sweeps that follow re-read it. `now` and
- * `fetchImpl` are injectable for tests.
+ * consecutive failures) and settles the request. Settling is not
+ * completion: the platform's own work continues, so every abandoned
+ * background request is recorded in `abandoned` (shared between clients
+ * when a caller passes one set), and a caller must report its cleanup as
+ * unresolved while that set is non-empty. `now` and `fetchImpl` are
+ * injectable for tests.
  */
-export function pollBoundedFetch({ fetchTimeoutMs, pollDeadlineMs, now = Date.now, fetchImpl = globalThis.fetch }) {
+export function pollBoundedFetch({ fetchTimeoutMs, pollDeadlineMs, abandoned = new Set(), now = Date.now, fetchImpl = globalThis.fetch }) {
   const firstPollAt = new Map();
-  return (input, init) => {
+  const fetch = (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.includes("/background-requests/")) {
       const first = firstPollAt.get(url) ?? now();
       firstPollAt.set(url, first);
       if (now() - first > pollDeadlineMs) {
+        abandoned.add(url);
         return Promise.reject(new Error(`provider background request exceeded ${pollDeadlineMs} ms`));
       }
     }
     return fetchImpl(input, { ...(init ?? {}), signal: AbortSignal.timeout(fetchTimeoutMs) });
   };
+  return { fetch, abandoned };
 }

@@ -68,7 +68,8 @@ function exitWithoutProviderCredentials(): never {
   process.exit(2);
 }
 const providerCredentials = providerCredentialsFromEnv() ?? exitWithoutProviderCredentials();
-const fs = new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: 180_000, pollDeadlineMs: 15 * 60 * 1000 }) });
+const providerPolling = pollBoundedFetch({ fetchTimeoutMs: 180_000, pollDeadlineMs: 15 * 60 * 1000 });
+const fs = new Freestyle({ ...providerCredentials, fetch: providerPolling.fetch });
 const runId = `bench-${randomUUID().slice(0, 8)}`;
 // The network's label: a mark independent of its slug, so a network that
 // merely carries the run's slug (a stale or colliding one) is never taken
@@ -492,6 +493,13 @@ try {
     }
     if (cleanupFailures.length === failuresBefore) break;
     if (pass === 1) console.error(`cleanup_pass=${pass} recorded ${cleanupFailures.length - failuresBefore} failure(s); running the pass again once the requests settle`);
+  }
+  // A background request abandoned at the polling deadline settled here but
+  // may still complete at the platform (a create above all); nothing here
+  // can confirm it, so the run reports each one and fails.
+  for (const url of providerPolling.abandoned) console.error(`cleanup_unresolved_provider_request=${url}`);
+  if (providerPolling.abandoned.size > 0) {
+    cleanupFailures.push(`${providerPolling.abandoned.size} provider background request(s) abandoned past the polling deadline; their operations may still complete: ${[...providerPolling.abandoned].join(", ")}`);
   }
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", interrupt);

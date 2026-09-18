@@ -133,10 +133,11 @@ describe("pollBoundedFetch", () => {
       calls.push({ url: String(input), signal: init?.signal ?? undefined });
       return new Response("ok");
     }) as typeof fetch;
-    const boundedFetch = pollBoundedFetch({ fetchTimeoutMs: 1_000, pollDeadlineMs: 5_000, fetchImpl });
+    const { fetch: boundedFetch, abandoned } = pollBoundedFetch({ fetchTimeoutMs: 1_000, pollDeadlineMs: 5_000, fetchImpl });
     await boundedFetch("https://api.example/v5/vms", { method: "POST" });
     expect(calls).toHaveLength(1);
     expect(calls[0].signal).toBeInstanceOf(AbortSignal);
+    expect(abandoned.size).toBe(0);
   });
 
   test("refuses to keep polling a background request past the deadline, per request", async () => {
@@ -146,16 +147,22 @@ describe("pollBoundedFetch", () => {
       seen.push(String(input));
       return new Response("", { status: 202 });
     }) as typeof fetch;
-    const boundedFetch = pollBoundedFetch({ fetchTimeoutMs: 1_000, pollDeadlineMs: 5_000, now: () => clock, fetchImpl });
+    const shared = new Set<string>();
+    const { fetch: boundedFetch, abandoned } = pollBoundedFetch({ fetchTimeoutMs: 1_000, pollDeadlineMs: 5_000, abandoned: shared, now: () => clock, fetchImpl });
     const poll = "https://api.example/v5/background-requests/abc";
     await boundedFetch(poll);
     clock = 4_999;
     await boundedFetch(poll);
     clock = 5_001;
     await expect(boundedFetch(poll)).rejects.toThrow("exceeded 5000 ms");
-    // Another background request starts its own clock, and plain requests are unaffected.
+    // The abandoned request is recorded (in the caller's shared set) because
+    // the platform may still complete it; another background request starts
+    // its own clock, and plain requests are unaffected.
+    expect(abandoned).toBe(shared);
+    expect([...abandoned]).toEqual([poll]);
     await boundedFetch("https://api.example/v5/background-requests/def");
     await boundedFetch("https://api.example/v5/vms/x");
     expect(seen).toHaveLength(4);
+    expect(abandoned.size).toBe(1);
   });
 });

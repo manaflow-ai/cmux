@@ -73,7 +73,11 @@ function exitWithoutProviderCredentials(): never {
 }
 const providerCredentials = providerCredentialsFromEnv() ?? exitWithoutProviderCredentials();
 const POLL_DEADLINE_MS = 15 * 60 * 1000;
-const providerClient = (timeoutMs = 60_000): Freestyle => new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: timeoutMs, pollDeadlineMs: POLL_DEADLINE_MS }) });
+// Background requests abandoned at the polling deadline, across every client
+// this run builds: they settled here but may still complete at the platform,
+// so the run reports each one and fails while any exists.
+const abandonedPolls = new Set<string>();
+const providerClient = (timeoutMs = 60_000): Freestyle => new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: timeoutMs, pollDeadlineMs: POLL_DEADLINE_MS, abandoned: abandonedPolls }).fetch });
 const sdk = providerClient();
 const selection = resolveVmImage("freestyle", option("--image"), process.env, { kind: "desktop", memoryMb: size.memoryMb });
 const image = selection.image;
@@ -304,6 +308,10 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, cl
     if (failures.length > 0) {
       console.error(`cleanup_pass=1 recorded ${failures.length} failure(s); running the pass again once the requests settle`);
       failures = yield* pass;
+    }
+    for (const url of abandonedPolls) console.error(`cleanup_unresolved_provider_request=${url}`);
+    if (abandonedPolls.size > 0) {
+      failures.push(`${abandonedPolls.size} provider background request(s) abandoned past the polling deadline; their operations may still complete: ${[...abandonedPolls].join(", ")}`);
     }
     if (failures.length > 0) {
       for (const failure of failures) console.error(`cleanup_reconcile_failed ${failure}`);
