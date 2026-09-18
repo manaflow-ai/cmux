@@ -57,6 +57,28 @@ struct CloudNightlyOverrideTests {
         #expect(defaults.object(forKey: "cmux.flags.override.\(cloud.key)") == nil)
     }
 
+    @Test
+    func ordinaryDebugBuildKeepsPersistedCloudSettings() throws {
+        let suite = "cmux.cloud.debug.stable.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let betaKey = BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey
+        let overrideKey = "cmux.flags.override.\(cloud.key)"
+        defaults.set(true, forKey: betaKey)
+        defaults.set(true, forKey: overrideKey)
+
+        _ = CmuxFeatureFlags(
+            defaults: defaults,
+            overrideCapability: CmuxFeatureFlagOverrideCapability(
+                bundleIdentifier: "com.cmuxterm.app.debug", isDebugBuild: true, cloudDogfoodRequested: false
+            ),
+            remoteFlagValueProvider: { _ in false }
+        )
+
+        #expect(defaults.bool(forKey: betaKey))
+        #expect(defaults.bool(forKey: overrideKey))
+    }
+
     @Test(arguments: [false, true])
     func nightlyPickerControlsEitherRemoteValue(remote: Bool) throws {
         let suite = "cmux.cloud.nightly.picker.\(UUID().uuidString)"
