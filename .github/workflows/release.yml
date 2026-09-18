@@ -124,6 +124,13 @@ jobs:
             exit 0
           fi
           gh release download rc --repo "$GITHUB_REPOSITORY" --pattern "$ASSET" --output cmux-macos.dmg
+          # The candidate's SSH daemon assets stay referenced from the `rc`
+          # release by the promoted app; archive a copy on the stable release.
+          mkdir -p remote-daemon-assets
+          gh release download rc --repo "$GITHUB_REPOSITORY" --pattern "cmuxd-remote-*-${BUILD}*" --dir remote-daemon-assets
+          python3 scripts/verify_remote_daemon_release.py \
+            --manifest "remote-daemon-assets/cmuxd-remote-manifest-${BUILD}.json" \
+            --assets-dir remote-daemon-assets
           # The candidate must be exactly what the tag says it is.
           xcrun stapler validate cmux-macos.dmg
           MOUNT="$(mktemp -d)"
@@ -166,6 +173,7 @@ jobs:
           files: |
             cmux-macos.dmg
             appcast.xml
+            remote-daemon-assets/cmuxd-remote-*
           generate_release_notes: true
           overwrite_files: false
 
