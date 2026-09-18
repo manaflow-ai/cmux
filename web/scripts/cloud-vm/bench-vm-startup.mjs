@@ -72,6 +72,9 @@ const app = new StackServerApp({
 const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
 const benchEmail = `cmux-${project.stackLabel}-bench+${suffix}@manaflow.dev`;
 const liveVmIds = new Set();
+// Creates whose response never arrived (idempotency key → request time): the
+// server may still be making the machine, so teardown resolves them first.
+const ambiguousCreates = new Map();
 let user;
 let authHeaders;
 // Fail closed: an interrupt stops scheduling, the current request finishes,
@@ -116,6 +119,20 @@ async function fetchTimed(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The provider SDK polls a backgrounded request indefinitely while the
+ * platform answers 202, so every cleanup call to it is raced against a
+ * deadline; the request itself cannot be cancelled, and the sweep that
+ * follows re-reads the inventory anyway.
+ */
+function boundedSdk(promise, ms, label) {
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
 function json(text) {
@@ -200,11 +217,21 @@ async function edgeReady(vmId) {
 
 async function runTrial(index) {
   const trial = { index, startedAt: new Date().toISOString() };
-  const create = await fetchTimed(`${targetUrl}/api/vm`, {
-    method: "POST",
-    headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `bench-${suffix}-${index}` },
-    body: "{}",
-  }, CREATE_TIMEOUT_MS);
+  const idempotencyKey = `bench-${suffix}-${index}`;
+  const createRequestedAt = Date.now();
+  let create;
+  try {
+    create = await fetchTimed(`${targetUrl}/api/vm`, {
+      method: "POST",
+      headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": idempotencyKey },
+      body: "{}",
+    }, CREATE_TIMEOUT_MS);
+  } catch (error) {
+    // No response at all (reset, abort): the server may still be creating
+    // with nothing recorded yet, invisible to both sweeps until it finishes.
+    ambiguousCreates.set(idempotencyKey, createRequestedAt);
+    throw error;
+  }
   trial.createMs = create.ms;
   trial.createStatus = create.status;
   trial.createTraceId = create.headers.get("x-cmux-trace-id");
@@ -272,6 +299,57 @@ async function runBatches() {
 }
 
 /**
+ * A create whose response never arrived may still be running on the server
+ * (up to the route's maxDuration) with nothing recorded, so neither sweep
+ * would see its machine yet. Re-POSTing the same idempotency key answers 200
+ * with the machine once it exists, 409 while it is still being made, and
+ * `vm_create_failed` when nothing will be; a key the server never received
+ * simply creates a machine now, which is destroyed like any other. Past the
+ * server deadline nothing can still be in progress, so the sweeps that
+ * follow are authoritative either way. Returns the keys left unresolved.
+ */
+async function resolveAmbiguousCreates() {
+  const unresolved = [];
+  for (const [key, requestedAt] of ambiguousCreates) {
+    const deadline = requestedAt + CREATE_TIMEOUT_MS;
+    let outcome = null;
+    while (outcome === null) {
+      try {
+        const response = await fetchTimed(`${targetUrl}/api/vm`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": key },
+          body: "{}",
+        }, CREATE_TIMEOUT_MS);
+        const body = json(response.text);
+        if (response.status === 200 && typeof body.id === "string") {
+          liveVmIds.add(body.id);
+          outcome = `vm=${body.id}`;
+        } else if (body.error === "vm_create_failed") {
+          outcome = "failed";
+        } else if (response.status < 500 && response.status !== 409) {
+          // A 409 (in progress, or a limit the original create may already
+          // hold) is not an answer about the original request; keep asking.
+          outcome = `rejected status=${response.status}`;
+        }
+      } catch (error) {
+        console.error(`cleanup_resolve_create_failed key=${key} error=${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (outcome === null) {
+        if (Date.now() >= deadline) {
+          outcome = "past server deadline";
+          unresolved.push(key);
+        } else {
+          await sleep(5_000);
+        }
+      }
+    }
+    console.error(`cleanup_resolve_create key=${key} ${outcome}`);
+  }
+  ambiguousCreates.clear();
+  return unresolved;
+}
+
+/**
  * Reconcile before deleting: a create whose response was lost (timeout,
  * interrupt) still made a machine under this throwaway user, and the user
  * owns nothing else, so every listed machine is ours to destroy.
@@ -318,7 +396,7 @@ async function destroyLeftovers() {
 /** The provider's view of the throwaway user's owner network, or null when none exists. */
 async function ownerVpc(userId) {
   try {
-    return await providerSdk.vpc.get(ownerNetworkSlug(userId));
+    return await boundedSdk(providerSdk.vpc.get(ownerNetworkSlug(userId)), 30_000, "vpc get");
   } catch (error) {
     if (error instanceof FreestyleApiError && error.status === 404) return null;
     throw error;
@@ -340,7 +418,7 @@ async function machinesOnVpc(vpcId) {
     let page = null;
     for (let attempt = 0; attempt < 3 && page === null; attempt += 1) {
       try {
-        page = await providerSdk.vms.list({ limit: 200, offset });
+        page = await boundedSdk(providerSdk.vms.list({ limit: 200, offset }), 60_000, "vms list");
       } catch (error) {
         if (attempt === 2) console.error(`cleanup_provider_inventory_failed offset=${offset} error=${error instanceof Error ? error.message : String(error)}`);
         else await sleep(1_500);
@@ -375,7 +453,7 @@ async function reapOwnerVpcMachines(userId) {
       console.error(`cleanup_reconcile_vm=${id}`);
       for (let attempt = 0; attempt < 3; attempt += 1) {
         try {
-          await providerSdk.vms.delete(id);
+          await boundedSdk(providerSdk.vms.delete(id), 60_000, "vm delete");
           break;
         } catch (error) {
           if (error instanceof FreestyleApiError && error.status === 404) break;
@@ -404,7 +482,7 @@ async function reapOwnerNetwork(userId) {
   const provider = providerSdk;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     try {
-      await provider.vpc.delete(slug);
+      await boundedSdk(provider.vpc.delete(slug), 60_000, "vpc delete");
       console.error(`cleanup_network_deleted=${slug}`);
       return true;
     } catch (error) {
@@ -497,7 +575,7 @@ function positiveInteger(raw, flag) {
 
 /** Everything teardown learned, so the report can say what really happened. */
 async function runCleanup() {
-  const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, leftoverVmIds: [], keptUser: null };
+  const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, unresolvedCreates: [], leftoverVmIds: [], keptUser: null };
   if (!user && !authHeaders) {
     const lookup = await reconcileCreatedUser();
     user = lookup.user;
@@ -534,6 +612,7 @@ async function runCleanup() {
     cleanup.ok = cleanup.accountDeleted;
     return cleanup;
   }
+  cleanup.unresolvedCreates = await resolveAmbiguousCreates();
   cleanup.machinesGone = await destroyLeftovers();
   for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
   cleanup.leftoverVmIds = [...liveVmIds];

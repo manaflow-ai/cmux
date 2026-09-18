@@ -101,7 +101,17 @@ function bounded<T>(promise: Promise<T>, ms: number, label: string): Promise<T> 
 async function settleInFlight(ms: number): Promise<void> {
   if (inFlight.size === 0) return;
   console.error(`cleanup_waiting_for_in_flight=${inFlight.size}`);
-  await Promise.race([Promise.allSettled([...inFlight]), new Promise((resolve) => setTimeout(resolve, ms))]);
+  // The deadline timer is cleared once the requests settle, or it would keep
+  // the process alive for the rest of the wait after the report is written.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([Promise.allSettled([...inFlight]), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
   if (inFlight.size > 0) cleanupFailures.push(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
 }
 
@@ -180,7 +190,7 @@ async function reconcileRunVms(): Promise<void> {
     let page: Awaited<ReturnType<typeof fs.vms.list>> | null = null;
     for (let attempt = 0; attempt < 3 && page === null; attempt += 1) {
       try {
-        page = await fs.vms.list({ metadata: `cmux:bench,run:${runId}`, limit: 200, offset });
+        page = await bounded(fs.vms.list({ metadata: `cmux:bench,run:${runId}`, limit: 200, offset }), 60_000, "list");
       } catch (error) {
         if (attempt === 2) listingError = error instanceof Error ? error.message : String(error);
         else await new Promise((resolve) => setTimeout(resolve, 1_500));
@@ -204,7 +214,7 @@ async function reconcileRunVms(): Promise<void> {
 async function deleteVpcWithRetry(id: string): Promise<void> {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     try {
-      await fs.vpc.delete(id);
+      await bounded(fs.vpc.delete(id), 60_000, "vpc delete");
       return;
     } catch (error) {
       if (!(error instanceof FreestyleApiError && error.status === 409) || attempt === 11) throw error;
@@ -326,7 +336,7 @@ let vpcId: string | null = null;
 const results: { sequential: Trial[]; burst: Trial[] } = { sequential: [], burst: [] };
 try {
   if (withVpc) {
-    const created = await timed(() => fs.vpc.create({ slug: runId, displayName: runId, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }));
+    const created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runId, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
     vpcId = created.value.data.id;
     console.error(`vpc ${vpcId} created in ${created.ms} ms`);
   }

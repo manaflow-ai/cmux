@@ -76,12 +76,26 @@ function bounded<T>(promise: Promise<T>, ms: number, label: string): Promise<T> 
 async function settleInFlight(ms: number): Promise<void> {
   if (inFlight.size === 0) return;
   console.error(`cleanup_waiting_for_in_flight=${inFlight.size}`);
-  await Promise.race([Promise.allSettled([...inFlight]), new Promise((resolve) => setTimeout(resolve, ms))]);
+  // The deadline timer is cleared once the requests settle, or it would keep
+  // the process alive for the rest of the wait after the report is written.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  try {
+    await Promise.race([Promise.allSettled([...inFlight]), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
   if (inFlight.size > 0) throw new Error(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
 }
 
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
   Effect.tryPromise({ try: run, catch: (error) => new Error(`${label}: ${error instanceof Error ? error.message : String(error)}`) });
+
+/** An `attempt` with a deadline: the SDK polls a backgrounded request indefinitely, so a cleanup call must not wait on it forever. */
+const attemptWithin = <A>(label: string, run: (signal: AbortSignal) => Promise<A>, timeout: Duration.DurationInput) =>
+  attempt(label, run).pipe(Effect.timeoutFail({ duration: timeout, onTimeout: () => new Error(`${label}: timed out`) }));
 
 /** One bounded client command over the link's local socket; stdout is the result. */
 function command(clientPath: string, commandArgs: string[], label: string, timeout: Duration.DurationInput = "30 seconds") {
@@ -147,22 +161,22 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string) {
     const failures: string[] = [];
     const settled = yield* Effect.either(attempt("settle in-flight provider requests", () => settleInFlight(300_000)));
     if (settled._tag === "Left") failures.push(settled.left.message);
-    const tunnels = yield* Effect.either(attempt("list tunnels", () => sdk.tunnels.list()));
+    const tunnels = yield* Effect.either(attemptWithin("list tunnels", () => sdk.tunnels.list(), "60 seconds"));
     if (tunnels._tag === "Left") failures.push(tunnels.left.message);
     else {
       for (const tunnel of tunnels.right.tunnels ?? []) {
         if (tunnel.slug !== slug) continue;
         const id = tunnel.tunnelId ?? tunnel.id;
         console.error(`cleanup_reconcile_tunnel=${id}`);
-        const deleted = yield* Effect.either(attempt(`delete tunnel ${id}`, () => networking.deleteTunnel(id)));
+        const deleted = yield* Effect.either(attemptWithin(`delete tunnel ${id}`, () => tracked(networking.deleteTunnel(id)), "60 seconds"));
         if (deleted._tag === "Left") failures.push(deleted.left.message);
       }
     }
-    const network = yield* Effect.either(attempt("read network by slug", () => sdk.vpc.get(slug)));
+    const network = yield* Effect.either(attemptWithin("read network by slug", () => sdk.vpc.get(slug), "30 seconds"));
     if (network._tag === "Right") {
       console.error(`cleanup_reconcile_network=${network.right.id}`);
       yield* reconcileRunMachines(provider, network.right.id);
-      const deleted = yield* Effect.either(attempt(`delete VPC ${slug}`, () => networking.deleteNetwork(network.right.id)).pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
+      const deleted = yield* Effect.either(attemptWithin(`delete VPC ${slug}`, () => tracked(networking.deleteNetwork(network.right.id)), "60 seconds").pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
       if (deleted._tag === "Left") failures.push(deleted.left.message);
     } else if (!/404|not found/i.test(network.left.message)) {
       failures.push(network.left.message);
@@ -245,7 +259,7 @@ function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
     let total = Number.POSITIVE_INFINITY;
     while (offset < total && offset < 100_000 && listingError === null) {
       const page = yield* Effect.either(
-        attempt("list machines", () => sdk.vms.list({ metadata: "cmux:cloud", limit: 200, offset })).pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("1500 millis") })),
+        attemptWithin("list machines", () => sdk.vms.list({ metadata: "cmux:cloud", limit: 200, offset }), "60 seconds").pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("1500 millis") })),
       );
       if (page._tag === "Left") { listingError = page.left.message; break; }
       for (const data of page.right.vms) {
@@ -269,7 +283,7 @@ function reconcileRunMachines(provider: FreestyleProvider, networkId: string) {
     for (const id of listed.ids) {
       console.error(`cleanup_reconcile_vm=${id}`);
       const destroyed = yield* Effect.either(
-        attempt(`destroy ${id}`, () => provider.destroy(id)).pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("2500 millis") })),
+        attemptWithin(`destroy ${id}`, () => tracked(provider.destroy(id)), "120 seconds").pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("2500 millis") })),
       );
       if (destroyed._tag === "Left") failures.push(destroyed.left.message);
     }
