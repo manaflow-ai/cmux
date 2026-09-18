@@ -6,9 +6,20 @@ import UIKit
 
 @MainActor
 extension GhosttySurfaceView {
-    /// Keeps phone overlay-sidebar transitions from replacing a proven
-    /// full-width report with a temporary split-column width. iPad panes always
-    /// report their current drawable width.
+    /// The compact outer display can temporarily overlay the terminal with a
+    /// sidebar, while the regular inner display reports its actual split
+    /// column width. Size class is the available-space signal that remains
+    /// correct when both displays use the phone idiom.
+    static func preservesWidestRenderedWidth(
+        for horizontalSizeClass: UIUserInterfaceSizeClass
+    ) -> Bool {
+        horizontalSizeClass == .compact
+    }
+
+    /// Keeps compact-width overlay-sidebar transitions from replacing a
+    /// proven full-width report with a temporary split-column width. The
+    /// opened iPhone Duo display is regular width even though its idiom is
+    /// still `.phone`, so layout behavior must follow the available space.
     func columnReportContainerWidth(currentWidth: CGFloat) -> CGFloat {
         let currentWindowSize = window?.bounds.size ?? bounds.size
         if abs(currentWindowSize.width - reportWidthWindowSize.width) > 1 ||
@@ -21,7 +32,9 @@ extension GhosttySurfaceView {
         return TerminalColumnReportWidthSelection(
             currentWidth: currentWidth,
             widestRenderedWidth: widestRenderedContainerWidth,
-            preservesWidestRenderedWidth: traitCollection.userInterfaceIdiom == .phone
+            preservesWidestRenderedWidth: Self.preservesWidestRenderedWidth(
+                for: traitCollection.horizontalSizeClass
+            )
         ).width ?? currentWidth
     }
 
