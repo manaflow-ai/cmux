@@ -83,7 +83,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   if (!input.ok) return input.response;
   const { deviceToken, bundle, platform, installationId, pushKeyId, pushPublicKey, isLegacy } = input.value;
   const authSessionFingerprint = requestAuthSessionFingerprint(request);
-  if (!authSessionFingerprint) {
+  if (!isLegacy && !authSessionFingerprint) {
     return jsonResponse({ error: "push_registration_requires_session_id" }, 409);
   }
 
@@ -154,17 +154,19 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         existingInstallation?.deliveryLeaseUntil?.getTime() ?? 0,
         existingToken?.deliveryLeaseUntil?.getTime() ?? 0,
       );
-      const [sessionRevocation] = await tx
-        .select({ id: deviceTokenRevocations.id })
-        .from(deviceTokenRevocations)
-        .where(and(
-          eq(deviceTokenRevocations.userId, user.id),
-          eq(deviceTokenRevocations.deviceToken, deviceToken),
-          eq(deviceTokenRevocations.bundleId, bundle.bundleId),
-          eq(deviceTokenRevocations.authSessionFingerprint, authSessionFingerprint),
-          gt(deviceTokenRevocations.expiresAt, new Date()),
-        ))
-        .limit(1);
+      const [sessionRevocation] = authSessionFingerprint
+        ? await tx
+          .select({ id: deviceTokenRevocations.id })
+          .from(deviceTokenRevocations)
+          .where(and(
+            eq(deviceTokenRevocations.userId, user.id),
+            eq(deviceTokenRevocations.deviceToken, deviceToken),
+            eq(deviceTokenRevocations.bundleId, bundle.bundleId),
+            eq(deviceTokenRevocations.authSessionFingerprint, authSessionFingerprint),
+            gt(deviceTokenRevocations.expiresAt, new Date()),
+          ))
+          .limit(1)
+        : [];
       if (sessionRevocation) {
         return { limitReached: false, authRevoked: true };
       }
@@ -247,15 +249,17 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           })
           .where(and(
             eq(deviceTokens.id, rowToUpdate.id),
-            sql`not exists (
-              select 1
-              from device_token_revocations
-              where user_id = ${user.id}
-                and device_token = ${deviceToken}
-                and bundle_id = ${bundle.bundleId}
-                and auth_session_fingerprint = ${authSessionFingerprint}
-                and expires_at > now()
-            )`,
+            authSessionFingerprint
+              ? sql`not exists (
+                  select 1
+                  from device_token_revocations
+                  where user_id = ${user.id}
+                    and device_token = ${deviceToken}
+                    and bundle_id = ${bundle.bundleId}
+                    and auth_session_fingerprint = ${authSessionFingerprint}
+                    and expires_at > now()
+                )`
+              : sql`true`,
           ));
       } else {
         await tx.insert(deviceTokens).values({
