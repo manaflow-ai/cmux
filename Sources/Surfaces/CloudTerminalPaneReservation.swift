@@ -16,21 +16,22 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     private let lock = NSLock()
     private var router: CloudTuiManualIOInputRouter?
     private var remoteSink: RemoteSink?
+    /// Input waiting for a remote terminal or for the explicit surface handoff.
     private var pending: [TerminalManualInput] = []
-    private var remoteTail: Task<Void, Never>?
+    /// The single FIFO consumed by `remoteWorker`.
+    private var remoteQueue: [TerminalManualInput] = []
+    private var remoteWorker: Task<Void, Never>?
+    private var remoteInFlight = false
     private var remoteEpoch: UInt64 = 0
-    private var remoteGeneration: UInt64 = 0
-    private var remoteQueuedCount = 0
     private var requestedRouter: CloudTuiManualIOInputRouter?
     private var discarded = false
-    /// Bounded like the router's own queue: a runaway paste into a pane that
-    /// never attaches must not grow without limit.
+    /// Bounds all input retained by this relay, including the in-flight item.
     private let pendingLimit = 4_096
 
-    /// Number of inputs waiting for a router. Diagnostics and tests only.
+    /// Number of inputs retained by the relay. Diagnostics and tests only.
     var pendingCount: Int {
         lock.lock(); defer { lock.unlock() }
-        return pending.count + remoteQueuedCount
+        return pending.count + remoteQueue.count + (remoteInFlight ? 1 : 0)
     }
 
     /// Callable from Ghostty's I/O thread, like the router it fronts.
@@ -41,13 +42,14 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             router.send(input)
             return
         }
-        guard !discarded else {
+        guard !discarded, retainedInputCountLocked < pendingLimit else {
             lock.unlock()
             return
         }
-        if let remoteSink {
-            enqueueRemoteLocked(input, sink: remoteSink)
-        } else if pending.count < pendingLimit {
+        if remoteSink != nil {
+            remoteQueue.append(input)
+            startRemoteWorkerLocked()
+        } else {
             pending.append(input)
         }
         lock.unlock()
@@ -75,11 +77,9 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         let sink = RemoteSink(terminalID: terminalID, sender: sender)
         remoteSink = sink
         remoteEpoch &+= 1
-        let queued = pending
+        remoteQueue.append(contentsOf: pending)
         pending.removeAll(keepingCapacity: true)
-        for input in queued {
-            enqueueRemoteLocked(input, sink: sink)
-        }
+        startRemoteWorkerLocked()
         promoteRequestedRouterIfReadyLocked()
         lock.unlock()
     }
@@ -100,85 +100,104 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     func discard() {
         lock.lock()
         pending.removeAll()
+        remoteQueue.removeAll()
         requestedRouter = nil
         remoteSink = nil
         remoteEpoch &+= 1
-        remoteGeneration &+= 1
-        remoteTail?.cancel()
-        remoteTail = nil
-        remoteQueuedCount = 0
+        remoteWorker?.cancel()
+        remoteWorker = nil
+        remoteInFlight = false
         router = nil
         discarded = true
         lock.unlock()
     }
 
-    private func enqueueRemoteLocked(_ input: TerminalManualInput, sink: RemoteSink) {
-        remoteQueuedCount += 1
-        remoteGeneration &+= 1
+    private var retainedInputCountLocked: Int {
+        pending.count + remoteQueue.count + (remoteInFlight ? 1 : 0)
+    }
+
+    private func startRemoteWorkerLocked() {
+        guard remoteWorker == nil, remoteSink != nil, !remoteQueue.isEmpty else { return }
         let epoch = remoteEpoch
-        let generation = remoteGeneration
-        let previous = remoteTail
-        remoteTail = Task { [weak self, previous] in
-            await previous?.value
-            guard !Task.isCancelled else {
-                self?.remoteDeliveryFinished(epoch: epoch, generation: generation, input: nil, error: nil)
-                return
-            }
-            do {
-                guard let self, self.canDeliverRemote(epoch: epoch) else {
-                    self?.remoteDeliveryFinished(
-                        epoch: epoch,
-                        generation: generation,
-                        input: input,
-                        error: CancellationError()
-                    )
-                    return
+        remoteWorker = Task { [weak self] in
+            while let self, let item = self.takeRemoteInput(epoch: epoch) {
+                guard let sink = self.remoteSinkForDelivery(epoch: epoch) else { break }
+                do {
+                    guard let request = Self.request(for: item, sink: sink) else {
+                        self.remoteInputFinished(epoch: epoch)
+                        continue
+                    }
+                    try await sink.sender.sendUntrackedTuiCommand(arguments: request)
+                    self.remoteInputFinished(epoch: epoch)
+                } catch {
+                    self.remoteInputFailed(epoch: epoch, input: item)
+                    break
                 }
-                guard let request = Self.request(for: input, sink: sink) else {
-                    self.remoteDeliveryFinished(epoch: epoch, generation: generation, input: nil, error: nil)
-                    return
-                }
-                try await sink.sender.sendUntrackedTuiCommand(arguments: request)
-                self.remoteDeliveryFinished(epoch: epoch, generation: generation, input: nil, error: nil)
-            } catch {
-                // `sendUntrackedTuiCommand` checks cancellation before writing,
-                // so an error means this event did not reach the channel. Keep it
-                // for the surface handoff or the next authenticated retry.
-                self.remoteDeliveryFinished(epoch: epoch, generation: generation, input: input, error: error)
             }
+            self?.remoteWorkerFinished(epoch: epoch)
         }
     }
 
-    private func remoteDeliveryFinished(
-        epoch: UInt64,
-        generation: UInt64,
-        input: TerminalManualInput?,
-        error: Error?
-    ) {
+    private func takeRemoteInput(epoch: UInt64) -> TerminalManualInput? {
         lock.lock()
         defer { lock.unlock() }
-        guard !discarded, epoch == remoteEpoch, generation <= remoteGeneration else { return }
-        if let input, error != nil, pending.count < pendingLimit {
-            pending.append(input)
-            // A failed persistent channel is no longer a safe target. A future
-            // retry binds a fresh link and drains this event exactly once.
-            remoteSink = nil
+        guard !discarded, epoch == remoteEpoch, remoteSink != nil,
+              let item = remoteQueue.first else { return nil }
+        remoteQueue.removeFirst()
+        remoteInFlight = true
+        return item
+    }
+
+    private func remoteSinkForDelivery(epoch: UInt64) -> RemoteSink? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !discarded, epoch == remoteEpoch else { return nil }
+        return remoteSink
+    }
+
+    private func remoteInputFinished(epoch: UInt64) {
+        lock.lock()
+        guard !discarded, epoch == remoteEpoch else {
+            lock.unlock()
+            return
         }
-        remoteQueuedCount = max(0, remoteQueuedCount - 1)
-        guard generation == remoteGeneration, remoteQueuedCount == 0 else { return }
-        remoteTail = nil
+        remoteInFlight = false
+        lock.unlock()
+    }
+
+    private func remoteInputFailed(epoch: UInt64, input: TerminalManualInput) {
+        lock.lock()
+        guard !discarded, epoch == remoteEpoch else {
+            lock.unlock()
+            return
+        }
+        // The failing item was removed from the FIFO for delivery. Reinsert it
+        // before the untouched suffix, then stop the worker so a retry can bind
+        // a fresh authenticated sink without reordering any later input.
+        pending.append(input)
+        pending.append(contentsOf: remoteQueue)
+        remoteQueue.removeAll(keepingCapacity: true)
+        remoteSink = nil
+        remoteInFlight = false
+        lock.unlock()
+    }
+
+    private func remoteWorkerFinished(epoch: UInt64) {
+        lock.lock()
+        guard !discarded, epoch == remoteEpoch else {
+            lock.unlock()
+            return
+        }
+        remoteWorker = nil
+        remoteInFlight = false
+        startRemoteWorkerLocked()
         promoteRequestedRouterIfReadyLocked()
-    }
-
-    private func canDeliverRemote(epoch: UInt64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return !discarded && epoch == remoteEpoch && remoteSink != nil
+        lock.unlock()
     }
 
     private func promoteRequestedRouterIfReadyLocked() {
         guard router == nil, let requestedRouter,
-              remoteTail == nil, remoteQueuedCount == 0 else { return }
+              remoteWorker == nil, remoteQueue.isEmpty, !remoteInFlight else { return }
         self.requestedRouter = nil
         router = requestedRouter
         // Enqueue the backlog before publishing the router. `send()` only
