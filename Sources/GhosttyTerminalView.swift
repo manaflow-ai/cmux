@@ -13080,10 +13080,8 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
             scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // Keep the scroller visible whenever terminal scrollback exists. The
-        // scroller style itself is intentionally left to AppKit, which follows
-        // the user's Appearance > Show scroll bars preference and updates this
-        // scroll view when NSScroller.preferredScrollerStyle changes.
+        // AppKit owns the style (Show scroll bars preference); the policy owns
+        // presence so legacy gutters never depend on terminal scrollback.
         scrollView.autohidesScrollers = false
         updateTrackingAreas()
         return didChange
@@ -13160,14 +13158,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        guard terminalScrollBarAllowedBySettings() else { return false }
-        guard let hasScrollback = surfaceHasScrollback() else {
-            // Ghostty reports scrollback asynchronously. Until the first packet
-            // arrives, keep the scroller visible so restored/reattached
-            // surfaces with existing scrollback do not appear broken.
-            return true
-        }
-        return hasScrollback
+        TerminalScrollBarPresencePolicy().isPresent(
+            allowedBySettings: terminalScrollBarAllowedBySettings(),
+            scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
+            hasScrollback: surfaceHasScrollback()
+        )
     }
 
 }

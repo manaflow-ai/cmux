@@ -321,7 +321,7 @@ describe("devbox image template", () => {
     // Bounded and fails closed.
     expect(wait).toContain("seq 1 240");
     expect(wait).toContain("exit 1");
-    for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts"]) {
+    for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts", "check-devbox-image-reachable.ts"]) {
       const script = readScript(name);
       expect({ name, sleeps: /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script) })
         .toEqual({ name, sleeps: false });

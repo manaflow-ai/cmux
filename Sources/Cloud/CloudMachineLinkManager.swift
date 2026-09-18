@@ -533,8 +533,8 @@ actor CloudMachineLinkManager {
 
     /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
     /// them (a client that sends a User-Agent earns the branded host).
-    /// Cache successful probes, while allowing a failed probe to be retried by
-    /// later connection attempts instead of poisoning the actor-wide cache.
+    /// Cache successful probes per executable URL, while allowing a failed
+    /// probe to be retried by later connection attempts.
     private func resolvedClientCapabilities(clientURL: URL) -> [String] {
         if let cached = cachedClientCapabilities[clientURL] { return cached }
         guard let probed = Self.clientCapabilities(clientURL: clientURL) else { return [] }
