@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   diagnostic-presentation:
-    runs-on: macos-15
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -27,7 +27,9 @@ jobs:
           swift test --package-path Packages/Shared/CmuxIrxTransport --filter IrxEndpointDiagnosticTests
 
   system-keychain:
-    runs-on: macos-14
+    # The keychain probe mutates the system keychain, so it needs an isolated,
+    # ephemeral image, and it needs Xcode 16.2 on version 14.
+    runs-on: macos-14 # github-hosted-required: isolated ephemeral image with Xcode 16.2 for the system keychain probe
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
