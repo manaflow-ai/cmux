@@ -415,9 +415,9 @@ async function runBurst(vpcId: string | null): Promise<Trial[]> {
 }
 
 let vpcId: string | null = null;
-// True only when the VPC create's response was lost (timeout, transport
-// failure): the network may exist under the run's slug with no id in hand.
-// A definitive provider answer, a conflict above all, means it is not ours.
+// True when the VPC create's response was lost (timeout, transport failure,
+// any answer but a 409 conflict): the network may exist under the run's slug
+// with no id in hand. Only a conflict proves it is not ours.
 let vpcCreateLost = false;
 const results: { sequential: Trial[]; burst: Trial[] } = { sequential: [], burst: [] };
 try {
@@ -433,7 +433,7 @@ try {
     try {
       created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runId, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
     } catch (error) {
-      vpcCreateLost = !(error instanceof FreestyleApiError);
+      vpcCreateLost = !(error instanceof FreestyleApiError && error.status === 409);
       throw error;
     }
     vpcId = created.value.data.id;
@@ -494,11 +494,16 @@ const text = JSON.stringify(summary);
 if (outPath) writeFileSync(outPath, `${text}\n`);
 writeSync(1, `${text}\n`);
 // A provider request that outlived its bound is at worst a delete still in
-// progress: the report has already named it as a cleanup failure, and the
-// process waits (bounded) for it to settle so that delete can complete. It
-// then exits explicitly, because the SDK follows a 202 with a referenced
-// timer it never cancels, which would otherwise keep the process alive
-// indefinitely. The report went out with synchronous writes, so the exit
-// cannot truncate it.
-if (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} at exit`);
+// progress. The SDK cannot cancel it and exiting would abandon it, so the
+// process stays alive until every tracked request has settled (the run has
+// already reported them and the exit code is set), then exits explicitly,
+// because the SDK's 202 polling timer would otherwise keep an idle process
+// alive after everything has settled. A signal during this wait is reported
+// and ignored once; a second one ends the process the default way, which is
+// the operator's explicit choice to abandon the requests. The report went out
+// with synchronous writes, so the exit cannot truncate it.
+const warnAbandon = (signal: string) => console.error(`${signal} during the final wait: ${inFlight.size} provider request(s) still in flight; a second ${signal} abandons them`);
+process.once("SIGINT", () => warnAbandon("SIGINT"));
+process.once("SIGTERM", () => warnAbandon("SIGTERM"));
+while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle before exit)`);
 process.exit(summary.ok ? 0 : 1);

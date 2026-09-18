@@ -181,14 +181,14 @@ function workspaceId(snapshot: string): string {
 
 /**
  * What the run knows about its network and tunnel creates. A create that
- * lost its response (timeout, transport failure) may have made a resource
- * under the run's slug with no id in hand; a definitive provider answer, a
- * conflict above all, means the resource is not ours; a successful create
- * is deleted by id by its own finalizer. Only a lost response lets the
- * safety net below look anything up by slug, and the created network's id
- * lets it delete that network again after a lost tunnel is removed.
+ * lost its response (timeout, transport failure, any answer but a 409
+ * conflict) may have made a resource under the run's slug with no id in
+ * hand; a conflict proves the resource is not ours; a successful create is
+ * deleted by id by its own finalizer. Only a lost response lets the safety
+ * net below look anything up by slug, and the created ids let it delete the
+ * tunnel and the network again after their own finalizers.
  */
-type RunNetworkState = { networkLost: boolean; tunnelLost: boolean; networkId: string | null };
+type RunNetworkState = { networkLost: boolean; tunnelLost: boolean; networkId: string | null; tunnelId: string | null };
 
 /**
  * Safety net for a VPC or tunnel whose create response was lost before its
@@ -225,6 +225,14 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, cl
         const deleted = yield* Effect.either(attemptWithin(`delete tunnel ${id}`, () => tracked(networking.deleteTunnel(id)), "60 seconds"));
         if (deleted._tag === "Left") failures.push(deleted.left.message);
       }
+    }
+    if (state.tunnelId !== null) {
+      // A created tunnel's own finalizer can exhaust its retries, and a
+      // tunnel keeps its network attached, so the known tunnel is deleted
+      // again here (idempotent: a 404 means it is gone) before the network.
+      const knownTunnel = state.tunnelId;
+      const deleted = yield* Effect.either(attemptWithin(`delete tunnel ${knownTunnel}`, () => tracked(networking.deleteTunnel(knownTunnel)), "60 seconds").pipe(Effect.retry({ times: 2, schedule: Schedule.spaced("2500 millis") })));
+      if (deleted._tag === "Left") failures.push(deleted.left.message);
     }
     if (state.networkId !== null) {
       // Finalizers run last-registered first, so the created network's own
@@ -406,18 +414,18 @@ function bench() {
     const { privateKey, publicKey } = generateKeyPairSync("x25519");
     const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
     const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
-    const state: RunNetworkState = { networkLost: false, tunnelLost: false, networkId: null };
+    const state: RunNetworkState = { networkLost: false, tunnelLost: false, networkId: null, tunnelId: null };
     yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug, clientPublicKey, state));
     // The network is made with the SDK's plain create, which fails closed on
     // a slug conflict, not with the driver's ensureNetwork, which adopts an
     // existing network on conflict: a successful create is the only proof
     // that the network, and everything the finalizers later delete by its
-    // id, is this run's. The rules are production's. A response that never
-    // arrived marks the create lost for the safety net; a definitive answer
-    // (a conflict above all) means the network is not ours.
+    // id, is this run's. The rules are production's. Only a conflict (409)
+    // proves the network is not ours; any other failure, a 5xx above all,
+    // may have made it and marks the create lost for the safety net.
     const network = yield* timed(Effect.acquireRelease(
       attempt("vpc.create", () => bounded(sdk.vpc.create({ slug, displayName: slug, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc.create").catch((error: unknown) => {
-        state.networkLost = !(error instanceof FreestyleApiError);
+        state.networkLost = !(error instanceof FreestyleApiError && error.status === 409);
         throw error;
       }))
         .pipe(Effect.map((created) => {
@@ -438,11 +446,14 @@ function bench() {
     // deleted exactly like a created one.
     const tunnel = yield* timed(Effect.acquireRelease(
       attempt("createTunnel", () => bounded(networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey }), 120_000, "createTunnel").catch((error: unknown) => {
-        // The driver wraps a provider answer in ProviderError; anything else
-        // (a timeout, a transport failure) may have made the tunnel.
-        state.tunnelLost = !(error instanceof ProviderError && error.cause instanceof FreestyleApiError);
+        // Only a conflict (409, wrapped by the driver in ProviderError)
+        // proves the tunnel is not ours; anything else, a 5xx above all, may
+        // have made it and marks the create lost for the safety net.
+        state.tunnelLost = !(error instanceof ProviderError && error.cause instanceof FreestyleApiError && error.cause.status === 409);
         throw error;
-      })),
+      })).pipe(Effect.tap((value) => Effect.sync(() => {
+        state.tunnelId = value.tunnel.id;
+      }))),
       (value) => cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))),
     ));
     const config = tunnel.value.tunnel.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${privateBytes}`);
@@ -495,10 +506,16 @@ try {
   process.off("SIGTERM", interrupt);
 }
 // A provider request that outlived its bound is at worst a delete still in
-// progress: the run has already reported it, and the process waits (bounded)
-// for it to settle so that delete can complete. It then exits explicitly,
-// because the SDK follows a 202 with a referenced timer it never cancels,
-// which would otherwise keep the process alive indefinitely. The report went
-// out with synchronous writes, so the exit cannot truncate it.
-if (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} at exit`);
+// progress. The SDK cannot cancel it and exiting would abandon it, so the
+// process stays alive until every tracked request has settled (the run has
+// already reported them and the exit code is set), then exits explicitly,
+// because the SDK's 202 polling timer would otherwise keep an idle process
+// alive after everything has settled. A signal during this wait is reported
+// and ignored once; a second one ends the process the default way, which is
+// the operator's explicit choice to abandon the requests. The report went out
+// with synchronous writes, so the exit cannot truncate it.
+const warnAbandon = (signal: string) => console.error(`${signal} during the final wait: ${inFlight.size} provider request(s) still in flight; a second ${signal} abandons them`);
+process.once("SIGINT", () => warnAbandon("SIGINT"));
+process.once("SIGTERM", () => warnAbandon("SIGTERM"));
+while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle before exit)`);
 process.exit(process.exitCode ?? 0);

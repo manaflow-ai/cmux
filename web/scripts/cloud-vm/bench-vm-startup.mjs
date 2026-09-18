@@ -827,10 +827,16 @@ try {
   process.off("SIGTERM", interrupt);
 }
 // A provider request that outlived its bound is at worst a delete still in
-// progress: the report has already named it, and the process waits (bounded)
-// for it to settle so that delete can complete. It then exits explicitly,
-// because the SDK follows a 202 with a referenced timer it never cancels,
-// which would otherwise keep the process alive indefinitely. The report went
-// out with synchronous writes, so the exit cannot truncate it.
-if (!(await settleProviderRequests(600_000))) console.error(`cleanup_still_in_flight=${providerInFlight.size} at exit`);
+// progress. The SDK cannot cancel it and exiting would abandon it, so the
+// process stays alive until every tracked request has settled (the run has
+// already reported them and the exit code is set), then exits explicitly,
+// because the SDK's 202 polling timer would otherwise keep an idle process
+// alive after everything has settled. A signal during this wait is reported
+// and ignored once; a second one ends the process the default way, which is
+// the operator's explicit choice to abandon the requests. The report went out
+// with synchronous writes, so the exit cannot truncate it.
+const warnAbandon = (signal) => console.error(`${signal} during the final wait: ${providerInFlight.size} provider request(s) still in flight; a second ${signal} abandons them`);
+process.once("SIGINT", () => warnAbandon("SIGINT"));
+process.once("SIGTERM", () => warnAbandon("SIGTERM"));
+while (!(await settleProviderRequests(600_000))) console.error(`cleanup_still_in_flight=${providerInFlight.size} (waiting for them to settle before exit)`);
 process.exit(process.exitCode ?? 0);
