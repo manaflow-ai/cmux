@@ -11,8 +11,8 @@ struct CloudTreeRowHeight {
         switch node.kind {
         case .machine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(
-                hasStats: true,
-                hasUsage: style.machineRowLayout == .twoLine
+                hasStats: false,
+                hasUsage: false
             ))
         case .localMachine, .pendingMachine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
