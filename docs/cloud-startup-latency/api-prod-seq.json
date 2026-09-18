@@ -133,7 +133,7 @@
    "p90": 2371.3,
    "p95": 2371.3
   },
-  "createToUsableMs": {
+  "createToAttachReadyMs": {
    "max": 5808.9,
    "mean": 4117.2,
    "min": 2680.5,
@@ -220,7 +220,7 @@
    },
    "createStatus": 200,
    "createToAttachStartMs": 0,
-   "createToUsableMs": 2680.5,
+   "createToAttachReadyMs": 2680.5,
    "createTraceId": "0b1d3076043a656c70b122ff2c4cf8b1",
    "destroyMs": 14197.8,
    "destroyStatus": 200,
@@ -284,7 +284,7 @@
    },
    "createStatus": 200,
    "createToAttachStartMs": 0,
-   "createToUsableMs": 5808.9,
+   "createToAttachReadyMs": 5808.9,
    "createTraceId": "b41334f122f262d84d7553b7362a1ab3",
    "destroyMs": 840.6,
    "destroyStatus": 200,
@@ -348,7 +348,7 @@
    },
    "createStatus": 200,
    "createToAttachStartMs": 0,
-   "createToUsableMs": 3862.1000000000004,
+   "createToAttachReadyMs": 3862.1000000000004,
    "createTraceId": "0c8ca4f9833415bd698ce7cc2907b70e",
    "destroyMs": 760.1,
    "destroyStatus": 200,

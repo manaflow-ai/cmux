@@ -319,7 +319,11 @@ async function runTrial(index) {
   trial.imageVersion = created.imageVersion ?? null;
   trial.size = created.size?.name ?? null;
   Object.assign(trial, await attachUntilReady(vmId, "attach"));
-  trial.createToUsableMs = trial.createMs + trial.attachMs;
+  // Create plus the attach-endpoint's own time: the route and lease exist,
+  // but the link, the terminal and the shell prompt come after this point
+  // (bench-private-link.ts measures those), so this is attach readiness,
+  // not a usable terminal.
+  trial.createToAttachReadyMs = trial.createMs + trial.attachMs;
   Object.assign(trial, await attachUntilReady(vmId, "warmAttach"));
   if (!skipExec) {
     const exec = await fetchTimed(vmUrl(vmId, "/exec"), {
@@ -839,7 +843,7 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     totalMs: startedAt === null ? null : elapsedMs(startedAt),
     succeeded: ok.length,
     failed: results.length - ok.length,
-    stages: summarizeFields(ok, ["createMs", "attachMs", "createToUsableMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
+    stages: summarizeFields(ok, ["createMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
     attachAttempts: summarizeFields(ok.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
     createServerTiming: summarizeStages(ok.map((trial) => trial.createStages)),
     results,
