@@ -11,6 +11,7 @@ import {
   releasePushSendLease,
   PushCorrelationConflictError,
   PushRateLimitExceededError,
+  type PushSendRecord,
 } from "./rateLimit";
 import {
   clampRetryToEventLife,
@@ -198,153 +199,23 @@ async function executePushDeliveryWithTargets(
   deviceLeaseToken: string | null,
 ): Promise<DeliveryExecution> {
   const { db } = dependencies;
-
-  let priorOutcomes: ApnsSendResult[] = [];
-  let sendTargets: ApnsTarget[] = tokens;
-  let deliveryPayload = input.payload;
-  let leaseToken: string | null = null;
-  try {
-    const claim = await recordPushSendOrThrow(
-      db,
-      input.userId,
-      tokens.length,
-      input.correlationId,
-      input.startedAt,
-      new Date(input.expirationEpochSeconds * 1_000),
-      input.payload.kind,
-      tokens,
-      input.payloadFingerprint,
-    );
-    if (claim.kind === "busy") {
-      return {
-        ok: false,
-        error: new PushDeliveryInProgressError({
-          correlationId: input.correlationId,
-          retryAfterSeconds: claim.retryAfterSeconds,
-        }),
-      };
-    }
-    leaseToken = claim.leaseToken;
-    const existing = claim.previous;
-    if (existing) {
-      if (existing.expiresAt) {
-        deliveryPayload = {
-          ...deliveryPayload,
-          expirationEpochSeconds: Math.floor(
-            existing.expiresAt.getTime() / 1_000,
-          ),
-        };
-      }
-    }
-    if (existing?.summary) {
-      const isExpired =
-        existing.expiresAt != null
-        && existing.expiresAt.getTime()
-          <= input.startedAt.getTime();
-      if (existing.summary.transientFailures === 0 || isExpired) {
-        const replayOutcomes =
-          isExpired && existing.summary.transientFailures > 0
-            ? finalizeExpiredOutcomes(existing.outcomes)
-            : existing.outcomes;
-        const replaySummary =
-          isExpired && existing.summary.transientFailures > 0
-            ? summarizeExpiredRecord(existing.summary, replayOutcomes)
-            : existing.summary;
-        const completed = await completePushSend(
-          db,
-          input.userId,
-          input.correlationId,
-          claim.leaseToken,
-          replaySummary,
-          replayOutcomes,
-          undefined,
-          existing.expiresAt,
-        );
-        if (!completed) {
-          return {
-            ok: false,
-            error: new PushDeliveryInProgressError({
-              correlationId: input.correlationId,
-              retryAfterSeconds: 1,
-            }),
-          };
-        }
-        dependencies.recordOutcome(replaySummary, input.correlationId);
-        return {
-          ok: true,
-          outcome: {
-            summary: replaySummary,
-            replayed: true,
-          },
-        };
-      }
-    }
-    if (existing) {
-      priorOutcomes = [...existing.outcomes];
-      const currentByIdentity = new Map(
-        tokens.map((target) => [targetIdentity(target), target]),
-      );
-      const originalTargets =
-        existing.initialTargets ?? tokens;
-      const unresolvedOriginalTargets = unresolvedPushTargets(
-        originalTargets,
-        priorOutcomes,
-      );
-      const removedOutcomes = unresolvedOriginalTargets
-        .filter(
-          (target) => !currentByIdentity.has(targetIdentity(target)),
-        )
-        .map((target): ApnsSendResult => ({
-          targetId: target.targetId,
-          deviceToken: target.deviceToken,
-          status: 404,
-          reason: "target_no_longer_registered",
-          prune: false,
-        }));
-      priorOutcomes = mergePushDeliveryOutcomes(
-        priorOutcomes,
-        removedOutcomes,
-      );
-      const stillRegisteredOriginalTargets = originalTargets.flatMap(
-        (target) => {
-          const current = currentByIdentity.get(targetIdentity(target));
-          return current ? [current] : [];
-        },
-      );
-      sendTargets = unresolvedPushTargets(
-        stillRegisteredOriginalTargets,
-        priorOutcomes,
-      );
-      if (sendTargets.length === 0) {
-        return await completeDelivery(
-          dependencies,
-          input,
-          claim.leaseToken,
-          priorOutcomes,
-          true,
-          deliveryPayload.expirationEpochSeconds,
-        );
-      }
-    }
-  } catch (error) {
-    if (error instanceof PushCorrelationConflictError) {
-      return {
-        ok: false,
-        error: new PushDeliveryCorrelationConflictError({
-          correlationId: input.correlationId,
-        }),
-      };
-    }
-    if (error instanceof PushRateLimitExceededError) {
-      return {
-        ok: false,
-        error: new PushDeliveryRateLimitedError({
-          retryAfterSeconds: error.retryAfterSeconds,
-        }),
-      };
-    }
-    throw error;
+  const preparation = await preparePushDelivery(
+    input,
+    dependencies,
+    tokens,
+  );
+  if (preparation.kind === "done") return preparation.execution;
+  if (preparation.kind === "error") {
+    return { ok: false, error: preparation.error };
   }
+  const {
+    deliveryPayload,
+    leaseToken,
+    priorOutcomes: preparedOutcomes,
+    sendTargets: preparedTargets,
+  } = preparation;
+  let priorOutcomes = preparedOutcomes;
+  let sendTargets = preparedTargets;
 
   if (sendTargets.length === 0) {
     return await completeDelivery(
@@ -373,36 +244,20 @@ async function executePushDeliveryWithTargets(
     };
   }
 
-  const authorizedDelivery = await withAuthorizedDeviceDeliveryTargets(
+  const authorizedDelivery = await sendAuthorizedPushDelivery(
     db,
     input.userId,
     deviceLeaseToken,
     sendTargets,
-    (authorizedTargets) => (
-      dependencies.send ?? sendApnsNotificationReliably
-    )(
-      dependencies.config!,
-      authorizedTargets,
-      deliveryPayload,
-    ),
+    dependencies.config,
+    dependencies.send ?? sendApnsNotificationReliably,
+    deliveryPayload,
   );
-  const authorizedTargets = authorizedDelivery.authorizedTargets;
-  const authorizedTargetIDs = new Set(
-    authorizedTargets.flatMap((target) =>
-      target.targetId == null ? [] : [target.targetId]
-    ),
+  priorOutcomes = mergePushDeliveryOutcomes(
+    priorOutcomes,
+    authorizedDelivery.revokedOutcomes,
   );
-  const revokedOutcomes = sendTargets
-    .filter((target) => target.targetId == null || !authorizedTargetIDs.has(target.targetId))
-    .map((target): ApnsSendResult => ({
-      targetId: target.targetId,
-      deviceToken: target.deviceToken,
-      status: 404,
-      reason: "target_revoked",
-      prune: false,
-    }));
-  priorOutcomes = mergePushDeliveryOutcomes(priorOutcomes, revokedOutcomes);
-  sendTargets = authorizedTargets;
+  sendTargets = authorizedDelivery.sendTargets;
   if (sendTargets.length === 0) {
     return await completeDelivery(
       dependencies,
@@ -419,22 +274,270 @@ async function executePushDeliveryWithTargets(
   // already-delivered devices on the next same-correlation retry, and it
   // would strand the correlation lease until it times out. The send is
   // bounded (attempt cap x timeout), so it always finishes inside the lease.
-  const rawResults = authorizedDelivery.result ?? [];
+  const results = authorizedDelivery.results;
+  const persistedResults = await persistApnsResults(
+    db,
+    input.userId,
+    sendTargets,
+    results,
+  );
+
+  return await completeDelivery(
+    dependencies,
+    input,
+    leaseToken,
+    mergePushDeliveryOutcomes(priorOutcomes, persistedResults),
+    false,
+    deliveryPayload.expirationEpochSeconds,
+  );
+}
+
+type PushDeliveryPreparation =
+  | {
+      readonly kind: "ready";
+      readonly deliveryPayload: PushDeliveryPayload;
+      readonly leaseToken: string;
+      readonly priorOutcomes: ApnsSendResult[];
+      readonly sendTargets: ApnsTarget[];
+    }
+  | { readonly kind: "done"; readonly execution: DeliveryExecution }
+  | { readonly kind: "error"; readonly error: PushDeliveryError };
+
+async function preparePushDelivery(
+  input: PushDeliveryInput,
+  dependencies: PushDeliveryDependencies,
+  tokens: ApnsTarget[],
+): Promise<PushDeliveryPreparation> {
+  const { db } = dependencies;
+  try {
+    const claim = await recordPushSendOrThrow(
+      db,
+      input.userId,
+      tokens.length,
+      input.correlationId,
+      input.startedAt,
+      new Date(input.expirationEpochSeconds * 1_000),
+      input.payload.kind,
+      tokens,
+      input.payloadFingerprint,
+    );
+    if (claim.kind === "busy") {
+      return {
+        kind: "error",
+        error: new PushDeliveryInProgressError({
+          correlationId: input.correlationId,
+          retryAfterSeconds: claim.retryAfterSeconds,
+        }),
+      };
+    }
+    const existing = claim.previous;
+    const deliveryPayload = existing?.expiresAt
+      ? {
+          ...input.payload,
+          expirationEpochSeconds: Math.floor(
+            existing.expiresAt.getTime() / 1_000,
+          ),
+        }
+      : input.payload;
+    const replay = await replayCompletedPushDelivery(
+      input,
+      dependencies,
+      claim.leaseToken,
+      existing,
+    );
+    if (replay) return { kind: "done", execution: replay };
+    const continuation = continuePushDelivery(
+      tokens,
+      existing,
+    );
+    if (continuation.sendTargets.length === 0) {
+      return {
+        kind: "done",
+        execution: await completeDelivery(
+          dependencies,
+          input,
+          claim.leaseToken,
+          continuation.priorOutcomes,
+          true,
+          deliveryPayload.expirationEpochSeconds,
+        ),
+      };
+    }
+    return {
+      kind: "ready",
+      deliveryPayload,
+      leaseToken: claim.leaseToken,
+      priorOutcomes: continuation.priorOutcomes,
+      sendTargets: continuation.sendTargets,
+    };
+  } catch (error) {
+    if (error instanceof PushCorrelationConflictError) {
+      return {
+        kind: "error",
+        error: new PushDeliveryCorrelationConflictError({
+          correlationId: input.correlationId,
+        }),
+      };
+    }
+    if (error instanceof PushRateLimitExceededError) {
+      return {
+        kind: "error",
+        error: new PushDeliveryRateLimitedError({
+          retryAfterSeconds: error.retryAfterSeconds,
+        }),
+      };
+    }
+    throw error;
+  }
+}
+
+async function replayCompletedPushDelivery(
+  input: PushDeliveryInput,
+  dependencies: PushDeliveryDependencies,
+  leaseToken: string,
+  existing: PushSendRecord | null,
+): Promise<DeliveryExecution | null> {
+  if (!existing?.summary) return null;
+  const isExpired = existing.expiresAt != null
+    && existing.expiresAt.getTime() <= input.startedAt.getTime();
+  if (existing.summary.transientFailures !== 0 && !isExpired) return null;
+  const replayOutcomes = isExpired && existing.summary.transientFailures > 0
+    ? finalizeExpiredOutcomes(existing.outcomes)
+    : existing.outcomes;
+  const replaySummary = isExpired && existing.summary.transientFailures > 0
+    ? summarizeExpiredRecord(existing.summary, replayOutcomes)
+    : existing.summary;
+  const completed = await completePushSend(
+    dependencies.db,
+    input.userId,
+    input.correlationId,
+    leaseToken,
+    replaySummary,
+    replayOutcomes,
+    undefined,
+    existing.expiresAt,
+  );
+  if (!completed) {
+    return {
+      ok: false,
+      error: new PushDeliveryInProgressError({
+        correlationId: input.correlationId,
+        retryAfterSeconds: 1,
+      }),
+    };
+  }
+  dependencies.recordOutcome(replaySummary, input.correlationId);
+  return {
+    ok: true,
+    outcome: {
+      summary: replaySummary,
+      replayed: true,
+    },
+  };
+}
+
+function continuePushDelivery(
+  tokens: readonly ApnsTarget[],
+  existing: PushSendRecord | null,
+): { priorOutcomes: ApnsSendResult[]; sendTargets: ApnsTarget[] } {
+  if (!existing) return { priorOutcomes: [], sendTargets: [...tokens] };
+  const priorOutcomes = [...existing.outcomes];
+  const currentByIdentity = new Map(
+    tokens.map((target) => [targetIdentity(target), target]),
+  );
+  const originalTargets = existing.initialTargets ?? tokens;
+  const unresolvedOriginalTargets = unresolvedPushTargets(
+    originalTargets,
+    priorOutcomes,
+  );
+  const removedOutcomes = unresolvedOriginalTargets
+    .filter((target) => !currentByIdentity.has(targetIdentity(target)))
+    .map((target): ApnsSendResult => ({
+      targetId: target.targetId,
+      deviceToken: target.deviceToken,
+      status: 404,
+      reason: "target_no_longer_registered",
+      prune: false,
+    }));
+  const mergedOutcomes = mergePushDeliveryOutcomes(
+    priorOutcomes,
+    removedOutcomes,
+  );
+  const stillRegisteredOriginalTargets = originalTargets.flatMap((target) => {
+    const current = currentByIdentity.get(targetIdentity(target));
+    return current ? [current] : [];
+  });
+  return {
+    priorOutcomes: mergedOutcomes,
+    sendTargets: unresolvedPushTargets(
+      stillRegisteredOriginalTargets,
+      mergedOutcomes,
+    ),
+  };
+}
+
+async function sendAuthorizedPushDelivery(
+  db: PushDatabase,
+  userId: string,
+  deviceLeaseToken: string | null,
+  targets: readonly ApnsTarget[],
+  config: ApnsConfig,
+  send: typeof sendApnsNotificationReliably,
+  payload: PushDeliveryPayload,
+): Promise<{
+  readonly sendTargets: ApnsTarget[];
+  readonly revokedOutcomes: ApnsSendResult[];
+  readonly results: Array<ApnsSendResult & { targetId?: string }>;
+}> {
+  const authorizedDelivery = await withAuthorizedDeviceDeliveryTargets(
+    db,
+    userId,
+    deviceLeaseToken,
+    targets,
+    (authorizedTargets) => send(config, authorizedTargets, payload),
+  );
+  const authorizedTargetIDs = new Set(
+    authorizedDelivery.authorizedTargets.flatMap((target) =>
+      target.targetId == null ? [] : [target.targetId]
+    ),
+  );
+  const revokedOutcomes = targets
+    .filter((target) => target.targetId == null || !authorizedTargetIDs.has(target.targetId))
+    .map((target): ApnsSendResult => ({
+      targetId: target.targetId,
+      deviceToken: target.deviceToken,
+      status: 404,
+      reason: "target_revoked",
+      prune: false,
+    }));
+  const sendTargets = authorizedDelivery.authorizedTargets;
   const sentTargetByToken = new Map(
     sendTargets.map((target) => [target.deviceToken, target]),
   );
-  const results = rawResults.map((result) => ({
+  const results = (authorizedDelivery.result ?? []).map((result) => ({
     ...result,
     targetId:
       result.targetId
       ?? sentTargetByToken.get(result.deviceToken)?.targetId,
   }));
+  return { sendTargets, revokedOutcomes, results };
+}
+
+async function persistApnsResults(
+  db: PushDatabase,
+  userId: string,
+  sendTargets: readonly ApnsTarget[],
+  results: readonly (ApnsSendResult & { targetId?: string })[],
+): Promise<Array<ApnsSendResult & { targetId?: string }>> {
+  const targetsByID = new Map(
+    sendTargets.flatMap((target) =>
+      target.targetId == null ? [] : [[target.targetId, target] as const]
+    ),
+  );
   const deadTargets = results.flatMap((result) => {
-    if (!result.prune) return [];
-    const target = sentTargetByToken.get(result.deviceToken);
-    return target?.targetId
-      ? [{ ...target, targetId: target.targetId }]
-      : [];
+    if (!result.prune || result.targetId == null) return [];
+    const target = targetsByID.get(result.targetId);
+    return target ? [{ ...target, targetId: result.targetId }] : [];
   });
   const exactDeadTargetPredicate = or(
     ...deadTargets.map((target) => and(
@@ -448,35 +551,20 @@ async function executePushDeliveryWithTargets(
   if (exactDeadTargetPredicate) {
     const deletedTargets = await db
       .delete(deviceTokens)
-      .where(
-        and(
-          eq(deviceTokens.userId, input.userId),
-          eq(deviceTokens.platform, "ios"),
-          exactDeadTargetPredicate,
-        ),
-      )
+      .where(and(
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.platform, "ios"),
+        exactDeadTargetPredicate,
+      ))
       .returning({ targetId: deviceTokens.id });
-    for (const target of deletedTargets) {
-      deletedTargetIDs.add(target.targetId);
-    }
+    for (const target of deletedTargets) deletedTargetIDs.add(target.targetId);
   }
-  const persistedResults = results.map((result) => {
+  return results.map((result) => {
     if (!result.prune || (
       result.targetId != null && deletedTargetIDs.has(result.targetId)
-    )) {
-      return result;
-    }
+    )) return result;
     return { ...result, prune: false };
   });
-
-  return await completeDelivery(
-    dependencies,
-    input,
-    leaseToken,
-    mergePushDeliveryOutcomes(priorOutcomes, persistedResults),
-    false,
-    deliveryPayload.expirationEpochSeconds,
-  );
 }
 
 function finalizeExpiredOutcomes(
