@@ -647,13 +647,13 @@ describe("device token route", () => {
       select count(*)::int as total, max(revoked_at) as "revokedAt"
       from device_tokens where device_token = ${ownedToken}
     `;
-    expect(stored.total).toBe(1);
-    expect(stored.revokedAt).toBeInstanceOf(Date);
+    expect(stored.total).toBe(0);
+    expect(stored.revokedAt).toBeNull();
     const [owned] = await sql<{ total: number }[]>`
       select count(*)::int as total from device_tokens
       where user_id = 'push-user-1' and device_token = ${ownedToken}
     `;
-    expect(owned.total).toBe(1);
+    expect(owned.total).toBe(0);
   });
 
   dbTest("does not let a delayed old-session registration clear sign-out revocation", async () => {

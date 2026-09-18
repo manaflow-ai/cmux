@@ -4,7 +4,7 @@
 
 import crypto from "node:crypto";
 import { decodeJwt } from "jose";
-import { and, count, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokenRevocations, deviceTokens } from "../../../db/schema";
@@ -469,8 +469,31 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   }
   if (deletion.waitForDeliveryTargetId) {
     await waitForDeviceDeliveryTarget(db, deletion.waitForDeliveryTargetId);
+    await deleteRevokedDeviceTokenAfterDelivery(
+      db,
+      user.id,
+      deletion.waitForDeliveryTargetId,
+    );
   }
   return jsonResponse({ ok: true });
+}
+
+async function deleteRevokedDeviceTokenAfterDelivery(
+  db: ReturnType<typeof cloudDb>,
+  userId: string,
+  targetId: string,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await lockDeviceTokenMutations(tx, userId);
+    await tx
+      .delete(deviceTokens)
+      .where(and(
+        eq(deviceTokens.id, targetId),
+        eq(deviceTokens.userId, userId),
+        isNotNull(deviceTokens.revokedAt),
+        isNull(deviceTokens.deliveryStartedAt),
+      ));
+  });
 }
 
 type DeviceTokenDeletionRequest = {
