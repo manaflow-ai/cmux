@@ -29,10 +29,9 @@ struct SocketControlServerManagedPolicyTests {
         #expect(server.start(socketPath: path, accessMode: .allowAll))
 
         let fd = Self.connect(to: path)
-        #expect(fd >= 0)
+        try #require(fd >= 0, "could not connect to test socket")
         defer { if fd >= 0 { close(fd) } }
-        var iterator = server.connections.makeAsyncIterator()
-        let connection = try #require(await iterator.next())
+        let connection = try #require(await Self.nextConnection(from: server.connections), "server did not yield the accepted connection")
         let generation = connection.authorizationGeneration
         let signal = connection.authorizationRevocationSignal
         #expect(server.isConnectionAuthorizationCurrent(generation))
@@ -69,5 +68,23 @@ struct SocketControlServerManagedPolicyTests {
         }
         guard result == 0 else { close(fd); return -1 }
         return fd
+    }
+
+    private static func nextConnection(
+        from stream: AsyncStream<ControlConnection>
+    ) async -> ControlConnection? {
+        await withTaskGroup(of: ControlConnection?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                return nil
+            }
+            let connection = await group.next() ?? nil
+            group.cancelAll()
+            return connection
+        }
     }
 }
