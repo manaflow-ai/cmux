@@ -24,11 +24,12 @@ Rust tests, strict Clippy, browser WebSocket interop, Swift v3 package tests, iO
 
 1. The control service image builds, but the service is not deployed against the PlanetScale staging branch. Until the operator Stack team and secret bindings are configured, relay feed registration and cross-region revocation remain local tests.
 2. The production iOS and Mac composition roots still default to IRX/iroh. The Mac has only an opt-in v3 control-lane host; no release can claim replacement until v3 discovery, all host lanes, renewal, revocation, reconnect and sign-out run on physical devices.
-3. Relay handover was observed with a live probe, but the relay circuit gauge was zero at the drain observation. A non-empty circuit plus application replay and terminal-input execution acknowledgements is required.
-4. DCUtR is composed but real NAT traversal, blocked UDP, network roaming, app suspension and airplane-mode recovery have not been proven.
-5. Per-team circuit and byte quotas, latency/byte histograms, continuous synthetic probes, notification action groups and certificate-expiry checks are not yet complete.
-6. Authority key rotation and relay feed-token rotation need an operational procedure with overlap and rollback evidence. Key changes must never be delivered through an unauthenticated endpoint.
-7. The relay feed currently starts at sequence zero and intentionally fails closed on a missing prefix. Production must retain the complete event history or provide a signed snapshot bootstrap before pruning.
-8. A full mobile threat review remains necessary for route disclosure, Keychain accessibility, background execution and stale directory hints after the app switch.
+3. The staged macOS target compiles the v3 host, but final linking currently fails because the app still links iroh's Rust runtime alongside v3's Rust runtime. The replacement must remove iroh from the app link before release.
+4. Relay handover was observed with a live probe, but the relay circuit gauge was zero at the drain observation. A non-empty circuit plus application replay and terminal-input execution acknowledgements is required.
+5. DCUtR is composed but real NAT traversal, blocked UDP, network roaming, app suspension and airplane-mode recovery have not been proven.
+6. Per-team circuit and byte quotas, latency/byte histograms, continuous synthetic probes, notification action groups and certificate-expiry checks are not yet complete.
+7. Authority key rotation and relay feed-token rotation need an operational procedure with overlap and rollback evidence. Key changes must never be delivered through an unauthenticated endpoint.
+8. The relay feed currently starts at sequence zero and intentionally fails closed on a missing prefix. Production must retain the complete event history or provide a signed snapshot bootstrap before pruning.
+9. A full mobile threat review remains necessary for route disclosure, Keychain accessibility, background execution and stale directory hints after the app switch.
 
 No production database, production relay, public anycast route or user notification destination was changed during this audit.
