@@ -24,15 +24,17 @@ those tails landing on top of the 4–5 s median.
 **Provider floor (measured with the Freestyle SDK directly, n=5):**
 allocation returns in **0.41 s** median and the baked daemon is listening
 **1.06 s** after the create call started. Pause/resume is far cheaper:
-start returns in 0.09 s and the daemon answers 0.14 s later. Exec round
+start returns in 0.09 s and the daemon is listening 0.14 s after the resume
+request (a figure that includes the start call). Exec round
 trip is 18 ms. Three concurrent creates cost 0.49 s each (no meaningful
 contention).
 
 **Lower bound with every feature intact (this architecture, this provider):**
-about **1.4 s** to a usable prompt for a fresh machine (0.15 s control plane,
+about **1.5 s** to a usable prompt for a fresh machine (0.15 s control plane,
 0.41 s allocation, ~0.3 s daemon start once the supervisor is event-driven,
-~0.25 s link + terminal, ~0.3 s shell with ble.sh kept but deferred), and
-about **0.4 s + shell** for resume/reconnect. This is a floor derived from
+~0.3 s link + snapshot + terminal, ~0.3 s shell with ble.sh kept but deferred), and
+about **0.3 s + shell** for resume/reconnect (0.14 s from the resume request
+to a listening daemon, 0.14 s link). This is a floor derived from
 measured stage costs, not a guarantee: allocation and daemon boot are
 provider/image properties measured at one vantage point on one day.
 
@@ -65,7 +67,7 @@ Measurements used, with their sample counts:
 | PostHog `cmux_cloud_vm_request` (Mac client, schema 1) | the same requests as the client saw them, joined to the server rows by `client_trace_id` | 14 days, 415k events |
 | `bench-vm-startup.mjs` | create → attach → warm attach → exec → pause → resume-attach → destroy against a deployed backend, with the create route's `Server-Timing` stages | staging n=5 sequential + n=3 concurrent + n=3 with edge probe; production n=3 sequential |
 | `bench-freestyle-floor.ts` | provider-only floor with the SDK: allocation, daemon process/listen, announce, exec/fs RTT, guest shell startup, pause/start/delete | md n=5 + burst 3; sm n=3 |
-| `bench-private-link.ts` | the app's transport path headlessly: production driver create, attach bundle, WireGuard hub, `cmux-tui remote connect --carrier`, snapshot, `bash -l`, prompt visible, reconnect | md n=3, client `9f4ecba` (Nightly bundle) |
+| `bench-private-link.ts` | the app's transport path headlessly: production driver create, attach bundle, WireGuard hub, `cmux-tui remote connect --carrier`, snapshot, `bash -l`, prompt visible, reconnect | md n=3, client `e90a212` (Nightly bundle), with production's prompt identity and persisted addresses |
 | PR #12739 native measurements | Mac-side Cmd-D/Cmd-T phases on a warm link (Debug build) | 10+10 trials |
 | Source trace | the dependency graph in section 3 | HEAD `e4176d8d53` |
 
@@ -97,9 +99,9 @@ Click "Create" in the sheet (`NewMachineModel` → `MachineCreateCoordinator`
 | 6 | `vm.cmux_remote_info` → `POST /api/vm/{id}/attach-endpoint`: auth, `requireAccessibleUserVm`, `getStatus` provider probe, **announce exec** (~100 ms), **attach bundle exec** with the settle loop (up to 3 s, 100 ms ticks, two metadata curls per tick), **shim + browser-opener check exec** (sha256 of the shim plus `guestBrowserReadyCommand`, added by #12741 on 2026-09-18, after this session's runs), **hooks-ready exec** (python), **reporter-install exec** (systemctl), lease + usage + metadata DB writes | Vercel → guest | fresh machine 1.2–1.5 s (this session, before #12741); existing machine Nightly p50 0.75 s; server p50 1.12 s, p95 14.9 s (14 d) | **yes**: one exec; skip baked components; readiness by dialing |
 | 7 | Hub pin (`wg hub` spawn + socket ready) and route probe (SOCKS connect race across families) | Mac | hub cold 0.24 s, tunnel enroll 0.12–0.30 s (first time), probe ~1 RTT | yes: overlap with row 3 |
 | 8 | `workspace.create` (placeholder pane), `workspace.cloud_vm_bind` | Mac | ~10–20 ms | no |
-| 9 | `surface.catalog refresh:true` for the machine: link `remote connect --carrier` (**0.16 s**, reconnect 0.10 s), `session current snapshot` (46 ms), fleet list (0.2–1.2 s cold) | Mac → guest | 0.3–0.5 s | partly: the list is not needed to open the terminal |
-| 10 | `surface.new_terminal` → `workspace <ws> run -- bash -l` (104 ms) → manual-mirror attach + first frame (90–330 ms, PR #12739) | Mac → guest | 0.2–0.45 s | little |
-| 11 | Guest shell to first prompt: `bash -l` profile chain (agent-config, terminfo, desktop env) 0.52 s; interactive shell with ble.sh 1.28 s under a pty; prompt visible 1.11 s after `run` over the real link | guest | **1.1 s** | partly: ble.sh load and profile chain |
+| 9 | `surface.catalog refresh:true` for the machine: link `remote connect --carrier` (**0.14 s**, reconnect 0.13 s), `session current snapshot` (57 ms), fleet list (0.2–1.2 s cold) | Mac → guest | 0.3–0.5 s | partly: the list is not needed to open the terminal |
+| 10 | `surface.new_terminal` → `workspace <ws> run -- bash -l` (132 ms) → manual-mirror attach + first frame (90–330 ms, PR #12739) | Mac → guest | 0.2–0.45 s | little |
+| 11 | Guest shell to first prompt: `bash -l` profile chain (agent-config, terminfo, desktop env) 0.52 s; interactive shell with ble.sh 1.28 s under a pty; prompt visible 1.06 s after `run` over the real link | guest | **1.1 s** | partly: ble.sh load and profile chain |
 | 12 | Desktop (Displays row): `open-port` API (p50 633 ms, 14 d) runs `systemctl start cmux-desktop` (no-op, the desktop is live in the memory snapshot) then the browser proxy + noVNC load | Vercel → guest → Mac | ~1–2 s, in parallel with 10–11 if opened | partly: skip the heal exec when the daemon reports the desktop up |
 | 13 | Model plane (coderouter edge injection) | provider edge | already answering 200 at the first probe, 3–5 s after create, in 3/3 trials | n/a |
 
@@ -187,44 +189,54 @@ so the settle loop covered the create→attach race in this session.
 | `bash -lc true` as work user (guest clock) | 518 ms (416–525) | 317 ms |
 | interactive `bash -il` under a pty with ble.sh (guest clock) | 1279 ms (1025–1279) | 1027 ms |
 | pause / start | 161 (p90 1065) / 91 ms | 185 / 88 ms |
-| daemon listening after start | 143 ms | 136 ms |
+| daemon listening after the resume request (includes the start call) | 143 ms | 136 ms |
 | delete | 76 ms | 81 ms |
 | burst of 3 concurrent creates: allocation / listening | 488 / 1108 ms | – |
 
 So the machine exists and executes commands ~0.5 s after the request, the
-daemon is reachable ~0.6 s later, and a memory-preserving resume is ~0.25 s
-end to end. The supervisor's 1 s poll (`cmux-devbox-boot`) is visible as
+daemon is reachable ~0.6 s later, and a memory-preserving resume is ~0.14 s
+end to end (`resumeDaemonListenMs` is measured from before `start()`, so the
+143 ms already contains the 91 ms start call; the first probe after `start()`
+returns already sees the listener). The supervisor's 1 s poll (`cmux-devbox-boot`) is visible as
 the 0.3 s between first-exec and daemon-process; daemon start to listen is
 ~0.29 s.
 
 ### 4.4 Transport benchmark (`bench-private-link.ts`, md, n=3)
 
+Measured with the inputs the production workflow passes: the machine's
+prompt identity at create and at attach (the guest installs its prompt each
+time) and the addresses persisted at create fed back into the attach, which
+then skips the provider read.
+
 | Stage | p50 (range) |
 | --- | --- |
-| VPC create / tunnel create / hub ready (once per run) | 66 / 120 / 242 ms |
-| `FreestyleProvider.create` (production driver: alloc + validate + shim + reporter) | 1062 ms (935–1185) |
-| `openCmuxRemote` (announce + bundle + hooks + reporter) | 609 ms (564–623) |
-| create → attach bundle OK | 1686 ms |
-| `remote connect --carrier` via hub to connection-snapshot | 164 ms (99–167) |
-| session snapshot | 46 ms |
-| `workspace run -- bash -l` | 104 ms |
-| run → prompt (`λ`) visible | **1114 ms** (1051–1163) |
-| create → prompt visible | **3084 ms** (2824–3095) |
-| reconnect (second link) | 102 ms |
+| VPC create / tunnel create / hub ready (once per run) | 1179 / 99 / 156 ms |
+| `FreestyleProvider.create` (production driver: alloc + validate + shim + prompt + reporter) | 1140 ms (1124–1248) |
+| `openCmuxRemote` (announce + prompt + bundle + hooks + reporter) | 694 ms (626–715) |
+| create → attach bundle OK | 1839 ms |
+| `remote connect --carrier` via hub to connection-snapshot | 139 ms (123–219) |
+| session snapshot | 57 ms |
+| `workspace run -- bash -l` | 132 ms |
+| run → prompt (`λ`) visible | **1061 ms** (975–1106) |
+| create → prompt visible | **3127 ms** (3076–3132) |
+| reconnect (second link) | 128 ms |
 
 This is the whole path minus the Mac UI and minus the Vercel/DB/auth layer:
-3.1 s, of which 0.41 s is allocation and 1.1 s is the guest shell.
+3.1 s, of which 0.41 s is allocation and 1.1 s is the guest shell. An
+earlier run without the prompt identity measured the attach bundle at 609 ms
+and create → prompt at 3084 ms, so the prompt install costs about 85 ms
+inside the one bundle exec.
 
 ### 4.5 Scenario matrix
 
 | Scenario | Today (p50, measured pieces) | Floor | Target |
 | --- | --- | --- | --- |
-| Fresh cold create, unnamed, hub warm | ~4.2–5.5 s to prompt | ~1.4 s | 2.0–2.5 s |
+| Fresh cold create, unnamed, hub warm | ~4.2–5.5 s to prompt | ~1.5 s | 2.0–2.5 s |
 | Fresh create, named | + 0.3 s p50, + 14 s p90 (rename exec) | + 0 | + 0 |
 | Fresh create, first machine on this Mac | + tunnel enroll 0.3 s + hub 0.24 s + NE approval if a browser needs it | + 0.3 s (overlappable) | overlapped with create |
-| Resume a paused machine from the sidebar | attach-resume 1.7–2.4 s + link 0.16 + terminal 0.2 + shell 1.1 ≈ 3.2–3.9 s | ~0.4 s + shell | ≤ 1.5 s |
+| Resume a paused machine from the sidebar | attach-resume 1.7–2.4 s + link 0.14 + terminal 0.2 + shell 1.1 ≈ 3.2–3.9 s | ~0.3 s + shell | ≤ 1.5 s |
 | Reconnect to a running machine (app already linked) | Cmd-D/Cmd-T open 0.25–0.66 s + shell (PR #12739) | 0.15 s + shell | ≤ 0.5 s + shell |
-| Reconnect after app restart | attach-endpoint 0.75 s (route cache empty) + link 0.16 + snapshot 0.05 + terminal | link only (route persisted) | ≤ 0.5 s + shell |
+| Reconnect after app restart | attach-endpoint 0.75 s (route cache empty) + link 0.14 + snapshot 0.06 + terminal | link only (route persisted) | ≤ 0.5 s + shell |
 | 3 concurrent creates | create 1.76 s, attach 1.10 s each | allocation 0.49 s each | as sequential |
 | Full features (desktop visible, agents' credentials) | desktop +1–2 s in parallel; edge already up | desktop ~0.3 s | desktop ≤ 0.5 s after link |
 
@@ -238,8 +250,8 @@ nothing that can be overlapped:
 | Control plane admission (auth verify, one DB transaction, response) | 0.10–0.15 s | Server-Timing: auth 0.3 ms, begin_create 30–48 ms, mark_running 5–10 ms, plus one client RTT ~70 ms | high |
 | Provider allocation | 0.41 s | 8 SDK creates: 331–494 ms | high for this vantage/day; provider-owned |
 | Daemon ready | 0.30 s | process→listen 0.29 s measured; assumes the supervisor starts it immediately on resume (today 1 s poll) | medium |
-| Reachability + link | 0.10–0.16 s | measured link 99–167 ms; the boot-time announce runs before the daemon listens | high |
-| Snapshot + terminal create | 0.15 s | 46 + 104 ms measured; one multiplexed request could shave ~50 ms | high |
+| Reachability + link | 0.12–0.15 s | measured link 123–219 ms (p50 139); the boot-time announce runs before the daemon listens | high |
+| Snapshot + terminal create | 0.19 s | 57 + 132 ms measured; one multiplexed request could shave ~50 ms | high |
 | Shell to prompt | 0.30–0.50 s | `bash -lc` 0.42–0.52 s today; ble.sh adds ~0.75 s; assumes a trimmed profile chain and ble.sh loaded after the first prompt | medium |
 | **Sum** | **~1.4–1.7 s** | | |
 
@@ -276,7 +288,7 @@ list refresh, ble.sh with its cache, and the first-frame pipeline.
 | **Event-driven readiness** (client dials from the create response; daemon-ready proven by the handshake; attach-endpoint becomes the repair call; supervisor starts daemon on resume) | −0.75 to −1.5 s (attach RTT) −0.3 s (tick) | none | dial retries bounded by the existing reconnect policy (100 ms → 5 s, 15 s attempt) | lease must be recorded at create for the creator's device or after the first dial; admission is unchanged (VPC membership) | none | a machine whose daemon never comes up shows "connecting" until the repair call runs (bounded, e.g. after 3 failed attempts) | **do second**, needs the lease-ledger decision |
 | **Parallel initialization** (hub/tunnel/route probe while create is in flight; desktop open in parallel with the terminal; fleet list off the open path) | −0.2 to −0.5 s | none | none | none | none | none | do with the above |
 | **Prebuilt/versioned images** | already the design (memory snapshot with daemon parked, desktop live) | rebake per epoch | – | – | promotion invariants already enforced | – | keep; add daemon-start-on-resume |
-| **Snapshot/resume as the default open** (keep machines paused, resume on open) | resume floor 0.25 s vs create 1.06 s | paused = disk only | pause p90 1.06 s observed | none | user data persists anyway | none | already available (`pause`); make resume cheap (item 6) |
+| **Snapshot/resume as the default open** (keep machines paused, resume on open) | resume floor 0.14 s vs create 1.06 s | paused = disk only | pause p90 1.06 s observed | none | user data persists anyway | none | already available (`pause`); make resume cheap (item 6) |
 | **Warm inventory** (one spare paused machine per active user/team) | −0.8 s on fresh create after the above | one extra 16–32 GB disk per user; naming/limit/billing exceptions; recreate spares on every image promotion | none | spare must be created in the user's VPC with the user's edge rule: fine | staleness: spares older than the manifest must be discarded | new reconciler, new orphan class | **not now**; revisit if allocation regresses above ~1 s |
 | **Connection reuse** | app already keeps one link per machine and one hub; persisting the route (already) lets a restart skip attach | none | – | – | – | – | keep; extend to pre-dial on fleet discovery |
 | **Faster shell** (deferred ble.sh, trimmed profile) | −0.5 to −0.8 s on every terminal | none | – | – | image change | – | do, with parity tests for ghost text and prompt |

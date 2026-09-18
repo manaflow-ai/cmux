@@ -25,6 +25,7 @@ import path from "node:path";
 import { cleanupPrivateLinkResource as cleanup } from "../devbox-private-link-cleanup";
 import { startPrivateLinkClient } from "../devbox-private-link-process";
 import { FreestyleProvider } from "../../services/vms/drivers/freestyle";
+import type { GuestPromptIdentity } from "../../services/vms/guestPrompt";
 import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
 import { elapsedMs, formatSummary, summarizeFields } from "./benchStats.mjs";
@@ -205,12 +206,18 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
   return Effect.scoped(Effect.gen(function* () {
     const trial: Trial = { index, image, size: size.name, startedAt: new Date().toISOString() };
     const origin = performance.now();
+    // The production workflow hands the machine's prompt identity to both the
+    // create and the attach (the guest installs its prompt each time) and
+    // feeds the addresses persisted at create back into the attach, which
+    // then skips a provider read; the benchmark does the same work and the
+    // same round trips so it measures the transport path, not a lighter one.
+    const promptIdentity: GuestPromptIdentity = { machineId: randomUUID(), name: `bench-link-${runId}-${index}`, revision: Date.now() };
     // acquireRelease: the create cannot be interrupted half-way (the provider
     // request is not cancellable, so an interrupt waits for it) and the
     // destroy finalizer is registered atomically with the machine's id.
     const created = yield* timed(Effect.acquireRelease(
       attempt("provider.create", () => bounded(provider.create({
-        image, network: { id: networkId }, displayName: `bench-link-${runId}-${index}`, imageSize: selection.size ?? undefined,
+        image, network: { id: networkId }, displayName: `bench-link-${runId}-${index}`, imageSize: selection.size ?? undefined, promptIdentity,
       }), 900_000, "provider.create")),
       (value) => Effect.gen(function* () {
         const destroyed = yield* timed(cleanup(`VM ${value.providerVmId}`, () => tracked(provider.destroy(value.providerVmId))));
@@ -223,7 +230,9 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
     // Bounded and tracked like the create: the attach bundle's provider calls
     // can be backgrounded too, and an abandoned attach must settle before the
     // sweep. The bound is the platform limit the app's attach route runs under.
-    const attached = yield* timed(attempt("openCmuxRemote", () => bounded(provider.openCmuxRemote(vmId, { clientCapabilities: capabilities }), 300_000, "openCmuxRemote")));
+    const attached = yield* timed(attempt("openCmuxRemote", () => bounded(provider.openCmuxRemote(vmId, {
+      clientCapabilities: capabilities, promptIdentity, providerMetadata: created.value.providerMetadata,
+    }), 300_000, "openCmuxRemote")));
     trial.attachMs = attached.ms;
     trial.trustedCarrier = attached.value.trustedCarrier;
     trial.daemonCommit = attached.value.daemonBuild?.commit ?? null;
