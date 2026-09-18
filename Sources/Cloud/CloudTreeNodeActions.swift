@@ -377,6 +377,16 @@ struct CloudTreeNodeActions {
         return actions
     }
 
+    /// Captures a selected local workspace for a terminal creation that runs asynchronously.
+    /// The caller takes this receipt before starting the remote mutation so later
+    /// sidebar selection changes cannot retarget the new tab.
+    private static func capturedTabDestination(_ workspaceID: UUID?) throws -> SurfaceDestination {
+        guard let workspaceID else {
+            throw SurfaceCatalogError.destinationNotFound("no selected workspace")
+        }
+        return .workspace(id: workspaceID, placement: .tab)
+    }
+
     /// The local workspace's title: the remote workspace's own name — what a
     /// person actually named it, or typed into its terminal — never the
     /// machine's raw provider id. `hostName` (the machine's friendly label)
