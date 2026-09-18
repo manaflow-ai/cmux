@@ -13,7 +13,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, summarizeFields, summarizeStages } from "./benchStats.mjs";
-import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys } from "./projects.mjs";
+import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
 
 const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--label <text>] [--out <file.json>]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
@@ -584,11 +584,29 @@ function resolveProviderCredentials(env) {
 }
 
 /**
+ * True only when Vercel itself says the host is a deployment of the selected
+ * project in its team. A hostname pattern proves nothing (any tenant can name
+ * a project `cmux-staging-…`), so ownership is read from the API; an error
+ * or another project's deployment is a refusal.
+ */
+function deploymentBelongsToProject(host, project) {
+  try {
+    const output = runVercel(
+      ["api", `/v13/deployments/${encodeURIComponent(host)}?teamId=${encodeURIComponent(project.orgId)}`],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return JSON.parse(String(output))?.projectId === project.projectId;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Every request carries the throwaway user's bearer and refresh tokens, so a
  * mistyped or untrusted --url must not receive them: only an https origin of
- * the selected project (its canonical host, or a Vercel preview of the
- * project) is accepted, unless --allow-any-url records that the operator
- * checked the host. Plain http is refused either way.
+ * the selected project (its canonical host, or a deployment Vercel attributes
+ * to the project) is accepted, unless --allow-any-url records that the
+ * operator checked the host. Plain http is refused either way.
  */
 function resolveTargetUrl(project, options) {
   const raw = optionValue(options, "--url");
@@ -605,9 +623,8 @@ function resolveTargetUrl(project, options) {
     process.exit(2);
   }
   const canonicalHost = new URL(project.url).host;
-  const previewHost = url.host.endsWith(".vercel.app") && url.host.startsWith(`${project.projectName}-`);
-  if (url.host !== canonicalHost && !previewHost && !options.includes("--allow-any-url")) {
-    console.error(`bench-vm-startup: --url host ${url.host} is neither ${canonicalHost} nor a ${project.projectName}-* Vercel preview; pass --allow-any-url only for a host you control`);
+  if (url.host !== canonicalHost && !options.includes("--allow-any-url") && !deploymentBelongsToProject(url.host, project)) {
+    console.error(`bench-vm-startup: --url host ${url.host} is neither ${canonicalHost} nor a deployment of Vercel project ${project.projectName}; pass --allow-any-url only for a host you control`);
     process.exit(2);
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
