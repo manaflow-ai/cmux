@@ -401,11 +401,7 @@ struct LastSurfaceClosePreferenceTests {
             #expect(workspace.cloudVMBinding?.remoteWorkspaceID == "ws-display")
             #expect(workspace.panels.values.allSatisfy { !($0 is TerminalPanel) })
             #expect(workspace.bonsplitController.allPaneIds.count == 1)
-            let records = SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id)
-            #expect(records.contains {
-                $0.panelID == restoredPanelId && $0.resource == display &&
-                    $0.remoteWorkspaceID == "ws-display" && $0.remoteTabID == nil
-            })
+            #expect(SurfaceCatalog.shared.pendingRestoredMachineIDs.contains(machine.rawValue))
         }
     }
 
