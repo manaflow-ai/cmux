@@ -79,7 +79,7 @@ extension RemoteSessionCoordinator {
             fi
             sleep \(Self.daemonUploadStallCheckIntervalSeconds)
           done
-        ) &
+        ) >/dev/null 2>&1 &
         watchdog_pid=$!
         wait "$cat_pid"
         cat_status=$?
