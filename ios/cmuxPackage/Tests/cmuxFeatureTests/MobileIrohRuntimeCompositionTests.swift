@@ -16,6 +16,18 @@ import Testing
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
+    func provisioningRetryPolicyHasTerminalBound() {
+        #expect(MobileIrxRuntimeComposition.provisioningMaxAttempts == 5)
+        #expect(MobileIrxRuntimeComposition.provisioningRetryDelays.count == 5)
+    }
+
+    @Test
+    func provisioningFailureIsObservableByOwner() async throws {
+        let fixture = try await MobileIrohSignOutFixture.make()
+        #expect(await fixture.composition.provisioningFailure() == nil)
+    }
+
+    @Test
     @MainActor
     func foregroundRevalidatesAuthBeforeConnectionReadinessCompletes() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()
