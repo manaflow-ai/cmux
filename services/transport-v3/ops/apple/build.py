@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import os
 import platform
+import plistlib
 import shutil
 import subprocess
 import tempfile
@@ -69,7 +70,7 @@ def main():
         headers.mkdir()
         shutil.copy2(generated/'CmuxV3NativeFFI.h', headers)
         shutil.copy2(generated/'CmuxV3NativeFFI.modulemap', headers/'module.modulemap')
-        libraries = [target/profile/'libcmux_v3_ffi.a']
+        libraries = [('macos-arm64_x86_64', target/profile/'libcmux_v3_ffi.a')]
         if not args.mac_only:
             triples = ['aarch64-apple-darwin','x86_64-apple-darwin','aarch64-apple-ios','aarch64-apple-ios-sim']
             run('rustup', 'target', 'add', '--toolchain', '1.98.1', *triples, env=env)
@@ -78,11 +79,43 @@ def main():
             mac = stage/'macos'/'libcmux_v3_ffi.a'
             mac.parent.mkdir()
             run('lipo', '-create', *(str(target/t/profile/'libcmux_v3_ffi.a') for t in triples[:2]), '-output', str(mac), env=env)
-            libraries = [mac, *(target/t/profile/'libcmux_v3_ffi.a' for t in triples[2:])]
+            libraries = [
+                ('macos-arm64_x86_64', mac),
+                ('macos-arm64', target/triples[0]/profile/'libcmux_v3_ffi.a'),
+                ('ios-arm64', target/triples[2]/profile/'libcmux_v3_ffi.a'),
+                ('ios-arm64-simulator', target/triples[3]/profile/'libcmux_v3_ffi.a'),
+            ]
         output = stage/'CmuxV3NativeFFI.xcframework'
+        frameworks = []
+        for identifier, library in libraries:
+            framework = stage/identifier/'CmuxV3NativeFFI.framework'
+            headers_dir = framework/'Headers'
+            modules_dir = framework/'Modules'
+            headers_dir.mkdir(parents=True)
+            modules_dir.mkdir()
+            shutil.copy2(headers/'CmuxV3NativeFFI.h', headers_dir/'CmuxV3NativeFFI.h')
+            (modules_dir/'module.modulemap').write_text(
+                'framework module CmuxV3NativeFFI {\n'
+                '  umbrella header "CmuxV3NativeFFI.h"\n'
+                '  export *\n'
+                '  module * { export * }\n'
+                '}\n'
+            )
+            (framework/'Info.plist').write_bytes(plistlib.dumps({
+                'CFBundleDevelopmentRegion': 'en',
+                'CFBundleExecutable': 'CmuxV3NativeFFI',
+                'CFBundleIdentifier': 'dev.cmux.CmuxV3NativeFFI',
+                'CFBundleInfoDictionaryVersion': '6.0',
+                'CFBundleName': 'CmuxV3NativeFFI',
+                'CFBundlePackageType': 'FMWK',
+                'CFBundleShortVersionString': '1.0',
+                'CFBundleVersion': '1',
+            }))
+            shutil.copy2(library, framework/'CmuxV3NativeFFI')
+            frameworks.append(framework)
         command = ['xcodebuild', '-create-xcframework']
-        for library in libraries:
-            command += ['-library', str(library), '-headers', str(headers)]
+        for framework in frameworks:
+            command += ['-framework', str(framework)]
         run(*command, '-output', str(output), env=env)
         manifest = output/'Info.plist'
         if not manifest.is_file():
