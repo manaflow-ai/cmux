@@ -128,7 +128,7 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         // on wall time. The reporter expires attempts from event timestamps.
         reporter.ingest(DiagnosticEvent(
             code: .rpcFailed,
-            tNanos: 1_001_000_001
+            tNanos: 1_020_000_001
         ))
         await reporter.flush()
 
