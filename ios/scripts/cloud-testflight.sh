@@ -370,7 +370,7 @@ resolve_appstore_extension_profile() {
 
   identity="${IOS_DISTRIBUTION_IDENTITY:-}"
   if [[ -z "$identity" ]]; then
-    identity="$(security find-identity -v -p codesigning 2>/dev/null | sed -n 's/.*"\(.* Distribution: .* (7WLXT3NR37)\)".*/\1/p' | head -n 1)"
+    identity="$(security find-identity -v -p codesigning 2>/dev/null | sed -n "s/.*\"\(.* Distribution: .* ($team_id)\)\".*/\1/p" | head -n 1)"
   fi
   [[ -n "$identity" ]] || die "could not find an Apple Distribution identity for the App Store extension profile"
   export IOS_DISTRIBUTION_IDENTITY="$identity"

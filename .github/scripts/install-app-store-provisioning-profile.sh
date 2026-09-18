@@ -29,6 +29,7 @@ RESOLVED_PROFILE_NAME=""
 RESOLVED_PROFILE_UUID=""
 EXTENSION_PROFILE_NAME=""
 EXTENSION_PROFILE_UUID=""
+EXPECTED_CERT_SHA256=""
 
 validate_profile() {
   local profile_path="$1"
@@ -91,11 +92,45 @@ validate_extension_profile() {
   local plist_path="$2"
   local label="$3"
 
-  security cms -D -i "$profile_path" > "$plist_path" || die "$label is not a readable provisioning profile"
+  if ! security cms -D -i "$profile_path" > "$plist_path"; then
+    note "$label is not a readable provisioning profile"
+    return 1
+  fi
   local app_id
   app_id="$($PLISTBUDDY -c "Print :Entitlements:application-identifier" "$plist_path" 2>/dev/null || true)"
   if [ "$app_id" != "$EXPECTED_EXTENSION_APP_ID" ]; then
-    die "$label targets unexpected app ID: ${app_id:-<absent>} (expected $EXPECTED_EXTENSION_APP_ID)"
+    note "$label targets unexpected app ID: ${app_id:-<absent>} (expected $EXPECTED_EXTENSION_APP_ID)"
+    return 1
+  fi
+  if ! python3 - "$plist_path" "$EXPECTED_CERT_SHA256" <<'PY'
+import hashlib
+import plistlib
+import sys
+from datetime import datetime, timezone
+
+path, expected_cert = sys.argv[1:]
+with open(path, "rb") as handle:
+    profile = plistlib.load(handle)
+entitlements = profile.get("Entitlements", {})
+if entitlements.get("get-task-allow") is not False:
+    raise SystemExit("profile is not an App Store distribution profile")
+if profile.get("ProvisionsAllDevices") or "ProvisionedDevices" in profile:
+    raise SystemExit("profile is not an App Store distribution profile")
+expiration = profile.get("ExpirationDate")
+if not isinstance(expiration, datetime) or expiration.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+    raise SystemExit("profile is expired")
+if expected_cert:
+    fingerprints = {
+        hashlib.sha256(cert).hexdigest().upper()
+        for cert in profile.get("DeveloperCertificates", [])
+        if isinstance(cert, bytes)
+    }
+    if expected_cert.upper() not in fingerprints:
+        raise SystemExit("profile does not contain the imported distribution certificate")
+PY
+  then
+    note "$label is not a usable App Store distribution profile"
+    return 1
   fi
 
   EXTENSION_PROFILE_NAME="$($PLISTBUDDY -c "Print :Name" "$plist_path")"
@@ -153,11 +188,18 @@ try_installed_extension_profile() {
       continue
     fi
     cp "$profile_path" "$TMP_EXTENSION_PROFILE"
-    validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "installed extension profile"
-    install_extension_profile
-    return 0
+    if validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "installed extension profile"; then
+      install_extension_profile
+      return 0
+    fi
   done
   return 1
+}
+
+resolve_expected_cert_fingerprint() {
+  [ -n "${IOS_DISTRIBUTION_IDENTITY:-}" ] || return 0
+  command -v openssl >/dev/null 2>&1 || return 0
+  EXPECTED_CERT_SHA256="$(security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" 2>/dev/null | openssl x509 -outform DER 2>/dev/null | openssl dgst -sha256 -r 2>/dev/null | awk '{print toupper($1)}')"
 }
 
 json_id_by_bundle_identifier() {
@@ -273,6 +315,7 @@ PY
 }
 
 ensure_extension_profile_from_asc() {
+  resolve_expected_cert_fingerprint
   if try_secret_extension_profile "extension profile secret" "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64:-}"; then
     return 0
   fi
@@ -298,6 +341,8 @@ ensure_extension_profile_from_asc() {
   cert_serial="$(openssl x509 -in "$cert_pem" -noout -serial | sed 's/^serial=//' | tr '[:lower:]' '[:upper:]')"
   cert_serial="$(printf '%s' "$cert_serial" | tr -cd '[:alnum:]')"
   [ -n "$cert_serial" ] || die "could not resolve imported distribution certificate serial"
+  EXPECTED_CERT_SHA256="$(security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" | openssl x509 -outform DER | openssl dgst -sha256 -r | awk '{print toupper($1)}')"
+  [ -n "$EXPECTED_CERT_SHA256" ] || die "could not fingerprint imported distribution certificate"
 
   local bundles_json certs_json profiles_json created_json bundle_id certificate_id profile_id profile_name profile_suffix
   bundles_json="$TMP_ROOT/asc-bundle-ids.json"
@@ -317,7 +362,7 @@ ensure_extension_profile_from_asc() {
   fi
 
   profile_suffix="${cert_serial: -8}"
-  profile_name="cmux App Store Extension CI $profile_suffix"
+  profile_name="cmux App Store Extension CI $EXTENSION_BUNDLE_IDENTIFIER $profile_suffix"
   asc profiles list --profile-type IOS_APP_STORE --paginate --output json > "$profiles_json"
   profile_id="$(json_active_profile_id_by_name "$profiles_json" "$profile_name" || true)"
   if [ -z "$profile_id" ]; then
@@ -336,7 +381,8 @@ ensure_extension_profile_from_asc() {
 
   rm -f "$TMP_EXTENSION_PROFILE"
   asc profiles download --id "$profile_id" --output "$TMP_EXTENSION_PROFILE" >/dev/null
-  validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "downloaded profile '$profile_name'"
+  validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "downloaded profile '$profile_name'" ||
+    die "downloaded extension profile '$profile_name' is not usable"
   install_extension_profile
 }
 
