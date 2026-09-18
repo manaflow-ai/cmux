@@ -530,6 +530,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux App Store NotificationService"
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
