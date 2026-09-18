@@ -13,6 +13,13 @@ spec.loader.exec_module(deploy)
 deploy.ARGS=types.SimpleNamespace(registry='testregistry',subscription='test-subscription')
 
 class DeployTests(unittest.TestCase):
+    def test_control_entrypoint_requires_a_32_byte_base64_signer_seed(self):
+        script = (Path(__file__).resolve().parents[2] / 'control-entrypoint.sh').read_text()
+        self.assertIn('${CMUX_V3_SIGNER_SEED_B64:?CMUX_V3_SIGNER_SEED_B64 is required}', script)
+        self.assertIn('test "$(wc -c < /run/cmux-v3/signer-seed', script)
+        self.assertIn('CMUX_V3_SIGNER_SEED_FILE=/run/cmux-v3/signer-seed', script)
+        self.assertIn('exec /usr/local/bin/cmux-v3-control-server', script)
+
     def test_successful_azure_action_can_return_no_json_body(self):
         with patch.object(deploy,'run',return_value=''):
             self.assertIsNone(deploy.az('acr','import'))
