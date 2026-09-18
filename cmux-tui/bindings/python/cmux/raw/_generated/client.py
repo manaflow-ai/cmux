@@ -324,6 +324,18 @@ class GeneratedClientMixin:
     def unregister_browser_provider(self) -> BrowserProviderUnregisterResult:
         return self._invoke_command('unregister-browser-provider', UnregisterBrowserProviderRequest())
 
+    def url_open(self, terminal_id: str, url: str) -> GuestUrlOpenResult:
+        return self._invoke_command('url-open', UrlOpenRequest(terminal_id=terminal_id, url=url))
+
+    def url_open_claim(self, request_id: str) -> GuestUrlClaimResult:
+        return self._invoke_command('url-open-claim', UrlOpenClaimRequest(request_id=request_id))
+
+    def url_open_result(self, opened: bool, request_id: str) -> GuestUrlAcknowledgeResult:
+        return self._invoke_command('url-open-result', UrlOpenResultRequest(opened=opened, request_id=request_id))
+
+    def url_open_subscribe(self, terminal_ids: List[str]) -> Any:
+        return self._open_command_stream('url-open-subscribe', UrlOpenSubscribeRequest(terminal_ids=terminal_ids))
+
     def vt_state(self, surface: Id) -> VtStateResult:
         return self._invoke_command('vt-state', VtStateRequest(surface=surface))
 
@@ -438,6 +450,10 @@ GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
+GeneratedClientMixin.url_open.__cmux_command__ = COMMANDS['url-open']
+GeneratedClientMixin.url_open_claim.__cmux_command__ = COMMANDS['url-open-claim']
+GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-result']
+GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
 GeneratedClientMixin.zoom_pane.__cmux_command__ = COMMANDS['zoom-pane']
