@@ -859,10 +859,11 @@ struct MobileSettingsView: View {
     }
 
     /// Whether the setup and introduction entries apply. When this sheet is
-    /// reused from the no-devices screen there is no connected Mac or store,
-    /// so they are hidden.
+    /// hosted by the workspace shell, the host's Computers action keeps these
+    /// entries useful even before a Mac has connected. Previews without a
+    /// shell action still omit the section.
     private var hasConnectionSection: Bool {
-        !connectedHostName.isEmpty || store != nil
+        !connectedHostName.isEmpty || store != nil || showComputers != nil
     }
 
     /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,

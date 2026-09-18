@@ -184,8 +184,7 @@
     "memoryUnavailable": {
       "message": "このマシンサイズは現在利用できません。{max} GiB 以下を選択してください。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -195,7 +194,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }}
+  ,
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -1922,6 +1922,56 @@
     }
   },
   "docs": {
+    "iosSetup": {
+      "title": "iPhone・iPad で cmux を設定する",
+      "metaTitle": "cmux iOS 設定ガイド",
+      "metaDescription": "iPhone・iPad の cmux を Mac に接続する手順。インストール、ログイン、ペアリング、通知の設定、ワークスペースが表示されない場合の対処法を説明します。",
+      "intro": "iOS 版 cmux は Mac で動作する cmux に接続します。シェルとエージェントは Mac で実行を続け、スマートフォンやタブレットからワークスペースを表示・操作できます。",
+      "checklistTitle": "始める前に",
+      "checklist1": "Mac に最新版の cmux をインストールし、ワークスペースを 1 つ以上開いた状態で起動しておきます。iOS 側で新しい Mac 版が必要と表示されたら、接続先の cmux アプリを更新してください。",
+      "checklist2": "iPhone または iPad に cmux をインストールします。ベータ版の場合は TestFlight の招待を受け入れ、TestFlight から cmux BETA をインストールします。",
+      "checklist3": "両方の端末をインターネットに接続し、同じ cmux アカウントを使います。チームを利用している場合は、両方で同じチームを選択します。",
+      "downloadMac": "Mac 版 cmux をダウンロード",
+      "downloadIOS": "iOS 版 cmux を入手",
+      "macTitle": "1. Mac でペアリングを有効にする",
+      "mac1": "Mac で cmux を開き、cmux アカウントにログインします。",
+      "mac2": "cmux の設定で「モバイル」を選び、「iOS ペアリングを有効にする」をオンにします。スマートフォンから使いたい Mac 上の各 cmux アプリで設定してください。",
+      "mac3": "cmux を起動したまま、Mac をスリープさせずに保ちます。Mac がスリープ、シャットダウン、または切断されると、スマートフォンからターミナルに接続できません。",
+      "pairingNote": "ペアリングは初期状態ではオフです。オフの間、その Mac は iOS に表示されません。ログインするだけではペアリングは有効になりません。",
+      "phoneTitle": "2. iOS からログインして接続する",
+      "phone1": "iPhone または iPad で cmux を開き、Mac と同じ cmux アカウントでログインします。複数のアカウントを持っている場合は、両方のメールアドレスを確認してください。",
+      "phone2": "アプリの案内に従います。「通知を有効にする」を選ぶか、「後で」を選んで後から設定します。ペアリングのページで、Mac の iOS ペアリングを有効にしたことを確認します。",
+      "phone3": "「自動接続」を選び、「自分の Mac を確認」をタップします。同じアカウントにログインしている対応 Mac が検出されます。自動接続に Tailscale のインストールは不要です。",
+      "phone4": "Mac が接続されたら「ワークスペースを開く」をタップします。ワークスペースとターミナルを選ぶと、出力の表示や入力ができます。上部の「すべてのコンピュータ」で接続先を切り替えられます。",
+      "permissionsNote": "iOS から求められた場合は、ローカルネットワークへのアクセスを許可してください。以前拒否した場合は、iPhone・iPad の設定アプリで cmux を開き、ローカルネットワークを有効にしてから cmux に戻り、再試行します。",
+      "tailscaleTitle": "任意: Tailscale のみで接続する",
+      "tailscale1": "Mac と iPhone・iPad に Tailscale をインストールし、同じ Tailscale ネットワークにログインします。両方で Tailscale が接続されていることを確認します。",
+      "tailscale2": "cmux の設定 > モバイルで iOS ペアリングを有効にしておきます。iOS の接続方法で「Tailscale のみ」を選び、「ペアリングコードをスキャン」を選択します。",
+      "tailscale3": "Mac の cmux で Mobile Connect を開き、スマートフォンでペアリングコードを読み取ります。求められたらカメラへのアクセスを許可し、画面の案内に従います。",
+      "tailscale4": "このモードでは、Wi-Fi からモバイル通信に切り替える場合も含め、両方の端末で Tailscale を接続したままにします。Tailscale のアクセスルールで、スマートフォンから Mac への接続を許可する必要があります。",
+      "notificationsTitle": "3. エージェント通知を有効にする",
+      "notifications1": "アプリの案内で「通知を有効にする」をタップし、iOS の確認画面で許可します。スキップまたは拒否した場合は、iOS の設定 > 通知 > cmux で「通知を許可」を有効にします。",
+      "notifications2": "両方の端末で cmux の通知設定を確認し、転送設定が表示される場合は有効にします。新しいエージェント通知を送信できるよう、Mac を起動・接続したままにします。",
+      "notifications3": "設定済みのコーディングエージェントがあるワークスペースで通知を発生させます。cmux の通知タブとスマートフォンへの配信を確認します。集中モードや通知の要約により、通知が遅延または消音される場合があります。",
+      "notificationsLink": "ターミナルとエージェントの通知を設定する",
+      "verifyTitle": "4. 接続を確認する",
+      "verify1": "スマートフォンからターミナルを開き、pwd などの安全なコマンドを実行します。スマートフォンと Mac の同じワークスペースに出力が表示されることを確認します。",
+      "verify2": "別のワークスペースに切り替えてから戻ります。外出先で使う予定なら、Mac から離れる前にモバイル通信でも試してください。",
+      "verify3": "リモートアクセスには Mac を電源に接続し、スリープさせずに保ちます。設定中にスリープ防止の選択肢が表示された場合は、Mac を接続可能にしておくために利用できます。",
+      "troubleshootTitle": "ワークスペースが表示されない場合",
+      "troubleshootIntro": "設定を修正したらワークスペースに戻り、「再試行」をタップします。保存済みの Mac への再接続、またはワークスペース一覧とアカウントに保存された接続情報の更新を行います。",
+      "troubleshootPairingTitle": "Mac が見つからない",
+      "troubleshootPairing": "接続したい Mac アプリの設定 > モバイルで iOS ペアリングが有効か確認します。両方で同じ cmux アカウントとチームを選び、Mac アプリを起動したままにしてください。「コンピュータ」ボタンで利用可能な Mac を確認し、非表示にしていないか調べます。",
+      "troubleshootVersionTitle": "新しい Mac アプリを求められる",
+      "troubleshootVersion": "Mac の cmux を更新し、そのアプリを終了して開き直します。複数の cmux バージョンを使っている場合は、更新したものをスマートフォンで選択してください。iOS アプリに表示された最低バージョンに従います。",
+      "troubleshootNetworkTitle": "Mac は表示されるが接続できない",
+      "troubleshootNetwork": "Mac をスリープから復帰させ、両方のインターネット接続を確認します。求められた場合は iOS のローカルネットワークアクセスを許可します。「Tailscale のみ」では、両方が同じネットワークに接続し、アクセスルールが通信を許可していることを確認してから再試行します。",
+      "troubleshootEmptyTitle": "接続できるのに一覧が空",
+      "troubleshootEmpty": "Mac の cmux でワークスペースを作成するか開きます。スマートフォンで「すべてのコンピュータ」を選び、検索やフィルターを解除します。一覧を下に引いて更新するか、空の画面で「再試行」をタップします。",
+      "helpTitle": "解決しない場合",
+      "helpBody": "Mac と iOS の cmux バージョン、接続方法、正確なエラー、コンピュータ一覧に Mac が表示されるかをお知らせください。パスワードやペアリングコードは含めないでください。",
+      "helpLink": "cmux サポートに問い合わせる"
+    },
     "computerUse": {
       "title": "cmux Computer Use",
       "metaTitle": "cmux Computer Use: AIエージェントでMacを自動操作",
