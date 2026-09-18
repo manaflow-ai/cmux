@@ -33,6 +33,9 @@ public actor CloudTunnelProviderStartGate {
     private var nextGeneration: UInt64 = 0
     private var pendingCompletions: [Completion] = []
 
+    /// Creates an idle gate for one provider process.
+    public init() {}
+
     /// Registers one NetworkExtension start callback and reports whether the
     /// provider should start WireGuard, wait for an existing start, or answer
     /// immediately because the adapter is already running.
