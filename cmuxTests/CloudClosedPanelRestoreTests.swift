@@ -60,8 +60,8 @@ struct CloudClosedPanelRestoreTests {
             ))
             let store = ClosedItemHistoryStore(loadPersisted: false)
             store.push(.panel(ClosedPanelHistoryEntry(
-                workspaceId: workspace.id, paneId: UUID(), tabIndex: 0,
-                snapshot: snapshot, paneAnchorPanelId: oldID, layout: layout
+                workspaceId: workspace.id, paneId: UUID(), paneAnchorPanelId: oldID, tabIndex: 0,
+                snapshot: snapshot, layout: layout
             )))
             let revision = store.revision
             store.remapPanelAnchorIds(from: oldID, to: newID)
