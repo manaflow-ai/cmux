@@ -214,7 +214,7 @@ struct MobileSettingsView: View {
                 }
 
                 if let irohSettingsController {
-                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
+                    Section {
                         NavigationLink {
                             MobileIrohSettingsView(
                                 controller: irohSettingsController,
@@ -227,6 +227,8 @@ struct MobileSettingsView: View {
                             )
                         }
                         .accessibilityIdentifier("MobileSettingsIroh")
+                    } header: {
+                        Text(L10n.string("mobile.settings.networking", defaultValue: "Networking"))
                     }
                 }
 
