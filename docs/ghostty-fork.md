@@ -12,32 +12,42 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `370f08cf1`, reachable from fork `main`
-after Ghostty PR #221 was merged as `3869e81a0`. It is cmux
-`main`'s pin `4a0e9e185` (termio `MemoryPool` write pool and the
-`GHOSTTY_BIN_DIR` use-after-free fix, from cmux #12842) merged with the NFD
-Hangul shaping fix, and nothing else: fork `main`'s `clear_screen` changes are
-not included because cmux `main` does not consume them yet. It includes the
-incremental embedded configuration propagation and Fish SSH feature-gating fixes described below,
-plus the renderer/API compatibility pin and the repeated word-selection drag
-anchor fix. Its tree includes the prior fork changes below, including tokened
-iOS render dispositions, VT formatter cursor restoration, VT stream-boundary
-visibility, and Hangul canonical font resolution.
+The submodule pinned by this branch is `35ae29b7c2`, the pin cmux `main`
+adopted in cmux #12669. It is the merge of fork `main` at `3869e81a0` into the
+Cloud loopback link-detection branch (`46428d790` bare localhost port links,
+`59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
+previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
+#221, merged as `3869e81a0`; its branch tip `370f08cf1` is `4a0e9e185` merged
+into the Hangul commits), the targeted upstream picks of fork PR #224 (input
+encoding, erase/scroll state, termio lifetime), the write-pool FIFO fix of
+fork PR #223, and the `clear_screen` scrollback change of fork PR #213. It
+includes the incremental embedded configuration propagation and Fish SSH
+feature-gating fixes described below, plus the renderer/API compatibility pin
+and the repeated word-selection drag anchor fix. Its tree includes the prior
+fork changes below, including tokened iOS render dispositions, VT formatter
+cursor restoration, VT stream-boundary visibility, and Hangul canonical font
+resolution.
 
 ### Current feature pin
 
 - Branch:
-  - https://github.com/manaflow-ai/ghostty/tree/main (contains the pin through
-    merge commit `3869e81a0`; feature branch `issue-12753-hangul-filename-shaping`)
+  - https://github.com/manaflow-ai/ghostty/tree/main (contains the Hangul fix
+    through merge commit `3869e81a0`; the pin itself is one merge ahead of
+    fork `main`, on the Cloud loopback link-detection branch)
 - Commit:
-  - `370f08cf1` (merge of cmux `main`'s pin `4a0e9e185` into the issue-12753
-    Hangul shaping fix and coverage; merged to fork `main` by PR #221)
+  - `35ae29b7c2` (merge of fork `main` `3869e81a0` into `46428d790`; pinned by
+    cmux #12669)
 - Summary:
-  - Adds the NFD Hangul shaping fix and jamo/style coverage on top of cmux's prior pin, preserving
-    incremental embedded configuration propagation and Fish SSH feature gating,
-    with the renderer/API compatibility pin and repeated word-selection drag
-    anchor behavior.
+  - Adds the NFD Hangul shaping fix and jamo/style coverage, the fork PR #224
+    upstream picks, the write-pool FIFO fix, `clear_screen` scrollback erasure
+    and bare localhost port-link detection on top of cmux's prior pin,
+    preserving incremental embedded configuration propagation and Fish SSH
+    feature gating, with the renderer/API compatibility pin and repeated
+    word-selection drag anchor behavior.
 - Verification:
+  - `src/font` at `35ae29b7c2` is byte-identical to `370f08cf1`
+    (`git diff 370f08cf1 35ae29b7c2 -- src/font` is empty), so the Hangul
+    results below apply to this pin's font code unchanged.
   - Zig 0.16.0 on macOS 26.4, at `370f08cf1`, `-Dtest-filter=Hangul`: 78/78
     with the CoreText shaper and 77/77 with `-Dfont-backend=coretext_harfbuzz`.
     73 of those run regardless of the filter under either backend (a filter
@@ -49,12 +59,20 @@ visibility, and Hangul canonical font resolution.
     found 1942` (the Apple SD Gothic Neo glyph ID from the report), HarfBuzz
     `expected 218, found 0` (`.notdef`). The inherited fork CI skips tests
     outside ghostty-org, so these were run by hand on a leased fleet Mac.
+  - A tagged cmux app built against the `370f08cf1` GhosttyKit renders both
+    configurations from cmux #12753 correctly where the earlier pins drew
+    unrelated symbols (cmux #12826). The `35ae29b7c2` archive itself was not
+    run through that check.
 - Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-370f08cf15a6ab646b9a291f72af034bb0960fb3-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-  - SHA-256 `ec53b8992b466ecd9cc87b42754188fe504898ff0b139f54b3eef1dc6a441233`
-    is pinned in `scripts/ghosttykit-checksums.txt`. Built and published by
-    `build-ghosttykit.yml` run 35197286294; the archive embeds
-    `1.3.2-HEAD-+370f08c`.
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-35ae29b7c2bcee7c721d515d0096a9bc3f3242bb-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+  - SHA-256 `6f83f20842140a782c8029156aabe92c246a181682794f01ad0a30ca43c76620`
+    is pinned in `scripts/ghosttykit-checksums.txt` (cmux #12669).
+  - The Hangul branch tip `370f08cf1` also has a published archive,
+    https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-370f08cf15a6ab646b9a291f72af034bb0960fb3-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+    (SHA-256 `ec53b8992b466ecd9cc87b42754188fe504898ff0b139f54b3eef1dc6a441233`,
+    `build-ghosttykit.yml` run 35197286294, embeds `1.3.2-HEAD-+370f08c`). Its
+    checksum stays in `scripts/ghosttykit-checksums.txt` because that is the
+    build the runtime proof used.
 
 ### Fish SSH feature gating
 
@@ -207,6 +225,9 @@ pinned in `scripts/ghosttykit-checksums.txt`.
   - `6f2701078` (test: cover Hangul selection bounds, copy path, and uncomposable jamo)
   - `370f08cf1` (merge of cmux `main`'s pin `4a0e9e185`; touches only
     `src/termio` and `src/datastruct`, no overlap with `src/font`)
+  - Reached cmux `main` through the `35ae29b7c2` pin (cmux #12669), which
+    contains the fork `main` merge `3869e81a0` of PR #221; `src/font` there
+    is identical to `370f08cf1`.
 - `RunIterator.resolveFontInfo` carries the canonical syllable together with
   its resolved font index. Both CoreText and HarfBuzz receive that spelling,
   preventing CoreText from returning jamo fallback glyph IDs that would be
