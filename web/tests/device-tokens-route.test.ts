@@ -16,6 +16,9 @@ const pushFieldsFor = (deviceToken: string, installationId?: string) => ({
   pushKeyId: "key-test",
   pushPublicKey: `${"A".repeat(43)}=`,
 });
+const testAccessHeader = `Bearer header.${Buffer.from(
+  JSON.stringify({ refresh_token_id: "test-session" }),
+).toString("base64url")}.signature`;
 
 const getUser = mock(async () => ({
   id: "push-user-1",
@@ -51,7 +54,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   if (!sql) return;
-  await sql`truncate device_tokens, account_deletion_tombstones restart identity cascade`;
+  await sql`truncate device_tokens, device_token_revocations, account_deletion_tombstones restart identity cascade`;
   getUser.mockClear();
 });
 
@@ -61,7 +64,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.app.demo",
         },
@@ -85,7 +88,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.app.internal",
         },
@@ -111,7 +114,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -165,7 +168,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "DELETE",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -215,7 +218,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "DELETE",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({ deviceToken: token }),
@@ -246,7 +249,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -283,7 +286,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
         },
         body: JSON.stringify({
@@ -312,7 +315,7 @@ describe("device token route", () => {
           new Request("https://cmux.test/api/device-tokens", {
             method: "POST",
             headers: {
-              authorization: "Bearer access-token",
+              authorization: testAccessHeader,
               "x-stack-refresh-token": "refresh-token",
             },
             body: JSON.stringify({
@@ -365,7 +368,7 @@ describe("device token route", () => {
     }
 
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
     };
     const register = (deviceToken: string) => POST(
@@ -411,7 +414,7 @@ describe("device token route", () => {
         new Request("https://cmux.test/api/device-tokens", {
           method: "POST",
           headers: {
-            authorization: "Bearer access-token",
+            authorization: testAccessHeader,
             "x-stack-refresh-token": "refresh-token",
             "x-cmux-app-namespace": bundleId,
           },
@@ -461,7 +464,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.ios.overflow",
         },
@@ -487,7 +490,7 @@ describe("device token route", () => {
 
     const token = "a".repeat(64);
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
       "x-cmux-app-namespace": "dev.cmux.ios.push1",
     };
@@ -541,7 +544,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method,
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": bundleId,
         },
@@ -609,7 +612,7 @@ describe("device token route", () => {
       )
     `;
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
     };
 
@@ -774,7 +777,7 @@ describe("device token route", () => {
     const response = await GET(
       new Request("https://cmux.test/api/device-tokens?bundleId=dev.cmux.ios.push1", {
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": "dev.cmux.ios.push1",
         },
@@ -800,7 +803,7 @@ describe("device token route", () => {
     const firstToken = "5".repeat(64);
     const secondToken = "6".repeat(64);
     const headers = {
-      authorization: "Bearer access-token",
+      authorization: testAccessHeader,
       "x-stack-refresh-token": "refresh-token",
       "x-cmux-app-namespace": bundleId,
     };
@@ -863,7 +866,7 @@ describe("device token route", () => {
       new Request("https://cmux.test/api/device-tokens", {
         method: "POST",
         headers: {
-          authorization: "Bearer access-token",
+          authorization: testAccessHeader,
           "x-stack-refresh-token": "refresh-token",
           "x-cmux-app-namespace": bundleId,
         },
