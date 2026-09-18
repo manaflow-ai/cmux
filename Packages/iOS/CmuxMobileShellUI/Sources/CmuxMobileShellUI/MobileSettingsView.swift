@@ -214,7 +214,7 @@ struct MobileSettingsView: View {
                 }
 
                 if let irohSettingsController {
-                    AnyView(Section {
+                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
                         NavigationLink {
                             MobileIrohSettingsView(
                                 controller: irohSettingsController,
@@ -227,12 +227,10 @@ struct MobileSettingsView: View {
                             )
                         }
                         .accessibilityIdentifier("MobileSettingsIroh")
-                    } header: {
-                        Text(L10n.string("mobile.settings.networking", defaultValue: "Networking"))
-                    })
+                    }
                 }
 
-                AnyView(Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
                     Toggle(isOn: $displaySettings.showAltScreenNotice) {
                         Text(L10n.string(
                             "mobile.settings.altScreenNotice",
@@ -258,15 +256,14 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
-                })
+                }
 
-                AnyView(Section {
-                    let hapticFeedbackTitle = L10n.string(
-                        "mobile.settings.hapticFeedback",
-                        defaultValue: "Haptic Feedback"
-                    )
+                Section {
                     Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
-                        Text(hapticFeedbackTitle)
+                        Text(L10n.string(
+                            "mobile.settings.hapticFeedback",
+                            defaultValue: "Haptic Feedback"
+                        ))
                     }
                     .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
                 } header: {
@@ -276,7 +273,7 @@ struct MobileSettingsView: View {
                         "mobile.settings.hapticFeedbackFooter",
                         defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
                     ))
-                })
+                }
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
@@ -404,7 +401,7 @@ struct MobileSettingsView: View {
                 }
                 #endif
 
-                AnyView(Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
                     Toggle(isOn: $displaySettings.showMissingFiles) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L10n.string(
@@ -449,24 +446,22 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalScrollback")
-                })
+                }
 
                 // Release builds keep the section to the single agent-alerts
                 // toggle the app always had; the delivery-status diagnostics,
                 // Mac forwarding controls, and test actions are a dev surface
                 // and stay DEBUG-only.
-                AnyView(Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
+                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
 #if DEBUG
-                    let pushMacStatus = store?.phonePushMacStatus
-                    let pushReadiness = pushCoordinator.readiness(
-                        macStatus: pushMacStatus,
-                        macAccountMismatch: store?.connectionRequiresReauth == true,
-                        securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
-                    )
                     MobilePushSettingsContent(
-                        readiness: pushReadiness,
+                        readiness: pushCoordinator.readiness(
+                            macStatus: store?.phonePushMacStatus,
+                            macAccountMismatch: store?.connectionRequiresReauth == true,
+                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
+                        ),
                         phoneEnabled: $notificationsEnabled,
-                        macStatus: pushMacStatus,
+                        macStatus: store?.phonePushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,
                         supportsMacTest: store?.supportsPhonePushTest == true,
                         canConnectMac: startPairingScanner != nil,
@@ -510,7 +505,7 @@ struct MobileSettingsView: View {
                         applyEnabledIntent: setPhonePushEnabledIntent
                     )
 #endif
-                })
+                }
 
                 Section {
                     Toggle(isOn: $sendAnonymousTelemetry) {
