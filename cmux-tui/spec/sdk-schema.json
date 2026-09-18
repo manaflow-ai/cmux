@@ -9892,8 +9892,8 @@
        "kind": "ref",
        "name": "Id"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true
      },
      "mode": {
       "type": {
@@ -9927,12 +9927,33 @@
       "nullable": true,
       "default": null,
       "capability": "attach-initial-size"
+     },
+     "expected_generation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-identity-v1"
+     },
+     "expected_terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-identity-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "cols and rows must be supplied together.",
-     "Browser surfaces reject mode:render."
+     "Browser surfaces reject mode:render.",
+     "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal."
     ]
    },
    "result": {

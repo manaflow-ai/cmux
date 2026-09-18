@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25.
+// cmux-tui mux protocol 12, IR 0672a3504dc1dbed95437e590805e972a9f12f42171c8c8bac8c87994277ca8c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -32,15 +32,20 @@ pub enum AttachSurfaceRequestMode {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct AttachSurfaceRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_generation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expected_terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<AttachSurfaceRequestMode>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
-    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
 }
 
 #[rustfmt::skip]
@@ -1357,6 +1362,12 @@ impl CmuxClient {
     pub fn attach_surface(&mut self, request: AttachSurfaceRequest) -> Result<CmuxStream> {
         if !request.cols.is_missing() {
             self.require_capability_field("attach-surface", "attach-initial-size")?;
+        }
+        if !request.expected_generation.is_missing() {
+            self.require_capability_field("attach-surface", "attach-identity-v1")?;
+        }
+        if !request.expected_terminal_id.is_missing() {
+            self.require_capability_field("attach-surface", "attach-identity-v1")?;
         }
         if !request.mode.is_missing() {
             self.require_protocol_field("attach-surface", 7)?;
