@@ -935,7 +935,7 @@ extension Workspace {
         ) else {
             return nil
         }
-        let projection = SurfaceCatalog.shared.projection(forPanel: panelId).map { SurfaceProjectionRecord(panelID: panelId, resource: $0.resource, remoteWorkspaceID: $0.remoteWorkspaceID, remoteTabID: $0.remoteTabID) }
+        let projection = SurfaceCatalog.shared.projectionRecord(forPanel: panelId)
         return ClosedPanelHistoryEntry(
             workspaceId: id,
             paneId: pane.id,

@@ -401,7 +401,11 @@ struct LastSurfaceClosePreferenceTests {
             #expect(workspace.cloudVMBinding?.remoteWorkspaceID == "ws-display")
             #expect(workspace.panels.values.allSatisfy { !($0 is TerminalPanel) })
             #expect(workspace.bonsplitController.allPaneIds.count == 1)
-            #expect(SurfaceCatalog.shared.pendingRestoredMachineIDs.contains(machine.rawValue))
+            let records = SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id)
+            let projection = try #require(records.first { $0.panelID == restoredPanelId })
+            #expect(projection.resource == display)
+            #expect(projection.remoteWorkspaceID == "ws-display")
+            #expect(projection.remoteTabID == nil)
         }
     }
 
@@ -460,6 +464,15 @@ struct LastSurfaceClosePreferenceTests {
         defer {
             ClosedItemHistoryStore.shared.removeAll()
         }
-        try run(TabManager(settings: settings, closeTabWarningDefaults: defaults))
+        let manager = TabManager(settings: settings, closeTabWarningDefaults: defaults)
+        let previousService = SurfaceCatalog.shared.cloudWorkspaceRenameService
+        SurfaceCatalog.shared.installCloudWorkspaceRenameService(CloudWorkspaceRenameService(environment: .init(
+            workspace: { manager.workspacesById[$0] }, tabManager: { _ in manager }, workspaces: { manager.tabs }
+        )))
+        defer {
+            manager.finalizeAllWorkspacesForWindowClose()
+            SurfaceCatalog.shared.installCloudWorkspaceRenameService(previousService)
+        }
+        try run(manager)
     }
 }
