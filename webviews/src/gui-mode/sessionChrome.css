@@ -288,3 +288,19 @@
     width: calc(100% - 24px);
   }
 }
+
+.gui-mode-agent-shell .codex-composer-surface { overflow: visible; }
+.gui-mode-agent-shell .gui-mode-agent-input-wrapper { max-height: min(14rem, 35vh); overflow-y: auto; }
+.gui-mode-agent-model-trigger { white-space: nowrap; }
+.gui-mode-agent-model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gui-mode-agent-model-menu { z-index: 1000; }
+.gui-mode-agent-shell .composer-footer { display: flex; flex-wrap: wrap; row-gap: 6px; }
+.gui-mode-agent-shell .composer-footer > :last-child { flex: 1 1 280px; width: auto; }
+.gui-mode-agent-shell .codex-secondary-controls { flex-wrap: wrap; justify-content: flex-end; }
+.gui-mode-agent-shell .gui-mode-thinking-indicator { flex: 0 0 auto; width: 100%; margin: 4px 0; }
+.gui-mode-agent-shell .codex-user-turn,
+.gui-mode-agent-shell .codex-assistant-turn,
+.gui-mode-agent-shell .codex-tool-activity-turn { flex-shrink: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .gui-mode-thinking-dots > span { animation: none; opacity: 0.7; }
+}

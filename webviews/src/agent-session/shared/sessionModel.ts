@@ -44,6 +44,8 @@ export type SessionState = {
   autoStartAttemptedProviderIds: ProviderId[];
   seenSessionIds: string[];
   requestedStopSessionId?: string;
+  isTurnActive?: boolean;
+  pendingMessageId?: string;
 };
 
 export type Action =
@@ -55,6 +57,8 @@ export type Action =
   | { type: "starting" }
   | { type: "startAccepted"; sessionId: string }
   | { type: "stopping"; sessionId: string }
+  | { type: "sending"; sessionId: string; messageId: string; text: string; attachments?: AgentSessionAttachment[] }
+  | { type: "sendRejected"; sessionId: string }
   | { type: "failed"; message: string }
   | { type: "failedForSession"; sessionId: string; message: string }
   | { type: "sendFailed"; sessionId: string; message: string }
@@ -138,12 +142,36 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         requestedStopSessionId: action.sessionId,
         log: appendLog(state, "info", copyText(state, "stoppingStatus", "Stopping")),
       };
+    case "sending":
+      if (state.runningSessionId !== action.sessionId) return state;
+      return {
+        ...state,
+        isTurnActive: true,
+        pendingMessageId: action.messageId,
+        transcript: [...state.transcript, {
+          id: action.messageId,
+          role: "user",
+          text: action.text,
+          attachments: action.attachments,
+          sentAtMs: Date.now(),
+        }],
+      };
+    case "sendRejected":
+      if (state.runningSessionId !== action.sessionId) return state;
+      return {
+        ...state,
+        isTurnActive: false,
+        pendingMessageId: undefined,
+        transcript: state.transcript.filter((entry) => entry.id !== state.pendingMessageId),
+      };
     case "failed":
       return {
         ...state,
         status: "failed",
+        isTurnActive: false,
+        pendingMessageId: undefined,
         log: appendLog(state, "error", action.message),
-        transcript: appendNoticeTranscript(state, action.message, "error"),
+        transcript: appendNoticeTranscript({ ...state, transcript: state.transcript.filter((entry) => entry.id !== state.pendingMessageId) }, action.message, "error"),
       };
     case "failedForSession":
     case "sendFailed":
@@ -153,8 +181,10 @@ export function reduceSession(state: SessionState, action: Action): SessionState
       return {
         ...state,
         status: "failed",
+        isTurnActive: false,
+        pendingMessageId: undefined,
         log: appendLog(state, "error", action.message),
-        transcript: appendNoticeTranscript(state, action.message, "error"),
+        transcript: appendNoticeTranscript({ ...state, transcript: state.transcript.filter((entry) => entry.id !== state.pendingMessageId) }, action.message, "error"),
       };
     case "stopFailed":
       if (state.runningSessionId !== action.sessionId && state.requestedStopSessionId !== action.sessionId) {
@@ -164,8 +194,10 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         ...state,
         requestedStopSessionId: undefined,
         status: "failed",
+        isTurnActive: false,
+        pendingMessageId: undefined,
         log: appendLog(state, "error", action.message),
-        transcript: appendNoticeTranscript(state, action.message, "error"),
+        transcript: appendNoticeTranscript({ ...state, transcript: state.transcript.filter((entry) => entry.id !== state.pendingMessageId) }, action.message, "error"),
       };
     case "sent":
       if (state.runningSessionId !== action.sessionId || state.requestedStopSessionId === action.sessionId) {
@@ -175,7 +207,8 @@ export function reduceSession(state: SessionState, action: Action): SessionState
         ...state,
         input: state.input === action.submittedInput ? "" : state.input,
         log: appendLog(state, "info", formatCopy(state, "sentCharsFormat", "Sent %d chars", action.text.length)),
-        transcript: appendUserTranscript(state, action.displayText ?? action.text, action.attachments, action.sentAtMs),
+        pendingMessageId: undefined,
+        transcript: state.pendingMessageId ? state.transcript : appendUserTranscript(state, action.displayText ?? action.text, action.attachments, action.sentAtMs),
       };
     case "event":
       return applyEvent(state, action.event);
@@ -291,6 +324,15 @@ export async function sendInput(
     return false;
   }
   const sessionId = state.runningSessionId;
+  if (state.context?.renderer === "guiMode") {
+    dispatch({
+      type: "sending",
+      sessionId,
+      messageId: makeClientId(),
+      text: options.displayText ?? submittedInput,
+      attachments: options.attachments,
+    });
+  }
   try {
     await callNative("provider.writeLine", {
       permissionMode: options.permissionMode ?? "default",
@@ -311,6 +353,9 @@ export async function sendInput(
     return true;
   } catch (error) {
     if (isProviderNotReadyError(error)) {
+      if (state.context?.renderer === "guiMode") {
+        dispatch({ type: "sendRejected", sessionId });
+      }
       return false;
     }
     dispatch({ type: "sendFailed", sessionId, message: messageForError(error, state) });
@@ -439,7 +484,8 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       return {
         ...state,
         log: appendLog(state, event.stream, event.text),
-        transcript: appendProviderTranscript(state, event),
+        isTurnActive: event.stream === "error" ? false : state.isTurnActive,
+        transcript: state.context?.renderer === "guiMode" && event.stream === "stderr" ? state.transcript : appendProviderTranscript(state, event),
       };
     case "provider.activity":
       if (event.sessionId !== state.runningSessionId) {
@@ -455,6 +501,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       }
       return {
         ...state,
+        isTurnActive: false,
         transcript: markAssistantTranscriptComplete(state.transcript, event.sessionId),
       };
     case "provider.exit":
@@ -465,6 +512,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         return {
           ...state,
           runningSessionId: undefined,
+        isTurnActive: false,
           requestedStopSessionId: undefined,
           seenSessionIds: rememberSessionId(state, event.sessionId),
           status: "idle",
@@ -475,6 +523,7 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
       return {
         ...state,
         runningSessionId: undefined,
+        isTurnActive: false,
         requestedStopSessionId: undefined,
         seenSessionIds: rememberSessionId(state, event.sessionId),
         status: event.status === 0 ? "idle" : "failed",
@@ -558,11 +607,11 @@ function appendProviderTranscript(
   event: Extract<AgentEvent, { type: "provider.output" }>,
 ): TranscriptEntry[] {
   if (event.stream !== "stdout") {
-    return appendNoticeTranscript(state, event.text, "warning");
+    return appendNoticeTranscript(state, event.text, event.stream === "error" ? "error" : "warning");
   }
 
   const previous = state.transcript.at(-1);
-  if (previous?.role === "assistant" && previous.sessionId === event.sessionId) {
+  if (previous?.role === "assistant" && previous.sessionId === event.sessionId && previous.isComplete !== true) {
     return [
       ...state.transcript.slice(0, -1),
       {

@@ -442,7 +442,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             }
             let session = try await processStore.start(
                 plan: effectivePlan,
-                workingDirectory: request.string("workingDirectory") ?? workingDirectory
+                workingDirectory: request.string("workingDirectory") ?? workingDirectory,
+                environmentOverrides: cmuxAgentEnvironmentOverrides()
             )
             return [
                 "sessionId": session.sessionId,
@@ -465,6 +466,15 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)
         }
+    }
+
+    private func cmuxAgentEnvironmentOverrides() -> [String: String] {
+        var environment = TerminalController.shared.socketClientCapabilityEnvironment()
+        environment["CMUX_WORKSPACE_ID"] = workspaceId.uuidString
+        environment["CMUX_TAB_ID"] = workspaceId.uuidString
+        environment["CMUX_SURFACE_ID"] = panelId.uuidString
+        environment["CMUX_PANEL_ID"] = panelId.uuidString
+        return environment
     }
 
     private func pickLocalFiles() async -> [String: Any] {

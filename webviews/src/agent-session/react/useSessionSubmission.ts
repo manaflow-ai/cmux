@@ -37,13 +37,14 @@ export function useSessionSubmission(state: SessionState, dispatch: React.Dispat
     }
   }, [state, finish, send]);
 
-  const canSubmit = !isPending && (
+  const canSubmit = !isPending && !state.isTurnActive && (
     (state.status === "running" && Boolean(state.runningSessionId)) ||
     (state.context?.renderer === "guiMode" && (canStartProvider(state) || state.status === "starting"))
   );
 
   return {
     canSubmit,
+    isPending,
     submit(options: Submission, onSent: () => void = () => {}) {
       // The ref also gates multiple key events before React commits a render.
       if (pending.current || !canSubmit) return false;

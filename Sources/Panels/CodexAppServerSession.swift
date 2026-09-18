@@ -130,7 +130,7 @@ final class CodexAppServerSession {
         guard let data = line.data(using: .utf8),
               let decoded = try? JSONSerialization.jsonObject(with: data),
               let object = decoded as? [String: Any] else {
-            outputSink("stderr", String(localized: "agentSession.codex.error.invalidJSON", defaultValue: "cmux could not read the response from Codex. Try again."))
+            outputSink("error", String(localized: "agentSession.codex.error.invalidJSON", defaultValue: "cmux could not read the response from Codex. Try again."))
             return
         }
 
@@ -217,17 +217,14 @@ final class CodexAppServerSession {
                 outputSink("stdout", delta)
             }
         case "item/agentMessage/completed", "item/agentMessage/complete", "item/agentMessage/finished":
-            completeTurn()
+            break // An assistant message may be commentary before more tool calls.
         case "item/started":
             if let item = params?["item"] as? [String: Any] {
                 emitActivity(for: item, defaultStatus: "inProgress")
             }
         case "item/completed":
             if let item = params?["item"] as? [String: Any] {
-                if Self.itemIsAgentMessage(item) {
-                    completeTurn()
-                    return
-                }
+                if Self.itemIsAgentMessage(item) { return }
                 emitActivity(for: item, defaultStatus: "completed")
             }
         case "turn/completed", "turn/complete", "turn/finished", "turn/end", "turn/ended",
@@ -627,7 +624,7 @@ final class CodexAppServerSession {
 #if DEBUG
         cmuxDebugLog("agentSession.codex.rpc.failed error=\(error.localizedDescription)")
 #endif
-        outputSink("stderr", Self.rpcFailedMessage())
+        outputSink("error", Self.rpcFailedMessage())
     }
 
     private func emitCodexRPCFailure(details: String?) {
@@ -638,7 +635,7 @@ final class CodexAppServerSession {
 #else
         _ = details
 #endif
-        outputSink("stderr", Self.rpcFailedMessage())
+        outputSink("error", Self.rpcFailedMessage())
     }
 
     private static func rpcFailedMessage() -> String {

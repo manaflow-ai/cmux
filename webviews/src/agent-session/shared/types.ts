@@ -55,6 +55,11 @@ export type GuiModeSessionContext = {
     providerLabel?: string;
     providerSearchPlaceholder?: string;
     reasoningLabel?: string;
+    reasoningDefault?: string;
+    reasoningLow?: string;
+    reasoningMedium?: string;
+    reasoningHigh?: string;
+    reasoningExtraHigh?: string;
     taskPromptLabel?: string;
     taskTitle?: string;
     terminalMode?: string;
@@ -198,7 +203,7 @@ export type AgentEvent =
       type: "provider.output";
       sessionId: string;
       providerId: ProviderId;
-      stream: "stdout" | "stderr";
+      stream: "stdout" | "stderr" | "error";
       text: string;
     }
   | {

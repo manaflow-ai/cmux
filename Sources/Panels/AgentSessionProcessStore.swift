@@ -16,14 +16,26 @@ final class AgentSessionProcessStore {
     private var lastEmittedHasActiveProviderSession: Bool?
     private static let terminationEscalationInterval: DispatchTimeInterval = .seconds(3)
 
-    func start(plan: AgentSessionLaunchPlan, workingDirectory: String?) async throws -> AgentSessionStartedSession {
+    func start(
+        plan: AgentSessionLaunchPlan,
+        workingDirectory: String?,
+        environmentOverrides: [String: String] = [:]
+    ) async throws -> AgentSessionStartedSession {
         guard sessions.isEmpty else {
             throw AgentSessionBridgeError.sessionAlreadyRunning
         }
         let sessionId = UUID().uuidString
         let process = Process()
         let launchArguments = plan.arguments
-        let launchEnvironment = plan.environment(overridingWorkingDirectory: workingDirectory)
+        var mergedEnvironment = plan.environment
+        mergedEnvironment.merge(environmentOverrides) { _, override in override }
+        let launchPlan = AgentSessionLaunchPlan(
+            provider: plan.provider,
+            executableURL: plan.executableURL,
+            arguments: plan.arguments,
+            environment: mergedEnvironment
+        )
+        let launchEnvironment = launchPlan.environment(overridingWorkingDirectory: workingDirectory)
         process.executableURL = plan.executableURL
         process.arguments = launchArguments
         process.environment = launchEnvironment

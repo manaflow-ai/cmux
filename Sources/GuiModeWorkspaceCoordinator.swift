@@ -7,6 +7,19 @@ final class GuiModeWorkspaceCoordinator {
 
     @discardableResult
     func createHomeWorkspace(in tabManager: TabManager) -> Workspace? {
+        if let workspace = tabManager.tabs.first(where: { workspace in
+            workspace.panels.values.contains { panel in
+                guard let panel = panel as? AgentSessionPanel else { return false }
+                return panel.rendererKind == .guiMode && panel.guiModePage == .home
+            }
+        }), let panel = workspace.panels.values.first(where: { panel in
+            guard let panel = panel as? AgentSessionPanel else { return false }
+            return panel.rendererKind == .guiMode && panel.guiModePage == .home
+        }) {
+            tabManager.selectWorkspace(workspace)
+            workspace.focusPanel(panel.id)
+            return workspace
+        }
         guard let workspace = tabManager.addWorkspaceIfActive(
             title: String(localized: "guiMode.workspace.home.title", defaultValue: "GUI Mode"),
             select: true,

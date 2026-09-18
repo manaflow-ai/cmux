@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import type { GuiModeSessionContext, ProviderId } from "../agent-session/shared/types";
 import {
   CODEX_BUTTON_BASE,
@@ -23,14 +24,7 @@ export function GuiModeWelcome({ context }: { context: GuiModeSessionContext }) 
     h("p", { className: "gui-mode-welcome-subtitle" },
       context.copy?.emptySubtitle ?? "Describe an idea, fix a bug, or start with a command.",
     ),
-    h("div", { className: "gui-mode-welcome-voice" },
-      h("span", { className: "gui-mode-welcome-voice-icon", "aria-hidden": true }, "◉"),
-      h("span", { className: "gui-mode-welcome-voice-copy" },
-        h("strong", null, context.copy?.voiceTitle ?? "Talk to Codex"),
-        h("small", null, context.copy?.voiceDescription ?? "Use your voice to work hands-free."),
-      ),
-      h("button", { disabled: true, type: "button" }, context.copy?.voiceAction ?? "Try voice"),
-    ),
+
   );
 }
 
@@ -219,32 +213,58 @@ export function GuiModeModelPicker({
   onChange: (modelId: string, reasoningEffort: string) => void;
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
+  const [menuPosition, setMenuPosition] = React.useState<{ left: number; bottom: number; maxHeight: number } | null>(null);
+  const triggerRef = React.useRef<HTMLButtonElement | null>(null);
+  const menuRef = React.useRef<HTMLDivElement | null>(null);
   const models = (context.models ?? []).filter((model) => model.providerId === providerId);
   const selectedModel = models.find((model) => model.id === modelId) ?? models[0];
   const efforts = selectedModel?.reasoningEfforts ?? ["default"];
-  const effortLabel = reasoningEffort === "xhigh" ? "Extra high" : reasoningEffort;
-  return h("div", {
-    className: "gui-mode-agent-model-picker",
-    onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
-      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-        setIsOpen(false);
-      }
-    },
-  },
-    h("button", {
-      "aria-expanded": isOpen,
-      "aria-haspopup": "menu",
-      "aria-disabled": disabled || undefined,
-      "aria-label": `${context.copy?.modelLabel ?? "Model"}: ${selectedModel?.displayName ?? "Default"}, ${effortLabel}`,
-      className: "gui-mode-agent-model-trigger",
-      disabled,
-      onClick: () => {
-        if (!disabled) setIsOpen((open) => !open);
+  const effortLabels: Record<string, string> = {
+    default: context.copy?.reasoningDefault ?? "Default",
+    low: context.copy?.reasoningLow ?? "Low",
+    medium: context.copy?.reasoningMedium ?? "Medium",
+    high: context.copy?.reasoningHigh ?? "High",
+    xhigh: context.copy?.reasoningExtraHigh ?? "Extra high",
+  };
+  const effortLabel = effortLabels[reasoningEffort] ?? reasoningEffort;
+  const openMenu = () => {
+    if (disabled) return;
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      setMenuPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 276)), bottom: Math.max(8, window.innerHeight - rect.top + 8), maxHeight: Math.max(64, rect.top - 16) });
+    }
+    setIsOpen(true);
+  };
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const outside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !triggerRef.current?.contains(target)) setIsOpen(false);
+    };
+    const close = () => setIsOpen(false);
+    document.addEventListener("pointerdown", outside);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      window.removeEventListener("resize", close);
+    };
+  }, [isOpen]);
+  const menu = isOpen
+    ? h("div", {
+        className: "gui-mode-agent-model-menu",
+        ref: menuRef,
+        role: "menu",
+        style: menuPosition
+          ? { position: "fixed", left: `${menuPosition.left}px`, bottom: `${menuPosition.bottom}px`, maxHeight: `${menuPosition.maxHeight}px`, right: "auto" }
+          : undefined,
+        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setIsOpen(false);
+            triggerRef.current?.focus();
+          }
+        },
       },
-      type: "button",
-    }, "✦", selectedModel?.displayName ?? "Default", h("span", { className: "gui-mode-agent-model-effort" }, effortLabel), "⌄"),
-    isOpen
-      ? h("div", { className: "gui-mode-agent-model-menu", role: "menu" },
         h("div", { className: "gui-mode-agent-model-menu-title" }, context.copy?.modelLabel ?? "Model"),
         models.map((model) => h("div", { className: "gui-mode-agent-model-group", key: model.id },
           h("button", {
@@ -256,6 +276,7 @@ export function GuiModeModelPicker({
                 : model.defaultReasoningEffort ?? model.reasoningEfforts[0] ?? "default";
               onChange(model.id, nextEffort);
               setIsOpen(false);
+              triggerRef.current?.focus();
             },
             role: "menuitemradio",
             type: "button",
@@ -268,13 +289,33 @@ export function GuiModeModelPicker({
                 onClick: () => {
                   onChange(model.id, effort);
                   setIsOpen(false);
+                  triggerRef.current?.focus();
                 },
                 type: "button",
-              }, effort === "xhigh" ? "Extra high" : effort)),
+              }, effortLabels[effort] ?? effort)),
             )
             : null,
         )),
       )
-      : null,
+    : null;
+  return h("div", {
+    className: "gui-mode-agent-model-picker",
+    onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+      const target = event.relatedTarget as Node | null;
+      if (!event.currentTarget.contains(target) && !menuRef.current?.contains(target)) setIsOpen(false);
+    },
+  },
+    h("button", {
+      ref: triggerRef,
+      "aria-expanded": isOpen,
+      "aria-haspopup": "menu",
+      "aria-disabled": disabled || undefined,
+      "aria-label": `${context.copy?.modelLabel ?? "Model"}: ${selectedModel?.displayName ?? "Default"}, ${effortLabel}`,
+      className: "gui-mode-agent-model-trigger",
+      disabled,
+      onClick: () => (isOpen ? setIsOpen(false) : openMenu()),
+      type: "button",
+    }, h("span", { "aria-hidden": true }, "✦"), h("span", { className: "gui-mode-agent-model-name" }, selectedModel?.displayName ?? context.copy?.reasoningDefault ?? "Default"), h("span", { className: "gui-mode-agent-model-effort" }, effortLabel), h("span", { "aria-hidden": true }, "⌄")),
+    typeof document === "undefined" ? menu : createPortal(menu, document.body),
   );
 }

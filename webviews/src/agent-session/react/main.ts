@@ -941,31 +941,18 @@ function SessionSurface({
   );
   const showPlanSuggestion =
     !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
-  // Provider startup can emit a harmless diagnostic on stderr (for example,
-  // a hooks configuration warning). Keep the GUI landing state focused on
-  // the welcome composer until a real conversation has begun.
-  const hasGuiConversation = state.transcript.some((entry) => entry.role !== "notice");
-  const lastGuiConversationEntry = [...state.transcript]
-    .reverse()
-    .find((entry) => entry.role !== "notice");
-  const isGuiThinking = isGuiMode && state.status === "running" && (
-    lastGuiConversationEntry?.role === "user" ||
-    (lastGuiConversationEntry?.role === "assistant" && lastGuiConversationEntry.isComplete === false && lastGuiConversationEntry.text.length === 0)
-  );
+  const isGuiThinking = isGuiMode && (submission.isPending || state.isTurnActive === true);
 
   return h(
     "section",
     { className: `agent-shell${isGuiMode ? " gui-mode-agent-shell" : ""}`, "data-codex-window-type": "electron" },
-    isGuiMode && !hasGuiConversation
+    isGuiMode && state.transcript.length === 0
       ? h(GuiModeWelcome, { context: guiModeContext })
       : h(TranscriptThread, {
           copy: state.context?.copy,
           entries: state.transcript,
-          hideNotices: isGuiMode,
+          thinkingLabel: isGuiThinking ? state.context?.copy.runningStatus ?? "Running" : undefined,
         }),
-    isGuiThinking
-      ? h(GuiModeThinkingIndicator, { label: state.context?.copy.runningStatus ?? "Running" })
-      : null,
     h(
       "div",
       { className: CODEX_COMPOSER_STACK },
@@ -1011,7 +998,7 @@ function SessionSurface({
               {
                 className:
                   CODEX_COMPOSER_SURFACE + " " +
-                  (isSingleLineComposer ? "overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"),
+                  (isSingleLineComposer ? "overflow-visible rounded-full" : isGuiMode ? "overflow-visible rounded-3xl" : "overflow-y-auto rounded-3xl"),
               },
               composerControls,
             ),
@@ -1130,22 +1117,20 @@ function AboveComposerPlanSuggestion({
 const TranscriptThread = React.memo(function TranscriptThread({
   entries,
   copy,
-  hideNotices = false,
+  thinkingLabel,
 }: {
   entries: TranscriptEntry[];
   copy?: AgentSessionCopy;
-  hideNotices?: boolean;
+  thinkingLabel?: string;
 }) {
-  const visibleEntries = hideNotices
-    ? entries.filter((entry) => entry.role !== "notice")
-    : entries;
   return h(
     "div",
     {
       className: "agent-thread",
-      "data-empty": visibleEntries.length === 0 ? "true" : undefined,
+      "data-empty": entries.length === 0 ? "true" : undefined,
     },
-    visibleEntries.map((entry) => h(TranscriptTurn, { copy, entry, key: entry.id })),
+    entries.map((entry) => h(TranscriptTurn, { copy, entry, key: entry.id })),
+    thinkingLabel ? h(GuiModeThinkingIndicator, { label: thinkingLabel }) : null,
   );
 });
 
