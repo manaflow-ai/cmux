@@ -5911,7 +5911,10 @@ impl Mux {
     }
 
     /// Returns the ephemeral provider identity detected for one terminal.
-    pub(crate) fn detected_agent_for_terminal(&self, terminal_id: &TerminalPublicId) -> Option<String> {
+    pub(crate) fn detected_agent_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> Option<String> {
         self.detected_agent_by_terminal.lock().unwrap().get(terminal_id).cloned()
     }
 
@@ -5924,7 +5927,8 @@ impl Mux {
     ) {
         let Ok(terminal_id) = TerminalPublicId::parse(&emission.terminal_id) else { return };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
-        let Ok(record) = self.report_agent(surface, emission.state, AgentSource::Detected, None) else {
+        let Ok(record) = self.report_agent(surface, emission.state, AgentSource::Detected, None)
+        else {
             return;
         };
         if emission.state == AgentState::Done {
