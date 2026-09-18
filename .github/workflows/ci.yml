@@ -2151,7 +2151,7 @@ jobs:
             rm "$products/PackageFrameworks"
           fi
           mkdir -p "$products/PackageFrameworks"
-          rsync -aL "$products/Frameworks/" "$products/PackageFrameworks/"
+          rsync -aL "$products/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest/Contents/Frameworks/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
