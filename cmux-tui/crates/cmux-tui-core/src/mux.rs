@@ -10122,13 +10122,14 @@ impl Mux {
                     .or_else(|| {
                         state_snapshot.terminal_catalog.get(&terminal_id).map(|surface| surface.id)
                     })?;
+                let agent = self.detected_agent_for_terminal(&terminal_id);
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
                     state: record.state,
                     source: record.source,
                     session: record.session,
-                    agent: self.detected_agent_for_terminal(&terminal_id),
+                    agent,
                     updated_at_ms: record.updated_at_ms,
                 })
             })
