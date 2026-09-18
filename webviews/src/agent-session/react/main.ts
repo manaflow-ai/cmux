@@ -71,6 +71,7 @@ import {
   GuiModeContextStrip,
   GuiModeModelPicker,
   GuiModeModeToggle,
+  GuiModeProviderPicker,
   GuiModeWelcome,
 } from "../../gui-mode/GuiModeSessionChrome";
 import { executeGuiModeTerminal } from "../../gui-mode/bridge";
@@ -751,17 +752,36 @@ function SessionSurface({
     "div",
     { className: "codex-secondary-controls flex min-w-0 items-center gap-1", ref: footerCollapse.setContainerRef },
     isGuiMode
-      ? h(GuiModeModelPicker, {
-          context: guiModeContext,
-          disabled: state.selectedProviderId === "claude" && Boolean(state.runningSessionId),
-          providerId: state.selectedProviderId,
-          modelId: guiModelId,
-          reasoningEffort: guiReasoningEffort,
-          onChange: (modelId: string, reasoningEffort: string) => {
-            setGuiModelId(modelId);
-            setGuiReasoningEffort(reasoningEffort);
-          },
-        })
+      ? h(React.Fragment, null,
+          h(GuiModeProviderPicker, {
+            context: guiModeContext,
+            disabled: !canSelect,
+            onChange: (providerId: ProviderId) => selectProvider(providerId, state, dispatch),
+            providers: state.providers.map((provider) => {
+              const metadata = guiModeContext.providers?.find((item) => item.id === provider.id);
+              return {
+                accentColor: metadata?.accentColor,
+                displayName: metadata?.displayName ?? provider.displayName,
+                id: provider.id,
+              };
+            }),
+            providerId: state.selectedProviderId,
+          }),
+          h(GuiModeModelPicker, {
+            context: guiModeContext,
+            // Codex accepts model/reasoning overrides per turn. Claude's
+            // one-shot process receives its model at launch, so keep its
+            // picker locked once that process is running.
+            disabled: state.selectedProviderId === "claude" && Boolean(state.runningSessionId),
+            providerId: state.selectedProviderId,
+            modelId: guiModelId,
+            reasoningEffort: guiReasoningEffort,
+            onChange: (modelId: string, reasoningEffort: string) => {
+              setGuiModelId(modelId);
+              setGuiReasoningEffort(reasoningEffort);
+            },
+          }),
+        )
       : modelPicker,
     shouldShowIdeContextIndicator && !ideContextCollapse.hideControl
       ? h(
@@ -921,11 +941,15 @@ function SessionSurface({
   );
   const showPlanSuggestion =
     !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
+  // Provider startup can emit a harmless diagnostic on stderr (for example,
+  // a hooks configuration warning). Keep the GUI landing state focused on
+  // the welcome composer until a real conversation has begun.
+  const hasGuiConversation = state.transcript.some((entry) => entry.role !== "notice");
 
   return h(
     "section",
     { className: `agent-shell${isGuiMode ? " gui-mode-agent-shell" : ""}`, "data-codex-window-type": "electron" },
-    isGuiMode && state.transcript.length === 0
+    isGuiMode && !hasGuiConversation
       ? h(GuiModeWelcome, { context: guiModeContext })
       : h(TranscriptThread, { entries: state.transcript, copy: state.context?.copy }),
     h(

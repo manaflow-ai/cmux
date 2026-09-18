@@ -112,4 +112,3 @@ export const providers: ProviderInfo[] = [
     autoStart: false,
   },
 ];
-

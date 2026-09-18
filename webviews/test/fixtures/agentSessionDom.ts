@@ -13,6 +13,7 @@ export function installDomGlobals(dom: JSDOM): () => void {
   const originalMouseEvent = (globalThis as any).MouseEvent;
   const originalNode = (globalThis as any).Node;
   const originalHTMLElement = (globalThis as any).HTMLElement;
+  const originalAttachEvent = (dom.window.HTMLElement.prototype as any).attachEvent;
   const originalGetSelection = (globalThis as any).getSelection;
   const originalGetComputedStyle = (globalThis as any).getComputedStyle;
   const originalInnerHeight = (globalThis as any).innerHeight;
@@ -29,6 +30,12 @@ export function installDomGlobals(dom: JSDOM): () => void {
   (globalThis as any).MouseEvent = dom.window.MouseEvent;
   (globalThis as any).Node = dom.window.Node;
   (globalThis as any).HTMLElement = dom.window.HTMLElement;
+  // React's legacy input polyfill probes attachEvent when it sees a jsdom
+  // document. WKWebView implements the API, so keep the test DOM compatible
+  // with the runtime without emitting a spurious event-dispatch exception.
+  if (!(dom.window.HTMLElement.prototype as any).attachEvent) {
+    (dom.window.HTMLElement.prototype as any).attachEvent = () => {};
+  }
   (globalThis as any).getSelection = dom.window.getSelection.bind(dom.window);
   (globalThis as any).getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
   (globalThis as any).innerHeight = 800;
@@ -46,6 +53,11 @@ export function installDomGlobals(dom: JSDOM): () => void {
     restoreGlobal("MouseEvent", originalMouseEvent);
     restoreGlobal("Node", originalNode);
     restoreGlobal("HTMLElement", originalHTMLElement);
+    if (originalAttachEvent === undefined) {
+      delete (dom.window.HTMLElement.prototype as any).attachEvent;
+    } else {
+      (dom.window.HTMLElement.prototype as any).attachEvent = originalAttachEvent;
+    }
     restoreGlobal("getSelection", originalGetSelection);
     restoreGlobal("getComputedStyle", originalGetComputedStyle);
     restoreGlobal("innerHeight", originalInnerHeight);

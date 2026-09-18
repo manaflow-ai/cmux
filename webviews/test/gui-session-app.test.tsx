@@ -28,9 +28,14 @@ async function mount(autoStart: boolean, write: (request: Request) => Promise<un
         case "app.context": value = {
           ...context, renderer: "guiMode",
           guiMode: { selectedModelId: "custom-model", selectedReasoningEffort: "high",
-            models: [{ id: "custom-model", displayName: "Custom model", providerId: "codex", reasoningEfforts: ["high"] }] },
+            models: [{ id: "custom-model", displayName: "Custom model", providerId: "codex", reasoningEfforts: ["high"] }],
+            providers: [
+              { id: "codex", displayName: "Codex", accentColor: "#8ab4f8" },
+              { id: "claude", displayName: "Claude Code", accentColor: "#d2a8ff" },
+            ],
+          },
         }; break;
-        case "provider.list": value = [{ ...providers[0], autoStart }]; break;
+        case "provider.list": value = providers.map((provider) => ({ ...provider, autoStart })); break;
         case "provider.start": value = { sessionId: "session-1" }; break;
         case "provider.writeLine": value = await write(request); break;
       }
@@ -114,5 +119,20 @@ test("GUI discovers model choices and sends the new model's supported reasoning 
     app.type("1+1"); app.enter();
     expect(app.sends()[0].params).toMatchObject({ modelId: "new-model", reasoningEffort: "medium" });
     await act(async () => {});
+  } finally { await app.cleanup(); }
+});
+
+test("GUI provider picker switches the agent before starting a session", async () => {
+  const app = await mount(false);
+  try {
+    const picker = dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-provider-button")!;
+    expect(picker.textContent).toContain("Codex");
+    act(() => picker.click());
+    const claude = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".gui-mode-provider-option")]
+      .find((button) => button.textContent?.includes("Claude Code"));
+    expect(claude).toBeTruthy();
+    act(() => claude!.click());
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-provider-button")?.textContent?.includes("Claude Code") === true);
+    expect(app.requests.some((request) => request.method === "provider.select" && request.params.providerId === "claude")).toBe(true);
   } finally { await app.cleanup(); }
 });

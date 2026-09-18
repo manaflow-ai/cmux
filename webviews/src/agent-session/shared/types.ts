@@ -51,7 +51,12 @@ export type GuiModeSessionContext = {
     localLabel?: string;
     modelLabel?: string;
     modeLabel?: string;
+    noProvidersFound?: string;
+    providerLabel?: string;
+    providerSearchPlaceholder?: string;
     reasoningLabel?: string;
+    taskPromptLabel?: string;
+    taskTitle?: string;
     terminalMode?: string;
     terminalPlaceholder?: string;
     voiceAction?: string;
@@ -59,6 +64,11 @@ export type GuiModeSessionContext = {
     voiceTitle?: string;
   };
   gitBranch?: string;
+  providers?: Array<{
+    accentColor?: string;
+    displayName: string;
+    id: ProviderId;
+  }>;
   models?: Array<{
     displayName: string;
     id: string;

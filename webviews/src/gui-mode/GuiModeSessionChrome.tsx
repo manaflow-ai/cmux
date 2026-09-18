@@ -1,9 +1,20 @@
 import React from "react";
-import type { GuiModeSessionContext } from "../agent-session/shared/types";
+import type { GuiModeSessionContext, ProviderId } from "../agent-session/shared/types";
+import {
+  CODEX_BUTTON_BASE,
+  CODEX_BUTTON_COMPOSER,
+  CODEX_BUTTON_GHOST,
+} from "../agent-session/shared/codexClassNames";
 
 const h = React.createElement;
 
 export function GuiModeWelcome({ context }: { context: GuiModeSessionContext }) {
+  if (context.page === "task-worktree-pr" && context.prompt?.trim()) {
+    return h("div", { className: "gui-mode-task-prompt gui-mode-task-welcome-prompt" },
+      h("div", { className: "gui-mode-task-prompt-label" }, context.copy?.taskPromptLabel ?? "Prompt"),
+      h("div", { className: "gui-mode-task-prompt-text" }, context.prompt.trim()),
+    );
+  }
   const folderName = context.workingDirectory?.split("/").filter(Boolean).at(-1) ?? "cmux";
   const title = (context.copy?.emptyTitle ?? "What should we build in cmux?")
     .replace(/\bcmux\b/i, folderName);
@@ -74,6 +85,124 @@ export function GuiModeContextStrip({ context }: { context: GuiModeSessionContex
   );
 }
 
+/** Provider switcher used by the real AgentSession surface in GUI Mode. */
+export function GuiModeProviderPicker({
+  context,
+  disabled = false,
+  onChange,
+  providers: availableProviders,
+  providerId,
+}: {
+  context: GuiModeSessionContext;
+  disabled?: boolean;
+  onChange: (providerId: ProviderId) => void;
+  providers?: GuiModeSessionContext["providers"];
+  providerId: ProviderId;
+}) {
+  const [isOpen, setIsOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  const providers = availableProviders ?? context.providers ?? [];
+  const selected = providers.find((provider) => provider.id === providerId) ?? providers[0];
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = providers.filter((provider) => {
+    if (!normalizedQuery) return true;
+    return `${provider.id} ${provider.displayName}`.toLocaleLowerCase().includes(normalizedQuery);
+  });
+  const choose = (nextProviderId: ProviderId) => {
+    onChange(nextProviderId);
+    setIsOpen(false);
+    setQuery("");
+    setHighlightedIndex(0);
+  };
+  const moveHighlight = (direction: 1 | -1) => {
+    if (filtered.length === 0) return;
+    setHighlightedIndex((index) => (index + direction + filtered.length) % filtered.length);
+  };
+
+  if (!selected) return null;
+  return h("div", {
+    className: "gui-mode-provider-picker",
+    onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        setIsOpen(false);
+        setQuery("");
+      }
+    },
+    style: { "--gui-provider-accent": selected.accentColor ?? "var(--agent-accent)" } as React.CSSProperties,
+  },
+    h("button", {
+      "aria-expanded": isOpen,
+      "aria-haspopup": "menu",
+      "aria-label": context.copy?.providerLabel ?? "Agent",
+      className: `${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} model-picker rounded-full gui-mode-provider-button`,
+      disabled,
+      onClick: () => {
+        if (!disabled) setIsOpen((open) => !open);
+      },
+      onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          setIsOpen(true);
+          moveHighlight(event.key === "ArrowDown" ? 1 : -1);
+        }
+      },
+      type: "button",
+    },
+      h("span", { className: "model-icon gui-mode-provider-icon", "aria-hidden": true }, selected.displayName.slice(0, 1)),
+      h("span", { className: "model-picker-content flex min-w-0 items-center gap-1.5" },
+        h("span", { className: "model-label truncate whitespace-nowrap" }, selected.displayName),
+      ),
+      h("span", { className: "model-chevron composer-footer__secondary-chevron icon-2xs", "aria-hidden": true }, "⌄"),
+    ),
+    isOpen
+      ? h("div", { className: "provider-dropdown gui-mode-provider-dropdown", role: "menu" },
+        h("div", { className: "provider-dropdown-title" }, context.copy?.providerLabel ?? "Agent"),
+        h("input", {
+          "aria-label": context.copy?.providerSearchPlaceholder ?? "Search agents",
+          autoFocus: true,
+          className: "gui-mode-agent-search",
+          onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+            setQuery(event.currentTarget.value);
+            setHighlightedIndex(0);
+          },
+          onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setIsOpen(false);
+              setQuery("");
+            } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              moveHighlight(event.key === "ArrowDown" ? 1 : -1);
+            } else if (event.key === "Enter") {
+              event.preventDefault();
+              const choice = filtered[highlightedIndex];
+              if (choice) choose(choice.id);
+            }
+          },
+          placeholder: context.copy?.providerSearchPlaceholder ?? "Search agents",
+          type: "search",
+          value: query,
+        }),
+        filtered.length === 0
+          ? h("div", { className: "gui-mode-provider-no-results", role: "status" }, context.copy?.noProvidersFound ?? "No agents found")
+          : filtered.map((provider, index) => h("button", {
+            "aria-checked": provider.id === providerId,
+            className: `provider-dropdown-item gui-mode-provider-option${index === highlightedIndex ? " gui-mode-provider-option-highlighted" : ""}`,
+            key: provider.id,
+            onClick: () => choose(provider.id),
+            role: "menuitemradio",
+            type: "button",
+          },
+            h("span", { className: "model-icon", "aria-hidden": true }, provider.displayName.slice(0, 1)),
+            h("span", { className: "truncate" }, provider.displayName),
+            provider.id === providerId ? h("span", { className: "gui-mode-provider-check", "aria-hidden": true }, "✓") : null,
+          )),
+      )
+      : null,
+  );
+}
+
 export function GuiModeModelPicker({
   context,
   providerId,
@@ -94,7 +223,14 @@ export function GuiModeModelPicker({
   const selectedModel = models.find((model) => model.id === modelId) ?? models[0];
   const efforts = selectedModel?.reasoningEfforts ?? ["default"];
   const effortLabel = reasoningEffort === "xhigh" ? "Extra high" : reasoningEffort;
-  return h("div", { className: "gui-mode-agent-model-picker" },
+  return h("div", {
+    className: "gui-mode-agent-model-picker",
+    onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        setIsOpen(false);
+      }
+    },
+  },
     h("button", {
       "aria-expanded": isOpen,
       "aria-haspopup": "menu",
