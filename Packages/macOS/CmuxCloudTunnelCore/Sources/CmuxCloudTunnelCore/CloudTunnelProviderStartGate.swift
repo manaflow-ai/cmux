@@ -5,22 +5,22 @@ import Foundation
 /// after the adapter has already reached the running state; forwarding that
 /// replay to WireGuardAdapter turns a successful start into an invalid-state
 /// error and makes NetworkExtension tear the tunnel down.
-actor CloudTunnelProviderStartGate {
-    typealias Completion = @Sendable (CloudTunnelProviderError?) -> Void
+public actor CloudTunnelProviderStartGate {
+    public typealias Completion = @Sendable (CloudTunnelProviderError?) -> Void
 
-    enum Request: Equatable, Sendable {
+    public enum Request: Equatable, Sendable {
         case begin(generation: UInt64)
         case coalesced(generation: UInt64, waiterCount: Int)
         case alreadyStarted(generation: UInt64)
     }
 
     /// The callbacks and outcome for one completed start generation.
-    struct Finish: Sendable {
-        let generation: UInt64
-        let succeeded: Bool
-        let completions: [Completion]
+    public struct Finish: Sendable {
+        public let generation: UInt64
+        public let succeeded: Bool
+        public let completions: [Completion]
 
-        var callbackCount: Int { completions.count }
+        public var callbackCount: Int { completions.count }
     }
 
     private enum State {
@@ -36,7 +36,7 @@ actor CloudTunnelProviderStartGate {
     /// Registers one NetworkExtension start callback and reports whether the
     /// provider should start WireGuard, wait for an existing start, or answer
     /// immediately because the adapter is already running.
-    func request(completion: @escaping Completion) -> Request {
+    public func request(completion: @escaping Completion) -> Request {
         switch state {
         case .idle:
             nextGeneration += 1
@@ -55,7 +55,7 @@ actor CloudTunnelProviderStartGate {
     /// Completes the current start exactly once. Every callback registered for
     /// the same start receives the same result, and later duplicate starts are
     /// answered as already running until the provider is stopped and replaced.
-    func finish(error: CloudTunnelProviderError?) -> Finish? {
+    public func finish(error: CloudTunnelProviderError?) -> Finish? {
         guard case .starting(let generation) = state else { return nil }
         state = error == nil ? .started(generation: generation) : .idle
         let completions = pendingCompletions
@@ -65,7 +65,7 @@ actor CloudTunnelProviderStartGate {
 }
 
 /// Failures the provider reports through NetworkExtension.
-enum CloudTunnelProviderError: Error, Sendable {
+public enum CloudTunnelProviderError: Error, Sendable {
     case missingConfiguration
     case unsupportedSchema
     case invalidConfiguration

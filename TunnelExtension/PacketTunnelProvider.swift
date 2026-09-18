@@ -1,5 +1,6 @@
 import Foundation
 import NetworkExtension
+import CmuxCloudTunnelCore
 import WireGuardKit
 import os
 
