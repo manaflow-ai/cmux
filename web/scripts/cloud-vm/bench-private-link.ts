@@ -180,13 +180,15 @@ function workspaceId(snapshot: string): string {
 }
 
 /**
- * Which creates lost their response (timeout, transport failure) and so may
- * have made a resource under the run's slug with no id in hand. A definitive
- * provider answer, a conflict above all, means the resource is not ours; a
- * successful create is deleted by id by its own finalizer. Only a lost
- * response lets the safety net below look anything up by slug.
+ * What the run knows about its network and tunnel creates. A create that
+ * lost its response (timeout, transport failure) may have made a resource
+ * under the run's slug with no id in hand; a definitive provider answer, a
+ * conflict above all, means the resource is not ours; a successful create
+ * is deleted by id by its own finalizer. Only a lost response lets the
+ * safety net below look anything up by slug, and the created network's id
+ * lets it delete that network again after a lost tunnel is removed.
  */
-type LostCreates = { network: boolean; tunnel: boolean };
+type RunNetworkState = { networkLost: boolean; tunnelLost: boolean; networkId: string | null };
 
 /**
  * Safety net for a VPC or tunnel whose create response was lost before its
@@ -198,13 +200,13 @@ type LostCreates = { network: boolean; tunnel: boolean };
  * created, so it runs after every other finalizer; every step treats "not
  * found" as done.
  */
-function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, clientPublicKey: string, lost: LostCreates) {
+function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, clientPublicKey: string, state: RunNetworkState) {
   const networking = provider.privateNetworking;
   return Effect.gen(function* () {
     const failures: string[] = [];
     const settled = yield* Effect.either(attempt("settle in-flight provider requests", () => settleInFlight(300_000)));
     if (settled._tag === "Left") failures.push(settled.left.message);
-    const tunnels = lost.tunnel
+    const tunnels = state.tunnelLost
       ? yield* Effect.either(attemptWithin("list tunnels", () => sdk.tunnels.list(), "60 seconds"))
       : null;
     if (tunnels === null) {
@@ -224,7 +226,17 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, cl
         if (deleted._tag === "Left") failures.push(deleted.left.message);
       }
     }
-    const network = lost.network
+    if (state.networkId !== null) {
+      // Finalizers run last-registered first, so the created network's own
+      // finalizer ran before this net. A tunnel whose create response was
+      // lost could have kept that network attached until it was removed
+      // just above, so the known network is deleted again here; a 404
+      // means its own finalizer already succeeded.
+      const knownId = state.networkId;
+      const deleted = yield* Effect.either(attemptWithin(`delete VPC ${knownId}`, () => tracked(networking.deleteNetwork(knownId)), "60 seconds").pipe(Effect.retry({ times: 11, schedule: Schedule.spaced("2500 millis") })));
+      if (deleted._tag === "Left") failures.push(deleted.left.message);
+    }
+    const network = state.networkLost
       ? yield* Effect.either(attemptWithin("read network by slug", () => sdk.vpc.get(slug), "30 seconds"))
       : null;
     if (network === null) {
@@ -385,8 +397,8 @@ function bench() {
     const { privateKey, publicKey } = generateKeyPairSync("x25519");
     const clientPublicKey = publicKey.export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
     const privateBytes = privateKey.export({ type: "pkcs8", format: "der" }).subarray(-32).toString("base64");
-    const lost: LostCreates = { network: false, tunnel: false };
-    yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug, clientPublicKey, lost));
+    const state: RunNetworkState = { networkLost: false, tunnelLost: false, networkId: null };
+    yield* Effect.addFinalizer(() => reconcileRunNetworkBySlug(provider, slug, clientPublicKey, state));
     // The network is made with the SDK's plain create, which fails closed on
     // a slug conflict, not with the driver's ensureNetwork, which adopts an
     // existing network on conflict: a successful create is the only proof
@@ -396,10 +408,13 @@ function bench() {
     // (a conflict above all) means the network is not ours.
     const network = yield* timed(Effect.acquireRelease(
       attempt("vpc.create", () => bounded(sdk.vpc.create({ slug, displayName: slug, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc.create").catch((error: unknown) => {
-        lost.network = !(error instanceof FreestyleApiError);
+        state.networkLost = !(error instanceof FreestyleApiError);
         throw error;
       }))
-        .pipe(Effect.map((created) => ({ id: created.data.id }))),
+        .pipe(Effect.map((created) => {
+          state.networkId = created.data.id;
+          return { id: created.data.id };
+        })),
       (value) => cleanup(`VPC ${value.id}`, () => tracked(networking.deleteNetwork(value.id))),
     ));
     // Registered right after the VPC so it runs before the VPC delete: any
@@ -414,7 +429,7 @@ function bench() {
       attempt("createTunnel", () => bounded(networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey }), 120_000, "createTunnel").catch((error: unknown) => {
         // The driver wraps a provider answer in ProviderError; anything else
         // (a timeout, a transport failure) may have made the tunnel.
-        lost.tunnel = !(error instanceof ProviderError && error.cause instanceof FreestyleApiError);
+        state.tunnelLost = !(error instanceof ProviderError && error.cause instanceof FreestyleApiError);
         throw error;
       })),
       (value) => (value.created ? cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))) : Effect.void),
