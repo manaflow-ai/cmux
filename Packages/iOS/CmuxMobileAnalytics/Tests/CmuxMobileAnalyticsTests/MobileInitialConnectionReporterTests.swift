@@ -113,10 +113,13 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
 
     @Test func reconnectAndTimeoutAreBoundedOutcomes() async throws {
         let (product, operational, productUploader, operationalUploader) = makeEmitters()
+        // The deadline is enforced from event timestamps: the first event to
+        // arrive `timeout` or later after the attempt started expires it, so
+        // no wall-clock timer has to fire while the test runs.
         let reporter = MobileInitialConnectionReporter(
             productEmitter: product,
             operationalEmitter: operational,
-            timeout: .milliseconds(1)
+            timeout: .seconds(60)
         )
 
         reporter.ingest(DiagnosticEvent(
@@ -124,13 +127,18 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
             tNanos: 1_000_000_000,
             a: DiagnosticAppEventKind.appForegrounded.rawValue
         ))
-        try await Task.sleep(for: .milliseconds(20))
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 61_000_000_000,
+            a: DiagnosticAppEventKind.terminalOutputReceived.rawValue
+        ))
         await reporter.flush()
 
         let timeout = await productUploader.uploadedEvents.first
         #expect(timeout?.properties["outcome"] == .string("timeout"))
         #expect(timeout?.properties["population"] == .string("cold_open"))
         #expect(timeout?.properties["user_usable"] == .bool(false))
+        #expect(timeout?.properties["duration_ms"] == .int(60_000))
 
         let reconnectReporter = MobileInitialConnectionReporter(
             productEmitter: product,
