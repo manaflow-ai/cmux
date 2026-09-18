@@ -129,8 +129,8 @@ public struct AutomationSection: View {
     }
     @ViewBuilder
     private var socketControlCard: some View {
-        let effectiveMode = socketPolicyResolution.mode
         let isManaged = socketPolicyResolution.isManaged
+        let effectiveMode = isManaged ? socketPolicyResolution.mode : SocketControlSettings.effectiveMode(userMode: modeModel.current)
         let isPassword = effectiveMode == .password
         let isAllowAll = effectiveMode == .allowAll
         let hasPassword = !socketPasswordModel.current.isEmpty

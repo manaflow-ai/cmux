@@ -24,9 +24,10 @@ extension CMUXCLI {
             environment: environment,
             bundleIdentifier: domain
         ).resolve()
-        let socketPath = CLISocketPathResolver.defaultSocketPath(
+        let socketPath = SocketControlSettings.socketPath(
+            environment: environment,
             bundleIdentifier: domain,
-            environment: environment
+            isDebugBuild: false
         )
         let socketPathState = socketControlSocketPathState(socketPath)
         let payload: [String: Any] = [
