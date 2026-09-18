@@ -32,7 +32,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         lifecycleTask = Task { await lifecycle.run() }
     }
 
-    deinit { lifecycleTask?.cancel() }
+    deinit {
+        // A task cancellation would discard adapter completions still in flight.
+        // Keep the consumer alive until the same ordered stop path drains them.
+        lifecycle?.stop {}
+    }
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         guard let lifecycle else { completionHandler(CloudTunnelProviderError.invalidState); return }
@@ -65,6 +69,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             completionHandler(nil)
             return
         }
+        // This is a diagnostic snapshot of the adapter, not a readiness signal.
+        // WireGuardKit serializes reads with its own mutations; retaining its
+        // transition-time snapshot helps diagnose a slow start or stop.
         adapter.runtimeConfiguration { [runtimeConfigurationRedactor] settings in
             let redacted = settings.map(runtimeConfigurationRedactor.redacted)
             completionHandler(redacted?.data(using: .utf8))

@@ -70,7 +70,9 @@ public actor CloudTunnelProviderStartGate {
         if case .terminated = input.yield(.stop(completion)) { completion() }
     }
 
-    /// Runs the single ordered consumer until the provider stops or its owner cancels.
+    /// Runs the single ordered consumer until the provider stops.
+    /// Owners must enqueue ``stop(completion:)`` for teardown rather than cancel
+    /// this task, so in-flight adapter callbacks are drained before it finishes.
     public func run() async {
         guard !consuming else { return }
         consuming = true
