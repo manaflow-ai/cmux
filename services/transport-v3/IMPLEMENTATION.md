@@ -10,7 +10,7 @@ The relay uses a small in-org libp2p fork for source/destination admission, dire
 
 The HTTP control service verifies Stack user and team membership, device proof-of-possession, admin mutations and destination membership. PostgreSQL serializes team authorization and policy changes. Device enrollment stores validated multiaddrs. Event storage has a global cursor for relay fetches and a team-local cursor for signed revocation ordering. A relay registration endpoint is restricted to a configured operator team and stores only a feed-token hash.
 
-Swift has generated UniFFI bindings, a native endpoint owner, HTTPS-only Stack grant/proof requests, Keychain identity storage, asynchronous v3 enrollment, lane adapters, replay cursors and server-configured renewal scheduling. The v3 feature package and `cmuxFeature` iOS target compile for `arm64-apple-ios17.0` with the locally available Ghostty artifact. The production app composition still constructs IRX/iroh and the Mac host still uses `MobileHostIrxRuntime`; the final runtime switch, route discovery, host-side v3 service and iroh removal are outstanding.
+Swift has generated UniFFI bindings, a native endpoint owner, HTTPS-only Stack grant/proof requests, Keychain identity storage, asynchronous v3 enrollment, lane adapters, replay cursors and server-configured renewal scheduling. The iOS composition can project the authenticated directory into v3 routes. The Mac now has an explicit `CMUX_V3_HOST=1` staged host owner with Keychain identity, Stack enrollment, directory publication and native control-lane admission. The production composition still defaults to IRX/iroh, and v3 event/application lane handlers, final switching and iroh removal are outstanding.
 
 ## Verified evidence
 
@@ -25,7 +25,7 @@ Swift has generated UniFFI bindings, a native endpoint owner, HTTPS-only Stack g
 ## Remaining before replacement
 
 - The additive v3 migrations through `0003_device_addresses.sql` were applied to the PlanetScale `cmux-prod` staging branch and verified with the explicit database test. Deploy the Rust control service and configure relay feed tokens through the operator-team registration flow. No production branch schema write has been made.
-- Add v3 host runtime and route directory publication, then switch iOS and Mac composition roots to v3. Exercise login, enrollment, directory, all lanes, renewal, revocation, reconnect and sign-out on an iPhone and Mac.
+- Migrate the staged Mac host's event, terminal, artifact and simulator lane handlers, then switch iOS and Mac composition roots to v3. Exercise login, enrollment, directory, all lanes, renewal, revocation, reconnect and sign-out on an iPhone and Mac.
 - Add application event replay and terminal input execution acknowledgements on top of the sequenced lane primitive. Prove session handover with a non-empty relay circuit and replayed data while draining an old generation.
 - Add per-team circuit/byte quotas, byte and latency histograms, synthetic authenticated probes, notification routing and certificate-expiry checks.
 - Run real NAT/DCUtR, blocked-UDP, network-change, suspended-app, cross-region and offline-revocation tests. Direct paths are composed but not proven by the current loopback and relay tests.

@@ -22,7 +22,7 @@ Rust tests, strict Clippy, browser WebSocket interop, Swift v3 package tests, iO
 ## Release blockers and residual risk
 
 1. The control service is not deployed against a PlanetScale branch. Until that happens, relay feed registration and cross-region revocation are only local tests.
-2. The production iOS and Mac composition roots still instantiate IRX/iroh. No release can claim replacement until v3 discovery, host runtime, all lanes, renewal, revocation, reconnect and sign-out run on physical devices.
+2. The production iOS and Mac composition roots still default to IRX/iroh. The Mac has only an opt-in v3 control-lane host; no release can claim replacement until v3 discovery, all host lanes, renewal, revocation, reconnect and sign-out run on physical devices.
 3. Relay handover was observed with a live probe, but the relay circuit gauge was zero at the drain observation. A non-empty circuit plus application replay and terminal-input execution acknowledgements is required.
 4. DCUtR is composed but real NAT traversal, blocked UDP, network roaming, app suspension and airplane-mode recovery have not been proven.
 5. Per-team circuit and byte quotas, latency/byte histograms, continuous synthetic probes, notification action groups and certificate-expiry checks are not yet complete.
