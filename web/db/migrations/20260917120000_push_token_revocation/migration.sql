@@ -8,7 +8,8 @@ CREATE TABLE "device_token_revocations" (
   "device_token" text NOT NULL,
   "bundle_id" text NOT NULL,
   "auth_session_fingerprint" text NOT NULL,
-  "revoked_at" timestamp with time zone DEFAULT now() NOT NULL
+  "revoked_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "expires_at" timestamp with time zone NOT NULL DEFAULT now() + interval '30 days'
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX "device_token_revocations_session_unique"
@@ -16,3 +17,6 @@ CREATE UNIQUE INDEX "device_token_revocations_session_unique"
 --> statement-breakpoint
 CREATE INDEX "device_token_revocations_lookup_idx"
   ON "device_token_revocations" ("user_id", "device_token", "bundle_id");
+--> statement-breakpoint
+CREATE INDEX "device_token_revocations_expiry_idx"
+  ON "device_token_revocations" ("expires_at");

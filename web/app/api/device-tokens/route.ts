@@ -4,7 +4,7 @@
 
 import crypto from "node:crypto";
 import { decodeJwt } from "jose";
-import { and, count, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, isNull, ne, or, sql } from "drizzle-orm";
 import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokenRevocations, deviceTokens } from "../../../db/schema";
@@ -98,7 +98,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
     // oxlint-disable-next-line complexity
     registration = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
+      await lockDeviceTokenMutations(tx, user.id);
 
       let existingInstallation:
         | {
@@ -159,6 +159,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           eq(deviceTokenRevocations.deviceToken, deviceToken),
           eq(deviceTokenRevocations.bundleId, bundle.bundleId),
           eq(deviceTokenRevocations.authSessionFingerprint, authSessionFingerprint),
+          gt(deviceTokenRevocations.expiresAt, new Date()),
         ))
         .limit(1);
       if (sessionRevocation) {
@@ -241,7 +242,18 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             revokedAt: null,
             updatedAt: new Date(),
           })
-          .where(eq(deviceTokens.id, rowToUpdate.id));
+          .where(and(
+            eq(deviceTokens.id, rowToUpdate.id),
+            sql`not exists (
+              select 1
+              from device_token_revocations
+              where user_id = ${user.id}
+                and device_token = ${deviceToken}
+                and bundle_id = ${bundle.bundleId}
+                and auth_session_fingerprint = ${authSessionFingerprint}
+                and expires_at > now()
+            )`,
+          ));
       } else {
         await tx.insert(deviceTokens).values({
           userId: user.id,
@@ -413,9 +425,7 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
 
   const db = cloudDb();
   const deletion = await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`,
-    );
+    await lockDeviceTokenMutations(tx, user.id);
     const matches = await tx
       .select({
         id: deviceTokens.id,
@@ -461,6 +471,15 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
 type DeviceTokenDeletionTransaction =
   Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
 
+async function lockDeviceTokenMutations(
+  tx: DeviceTokenDeletionTransaction,
+  userId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${userId}, 2))`,
+  );
+}
+
 type DeviceTokenMatch = {
   readonly id: string;
   readonly bundleId: string;
@@ -498,6 +517,7 @@ async function applyDeviceTokenDeletion(
         deviceToken,
         bundleId: existingToken.bundleId,
         authSessionFingerprint: authSessionFingerprint!,
+        expiresAt: deviceTokenRevocationExpiresAt(),
       })
       .onConflictDoNothing();
     await tx
@@ -535,6 +555,7 @@ async function applyDeviceTokenDeletion(
           deviceToken,
           bundleId: bundle.bundleId,
           authSessionFingerprint: authSessionFingerprint!,
+          expiresAt: deviceTokenRevocationExpiresAt(),
         })
         .onConflictDoNothing();
     }
@@ -565,4 +586,8 @@ function requestAuthSessionFingerprint(request: Request): string {
     .createHash("sha256")
     .update("cmux-stack-session-v1\n" + sessionID)
     .digest("hex");
+}
+
+function deviceTokenRevocationExpiresAt(): Date {
+  return new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000);
 }

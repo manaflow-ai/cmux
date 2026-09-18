@@ -1058,6 +1058,7 @@ export const deviceTokenRevocations = pgTable(
     bundleId: text("bundle_id").notNull(),
     authSessionFingerprint: text("auth_session_fingerprint").notNull(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [
     uniqueIndex("device_token_revocations_session_unique").on(
@@ -1071,6 +1072,7 @@ export const deviceTokenRevocations = pgTable(
       table.deviceToken,
       table.bundleId,
     ),
+    index("device_token_revocations_expiry_idx").on(table.expiresAt),
   ],
 );
 
