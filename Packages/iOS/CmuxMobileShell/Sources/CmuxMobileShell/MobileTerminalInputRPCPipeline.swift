@@ -1,14 +1,16 @@
+import CMUXMobileCore
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 
-/// Bounded settlement tracking for pipelined `terminal.input` RPCs.
+/// Settlement tracking for pipelined `terminal.input` RPCs.
 ///
 /// Every dimension is scoped per surface — entry queues, reapers, the
 /// lane-transition barrier, and ambiguous-failure poisoning — because input
 /// ordering is a property of one PTY, and the host applies each surface's
-/// ordered requests independently. Only the four-slot capacity window is
-/// shared, bounding the connection-wide outstanding pipelined work.
+/// ordered requests independently. The client-side window uses the host's
+/// shared request quota, while the host remains the final admission authority
+/// for all work on the connection.
 @MainActor
 final class MobileTerminalInputRPCPipeline {
     typealias SettlementHandler = @MainActor (
@@ -21,7 +23,11 @@ final class MobileTerminalInputRPCPipeline {
         let settlementHandler: SettlementHandler
     }
 
-    private static let maximumUnsettledRequestCount = 4
+    /// Use the host's shared quota instead of a private four-request cap. The
+    /// old client-only cap left capacity unused and added avoidable input
+    /// stalls while the host still had room.
+    private static let maximumUnsettledRequestCount =
+        MobileHostRPCWorkQuota.recommendedMaximumConcurrentRequestCount
 
     private var entriesBySurfaceID: [String: [Entry]] = [:]
     private var reaperTasksBySurfaceID: [String: Task<Void, Never>] = [:]
