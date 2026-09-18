@@ -298,6 +298,7 @@ impl ManifestSet {
         Ok(Self { manifests })
     }
 
+    #[cfg(test)]
     pub(crate) fn manifests(&self) -> impl Iterator<Item = &CompiledManifest> {
         self.manifests.iter()
     }

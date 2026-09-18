@@ -31,9 +31,6 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
-/// The `native_event` value screen-detection journal events carry.
-pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
-
 /// One state transition the scanner must journal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScreenDetectEmission {
@@ -102,6 +99,7 @@ impl ScreenDetectTracker {
 
     /// True when this terminal previously journaled a screen-derived state
     /// that has not been closed out by an exit emission.
+    #[cfg(test)]
     pub(crate) fn has_live_emission(&self, terminal_id: &str) -> bool {
         self.terminals.get(terminal_id).is_some_and(|entry| entry.emitted.is_some())
     }
