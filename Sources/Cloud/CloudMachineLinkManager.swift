@@ -531,8 +531,6 @@ actor CloudMachineLinkManager {
         links[machineID] = link
     }
 
-    /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
-    /// them (a client that sends a User-Agent earns the branded host).
     /// The cached capability probe, else a fresh probe cached on success; a
     /// failed probe reports none and leaves the cache for a later retry.
     private func resolvedClientCapabilities(clientURL: URL) -> [String] {
@@ -542,6 +540,8 @@ actor CloudMachineLinkManager {
         return probed
     }
 
+    /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
+    /// them (a client that sends a User-Agent earns the branded host).
     nonisolated static func clientCapabilities(clientURL: URL) -> [String]? {
         let process = Process()
         process.executableURL = clientURL
