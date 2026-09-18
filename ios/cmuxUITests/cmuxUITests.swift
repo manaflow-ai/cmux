@@ -11631,6 +11631,21 @@ final class IOSSetupRecoveryUITests: XCTestCase {
     }
 
     @MainActor
+    private func capture(_ name: String, in app: XCUIApplication) {
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = name
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
+    private func record(_ name: String, _ message: String) {
+        let receipt = XCTAttachment(string: message)
+        receipt.name = name
+        receipt.lifetime = .keepAlways
+        add(receipt)
+    }
+
+    @MainActor
     func testOnboardingPrimaryButtonAlignment() {
         let app = XCUIApplication()
         app.launchArguments = [
@@ -11648,6 +11663,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         let primary = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primary.waitForExistence(timeout: 10))
         let referenceFrame = primary.frame
+        var frames: [String] = []
         for (index, scene) in ["Agents", "Notifications", "Push"].enumerated() {
             let page = app.descendants(matching: .any)["MobileOnboarding\(scene)Scene"]
             XCTAssertTrue(page.waitForExistence(timeout: 5))
@@ -11658,14 +11674,18 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
                 predicate: aligned, object: nil
             )], timeout: 3), .completed)
-            let screenshot = XCTAttachment(screenshot: app.screenshot())
-            screenshot.name = "onboarding-\(index + 1)-\(scene.lowercased())"
-            screenshot.lifetime = .keepAlways
-            add(screenshot)
+            frames.append("\(scene): \(primary.frame)")
+            capture("onboarding-\(index + 1)-\(scene.lowercased())", in: app)
             if scene != "Push" { primary.tap() }
         }
+        record("onboarding-button-frames", frames.joined(separator: "\n"))
         XCTAssertEqual(primary.label, "Enable Notifications")
         XCTAssertTrue(app.buttons["MobileOnboardingSecondaryButton"].isHittable)
+        primary.tap()
+        let pairing = app.descendants(matching: .any)["MobileOnboardingPairingScene"]
+        XCTAssertTrue(pairing.waitForExistence(timeout: 5))
+        capture("onboarding-4-enable-completed", in: app)
+        record("onboarding-action-result", "Continue advanced Agents → Notifications → Push. Enable Notifications awaited the preview permission callback and advanced to Pairing. This preview does not request OS permission.")
     }
 
     @MainActor
@@ -11678,6 +11698,7 @@ final class IOSSetupRecoveryUITests: XCTestCase {
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_CONNECTION_STATUS": "unavailable",
         ]
+        XCUIDevice.shared.orientation = .portrait
         app.launch()
         defer { app.terminate() }
         let retry = app.buttons["MobileWorkspaceEmptyRetry"]
@@ -11685,15 +11706,39 @@ final class IOSSetupRecoveryUITests: XCTestCase {
         let guide = app.descendants(matching: .any)["MobileWorkspaceEmptySetupGuide"]
         XCTAssertTrue(guide.isHittable)
         XCTAssertTrue(retry.isHittable)
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
-        screenshot.name = "empty-workspaces-retry-and-setup-guide"
-        screenshot.lifetime = .keepAlways
-        add(screenshot)
-        retry.tap()
-        XCTAssertTrue(app.descendants(matching: .any)[
-            "MobileWorkspaceListRefreshGeneration-1"
-        ].waitForExistence(timeout: 5))
-        XCTAssertTrue(retry.isEnabled)
-        XCTAssertTrue(guide.isHittable)
+        capture("empty-workspaces-before-actions", in: app)
+        for generation in 1...2 {
+            retry.tap()
+            XCTAssertTrue(app.descendants(matching: .any)[
+                "MobileWorkspaceListRefreshGeneration-\(generation)"
+            ].waitForExistence(timeout: 5))
+            XCTAssertTrue(retry.isEnabled)
+            XCTAssertTrue(guide.isHittable)
+            capture("empty-workspaces-after-retry-\(generation)", in: app)
+        }
+        record("retry-action-result", "Tapped Retry twice. The production empty-state button invoked the supplied async refresh action on each tap. Preview refresh generation advanced from 0 to 1 to 2, and Retry was enabled after each completion. This fixture does not connect to a real Mac.")
+
+        guide.tap()
+        let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
+        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15))
+        // A fresh simulator can show Safari's first-launch introduction.
+        let continueButton = safari.buttons["Continue"]
+        if continueButton.waitForExistence(timeout: 3) { continueButton.tap() }
+        let startBrowsing = safari.buttons["Start Browsing"]
+        if startBrowsing.exists { startBrowsing.tap() }
+        let address = safari.textFields.firstMatch
+        XCTAssertTrue(address.waitForExistence(timeout: 15))
+        capture("setup-guide-opened-in-safari", in: safari)
+        address.tap()
+        let fullAddress = safari.textFields.firstMatch
+        let expectedURL = NSPredicate { _, _ in
+            let value = fullAddress.value as? String ?? ""
+            return value.contains("cmux.com/docs/ios") && value.contains("#setup")
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(
+            predicate: expectedURL, object: nil
+        )], timeout: 10), .completed)
+        record("setup-guide-link-result", "Tapped Set Up cmux iOS. Safari opened: \(fullAddress.value as? String ?? "")")
+        capture("setup-guide-destination-url", in: safari)
     }
 }

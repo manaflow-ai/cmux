@@ -230,223 +230,33 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
-                    Toggle(isOn: $displaySettings.showAltScreenNotice) {
-                        Text(L10n.string(
-                            "mobile.settings.altScreenNotice",
-                            defaultValue: "Full-Screen Sizing Notice"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
-
-                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.terminalFolderTap",
-                            defaultValue: "Open Folders on Tap"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
-
-                    Button {
-                        showingShortcuts = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
-                            systemImage: "keyboard"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
-                }
-
-                Section {
-                    Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.hapticFeedback",
-                            defaultValue: "Haptic Feedback"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
-                } header: {
-                    Text(L10n.string("mobile.settings.haptics", defaultValue: "Haptics"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.settings.hapticFeedbackFooter",
-                        defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
-                    ))
-                }
-
+                MobileSettingsTerminalSections(
+                    showAltScreenNotice: $displaySettings.showAltScreenNotice,
+                    terminalFolderTapEnabled: $displaySettings.terminalFolderTapEnabled,
+                    hapticFeedbackEnabled: $displaySettings.hapticFeedbackEnabled,
+                    showShortcuts: { showingShortcuts = true }
+                )
                 #if DEBUG
-                Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    NavigationLink {
-                        MobileWhatsNewDebugView(pages: whatsNewPages, allowedWebHosts: whatsNewHosts)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.whatsNew.debug.title", defaultValue: "Replay What's New"),
-                            systemImage: "rectangle.stack"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsReplayWhatsNew")
-                    Button {
-                        showingToastGallery = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.toastGallery", defaultValue: "Toast Gallery"),
-                            systemImage: "rectangle.portrait.topthird.inset.filled"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastGallery")
-                    Button {
+                MobileSettingsDeveloperSections(
+                    whatsNewPages: whatsNewPages,
+                    whatsNewHosts: whatsNewHosts,
+                    toastDemoDelaySeconds: $toastDemoDelaySeconds,
+                    unreadIndicatorLeftShift: $displaySettings.unreadIndicatorLeftShift,
+                    forceRebuildKeyboardDock: $displaySettings.forceRebuildKeyboardDock,
+                    taskComposerFullLiquidGlass: $displaySettings.taskComposerFullLiquidGlass,
+                    showToastGallery: { showingToastGallery = true },
+                    runToastDemo: {
                         ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
                         requestDismissal()
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
-                            systemImage: "play.rectangle"
-                        )
                     }
-                    .accessibilityIdentifier("MobileSettingsToastDemo")
-                    Stepper(value: $toastDemoDelaySeconds, in: 0...30) {
-                        HStack {
-                            Text(L10n.string(
-                                "mobile.settings.toastDemoDelay",
-                                defaultValue: "Toast Demo Delay"
-                            ))
-                            Spacer()
-                            Text(String.localizedStringWithFormat(
-                                L10n.string(
-                                    "mobile.settings.toastDemoDelayValueFormat",
-                                    defaultValue: "%d s"
-                                ),
-                                toastDemoDelaySeconds
-                            ))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastDemoDelay")
-
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.unreadIndicatorLeftness",
-                            defaultValue: "Unread Indicator Leftness"
-                        ),
-                        value: $displaySettings.unreadIndicatorLeftShift,
-                        range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
-                        identifier: "MobileSettingsUnreadIndicatorLeftness"
-                    )
-
-                    Toggle(isOn: $displaySettings.forceRebuildKeyboardDock) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.string(
-                                "mobile.settings.rebuildKeyboardDock",
-                                defaultValue: "Rebuilt Keyboard Pinning"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.rebuildKeyboardDockCaption",
-                                defaultValue: "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
-                }
-
-                Section(L10n.string(
-                    "mobile.settings.cmuxLabs",
-                    defaultValue: "CMUX Labs"
-                )) {
-                    Toggle(isOn: $displaySettings.taskComposerFullLiquidGlass) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.string(
-                                "mobile.settings.taskComposerFullLiquidGlass",
-                                defaultValue: "Task Composer Liquid Glass"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.taskComposerFullLiquidGlassCaption",
-                                defaultValue:
-                                    "Use Liquid Glass controls and a transparent bar in New Task."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsTaskComposerFullLiquidGlass")
-
-                    NavigationLink {
-                        TaskComposerShellIconLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.shellIconLab",
-                                defaultValue: "Shell Icon Lab"
-                            ),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsShellIconLab")
-
-                    NavigationLink {
-                        UnreadIndicatorLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.unreadIndicatorLab",
-                                defaultValue: "Unread Indicator Lab"
-                            ),
-                            systemImage: "circle.badge"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
-                }
+                )
                 #endif
-
-                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
-                    Toggle(isOn: $displaySettings.showMissingFiles) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.string(
-                                "mobile.settings.showMissingFiles",
-                                defaultValue: "Show Missing Files"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.showMissingFilesCaption",
-                                defaultValue: "In a workspace's Files list, keep files that were deleted or moved instead of hiding them."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
-
-                    Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
-                        Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsWrapTitles")
-
-                    Picker(selection: $displaySettings.workspacePreviewLineCount) {
-                        Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
-                            .tag(1)
-                        Text(L10n.string("mobile.settings.previewLines.two", defaultValue: "2 Lines"))
-                            .tag(2)
-                    } label: {
-                        Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsPreviewLines")
-
-                    Picker(selection: $displaySettings.terminalScrollbackRows) {
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows1k", defaultValue: "1,000 Rows"))
-                            .tag(1000)
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows4k", defaultValue: "4,000 Rows"))
-                            .tag(4000)
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows10k", defaultValue: "10,000 Rows"))
-                            .tag(10000)
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows20k", defaultValue: "20,000 Rows"))
-                            .tag(20000)
-                    } label: {
-                        Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalScrollback")
-                }
+                MobileSettingsDisplaySection(
+                    showMissingFiles: $displaySettings.showMissingFiles,
+                    wrapWorkspaceTitles: $displaySettings.wrapWorkspaceTitles,
+                    workspacePreviewLineCount: $displaySettings.workspacePreviewLineCount,
+                    terminalScrollbackRows: $displaySettings.terminalScrollbackRows
+                )
 
                 // Release builds keep the section to the single agent-alerts
                 // toggle the app always had; the delivery-status diagnostics,
@@ -880,33 +690,7 @@ struct MobileSettingsView: View {
         )
     }
 
-    #if DEBUG
-    private func debugLayoutSlider(
-        title: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        identifier: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(debugPointValue(value.wrappedValue))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            Slider(value: value, in: range, step: 1)
-        }
-        .accessibilityIdentifier(identifier)
-    }
 
-    private func debugPointValue(_ value: Double) -> String {
-        String(
-            format: L10n.string("mobile.settings.pointsFormat", defaultValue: "%lld pt"),
-            Int64(value.rounded())
-        )
-    }
-    #endif
 }
 
 /// App-wide log sharing and transport diagnostics. Lives at the settings top
