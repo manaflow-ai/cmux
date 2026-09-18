@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -308,7 +309,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 generation: generation,
                 privateAddress: privateAddress
             )
-            async let snapshotData = link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             if let refreshedPorts = await refreshedPorts {
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
                 scannedPorts = refreshedPorts
@@ -830,6 +831,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             port: nil,
             url: nil
         )
+        resource.creationAttachment = created.attachment
         if let tabID = created.tabID {
             resource.remoteViews = [SurfaceRemoteView(
                 tabID: tabID,
@@ -866,7 +868,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         for attempt in 0..<8 {
             try Task.checkCancellation()
-            let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
+            let data = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             guard let snapshot = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let state = CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine),
                   let revision = state.cursor?.revision else { throw ProviderError.invalidSnapshot(machineID) }
@@ -890,8 +892,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let workspaceName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var arguments = CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName)
-        if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
+        var arguments = CloudTuiRequests.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName)
+        if let expectedRevision { arguments = arguments.adding(["expected_revision": String(expectedRevision)]) }
         let created = try await link.run(arguments: arguments)
         guard let object = try JSONSerialization.jsonObject(with: created) as? [String: Any],
               let id = CmuxTuiSnapshotParser.createdWorkspace(fromResult: object) else {
@@ -1122,7 +1124,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         name: String,
         expectedRevision: UInt64?
     ) async throws -> CloudVMCursor? {
-        let data = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(
+        let data = try await link.run(arguments: CloudTuiRequests.renameWorkspaceArguments(
             socketPath: socketPath,
             workspaceID: workspaceID,
             name: name,
@@ -1137,7 +1139,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> CloudVMCursor {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let data = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
+        let data = try await link.run(arguments: CloudTuiRequests.renameTabArguments(
             socketPath: connected.socketPath,
             tabID: id,
             name: name,
@@ -1287,8 +1289,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Path, query, fragment, scheme, and port stay unchanged.
     nonisolated static func privateBrowserURL(_ raw: String, privateAddress: String) -> String? {
         guard let parts = URLComponents(string: raw),
-              let host = parts.host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
-              ["localhost", "127.0.0.1", "0.0.0.0", "::1"].contains(host) else { return nil }
+              RemoteLoopbackProxyAlias.isLoopbackHost(parts.host ?? "") else { return nil }
         return CloudPortRoutePlan.privateURL(raw, address: privateAddress)?.absoluteString
     }
 
@@ -1334,7 +1335,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
             return cached.ports
         }
-        guard let arguments = CloudTuiCommandLine.listeningPortsArguments(socketPath: socketPath),
+        guard let arguments = CloudTuiRequests.listeningPortsArguments(socketPath: socketPath),
               let data = try? await link.run(arguments: arguments),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let stdout = object["stdout"] as? String else {

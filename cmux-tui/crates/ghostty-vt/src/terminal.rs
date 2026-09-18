@@ -3574,12 +3574,19 @@ impl Terminal {
             return Ok(None);
         };
         let insert_at_start = placement_rows.overlaps(range.start);
+        let has_placement_anchor =
+            placement_rows.anchors.range(range.start..=range.end).next().is_some();
         let mut segment_ends =
             placement_rows.anchors.range(range.start..=range.end).copied().collect::<BTreeSet<_>>();
         if insert_at_start {
             segment_ends.insert(range.start);
         }
         segment_ends.insert(range.end);
+        // A replay without image placement anchors can let the target terminal
+        // recreate soft wraps naturally. Placement commands depend on physical
+        // row cursor positions, so retain the legacy row-delimited form for any
+        // range that intersects an occupied placement span.
+        let preserve_soft_wrap = !insert_at_start && !has_placement_anchor;
 
         let mut bytes = Vec::new();
         let mut insertion_offsets = BTreeMap::new();
@@ -3597,16 +3604,24 @@ impl Terminal {
             let last = segment_end == range.end;
             let remaining = format_max_bytes.saturating_sub(bytes.len());
             let Some(chunk) = self.format_bounded(
-                Self::vt_replay_segment_options(&selection, first, last, include_palette),
+                Self::vt_replay_segment_options(
+                    &selection,
+                    first,
+                    last,
+                    include_palette,
+                    preserve_soft_wrap,
+                ),
                 remaining,
             )?
             else {
                 return Ok(None);
             };
-            emitted_breaks = emitted_breaks
-                .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            if !preserve_soft_wrap {
+                emitted_breaks = emitted_breaks
+                    .saturating_add(chunk.windows(2).filter(|bytes| *bytes == b"\r\n").count());
+            }
             bytes.extend_from_slice(&chunk);
-            if history_bearing {
+            if !preserve_soft_wrap && history_bearing {
                 let expected_breaks =
                     usize::try_from(segment_end - range.start).unwrap_or(usize::MAX);
                 while emitted_breaks < expected_breaks {
@@ -3623,19 +3638,17 @@ impl Terminal {
                 insertion_offsets.insert(segment_end, bytes.len());
             }
             if !last {
-                if bytes.len().saturating_add(2) > format_max_bytes {
-                    return Ok(None);
+                if !preserve_soft_wrap {
+                    if bytes.len().saturating_add(2) > format_max_bytes {
+                        return Ok(None);
+                    }
+                    bytes.extend_from_slice(b"\r\n");
+                    emitted_breaks = emitted_breaks.saturating_add(1);
                 }
-                bytes.extend_from_slice(b"\r\n");
-                emitted_breaks = emitted_breaks.saturating_add(1);
                 segment_start = segment_end.saturating_add(1);
             }
         }
-        if history_bearing {
-            // A history-bearing selection must advance once per row so the
-            // reconstructed scrollback keeps Kitty anchors aligned. A
-            // viewport-only selection may use direct cursor positioning for
-            // sparse rows; padding that case would scroll visible text away.
+        if !preserve_soft_wrap && history_bearing {
             let expected_breaks = usize::try_from(replay_rows - 1).unwrap_or(usize::MAX);
             for _ in emitted_breaks..expected_breaks {
                 if bytes.len().saturating_add(2) > format_max_bytes {
@@ -3752,8 +3765,9 @@ impl Terminal {
         first: bool,
         last: bool,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
-        let mut options = Self::vt_replay_options(Some(selection), include_palette);
+        let mut options = Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
         options.extra.palette = include_palette && first;
         options.extra.modes = first;
         options.extra.scrolling_region = last;
@@ -3772,11 +3786,12 @@ impl Terminal {
     fn vt_replay_options(
         selection: Option<&sys::GhosttySelection>,
         include_palette: bool,
+        unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
         sys::GhosttyFormatterTerminalOptions {
             size: size_of::<sys::GhosttyFormatterTerminalOptions>(),
             emit: sys::GHOSTTY_FORMATTER_FORMAT_VT,
-            unwrap: false,
+            unwrap: unwrap_soft_wrap,
             trim: false,
             extra: sys::GhosttyFormatterTerminalExtra {
                 size: size_of::<sys::GhosttyFormatterTerminalExtra>(),

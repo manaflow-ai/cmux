@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14. */
+/* cmux-tui mux protocol 12, IR d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b1dcaa9eb097948caefdbf94d33a3eb60471e1dfc441dae2ca6d9f6edb0fde14" as const;
+export const SDK_IR_SHA256 = "d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -54,6 +54,14 @@ export const COMMAND_METADATA = {
       "cols": {
         "since": null,
         "capability": "attach-initial-size"
+      },
+      "expected_generation": {
+        "since": null,
+        "capability": "attach-identity-v1"
+      },
+      "expected_terminal_id": {
+        "since": null,
+        "capability": "attach-identity-v1"
       },
       "mode": {
         "since": 7,
@@ -7103,7 +7111,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "constraints": [
         "cols and rows must be supplied together.",
-        "Browser surfaces reject mode:render."
+        "Browser surfaces reject mode:render.",
+        "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal."
       ],
       "fields": {
         "cols": {
@@ -7114,6 +7123,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint16"
+          }
+        },
+        "expected_generation": {
+          "capability": "attach-identity-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_terminal_id": {
+          "capability": "attach-identity-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         },
         "mode": {
@@ -7140,8 +7169,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "surface": {
-          "nullable": false,
-          "presence": "required",
+          "nullable": true,
+          "presence": "optional",
           "type": {
             "kind": "ref",
             "name": "Id"

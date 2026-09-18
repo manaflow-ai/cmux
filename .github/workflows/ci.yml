@@ -144,6 +144,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Validate pbxproj objectVersion pin and normalization
+        run: |
+          python3 tests/test_normalize_pbxproj.py
+          ./scripts/check-pbxproj.sh
+
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
@@ -393,9 +398,6 @@ jobs:
         run: |
           python3 tests/test_lint_stored_dispatch_work_items.py
           python3 scripts/lint-stored-dispatch-work-items.py
-
-      - name: Validate pbxproj objectVersion pin and normalization
-        run: ./scripts/check-pbxproj.sh
 
       - name: Validate workspace SPM package grouping
         run: python3 scripts/check-workspace-package-groups.py --check

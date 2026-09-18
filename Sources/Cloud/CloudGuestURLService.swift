@@ -63,7 +63,7 @@ final class CloudGuestURLService {
             for await line in lines {
                 guard !Task.isCancelled, let self, self.generation == taskGeneration else { return }
                 guard let data = line.data(using: .utf8), let request = CloudGuestURLRequest(data: data) else { continue }
-                await self.deliver(request, link: link, socket: socketPath, generation: taskGeneration)
+                await self.deliver(request, link: link, generation: taskGeneration)
             }
             guard let status = await exit.result, let self, self.generation == taskGeneration else { return }
             self.subscription.ended(exitCode: status)
@@ -92,15 +92,15 @@ final class CloudGuestURLService {
         terminals = []
     }
 
-    private func deliver(_ request: CloudGuestURLRequest, link: CloudMachineLink, socket: String, generation: UUID) async {
+    private func deliver(_ request: CloudGuestURLRequest, link: CloudMachineLink, generation: UUID) async {
         guard let initial = resolve(request.terminalID), terminals.contains(request.terminalID),
               admission.admit(machineID: machineID, event: CloudMachineNotificationEvent(
                   id: request.requestID, terminalID: request.terminalID, title: "url-open", body: request.url
               )) == .allowed else { return }
         // A claim is rejected once the guest's bounded wait has expired.
-        guard let data = try? await link.run(arguments: arguments(socket: socket, request: [
-            "cmd": "url-open-claim", "request_id": request.requestID
-        ]), timeout: .seconds(4)),
+        guard let data = try? await link.run(arguments: CloudTuiRequest(
+            "url-open-claim", ["request_id": request.requestID], raw: true
+        ), timeout: .seconds(4)),
               let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               reply["claimed"] as? Bool == true,
               self.generation == generation, !Task.isCancelled else { return }
@@ -125,9 +125,9 @@ final class CloudGuestURLService {
             }
         }
         guard self.generation == generation, !Task.isCancelled else { return }
-        _ = try? await link.run(arguments: arguments(socket: socket, request: [
-            "cmd": "url-open-result", "request_id": request.requestID, "opened": opened
-        ]), timeout: .seconds(4))
+        _ = try? await link.run(arguments: CloudTuiRequest(
+            "url-open-result", ["request_id": request.requestID, "opened": opened], raw: true
+        ), timeout: .seconds(4))
     }
 
     private func arguments(socket: String, request: [String: Any], stream: Bool = false) -> [String] {

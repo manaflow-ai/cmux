@@ -20,7 +20,7 @@ extension CmuxTuiSurfaceProvider {
                 guard let link = await self.links.link(machineID: machineID) else {
                     throw ProviderError.machineAsleep(machineID)
                 }
-                _ = try await link.run(arguments: CloudTuiCommandLine.notificationAckArguments(
+                _ = try await link.run(arguments: CloudTuiRequests.notificationAckArguments(
                     socketPath: connected.socketPath,
                     clientID: clientID,
                     notificationIDs: batch.ids,
