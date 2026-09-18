@@ -1343,8 +1343,8 @@ jobs:
             - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
             - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
           files: |
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ github.run_id }}*.dmg
-            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ github.run_id }}*.delta
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ needs.build-nightly-app.outputs.daemon_build }}.dmg
+            nightly-out/${{ needs.decide.outputs.dmg_prefix }}-*-${{ needs.build-nightly-app.outputs.daemon_build }}-*.delta
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}-universal.dmg
