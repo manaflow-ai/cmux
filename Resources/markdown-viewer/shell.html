@@ -878,6 +878,10 @@ html { scroll-behavior: smooth; }
     var cell = ev.target && ev.target.closest && ev.target.closest('td, th');
     if (cell) { activeTableCell = cell; }
   }, true);
+  document.addEventListener('selectionchange', function() {
+    var cell = selectionElement();
+    if (cell && cell.closest('table')) { activeTableCell = cell; }
+  });
   contentEl.addEventListener('keydown', function(ev) {
     if (!markdownEditorEnabled) { return; }
     if (ev.key === 'Tab' && tableCellAtSelection()) {
