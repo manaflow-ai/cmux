@@ -22,6 +22,16 @@ import Testing
         #expect(target?.reference === reference)
     }
 
+    @Test func resolverDoesNotReplaceWindowContentViewWithoutGlass() throws {
+        let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
+        let window = makeWindow()
+        let originalContentView = try #require(window.contentView)
+
+        _ = try #require(resolver.installationTarget(for: window))
+
+        #expect(window.contentView === originalContentView)
+    }
+
     @Test func resolverKeepsOverlayInsideWindowContentHierarchy() throws {
         let glass = FakeOverlayGlassEffect()
         let resolver = WindowContentOverlayTargetResolver(glassEffect: glass)
