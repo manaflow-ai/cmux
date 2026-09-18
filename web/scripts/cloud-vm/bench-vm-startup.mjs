@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
 
-const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
+const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const trials = positiveInteger(optionValue(rest, "--trials") ?? "3", "--trials");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "1", "--concurrency"), trials);
@@ -79,7 +79,28 @@ if (!providerCredentials) {
   console.error("bench-vm-startup: FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID, is required (pulled target env or process env) so cleanup can verify provider inventory");
   process.exit(2);
 }
-const providerSdk = new Freestyle(providerCredentials);
+// The SDK's default fetch has no timeout, and it follows a backgrounded
+// request (202) by polling with a timer it never cancels, so teardown's
+// wait for tracked requests could otherwise be unbounded. Every provider
+// fetch is bounded, and a background request still being polled past a
+// hard deadline is refused, which ends the SDK's polling loop (it gives up
+// after five consecutive failures) and settles the request; the platform's
+// own work continues and the inventory sweeps that follow re-read it.
+const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
+const PROVIDER_POLL_DEADLINE_MS = 15 * 60 * 1000;
+const providerPollFirstSeen = new Map();
+const providerFetch = (input, init) => {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  if (url.includes("/background-requests/")) {
+    const firstSeen = providerPollFirstSeen.get(url) ?? Date.now();
+    providerPollFirstSeen.set(url, firstSeen);
+    if (Date.now() - firstSeen > PROVIDER_POLL_DEADLINE_MS) {
+      return Promise.reject(new Error(`provider background request exceeded ${PROVIDER_POLL_DEADLINE_MS} ms`));
+    }
+  }
+  return fetch(input, { ...(init ?? {}), signal: AbortSignal.timeout(PROVIDER_FETCH_TIMEOUT_MS) });
+};
+const providerSdk = new Freestyle({ ...providerCredentials, fetch: providerFetch });
 const app = new StackServerApp({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
   publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
@@ -654,10 +675,12 @@ function deploymentBelongsToProject(host, project) {
 
 /**
  * Every request carries the throwaway user's bearer and refresh tokens, so a
- * mistyped or untrusted --url must not receive them: only an https origin of
- * the selected project (its canonical host, or a deployment Vercel attributes
- * to the project) is accepted, unless --allow-any-url records that the
- * operator checked the host. Plain http is refused either way.
+ * mistyped or untrusted --url must not receive them: only the selected
+ * project's canonical https origin is accepted by default. A deployment that
+ * Vercel attributes to the project is not thereby trusted (a preview can be
+ * built from any branch), so it needs an explicit --allow-preview as well;
+ * --allow-any-url records that the operator checked some other host. Plain
+ * http is refused either way.
  */
 function resolveTargetUrl(project, options) {
   const raw = optionValue(options, "--url");
@@ -674,9 +697,15 @@ function resolveTargetUrl(project, options) {
     process.exit(2);
   }
   const canonicalHost = new URL(project.url).host;
-  if (url.host !== canonicalHost && !options.includes("--allow-any-url") && !deploymentBelongsToProject(url.host, project)) {
-    console.error(`bench-vm-startup: --url host ${url.host} is neither ${canonicalHost} nor a deployment of Vercel project ${project.projectName}; pass --allow-any-url only for a host you control`);
-    process.exit(2);
+  if (url.host !== canonicalHost && !options.includes("--allow-any-url")) {
+    if (!options.includes("--allow-preview")) {
+      console.error(`bench-vm-startup: --url host ${url.host} is not ${canonicalHost}; pass --allow-preview for a deployment of Vercel project ${project.projectName} that you trust, or --allow-any-url only for a host you control`);
+      process.exit(2);
+    }
+    if (!deploymentBelongsToProject(url.host, project)) {
+      console.error(`bench-vm-startup: --url host ${url.host} is not a deployment of Vercel project ${project.projectName}; pass --allow-any-url only for a host you control`);
+      process.exit(2);
+    }
   }
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }

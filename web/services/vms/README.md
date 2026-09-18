@@ -368,8 +368,9 @@ The two SDK benchmarks read the provider credential the way the runtime does
 (`FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` with `FREESTYLE_TEAM_ID`,
 from `~/.secrets/cmux.env`). The API benchmark pulls the target's Vercel env, fills
 a sensitive (empty) value from the process environment, and sends its throwaway
-session only to the project's own https origin or a deployment that Vercel's API
-attributes to the project unless `--allow-any-url` is passed.
+session only to the project's own https origin; a deployment that Vercel's API
+attributes to the project also needs `--allow-preview`, and any other https host
+`--allow-any-url`.
 
 ## Telemetry
 
