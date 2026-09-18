@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25";
+inline constexpr std::string_view kProtocolIrSha256 = "d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -50,6 +50,10 @@ enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
 struct FrontendProjection;
 struct GetCellPixelsResult;
+struct GuestUrlAcknowledgeResult;
+struct GuestUrlClaimResult;
+struct GuestUrlOpenResult;
+struct GuestUrlSubscribeResult;
 struct Id;
 struct IdMapping;
 struct IdentifyResult;
@@ -240,6 +244,10 @@ struct SwapPaneRequest;
 struct TerminalEventsRequest;
 struct UndoLayoutRequest;
 struct UnregisterBrowserProviderRequest;
+struct UrlOpenRequest;
+struct UrlOpenClaimRequest;
+struct UrlOpenResultRequest;
+struct UrlOpenSubscribeRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct ZoomPaneRequest;
@@ -285,6 +293,7 @@ struct TabRenamedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
 struct TreeChangedEvent;
+struct UrlOpenEvent;
 struct VtStateEvent;
 struct WindowTitleRequestedEvent;
 struct WorkspaceAddedEvent;
@@ -421,9 +430,11 @@ enum class AttachSurfaceRequestMode {
 
 struct AttachSurfaceRequest {
     Field<std::uint16_t> cols{};
+    Field<std::string> expected_generation{};
+    Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
     Field<std::uint16_t> rows{};
-    Id surface{};
+    Field<Id> surface{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
 };
 
@@ -1267,6 +1278,26 @@ struct GraphicsStatusEvent {
     std::optional<bool> retry_exhausted{};
     std::optional<std::string> summary{};
     friend bool operator==(const GraphicsStatusEvent&, const GraphicsStatusEvent&) = default;
+};
+
+struct GuestUrlAcknowledgeResult {
+    bool accepted{};
+    friend bool operator==(const GuestUrlAcknowledgeResult&, const GuestUrlAcknowledgeResult&) = default;
+};
+
+struct GuestUrlClaimResult {
+    bool claimed{};
+    friend bool operator==(const GuestUrlClaimResult&, const GuestUrlClaimResult&) = default;
+};
+
+struct GuestUrlOpenResult {
+    bool opened{};
+    friend bool operator==(const GuestUrlOpenResult&, const GuestUrlOpenResult&) = default;
+};
+
+struct GuestUrlSubscribeResult {
+    bool url_open_ready{};
+    friend bool operator==(const GuestUrlSubscribeResult&, const GuestUrlSubscribeResult&) = default;
 };
 
 enum class IdMappingKind {
@@ -2594,6 +2625,35 @@ struct UnregisterBrowserProviderRequest {
     friend bool operator==(const UnregisterBrowserProviderRequest&, const UnregisterBrowserProviderRequest&) = default;
 };
 
+struct UrlOpenClaimRequest {
+    std::string request_id{};
+    friend bool operator==(const UrlOpenClaimRequest&, const UrlOpenClaimRequest&) = default;
+};
+
+struct UrlOpenEvent {
+    std::string request_id{};
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const UrlOpenEvent&, const UrlOpenEvent&) = default;
+};
+
+struct UrlOpenRequest {
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const UrlOpenRequest&, const UrlOpenRequest&) = default;
+};
+
+struct UrlOpenResultRequest {
+    bool opened{};
+    std::string request_id{};
+    friend bool operator==(const UrlOpenResultRequest&, const UrlOpenResultRequest&) = default;
+};
+
+struct UrlOpenSubscribeRequest {
+    std::vector<std::string> terminal_ids{};
+    friend bool operator==(const UrlOpenSubscribeRequest&, const UrlOpenSubscribeRequest&) = default;
+};
+
 struct VtStateEvent {
     std::optional<TerminalColors> colors{};
     std::uint16_t cols{};
@@ -2917,6 +2977,30 @@ template <>
 struct Codec<GetCellPixelsResult> {
     static Result<Json> encode(const GetCellPixelsResult& value);
     static Result<GetCellPixelsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlAcknowledgeResult> {
+    static Result<Json> encode(const GuestUrlAcknowledgeResult& value);
+    static Result<GuestUrlAcknowledgeResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlClaimResult> {
+    static Result<Json> encode(const GuestUrlClaimResult& value);
+    static Result<GuestUrlClaimResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlOpenResult> {
+    static Result<Json> encode(const GuestUrlOpenResult& value);
+    static Result<GuestUrlOpenResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlSubscribeResult> {
+    static Result<Json> encode(const GuestUrlSubscribeResult& value);
+    static Result<GuestUrlSubscribeResult> decode(const Json& value);
 };
 
 template <>
@@ -4060,6 +4144,30 @@ struct Codec<UnregisterBrowserProviderRequest> {
 };
 
 template <>
+struct Codec<UrlOpenRequest> {
+    static Result<Json> encode(const UrlOpenRequest& value);
+    static Result<UrlOpenRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenClaimRequest> {
+    static Result<Json> encode(const UrlOpenClaimRequest& value);
+    static Result<UrlOpenClaimRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenResultRequest> {
+    static Result<Json> encode(const UrlOpenResultRequest& value);
+    static Result<UrlOpenResultRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenSubscribeRequest> {
+    static Result<Json> encode(const UrlOpenSubscribeRequest& value);
+    static Result<UrlOpenSubscribeRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<VtStateRequest> {
     static Result<Json> encode(const VtStateRequest& value);
     static Result<VtStateRequest> decode(const Json& value);
@@ -4327,6 +4435,12 @@ template <>
 struct Codec<TreeChangedEvent> {
     static Result<Json> encode(const TreeChangedEvent& value);
     static Result<TreeChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenEvent> {
+    static Result<Json> encode(const UrlOpenEvent& value);
+    static Result<UrlOpenEvent> decode(const Json& value);
 };
 
 template <>

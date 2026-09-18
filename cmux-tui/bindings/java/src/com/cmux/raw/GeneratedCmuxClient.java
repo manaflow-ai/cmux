@@ -532,6 +532,25 @@ public abstract class GeneratedCmuxClient {
         return BrowserProviderUnregisterResult.fromWire(result);
     }
 
+    public final GuestUrlOpenResult urlOpen(UrlOpenRequest request) throws CmuxException {
+        Object result = execute(Commands.URL_OPEN, request.toWire());
+        return GuestUrlOpenResult.fromWire(result);
+    }
+
+    public final GuestUrlClaimResult urlOpenClaim(UrlOpenClaimRequest request) throws CmuxException {
+        Object result = execute(Commands.URL_OPEN_CLAIM, request.toWire());
+        return GuestUrlClaimResult.fromWire(result);
+    }
+
+    public final GuestUrlAcknowledgeResult urlOpenResult(UrlOpenResultRequest request) throws CmuxException {
+        Object result = execute(Commands.URL_OPEN_RESULT, request.toWire());
+        return GuestUrlAcknowledgeResult.fromWire(result);
+    }
+
+    public final CmuxStream<ProtocolEvent> urlOpenSubscribe(UrlOpenSubscribeRequest request) throws CmuxException {
+        return openStream(Commands.URL_OPEN_SUBSCRIBE, request.toWire());
+    }
+
     public final VtStateResult vtState(VtStateRequest request) throws CmuxException {
         Object result = execute(Commands.VT_STATE, request.toWire());
         return VtStateResult.fromWire(result);
