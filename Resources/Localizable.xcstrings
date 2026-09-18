@@ -13836,6 +13836,62 @@
         }
       }
     },
+    "cli.socketControlStatus.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux socket-status [--json]\n\nاعرض سياسة مقبس التشغيل الآلي الفعّالة ومصدر الإدارة\nمن دون الاتصال بالمقبس. يظل هذا متاحًا عند إيقاف المقبس؛\nويُبلغ عن الإنفاذ المباشر على أنه غير ملاحظ." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux socket-status [--json]\n\nZeigt die effektive Automatisierungs-Socketrichtlinie und ihre\nVerwaltungsquelle ohne Socket-Verbindung. Verfügbar auch bei\ndeaktiviertem Socket; Live-Durchsetzung wird als nicht beobachtet gemeldet." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux socket-status [--json]\n\nPrint the effective automation socket policy and managed source\nwithout connecting to the socket. This remains available when\nthe socket is off; live enforcement is reported as unobserved." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux socket-status [--json]\n\nMuestra la política efectiva del socket de automatización y su origen\ngestionado sin conectarse al socket. Sigue disponible con el socket\ndesactivado; la aplicación en vivo se informa como no observada." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Usage : cmux socket-status [--json]\n\nAffiche la politique effective du socket d'automatisation et sa source\ngérée sans se connecter au socket. Disponible même lorsque le socket est\ndésactivé ; l'application en direct est indiquée comme non observée." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux socket-status [--json]\n\nソケットに接続せず、自動化ソケットの有効なポリシーと\n管理ソースを表示します。ソケットがオフでも利用でき、\n実行中の適用は未確認として表示されます。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux socket-status [--json]\n\n소켓에 연결하지 않고 유효한 자동화 소켓 정책과 관리 소스를\n출력합니다. 소켓이 꺼져 있어도 사용할 수 있으며 실행 중 적용은\n확인되지 않음으로 표시됩니다." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux socket-status [--json]\n\n在不连接套接字的情况下输出有效的自动化套接字策略和管理来源\n无需连接套接字。套接字关闭时仍可使用；\n实时执行会报告为未观察到。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux socket-status [--json]\n\n不連線至 Socket，顯示有效的自動化 Socket 政策與管理來源\n而不連線至 Socket。Socket 關閉時仍可使用；\n即時執行會顯示為未觀察到。" } }
+      }
+    },
+    "cli.socketControlStatus.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "en": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "es": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "socket-status [--json]" } }
+      }
+    },
+    "cli.socketControlStatus.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "وضع التحكم بالمقبس: %@%@. الإنفاذ المباشر: لم تتم ملاحظته." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Socket-Steuerungsmodus: %@%@. Live-Durchsetzung: nicht beobachtet." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Socket control mode: %@%@. Live enforcement: not observed." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Modo de control del socket: %@%@. Aplicación en vivo: no observada." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Mode de contrôle du socket : %@%@. Application en direct : non observée." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ソケット制御モード: %@%@。実行中の適用: 未確認。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "소켓 제어 모드: %@%@. 실행 중 적용: 확인되지 않음." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "套接字控制模式：%@%@。实时执行：未观察到。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Socket 控制模式：%@%@。即時執行：未觀察到。" } }
+      }
+    },
+    "cli.socketControlStatus.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "استخدم ‎--json‎ لمصدر الملف الشخصي وملاحظة مسار المقبس. لا يتصل هذا الأمر بمقبس التشغيل الآلي." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwenden Sie --json für Profilquelle und Socket-Pfadstatus. Dieser Befehl verbindet sich nie mit dem Automatisierungs-Socket." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Use --json for the profile source and socket-path observation. This command never connects to the automation socket." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usa --json para ver el origen del perfil y el estado de la ruta del socket. Este comando nunca se conecta al socket de automatización." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisez --json pour la source du profil et l'observation du chemin du socket. Cette commande ne se connecte jamais au socket d'automatisation." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロファイルのソースとソケットパスの状態は --json で確認できます。このコマンドは自動化ソケットに接続しません。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "프로필 소스와 소켓 경로 상태는 --json으로 확인하세요. 이 명령은 자동화 소켓에 연결하지 않습니다." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "使用 --json 查看配置文件来源和套接字路径观测。此命令不会连接自动化套接字。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "使用 --json 查看描述檔來源與 Socket 路徑觀測。此指令不會連線至自動化 Socket。" } }
+      }
+    },
     "cli.automation.help": {
       "extractionState": "manual",
       "localizations": {
@@ -311723,6 +311779,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "Socket 控制模式"
+          }
+        }
+      }
+    },
+    "settings.automation.socketMode.managed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تدير مؤسستك هذا الإعداد. الوضع الفعّال: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von Ihrer Organisation verwaltet. Effektiver Modus: %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Managed by your organization. Effective mode: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestionado por tu organización. Modo efectivo: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Géré par votre organisation. Mode effectif : %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "組織によって管理されています。有効なモード: %@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조직에서 관리합니다. 유효 모드: %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由组织管理。有效模式：%@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由您的組織管理。有效模式：%@。"
           }
         }
       }

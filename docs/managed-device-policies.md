@@ -41,6 +41,7 @@ domain wins over the release-domain fallback.
 | `DisableComputerUse` | Boolean | `false` | Disables Computer Use: new agent launches never receive the computer-use tools, the bundled helper stops (also when the policy is pushed mid-session), and Settings → Computer Use locks the toggle. Lifting the policy re-applies the user's own setting. |
 | `DisableCustomSidebars` | Boolean | `false` | Disables interpreted custom sidebars from `~/.config/cmux/sidebars` (user- or agent-authored `.js`/`.swift`/`.json` that can dispatch `cmux(...)` commands): none are listed or mounted, and Settings → Beta Features locks the toggle. |
 | `DisableAICredentialUpload` | Boolean | `false` | Disables uploading local AI credentials (Claude/Codex OAuth tokens, Anthropic/OpenAI API keys) to the cmux tenant: `cmux ai-accounts upload` (`aiAccounts.upload`) and `cmux coderouter claude add/update` fail closed at the socket (`ai_credential_upload_disabled`) and inside their clients. Listing and removing accounts still work. Independent of `DisableCloud`, which refuses these families entirely. |
+| `SocketControlMode` | String | `cmuxOnly` | Forces the local automation Unix socket to `cmuxOnly` or `off`. A forced value wins over Settings, `cmux.json`, `CMUX_SOCKET_MODE`, and `CMUX_SOCKET_PASSWORD`; Settings locks the picker and shows the effective mode. Existing clients are revoked when the mode changes, including password-authenticated and event-stream clients. |
 | `BrowserURLAllowlist` | Array of strings | unset (allow all web origins) | Restricts every embedded-browser top-level navigation to matching URL patterns. Address-bar loads, links, redirects, `window.open`, automation, deep links, and restored panes are checked. A forced empty array denies all external web origins while cmux-owned internal documents (such as `about:blank` and diff pages), localhost, and local files remain available unless the two allow keys below turn them off. See [Browser allowlist](#browser-allowlist). |
 | `BrowserAllowLocalhost` | Boolean | `true` | Allow-style key. While `true`, a managed `BrowserURLAllowlist` permits `localhost`, `*.localhost`, `127.0.0.1`, `::1`, and `0.0.0.0` on any HTTP(S) port without a rule, so local development servers keep working. Forced to `false`, loopback origins are blocked in the embedded browser — even ones the list names, and even when no list is forced. |
 | `BrowserAllowLocalFiles` | Boolean | `true` | Allow-style key. While `true`, local `file:` documents opened through cmux (the address bar, `cmux browser open`, terminal links, a file dropped onto a browser pane, or a link from another local file) stay available under a managed list. Forced to `false`, local files are blocked whether or not a list is forced. |
@@ -60,6 +61,14 @@ Notes:
   non-Boolean value leaves the capability allowed.
   `BrowserURLAllowlist` must be an array of strings; a forced empty array is a
   valid policy that blocks all external web origins.
+- `SocketControlMode` is a restrictive enum. The only valid forced strings are
+  `cmuxOnly` and `off` (case, hyphen, and underscore normalization is accepted).
+  A forced value of another type or a broader mode such as `allowAll` is still
+  managed but fails closed to `off`; it never falls back to a password or an
+  environment override. Removing the profile restores the user's effective
+  setting and environment behavior. A regular `defaults write` of either
+  `SocketControlMode` or `socketControlMode` is not an MDM force and cannot
+  impersonate this policy.
 - Only **forced** (profile-delivered) values are honored as policy. A plain
   `defaults write` of these keys has no effect; this is deliberate, since
   an unmanaged value would not be enforceable anyway.
@@ -89,6 +98,11 @@ Notes:
   leaves cmux. `DisableTelemetry` and `DisableAutoUpdate` are the two
   launch-time reads: Settings shows their managed state within that minute,
   and the telemetry and updater processes honor them at the next launch.
+- `SocketControlMode` uses the same roughly 60-second managed-policy
+  re-check. A live mode change rotates the socket authorization generation and
+  closes clients admitted under the old mode, including idle connections and
+  event subscriptions. The compliance command reads the profile directly and
+  never opens the socket merely to report status.
 
 ## Lockability
 
@@ -122,6 +136,60 @@ remote workspaces disconnect (their configuration is dropped so no reconnect
 affordance can redial), remote tmux mirrors detach and close, and the SSH
 control masters cmux opened exit. Remote tmux sessions stay alive on their
 hosts; only cmux's connections end.
+
+## Automation socket deployment
+
+Use the minimal profile entry below when the supported automation channel must
+remain available only to cmux descendants:
+
+```xml
+<key>SocketControlMode</key>
+<string>cmuxOnly</string>
+```
+
+Set the value to `off` to remove the listener entirely. The forced value is
+resolved before Settings, `cmux.json` import/reload, `CMUX_SOCKET_MODE`, and
+`CMUX_SOCKET_PASSWORD`; possession of a password never bypasses forced
+`cmuxOnly`. A profile update is picked up by the existing 60-second policy
+re-check, and the listener revokes all connections from the previous
+generation before admitting clients under the new value. This covers idle
+clients and event/stream subscriptions as well as ordinary requests.
+
+For administrator compliance, run `cmux socket-status --json`. It reads the
+forced preference from `com.cmuxterm.app` (including release-domain inheritance
+for tagged builds), reports the effective mode, source, and whether the forced
+value was valid, and observes the socket path without connecting. The
+`live_enforcement` field is therefore `not_observed`: it distinguishes profile
+intent and path state from a claim that a running server applied the value.
+The command is still usable when the policy is `off` or cmux is not running.
+
+Install, change, and remove the profile through the MDM's normal Custom
+Settings workflow. On removal, cmux returns to the user's existing mode and
+environment behavior without requiring a restart. If a malformed value is
+deployed, cmux treats it as managed and fails closed to `off`; correct the
+profile, then wait for the next re-check or relaunch. These controls govern
+cmux's supported local automation channel and do not prevent arbitrary native
+code running as the same macOS user.
+
+### Verification matrix
+
+The focused behavior and socket tests exercise the following matrix; the
+managed-profile row is the one that requires an isolated MDM test Mac or a
+controller-hosted profile lane.
+
+The package tests inject the existing forced-value probe for deterministic
+resolution and revocation checks. They do not install a profile on a
+maintainer Mac. A real `objectIsForced`/configuration-profile run remains an
+explicit controller-hosted verification step; this documentation does not
+claim that unit tests alone prove deployed MDM delivery.
+
+| Scenario | Forced `cmuxOnly` | Forced `off` | Expected evidence |
+| --- | --- | --- | --- |
+| Settings/UserDefaults, imported `cmux.json`, `CMUX_SOCKET_MODE=allowAll`, and password env all conflict | Descendants admitted; outside clients rejected; password is ignored | Listener absent; all clients rejected | `SocketControlSettingsTests`, Settings picker lock, `socket-status --json` |
+| Forced value is malformed or broader (`allowAll`, `password`) | Fails closed to `off` and remains managed | Fails closed to `off` and remains managed | Resolver test and status `forced_value_status: invalid` |
+| Profile changes while clients, idle sockets, or event streams are live | Old generation revoked before new admissions | All old clients revoked and listener stopped | `SocketControlServerManagedPolicyTests` and generation signal |
+| Profile removed, then app restarted | User/defaults and environment behavior returns | User/defaults and environment behavior returns | Resolver removal test plus restart run |
+| No profile | Existing user behavior is preserved | Existing user behavior is preserved | Unmanaged regression tests |
 
 ## Browser allowlist
 
@@ -172,6 +240,9 @@ without the entitlement continue to use the existing unavailable-backend path.
 - cmux for macOS 1.x builds that include this feature (see the changelog
   entry that shipped it). All release channels honor the release payload
   domain as described above.
+- Do not deploy `SocketControlMode` until the installed artifact contains this
+  key; this change does not promise a stable or NIGHTLY version before one is
+  actually published.
 - These are macOS-side controls. The iOS companion app needs no separate
   policy: a Mac with `DisableRemoteControl` enforced refuses admission and
   pairing, so the phone cannot attach to it.
@@ -236,6 +307,8 @@ table above when a full browser disable is desired.
                                 <true/>
                                 <key>DisableAICredentialUpload</key>
                                 <true/>
+                                <key>SocketControlMode</key>
+                                <string>cmuxOnly</string>
                                 <!-- localhost and local files need no entries;
                                      force BrowserAllowLocalhost / BrowserAllowLocalFiles
                                      to false to block them. -->
@@ -291,6 +364,26 @@ defaults read com.cmuxterm.app BrowserAllowLocalFiles    # absent or 1 = allowed
 # The CLI reports browser availability and URL-policy metadata:
 cmux browser status --json   # url_allowlist, url_allowlist_managed,
                              # url_allowlist_allows_localhost, url_allowlist_allows_local_files
+
+# Reliable socket-policy compliance check. It works while the app is quit or
+# the socket is forced off and never sends a request to the automation socket:
+cmux socket-status --json
+# Example (no password or token is emitted):
+# {
+#   "configured_mode" : "allowAll",
+#   "effective_mode" : "cmuxOnly",
+#   "forced_value_status" : "valid",
+#   "live_enforcement" : "not_observed",
+#   "managed" : true,
+#   "managed_source" : "managed_release_domain",
+#   "observation_scope" : "profile_and_socket_path",
+#   "policy_key" : "SocketControlMode",
+#   "socket_path_state" : "present"
+# }
+# `live_enforcement` is intentionally not inferred from a separate process
+# reading defaults; use the app's own tagged verification run for live socket
+# admission evidence. When `SocketControlMode` is `off`, the same command
+# reports `socket_path_state: absent` without weakening the policy to answer.
 
 # Cloud verbs are refused with a managed-policy error (socket code
 # `cloud_disabled`); `cmux vpn status`, `cmux vpn down`, and `cmux vpn revoke`

@@ -1,4 +1,17 @@
 {
+  "cli.socketControlStatus.command": {
+    "source": "socket-status [--json]",
+    "identityLocales": {
+      "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
+    }
+  },
   "CFBundleDisplayName": {
     "source": "cmux Cloud Tunnel",
     "class": "brand"

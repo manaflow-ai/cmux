@@ -23,6 +23,14 @@ import Foundation
 /// if policy.isEnforced(.disableEmbeddedBrowser) { /* refuse to create a pane */ }
 /// ```
 public struct ManagedDevicePolicy: Sendable {
+    /// Identifies which preference domain supplied a profile-forced value.
+    public enum ValueSource: String, Equatable, Sendable {
+        /// The running app's own preference domain.
+        case appDomain = "app_domain"
+        /// The release payload domain inherited by tagged/channel builds.
+        case releaseDomain = "release_domain"
+    }
+
     /// The preference domain administrators target with a configuration
     /// profile: the release app's bundle identifier.
     public static let releasePayloadDomain = "com.cmuxterm.app"
@@ -114,6 +122,21 @@ public struct ManagedDevicePolicy: Sendable {
         if let releaseDomainDefaults,
            let value = forcedObject(releaseDomainDefaults, userDefaultsKey) {
             return value
+        }
+        return nil
+    }
+
+    /// Returns the domain that currently forces `userDefaultsKey`, or `nil`
+    /// when the key is only a normal user preference. This consults the same
+    /// `objectIsForced` probe as ``forcedObject(forUserDefaultsKey:)`` and
+    /// therefore cannot be impersonated by an ordinary `defaults write`.
+    public func forcedValueSource(forUserDefaultsKey userDefaultsKey: String) -> ValueSource? {
+        if forcedObject(defaults, userDefaultsKey) != nil {
+            return .appDomain
+        }
+        if let releaseDomainDefaults,
+           forcedObject(releaseDomainDefaults, userDefaultsKey) != nil {
+            return .releaseDomain
         }
         return nil
     }

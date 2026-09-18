@@ -1,13 +1,11 @@
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-
 /// Automation settings, including socket access, agent integrations, and port ranges.
 @MainActor
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
     private let hostActions: any SettingsHostActions
-
     @State private var socketPasswordModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
@@ -25,27 +23,28 @@ public struct AutomationSection: View {
     @State private var kiroLevelModel: DefaultsValueModel<String>
     @State private var portBaseModel: DefaultsValueModel<Int>
     @State private var portRangeModel: DefaultsValueModel<Int>
+    @State private var socketPolicyResolution: SocketControlPolicyResolution
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var modeBeforePendingOpenAccess: SocketControlMode?
-
     private struct SocketPasswordStatus: Equatable {
         let message: String
         let isError: Bool
     }
-
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
         secretStore: SecretFileStore,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
-        hostActions: any SettingsHostActions
+        hostActions: any SettingsHostActions,
+        socketPolicyResolver: SocketControlPolicyResolver = SocketControlPolicyResolver()
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
+        _socketPolicyResolution = State(initialValue: socketPolicyResolver.resolve())
         _socketPasswordModel = State(initialValue: SecretValueModel(
             store: secretStore,
             key: catalog.automation.socketPassword,
@@ -75,13 +74,10 @@ public struct AutomationSection: View {
         _portBaseModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portBase))
         _portRangeModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.automation.portRange))
     }
-
     private static let columnWidth: CGFloat = 196
-
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
-
             socketControlCard
             claudeCodeCard
             codexCard
@@ -125,24 +121,30 @@ public struct AutomationSection: View {
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
         }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                socketPolicyResolution = SocketControlPolicyResolver().resolve()
+            }
+        }
     }
-
     @ViewBuilder
     private var socketControlCard: some View {
-        let isPassword = modeModel.current == .password
-        let isAllowAll = modeModel.current == .allowAll
+        let effectiveMode = socketPolicyResolution.mode
+        let isManaged = socketPolicyResolution.isManaged
+        let isPassword = effectiveMode == .password
+        let isAllowAll = effectiveMode == .allowAll
         let hasPassword = !socketPasswordModel.current.isEmpty
-
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.socketControlMode"),
                 String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"),
-                subtitle: modeModel.current.description,
+                subtitle: effectiveMode.description,
                 controlWidth: Self.columnWidth
             ) {
                 Picker("", selection: Binding(
-                    get: { modeModel.current },
+                    get: { effectiveMode },
                     set: { newValue in
+                        guard !isManaged else { return }
                         if newValue == .allowAll && modeModel.current != .allowAll {
                             modeBeforePendingOpenAccess = modeModel.current
                             pendingOpenAccessMode = newValue
@@ -163,11 +165,18 @@ public struct AutomationSection: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.menu)
+                .disabled(isManaged)
                 .accessibilityIdentifier("AutomationSocketModePicker")
             }
             SettingsCardDivider()
+            if isManaged {
+                let format = String(
+                    localized: "settings.automation.socketMode.managed",
+                    defaultValue: "Managed by your organization. Effective mode: %@."
+                )
+                SettingsCardNote(String.localizedStringWithFormat(format, effectiveMode.displayName))
+            }
             SettingsCardNote(String(localized: "settings.automation.socketMode.note", defaultValue: "Controls access to the local Unix socket for programmatic control. Choose a mode that matches your threat model."))
-
             if isPassword {
                 SettingsCardDivider()
                 SettingsCardRow(
@@ -211,7 +220,6 @@ public struct AutomationSection: View {
                         .padding(.bottom, 8)
                 }
             }
-
             if isAllowAll {
                 SettingsCardDivider()
                 Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
@@ -220,11 +228,9 @@ public struct AutomationSection: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
             }
-
             SettingsCardNote(String(localized: "settings.automation.socketOverrides.note", defaultValue: "Overrides: CMUX_SOCKET_ENABLE, CMUX_SOCKET_MODE, and CMUX_SOCKET_PATH (set CMUX_ALLOW_SOCKET_OVERRIDE=1 for stable/nightly builds)."))
         }
     }
-
     @ViewBuilder
     private var claudeCodeCard: some View {
         SettingsCard {
@@ -244,7 +250,6 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
         }
     }
-
     @ViewBuilder
     private var codexCard: some View {
         SettingsCard {
@@ -264,7 +269,6 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.codex.note", defaultValue: "When enabled, cmux wraps the codex command to inject session tracking and notification hooks. Disable if you prefer to manage Codex hooks yourself. cmux still tracks live Codex sessions it can observe even when this is off. To also track Codex launched through a custom launcher that bypasses the wrapper (e.g. a subrouter), run `cmux hooks setup --agent codex`, which installs hooks into ~/.codex/hooks.json."))
         }
     }
-
     @ViewBuilder
     private var claudePathCard: some View {
         SettingsCard {
@@ -282,7 +286,6 @@ public struct AutomationSection: View {
             }
         }
     }
-
     @ViewBuilder
     private var autoNamingCard: some View {
         SettingsCard {
@@ -337,7 +340,6 @@ public struct AutomationSection: View {
             }
         }
     }
-
     @ViewBuilder
     private func autoNamingFootnote(_ text: String) -> some View {
         Text(text)
@@ -347,13 +349,11 @@ public struct AutomationSection: View {
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
     }
-
     private var currentAutoNamingStatus: AutoNamingStatus? {
         guard !autoNamingStatusModel.current.isEmpty,
               let data = autoNamingStatusModel.current.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(AutoNamingStatus.self, from: data)
     }
-
     @ViewBuilder
     private var ripgrepPathCard: some View {
         SettingsCard {
