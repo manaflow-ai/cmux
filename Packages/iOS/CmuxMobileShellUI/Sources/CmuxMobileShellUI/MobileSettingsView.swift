@@ -78,6 +78,11 @@ struct MobileSettingsView: View {
         #if DEBUG
         let whatsNewPages = whatsNewCenter?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
         let whatsNewHosts = whatsNewCenter?.allowedWebHosts ?? []
+        let pushReadiness = pushCoordinator.readiness(
+            macStatus: store?.phonePushMacStatus,
+            macAccountMismatch: store?.connectionRequiresReauth == true,
+            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
+        )
         #endif
         return NavigationStack {
             Form {
@@ -214,7 +219,7 @@ struct MobileSettingsView: View {
                 }
 
                 if let irohSettingsController {
-                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
+                    Section {
                         NavigationLink {
                             MobileIrohSettingsView(
                                 controller: irohSettingsController,
@@ -227,6 +232,8 @@ struct MobileSettingsView: View {
                             )
                         }
                         .accessibilityIdentifier("MobileSettingsIroh")
+                    } header: {
+                        Text(L10n.string("mobile.settings.networking", defaultValue: "Networking"))
                     }
                 }
 
@@ -455,11 +462,7 @@ struct MobileSettingsView: View {
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
 #if DEBUG
                     MobilePushSettingsContent(
-                        readiness: pushCoordinator.readiness(
-                            macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true,
-                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
-                        ),
+                        readiness: pushReadiness,
                         phoneEnabled: $notificationsEnabled,
                         macStatus: store?.phonePushMacStatus,
                         supportsMacSettings: store?.supportsPhonePushSettings == true,

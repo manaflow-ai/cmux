@@ -295,15 +295,16 @@ struct MacComputerDetailView: View {
                 ) { draft in
                     let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
                     if saved, pairedMac == nil {
-                        let directOnlyDialCandidates = draft.addresses.compactMap { raw in
-                            guard let socket = try? CmxIrohLocalSocketAddress(raw) else {
-                                return nil
+                        let directOnlyDialCandidates: [CmxIrohDirectDialCandidate] =
+                            draft.addresses.compactMap { raw in
+                                guard let socket = try? CmxIrohLocalSocketAddress(raw) else {
+                                    return nil
+                                }
+                                return CmxIrohDirectDialCandidate(
+                                    address: socket.address.value,
+                                    port: socket.port
+                                )
                             }
-                            return CmxIrohDirectDialCandidate(
-                                address: socket.address.value,
-                                port: UInt16(socket.port)
-                            )
-                        }
                         Task {
                             _ = await store.connectDiscoveredIrohMac(
                                 macDeviceID: macDeviceID,
@@ -495,8 +496,10 @@ struct MacComputerDetailView: View {
     /// per (device, build) and local to this iPhone.
     private var selectedMethod: MobileConnectionMethod {
         pairedMac.map { store.connectionMethod(for: $0) }
-            ?? store.connectionMethodStore?.method
-            ?? .automatic
+            ?? store.connectionMethod(
+                forMacDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
     }
 
     /// The Settings connection-method UI, moved here verbatim (same picker
