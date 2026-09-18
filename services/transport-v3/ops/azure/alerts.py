@@ -38,6 +38,13 @@ def queries(nodes):
             | where Reason != "" | project ResourceId, Reason''',
         'revocation-feed': base + '''| where toint(payload.cmux_v3_feed_healthy) == 0
             | extend Reason="revocation_feed_unhealthy" | project ResourceId, Reason''',
+        'no-healthy-generation': base + '''| summarize healthy=countif(
+                coalesce(tobool(payload.scrape_ok), false) == true
+                and toint(payload.cmux_v3_ready) == 1
+                and coalesce(tobool(payload.draining), false) == false)
+            | where healthy == 0
+            | extend ResourceId="cmux-v3-serving-generation", Reason="no_healthy_generation"
+            | project ResourceId, Reason''',
     }
 
 
