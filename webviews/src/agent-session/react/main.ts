@@ -951,7 +951,11 @@ function SessionSurface({
     { className: `agent-shell${isGuiMode ? " gui-mode-agent-shell" : ""}`, "data-codex-window-type": "electron" },
     isGuiMode && !hasGuiConversation
       ? h(GuiModeWelcome, { context: guiModeContext })
-      : h(TranscriptThread, { entries: state.transcript, copy: state.context?.copy }),
+      : h(TranscriptThread, {
+          copy: state.context?.copy,
+          entries: state.transcript,
+          hideNotices: isGuiMode,
+        }),
     h(
       "div",
       { className: CODEX_COMPOSER_STACK },
@@ -1107,17 +1111,22 @@ function AboveComposerPlanSuggestion({
 const TranscriptThread = React.memo(function TranscriptThread({
   entries,
   copy,
+  hideNotices = false,
 }: {
   entries: TranscriptEntry[];
   copy?: AgentSessionCopy;
+  hideNotices?: boolean;
 }) {
+  const visibleEntries = hideNotices
+    ? entries.filter((entry) => entry.role !== "notice")
+    : entries;
   return h(
     "div",
     {
       className: "agent-thread",
-      "data-empty": entries.length === 0 ? "true" : undefined,
+      "data-empty": visibleEntries.length === 0 ? "true" : undefined,
     },
-    entries.map((entry) => h(TranscriptTurn, { copy, entry, key: entry.id })),
+    visibleEntries.map((entry) => h(TranscriptTurn, { copy, entry, key: entry.id })),
   );
 });
 
