@@ -40,10 +40,11 @@ struct CloudClosedPanelRestoreTests {
             let restoredID = try #require(workspace.focusedPanelId)
             #expect(workspace.panels.count == 1)
             #expect(workspace.panels[restoredID]?.panelType == .browser)
-            let projection = try #require(SurfaceCatalog.shared.projection(forPanel: restoredID))
-            #expect(projection.resource == resource)
-            #expect(projection.remoteWorkspaceID == "remote-workspace")
-            #expect(projection.remoteTabID == "remote-tab")
+            let records = SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id)
+            #expect(records.contains {
+                $0.panelID == restoredID && $0.resource == resource &&
+                    $0.remoteWorkspaceID == "remote-workspace" && $0.remoteTabID == "remote-tab"
+            })
         }
     }
 
