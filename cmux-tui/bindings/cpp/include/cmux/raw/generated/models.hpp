@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c";
+inline constexpr std::string_view kProtocolIrSha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -187,6 +187,7 @@ struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveTabRequest;
+struct MoveTabToWorkspaceRequest;
 struct MoveTerminalRequest;
 struct MoveWorkspaceRequest;
 struct NewBrowserTabRequest;
@@ -1616,6 +1617,12 @@ struct MoveTabRequest {
     Id pane{};
     Id surface{};
     friend bool operator==(const MoveTabRequest&, const MoveTabRequest&) = default;
+};
+
+struct MoveTabToWorkspaceRequest {
+    Id surface{};
+    Field<Id> workspace{};
+    friend bool operator==(const MoveTabToWorkspaceRequest&, const MoveTabToWorkspaceRequest&) = default;
 };
 
 struct MoveTerminalRequest {
@@ -3799,6 +3806,12 @@ template <>
 struct Codec<MoveTabRequest> {
     static Result<Json> encode(const MoveTabRequest& value);
     static Result<MoveTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabToWorkspaceRequest> {
+    static Result<Json> encode(const MoveTabToWorkspaceRequest& value);
+    static Result<MoveTabToWorkspaceRequest> decode(const Json& value);
 };
 
 template <>

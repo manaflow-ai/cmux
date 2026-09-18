@@ -3010,6 +3010,27 @@ Example:
 {"id":26,"ok":true,"data":{}}
 ```
 
+### move-tab-to-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-workspace` |
+| status | implemented |
+| since | protocol 12 |
+
+Move an existing tab without restarting its terminal or browser. `surface` is
+required. Optional `workspace` is a numeric workspace ID; omission creates a new
+workspace. Existing nonempty destinations use their active pane. Empty and new
+destinations create a screen and pane in the same durable transaction as the
+move. The destination becomes selected. Unknown source/destination IDs fail.
+Provider-owned workspace creation is rejected. The server advertises
+`tab-workspace-move-v1`; clients hide these UI actions for older owners.
+
+```json
+{"id":26,"cmd":"move-tab-to-workspace","surface":1}
+{"id":26,"ok":true,"data":{}}
+```
+
 ### move-workspace
 
 | Field | Value |
