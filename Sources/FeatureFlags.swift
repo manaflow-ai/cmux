@@ -405,6 +405,12 @@ final class CmuxFeatureFlags {
         if overrideCapability.enablesCloudDogfood {
             defaults.set(true, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             defaults.set(true, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+        } else if overrideCapability.isDebugBuild {
+            // A later tagged artifact can explicitly disable Cloud. Clear the
+            // previous debug marker's persisted gates so the old app identity
+            // cannot re-enable Cloud after a reload.
+            defaults.removeObject(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+            defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
         }
         if let remoteFlagLoader {
             self.remoteFlagLoader = remoteFlagLoader
