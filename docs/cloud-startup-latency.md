@@ -67,7 +67,7 @@ Measurements used, with their sample counts:
 | PostHog `cmux_cloud_vm_request` (Mac client, schema 1) | the same requests as the client saw them, joined to the server rows by `client_trace_id` | 14 days, 415k events |
 | `bench-vm-startup.mjs` | create → attach → warm attach → exec → pause → resume-attach → destroy against a deployed backend, with the create route's `Server-Timing` stages | staging n=5 sequential + n=3 concurrent + n=3 with edge probe; production n=3 sequential |
 | `bench-freestyle-floor.ts` | provider-only floor with the SDK: allocation, daemon process/listen, announce, exec/fs RTT, guest shell startup, pause/start/delete | md n=5 + burst 3; sm n=3 |
-| `bench-private-link.ts` | the app's transport path headlessly: production driver create, attach bundle, WireGuard hub, `cmux-tui remote connect --carrier`, snapshot, `bash -l`, prompt visible, reconnect | md n=3, client `e90a212` (Nightly bundle), with production's prompt identity and persisted addresses |
+| `bench-private-link.ts` | the app's transport path headlessly: production driver create, attach bundle, WireGuard hub, `cmux-tui remote connect --carrier`, snapshot, `bash -l`, prompt visible, reconnect | md n=3, client `e90a212` (Nightly bundle), with production's prompt identity and persisted addresses; without the model-plane edge rules (section 4.4) |
 | PR #12739 native measurements | Mac-side Cmd-D/Cmd-T phases on a warm link (Debug build) | 10+10 trials |
 | Source trace | the dependency graph in section 3 | HEAD `e4176d8d53` |
 
@@ -215,7 +215,12 @@ daemon-process; daemon start to listen is ~0.30 s.
 Measured with the inputs the production workflow passes: the machine's
 prompt identity at create and at attach (the guest installs its prompt each
 time) and the addresses persisted at create fed back into the attach, which
-then skips the provider read.
+then skips the provider read. One production input is deliberately absent:
+the two inline `tls` edge rules (coderouter and reflection aliases with the
+machine's model-plane token headers) that need a deployment's secrets to
+mint, so this create excludes whatever the platform charges to attach them
+and the guest has no model-plane credential; the control-plane benchmark
+measures the create with them (`provider_create` in section 4.2).
 
 | Stage | p50 (range) |
 | --- | --- |

@@ -15,7 +15,7 @@ import { pathToFileURL } from "node:url";
 import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
 
-const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--label <text>] [--out <file.json>]";
+const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
 const { webDir, target, project, rest } = parseWebDirAndTarget(process.argv.slice(2), usage);
 const trials = positiveInteger(optionValue(rest, "--trials") ?? "3", "--trials");
 const concurrency = Math.min(positiveInteger(optionValue(rest, "--concurrency") ?? "1", "--concurrency"), trials);
@@ -24,9 +24,13 @@ const skipPause = rest.includes("--skip-pause");
 const skipExec = rest.includes("--skip-exec");
 // Full-feature readiness: poll the model-plane edge alias from inside the
 // guest until the coderouter reflection route answers, so the report can
-// separate "terminal usable" from "agents can reach their credentials".
+// separate "terminal usable" from "agents can reach their credentials". The
+// alias host is the one the target deployment configures for its guests
+// (CMUX_VM_EDGE_ALIAS_DOMAIN in the pulled env, the runtime's default
+// otherwise), or --edge-alias; it is resolved once the env is loaded.
 const edgeCheck = rest.includes("--edge-check");
-const EDGE_PROBE = "curl -s -o /dev/null -w '%{http_code}' --max-time 4 https://coderouter.cmux.internal/api/vm/reflection";
+const edgeAliasOption = optionValue(rest, "--edge-alias");
+const DEFAULT_EDGE_ALIAS_HOST = "coderouter.cmux.internal";
 const EDGE_BUDGET_MS = 90_000;
 const label = optionValue(rest, "--label") ?? "";
 const outPath = optionValue(rest, "--out");
@@ -64,6 +68,12 @@ requireEnvKeys(env, ["NEXT_PUBLIC_STACK_PROJECT_ID", "NEXT_PUBLIC_STACK_PUBLISHA
 // accepts (freestyleClient in services/vms/drivers/freestyle.ts): an API key,
 // or a Stack access token with a team id. A sensitive value pulls empty; the
 // operator's own copy (~/.secrets/cmux.env, the same account) covers that.
+const edgeAliasHost = edgeAliasOption?.trim() || env.CMUX_VM_EDGE_ALIAS_DOMAIN?.trim() || DEFAULT_EDGE_ALIAS_HOST;
+if (!/^[a-z0-9.-]+$/i.test(edgeAliasHost)) {
+  console.error(`bench-vm-startup: the edge alias must be a bare host name, got ${JSON.stringify(edgeAliasHost)}`);
+  process.exit(2);
+}
+const EDGE_PROBE = `curl -s -o /dev/null -w '%{http_code}' --max-time 4 https://${edgeAliasHost}/api/vm/reflection`;
 const providerCredentials = resolveProviderCredentials(env);
 if (!providerCredentials) {
   console.error("bench-vm-startup: FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID, is required (pulled target env or process env) so cleanup can verify provider inventory");

@@ -15,6 +15,16 @@
  * FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID
  * (source ~/.secrets/cmux.env).
  *
+ * Scope: the transport path without the control plane. Production's create
+ * also carries two inline `tls` edge rules (the coderouter alias and the
+ * reflection alias, each routing to the deployment's API host with the
+ * machine's model-plane token headers, services/coderouter/vmModelPlane.ts),
+ * which need a deployment's secrets to mint. This benchmark's create omits
+ * them, so its create timing excludes whatever the platform charges to
+ * attach two edge rules, and the guest has no model-plane credential; the
+ * control-plane benchmark (bench-vm-startup.mjs) measures the create with
+ * them, as `provider_create` in the route's Server-Timing.
+ *
  * Creates its own VPC, tunnel and machines and deletes them, including on
  * failure. Never modifies existing machines. Modeled on
  * verify-devbox-private-link.ts.
