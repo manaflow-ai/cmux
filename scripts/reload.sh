@@ -891,6 +891,8 @@ Options:
                          Sets app name, bundle id, and derived data path unless overridden.
                          After a successful build, terminates any running app with this tag
                          so macOS launches the freshly-built binary on cmd-click or --launch.
+                         Set CMUX_RELOAD_KEEP_RUNNING=1 to skip that termination when the
+                         build is not meant to replace a session you are still using.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
   --prod-auth            Point this tagged Debug build at production Stack auth,
@@ -1856,7 +1858,7 @@ fi
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
 # instead of launching the newly built binary when the user cmd-clicks the .app.
-if [[ -n "$TAG" ]]; then
+if [[ -n "$TAG" && "${CMUX_RELOAD_KEEP_RUNNING:-0}" != "1" ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
