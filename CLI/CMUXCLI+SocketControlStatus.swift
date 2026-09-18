@@ -14,7 +14,10 @@ extension CMUXCLI {
     ) throws {
         let remaining = commandArgs.filter { $0 != "--json" }
         guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux socket-status [--json]")
+            throw CLIError(message: String(
+                localized: "cli.socketControlStatus.error.invalidArguments",
+                defaultValue: "Usage: cmux socket-status [--json]"
+            ))
         }
 
         let domain = socketControlStatusDomain(environment: environment)

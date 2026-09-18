@@ -135,6 +135,7 @@ public final class SocketControlServer {
     private let authorizationObserverBag: SocketAuthorizationObserverBag
     private nonisolated let connectionAuthorizationState: SocketConnectionAuthorizationState
     private nonisolated let effectivePasswordProvider: @Sendable () -> String?
+    private nonisolated let effectiveAccessModeProvider: @Sendable () -> SocketControlMode
 
     /// Accepted, configured client connections, in accept order.
     ///
@@ -169,6 +170,9 @@ public final class SocketControlServer {
     ///     center; tests can inject an isolated center.
     ///   - effectivePasswordProvider: Reads the password currently enforced by
     ///     password mode. Called outside authorization-state lock sections.
+    ///   - effectiveAccessModeProvider: Resolves the current authoritative
+    ///     access mode before admission and continuation checks. The app
+    ///     supplies the managed-policy resolver; tests may inject a snapshot.
     ///   - authorizationChangeSignals: Out-of-band signals for authoritative
     ///     password-file changes that do not post an in-process notification.
     ///   - events: Host callback seam.
@@ -180,6 +184,7 @@ public final class SocketControlServer {
         maximumBufferedConnections: Int = 32,
         notificationCenter: NotificationCenter,
         effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
+        effectiveAccessModeProvider: @escaping @Sendable () -> SocketControlMode = { .cmuxOnly },
         authorizationChangeSignals: AsyncStream<Void>? = nil,
         events: SocketControlServerEvents
     ) {
@@ -195,6 +200,7 @@ public final class SocketControlServer {
         )
         self.connectionAuthorizationState = SocketConnectionAuthorizationState()
         self.effectivePasswordProvider = effectivePasswordProvider
+        self.effectiveAccessModeProvider = effectiveAccessModeProvider
         self.events = events
         (self.connections, self.connectionsContinuation) =
             AsyncStream<ControlConnection>.makeStream(
@@ -301,9 +307,14 @@ public final class SocketControlServer {
         listenerStateSnapshot().pendingRearmGeneration != nil
     }
 
-    /// The access mode of the current (or most recently started) listener.
+    /// The access mode of the current listener, reconciled through the
+    /// injected authoritative policy provider before it is returned.
     public nonisolated var accessMode: SocketControlMode {
-        connectionAuthorizationState.accessMode
+        let resolved = effectiveAccessModeProvider()
+        if connectionAuthorizationState.accessMode != resolved {
+            configureConnectionAuthorization(accessMode: resolved)
+        }
+        return resolved
     }
 
     /// Generation attached to newly accepted clients for policy revocation.
@@ -313,6 +324,7 @@ public final class SocketControlServer {
 
     /// Whether an accepted connection still belongs to the live access policy.
     public nonisolated func isConnectionAuthorizationCurrent(_ generation: UInt64) -> Bool {
+        _ = accessMode
         return connectionAuthorizationState.isCurrent(generation)
     }
 
@@ -323,7 +335,8 @@ public final class SocketControlServer {
         _ generation: UInt64,
         passwordAuthorization: SocketPasswordAuthorization
     ) -> Bool {
-        connectionAuthorizationState.permitsContinuation(
+        _ = accessMode
+        return connectionAuthorizationState.permitsContinuation(
             generation: generation,
             authenticatedPasswordFingerprint:
                 passwordAuthorization.authenticatedCredentialFingerprint
@@ -415,6 +428,7 @@ public final class SocketControlServer {
         generation: UInt64,
         revocationSignal: SocketAuthorizationRevocationSignal
     ) {
+        _ = accessMode
         let generation = connectionAuthorizationState.currentGeneration
         return (generation.number, generation.revocationSignal)
     }

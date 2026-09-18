@@ -13836,6 +13836,20 @@
         }
       }
     },
+    "cli.socketControlStatus.error.invalidArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux socket-status [--json]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux socket-status [--json]" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux socket-status [--json]" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux socket-status [--json]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux socket-status [--json]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux socket-status [--json]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux socket-status [--json]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux socket-status [--json]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux socket-status [--json]" } }
+      }
+    },
     "cli.socketControlStatus.help": {
       "extractionState": "manual",
       "localizations": {

@@ -70,7 +70,7 @@ final class SocketConnectionAuthorizationState: Sendable {
 
     func isCurrent(_ generation: UInt64) -> Bool {
         state.withLock {
-            $0.isRunning && $0.generation.number == generation
+            $0.isRunning && $0.accessMode != .off && $0.generation.number == generation
         }
     }
 
@@ -79,7 +79,9 @@ final class SocketConnectionAuthorizationState: Sendable {
         authenticatedPasswordFingerprint: Data?
     ) -> Bool {
         state.withLock { state in
-            guard state.isRunning, state.generation.number == generation else {
+            guard state.isRunning,
+                  state.accessMode != .off,
+                  state.generation.number == generation else {
                 return false
             }
             guard state.accessMode.requiresPasswordAuth,

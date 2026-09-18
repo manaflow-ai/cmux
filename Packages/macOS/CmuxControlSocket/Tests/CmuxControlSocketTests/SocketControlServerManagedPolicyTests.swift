@@ -1,6 +1,8 @@
 import CmuxControlSocket
+import CmuxSettings
 import Darwin
 import Foundation
+import os
 import Testing
 
 @MainActor
@@ -20,22 +22,29 @@ struct SocketControlServerManagedPolicyTests {
             pathMissingDetected: { _, _ in },
             rearmRequested: { _, _, _, _ in }
         )
+        let resolvedMode = OSAllocatedUnfairLock(initialState: SocketControlMode.allowAll)
         let server = SocketControlServer(
             initialSocketPath: path,
             notificationCenter: NotificationCenter(),
+            effectiveAccessModeProvider: { resolvedMode.withLock { $0 } },
             events: events
         )
         defer { server.stop() }
         #expect(server.start(socketPath: path, accessMode: .allowAll))
 
         let fd = Self.connect(to: path)
-        try #require(fd >= 0, "could not connect to test socket")
+        guard fd >= 0 else {
+            Issue.record("could not connect to test socket")
+            return
+        }
         defer { if fd >= 0 { close(fd) } }
         let connection = try #require(await Self.nextConnection(from: server.connections), "server did not yield the accepted connection")
         let generation = connection.authorizationGeneration
         let signal = connection.authorizationRevocationSignal
         #expect(server.isConnectionAuthorizationCurrent(generation))
 
+        resolvedMode.withLock { $0 = .cmuxOnly }
+        #expect(server.accessMode == .cmuxOnly)
         #expect(server.reconfigure(accessMode: .cmuxOnly))
         #expect(server.accessMode == .cmuxOnly)
         #expect(!server.isConnectionAuthorizationCurrent(generation))
@@ -44,6 +53,7 @@ struct SocketControlServerManagedPolicyTests {
 
         #expect(server.reconfigure(accessMode: .off))
         #expect(!server.isRunning)
+        #expect(!server.isConnectionAuthorizationCurrent(generation))
     }
 
     private static func connect(to path: String) -> Int32 {

@@ -62,7 +62,6 @@ private struct RemotePTYSocketTarget {
     let workspaceRef: Any
     let workspaceTitle: String
 }
-
 nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
     let nsError = error as NSError
     guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
@@ -71,11 +70,9 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
     return error.localizedDescription
         .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
     v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "remote PTY operation failed" }
@@ -555,6 +552,9 @@ class TerminalController {
             listenerPolicy: listenerPolicy, notificationCenter: .default,
             effectivePasswordProvider: {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
+            },
+            effectiveAccessModeProvider: {
+                CmuxSettingsFileStore.socketControlPolicyResolution().mode
             },
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(
