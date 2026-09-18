@@ -49,7 +49,11 @@ public struct SocketControlSettings {
             .replacingOccurrences(of: "-", with: "")
     }
 
-    private static func parseMode(_ raw: String) -> SocketControlMode? {
+    /// Maps a raw mode string (current or legacy spelling) to a mode, or `nil`
+    /// when it names no mode. Internal so ``SocketControlModePolicy`` resolves
+    /// administrator-forced values through the same normalization the user's
+    /// own value goes through.
+    static func parseMode(_ raw: String) -> SocketControlMode? {
         switch normalizeMode(raw) {
         case "off":
             return .off
@@ -506,15 +510,29 @@ public struct SocketControlSettings {
         return parseMode(raw)
     }
 
-    /// The effective mode after applying `CMUX_SOCKET_ENABLE`/`CMUX_SOCKET_MODE` overrides.
+    /// The effective mode after applying an administrator's managed mode, then
+    /// the `CMUX_SOCKET_ENABLE`/`CMUX_SOCKET_MODE` overrides.
+    ///
+    /// A managed mode is tier 0: it wins outright and no environment variable
+    /// is consulted, not even one that would only narrow the mode. The
+    /// effective mode on a managed Mac therefore never depends on how the app
+    /// was launched.
+    ///
     /// - Parameters:
     ///   - userMode: The user's configured mode.
     ///   - environment: The process environment.
+    ///   - managedMode: The mode a configuration profile forces, or `nil` when
+    ///     no profile manages the socket. See ``SocketControlModePolicy``.
     /// - Returns: The mode to actually apply.
     public static func effectiveMode(
         userMode: SocketControlMode,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        managedMode: SocketControlMode? = nil
     ) -> SocketControlMode {
+        if let managedMode {
+            return managedMode
+        }
+
         if let overrideEnabled = envOverrideEnabled(environment: environment) {
             if !overrideEnabled {
                 return .off

@@ -44,6 +44,55 @@ import CmuxSettings
         )
     }
 
+    @Test func aManagedModeWinsOverTheUsersChoice() {
+        #expect(
+            SocketControlSettings.effectiveMode(
+                userMode: .allowAll,
+                environment: [:],
+                managedMode: .cmuxOnly
+            ) == .cmuxOnly
+        )
+    }
+
+    @Test(arguments: [
+        ["CMUX_SOCKET_MODE": "allowall"],
+        ["CMUX_SOCKET_MODE": "automation"],
+        ["CMUX_SOCKET_ENABLE": "1", "CMUX_SOCKET_MODE": "allowall"],
+        // A profile is tier 0: even an environment variable that would only
+        // narrow the mode loses, so the effective mode on a managed Mac never
+        // depends on how the app was launched.
+        ["CMUX_SOCKET_ENABLE": "0"],
+    ])
+    func aManagedModeWinsOverEveryEnvironmentOverride(environment: [String: String]) {
+        #expect(
+            SocketControlSettings.effectiveMode(
+                userMode: .allowAll,
+                environment: environment,
+                managedMode: .cmuxOnly
+            ) == .cmuxOnly
+        )
+    }
+
+    @Test func aManagedOffModeKeepsTheSocketClosed() {
+        #expect(
+            SocketControlSettings.effectiveMode(
+                userMode: .allowAll,
+                environment: ["CMUX_SOCKET_ENABLE": "1", "CMUX_SOCKET_MODE": "allowall"],
+                managedMode: .off
+            ) == .off
+        )
+    }
+
+    @Test func anAbsentManagedModeLeavesEnvironmentOverridesInPlace() {
+        #expect(
+            SocketControlSettings.effectiveMode(
+                userMode: .cmuxOnly,
+                environment: ["CMUX_SOCKET_MODE": "allowall"],
+                managedMode: nil
+            ) == .allowAll
+        )
+    }
+
     @Test func truthyParsing() {
         for value in ["1", "true", "YES", "on"] {
             #expect(SocketControlSettings.isTruthy(value))
