@@ -50,6 +50,12 @@ export function isOperatorFaultVmError(input: {
   return input.status >= 500 || OPERATOR_FAULT_VM_ERROR_CODES.has(input.error);
 }
 
+export type VmErrorFault = "user" | "vendor" | "operator";
+export function vmErrorFault(input: Pick<VmErrorResponseInput, "error" | "status" | "diagnostics">): VmErrorFault {
+  if (!isOperatorFaultVmError(input)) return "user";
+  return input.diagnostics?.fault === "vendor" || input.diagnostics?.provider ? "vendor" : "operator";
+}
+
 /**
  * Span leg of the VM error choke point: every VM error annotates the active
  * request span with the machine-readable code and the operator-context that

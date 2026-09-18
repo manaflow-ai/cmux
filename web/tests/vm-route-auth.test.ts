@@ -225,6 +225,7 @@ const {
   VmCreateDisabledError,
   VmCreateFailedError,
   VmModelPlaneError,
+  VmNotFoundError,
   VmProviderOperationError,
 } = await import("../services/vms/errors");
 const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
@@ -1665,7 +1666,7 @@ describe("VM REST auth", () => {
     // The 409 must present as a team-selection problem, not the generic
     // "operation already running" that defaultVmDisplayTitle maps 409 to.
     const ui = payload.ui as { title?: string } | undefined;
-    expect(ui?.title).toBe("Cloud VM team required");
+    expect(ui?.title).toBe("cmux Cloud team required");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -1782,6 +1783,66 @@ describe("VM REST auth", () => {
     expect(payload.action).toContain('transport "cmux-remote"');
     expect(openAttachEndpoint).toHaveBeenCalledTimes(1);
     expect(openVmCmuxRemote).not.toHaveBeenCalled();
+  });
+
+  test("attach-endpoint answers a terminal 404 when the vendor no longer has the machine, without naming the vendor", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "crmulti-1788413352422-0" }) };
+    rejectRunVmWorkflowWith(
+      new VmNotFoundError({
+        vmId: "crmulti-1788413352422-0",
+        reason: "provider_missing",
+        provider: "freestyle",
+        operation: "openCmuxRemote",
+      }),
+    );
+    const response = await attachRoute.POST(
+      new Request("https://cmux.test/api/vm/crmulti-1788413352422-0/attach-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ transport: "cmux-remote", deviceFingerprint: "fp-device-1" }),
+      }),
+      context,
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get("retry-after")).toBeNull();
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_not_found",
+      retryable: false,
+      phase: "attach",
+      details: { vmId: "crmulti-1788413352422-0", reason: "provider_missing", retryable: false, operation: "openCmuxRemote" },
+      ui: { title: "Machine no longer exists", retryable: false, severity: "error", phase: "attach" },
+    });
+    expect(payload.message).toContain("no longer exists");
+    expect(payload.message).toContain("cmux Cloud");
+    expect(payload.action).toContain("cmux vm new");
+    expect(payload.action).not.toMatch(/retry(ing)? (in|is safe)/i);
+    expectNoCloudVmImplementationLeaks(payload);
+  });
+
+  test("attach-endpoint keeps the plain 404 copy when the row itself is missing", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-unknown" }) };
+    rejectRunVmWorkflowWith(new VmNotFoundError({ vmId: "provider-vm-unknown" }));
+    const response = await attachRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-unknown/attach-endpoint", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ transport: "cmux-remote" }),
+      }),
+      context,
+    );
+    expect(response.status).toBe(404);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_not_found",
+      retryable: false,
+      details: { vmId: "provider-vm-unknown", reason: "row_missing" },
+      ui: { title: "Machine not found" },
+    });
+    expect(payload.message).toBe("cmux Cloud machine provider-vm-unknown was not found.");
+    expectNoCloudVmImplementationLeaks(payload);
   });
 
   test("attach-endpoint rejects an unknown transport before any workflow runs", async () => {
@@ -2121,7 +2182,7 @@ describe("VM REST auth", () => {
         phase: "create",
         retryable: false,
         details: { operation: "create", retryable: false, providerCode: "provider_image_not_found" },
-        ui: { title: "Cloud VM image unavailable", retryable: false },
+        ui: { title: "cmux Cloud image unavailable", retryable: false },
       });
       expectNoCloudVmImplementationLeaks(payload);
       const consoleErrorCalls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
@@ -2160,13 +2221,13 @@ describe("VM REST auth", () => {
       const payload = await response.json();
       expect(payload).toMatchObject({
         error: "vm_cloud_service_unavailable",
-        message: "cmux could not attach to the Cloud VM yet.",
+        message: "cmux could not attach to this cmux Cloud machine yet.",
         phase: "attach",
         retryable: true,
         retryAfterSeconds: 2,
         ui: {
-          title: "Reconnecting Cloud VM",
-          message: "cmux could not attach to the Cloud VM yet. Retrying in 2s.",
+          title: "Reconnecting to cmux Cloud",
+          message: "cmux could not attach to this cmux Cloud machine yet. Retrying in 2s.",
           phase: "attach",
           severity: "warning",
           retryable: true,
@@ -2433,7 +2494,7 @@ describe("VM REST auth", () => {
     });
     expectNoCloudVmImplementationLeaks(payload);
     expect(payload.message).toContain("disabled");
-    expect(payload.action).toContain("enable Cloud VM creation");
+    expect(payload.action).toContain("enable cmux Cloud machine creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -2442,7 +2503,7 @@ describe("VM REST auth", () => {
     rejectRunVmWorkflowWith(
       new VmCreateDisabledError({
         provider: "freestyle",
-        reason: "Cloud VM creation is disabled.",
+        reason: "cmux Cloud machine creation is disabled.",
       }),
     );
 
@@ -2458,11 +2519,11 @@ describe("VM REST auth", () => {
     const payload = await response.json();
     expect(payload).toMatchObject({
       error: "vm_create_disabled",
-      reason: "Cloud VM creation is disabled.",
+      reason: "cmux Cloud machine creation is disabled.",
       phase: "create",
     });
     expectNoCloudVmImplementationLeaks(payload);
-    expect(payload.action).toContain("enable Cloud VM creation");
+    expect(payload.action).toContain("enable cmux Cloud machine creation");
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
@@ -2492,7 +2553,7 @@ describe("VM REST auth", () => {
     });
     expectNoCloudVmImplementationLeaks(payload);
     expect(payload.action).toContain("account deletion");
-    expect(payload.action).not.toContain("enable Cloud VM creation");
+    expect(payload.action).not.toContain("enable cmux Cloud machine creation");
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
@@ -2514,7 +2575,7 @@ describe("VM REST auth", () => {
       error: "vm_create_disabled",
     });
     expectNoCloudVmImplementationLeaks(payload);
-    expect(payload.action).toContain("enable Cloud VM creation");
+    expect(payload.action).toContain("enable cmux Cloud machine creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -2534,7 +2595,7 @@ describe("VM REST auth", () => {
     const payload = await response.json();
     expect(payload).toMatchObject({ error: "vm_create_disabled", phase: "create" });
     expectNoCloudVmImplementationLeaks(payload);
-    expect(payload.action).toContain("enable Cloud VM creation");
+    expect(payload.action).toContain("enable cmux Cloud machine creation");
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
@@ -2562,7 +2623,7 @@ describe("VM REST auth", () => {
     rejectRunVmWorkflowWith(
       new VmCreateDisabledError({
         provider: "freestyle",
-        reason: "Cloud VM creation is disabled.",
+        reason: "cmux Cloud machine creation is disabled.",
       }),
     );
 
@@ -2579,7 +2640,7 @@ describe("VM REST auth", () => {
     const payload = await response.json();
     expect(payload).toMatchObject({
       error: "vm_create_disabled",
-      reason: "Cloud VM creation is disabled.",
+      reason: "cmux Cloud machine creation is disabled.",
       phase: "create",
     });
     expectNoCloudVmImplementationLeaks(payload);

@@ -948,6 +948,23 @@ export async function respondVmWorkflowError(
   return await respond(error, context);
 }
 
+/** Shared response for the Cloud machine provisioning kill switch. */
+export function vmCreateDisabledResponse(reason?: string): Response {
+  return vmErrorResponse({
+    error: "vm_create_disabled", status: 503,
+    message: "cmux Cloud machine creation is disabled for this environment.",
+    action: "Ask an admin to enable cmux Cloud machine creation, then retry.",
+    reason: reason ?? "cmux Cloud machine creation is disabled.", phase: "create", retryable: true,
+    displayTitle: "cmux Cloud machine creation is paused", details: { retryable: true },
+    diagnostics: { blame: "cmux", fault: "operator", internalReason: reason ?? "vm create kill switch is on" },
+  });
+}
+
+export function providerFailureDiagnostics(provider: string, operation: string, cause: unknown): Record<string, unknown> {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return { provider, blame: provider, fault: "vendor", providerOperation: operation, providerMessage: message.slice(0, 500), internalReason: `${provider} ${operation} failed: ${message.slice(0, 500)}` };
+}
+
 /** Translate a normalized workflow failure into the public VM error contract. */
 export async function vmWorkflowErrorResponse(
   err: unknown,
