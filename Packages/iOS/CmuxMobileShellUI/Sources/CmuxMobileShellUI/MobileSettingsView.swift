@@ -232,7 +232,7 @@ struct MobileSettingsView: View {
                     }
                 }
 
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                AnyView(Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
                     Toggle(isOn: $displaySettings.showAltScreenNotice) {
                         Text(L10n.string(
                             "mobile.settings.altScreenNotice",
@@ -258,9 +258,9 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
-                }
+                })
 
-                Section {
+                AnyView(Section {
                     let hapticFeedbackTitle = L10n.string(
                         "mobile.settings.hapticFeedback",
                         defaultValue: "Haptic Feedback"
@@ -276,7 +276,7 @@ struct MobileSettingsView: View {
                         "mobile.settings.hapticFeedbackFooter",
                         defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
                     ))
-                }
+                })
 
                 #if DEBUG
                 Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
