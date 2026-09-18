@@ -30,7 +30,7 @@ export default async function StackHandlerPage(
 
   if (stack.length === 1 && stack[0] === "cli-auth-confirm") {
     const user = await stackServerApp.getUser({ or: "return-null" });
-    if (!user) {
+    if (!user || user.isAnonymous) {
       const searchParams = await props.searchParams;
       redirect(cliAuthSignInHref(firstSearchParam(searchParams.login_code)));
     }
