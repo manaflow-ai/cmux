@@ -294,6 +294,31 @@ struct NotificationDismissalModelTests {
         ])
     }
 
+    @Test func workspaceLevelNotificationDismissesWhenFocusedSurfaceIsAlreadyRead() {
+        let (model, host, workspaceId, _) = makeModel()
+        host.workspaceWideUnread = [workspaceId]
+
+        model.dismissFocusedPanelNotificationIfActive(
+            workspaceId: workspaceId,
+            context: .explicitWorkspaceResume
+        )
+
+        #expect(host.log == ["markRead:nil", "clearFocusedRead:nil"])
+    }
+
+    @Test func workspaceLevelNotificationDismissesWithoutFocusedSurface() {
+        let (model, host, workspaceId, _) = makeModel()
+        host.focusedSurfaceIds[workspaceId] = nil
+        host.workspaceWideUnread = [workspaceId]
+
+        model.dismissFocusedPanelNotificationIfActive(
+            workspaceId: workspaceId,
+            context: .explicitWorkspaceResume
+        )
+
+        #expect(host.log == ["markRead:nil", "clearFocusedRead:nil"])
+    }
+
     @Test func pendingSelectionContextTakeClearsIt() {
         let (model, _, _, _) = makeModel()
         #expect(model.takePendingSelectionContext() == nil)
