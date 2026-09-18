@@ -125,11 +125,16 @@ async function attachUntilReady(vmId, stage) {
   const startedAt = performance.now();
   const attempts = [];
   for (;;) {
+    // The stage deadline bounds the request itself, not only the retry sleep.
+    const budgetLeftMs = ATTACH_BUDGET_MS - (performance.now() - startedAt);
+    if (budgetLeftMs <= 0 || interrupted) {
+      throw new Error(`${stage} attach for ${vmId} did not succeed within ${ATTACH_BUDGET_MS} ms (${attempts.length} attempts)`);
+    }
     const response = await fetchTimed(vmUrl(vmId, "/attach-endpoint"), {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json" },
       body: JSON.stringify({ transport: "cmux-remote", clientCapabilities: ["wireguard-hub", "direct-ws-user-agent"] }),
-    });
+    }, Math.min(REQUEST_TIMEOUT_MS, budgetLeftMs));
     const body = json(response.text);
     attempts.push({ status: response.status, ms: response.ms, error: body.error ?? null });
     if (response.status === 200) {
@@ -414,14 +419,16 @@ async function reapOwnerNetwork(userId) {
  * rows. Deleting only the Stack identity would leave that provider VPC behind.
  */
 /**
- * Outcomes: "deleted" (200), "cleanup_incomplete" (202: the Stack identity
- * is gone but the route's post-Stack cleanup did not finish, so the network
- * must be verified separately), "failed". A `202 {deletionPending}` means
- * another deletion of the same account is still running and is waited on.
+ * Outcomes: "deleted" (200); "cleanup_incomplete" (202: the Stack identity is
+ * gone but the route's post-Stack cleanup did not finish, so the network must
+ * be verified separately); "retryable_failure" (the route's own resumable
+ * state machine answered `retryable: true` three times, so its checkpoints
+ * stay valid for a later retry); "failed" (an unclassified answer, after
+ * which nothing about the account's state is known). A `202 {deletionPending}`
+ * means another deletion of the same account is still running and is waited on.
  */
 async function deleteAccount() {
-  // The route is resumable: a retryable answer records a checkpoint and the
-  // next call continues from it, so a few attempts are part of its contract.
+  let retryableFailures = 0;
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const response = await fetchTimed(`${targetUrl}/api/account`, { method: "DELETE", headers: authHeaders }, 300_000);
     const body = json(response.text);
@@ -432,7 +439,9 @@ async function deleteAccount() {
       continue;
     }
     console.error(`cleanup_delete_account_failed attempt=${attempt + 1} status=${response.status} body=${response.text.slice(0, 200)}`);
-    if (body.retryable !== true || attempt >= 2) break;
+    if (body.retryable !== true) return "failed";
+    retryableFailures += 1;
+    if (retryableFailures >= 3) return "retryable_failure";
     await sleep(5_000);
   }
   return "failed";
@@ -519,11 +528,15 @@ try {
       accountDeleted = await reapOwnerNetwork(user.id);
       if (!accountDeleted) console.error(`cleanup_needed_network=${ownerNetworkSlug(user.id)} (the account route deleted the identity but its cleanup did not finish)`);
     }
-    if (outcome === "failed") {
-      // The route can fail at its final Stack step after it already removed
-      // the cmux-owned data; either way, take the provider network out by
-      // its slug and only then drop the identity with the server key, so no
-      // billable resource can outlive the account.
+    if (outcome === "retryable_failure") {
+      // The route answered with its resumable contract (a checkpoint is
+      // recorded; on staging it fails at the final Stack step after it has
+      // already removed the cmux-owned data). Provider inventory is verified
+      // empty above, so take the network out by its slug and drop the
+      // identity with the server key: no billable resource outlives the
+      // account, and at worst inert rows for a deleted user remain. An
+      // unclassified failure ("failed") never reaches this branch: the user
+      // is kept so the route can be retried with its state intact.
       try {
         if (await reapOwnerNetwork(user.id)) {
           await user.delete();
