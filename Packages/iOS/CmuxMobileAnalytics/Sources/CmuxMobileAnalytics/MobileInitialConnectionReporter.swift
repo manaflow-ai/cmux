@@ -155,11 +155,12 @@ public final class MobileInitialConnectionReporter: Sendable {
             switch kind {
             case .appForegrounded:
                 if state.active != nil {
-                    finish(
-                        at: event.tNanos,
-                        outcome: .abandoned,
-                        terminalReady: false
-                    )
+                    // The app scene and root view can both report the same
+                    // active transition. Keep the in-flight attempt so this
+                    // duplicate callback cannot manufacture an abandoned row
+                    // or reset the launch-to-terminal clock.
+                    state.isForeground = true
+                    return
                 }
                 let population: MobileInitialConnectionPopulation
                 if state.hasEverConnected && !state.isConnected {
@@ -221,7 +222,7 @@ public final class MobileInitialConnectionReporter: Sendable {
                     state.active?.transport = transport
                 }
 
-            case .terminalMounted, .terminalOutputReceived:
+            case .terminalOutputReceived:
                 state.terminalReady = true
                 state.active?.terminalReady = true
                 finishIfReady(at: event.tNanos)

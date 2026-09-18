@@ -27,6 +27,11 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
             c: 1
         ))
         reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 2_500_000_000,
+            a: DiagnosticAppEventKind.appForegrounded.rawValue
+        ))
+        reporter.ingest(DiagnosticEvent(
             code: .rpcReady,
             tNanos: 3_000_000_000,
             a: DiagnosticTransportKind.iroh.rawValue
@@ -34,7 +39,7 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         reporter.ingest(DiagnosticEvent(
             code: .appFeatureAction,
             tNanos: 4_000_000_000,
-            a: DiagnosticAppEventKind.terminalMounted.rawValue
+            a: DiagnosticAppEventKind.terminalOutputReceived.rawValue
         ))
         await reporter.flush()
 
@@ -93,7 +98,7 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         reporter.ingest(DiagnosticEvent(
             code: .appFeatureAction,
             tNanos: 7_000_000_000,
-            a: DiagnosticAppEventKind.terminalMounted.rawValue
+            a: DiagnosticAppEventKind.terminalOutputReceived.rawValue
         ))
         await reporter.flush()
 
@@ -155,7 +160,7 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
         reconnectReporter.ingest(DiagnosticEvent(
             code: .appFeatureAction,
             tNanos: 6_000_000_000,
-            a: DiagnosticAppEventKind.terminalMounted.rawValue
+            a: DiagnosticAppEventKind.terminalOutputReceived.rawValue
         ))
         await reconnectReporter.flush()
 
