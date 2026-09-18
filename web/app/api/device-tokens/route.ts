@@ -118,6 +118,7 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           .select({
             id: deviceTokens.id,
             userId: deviceTokens.userId,
+            installationId: deviceTokens.installationId,
             deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
             pushKeyId: deviceTokens.pushKeyId,
             pushPublicKey: deviceTokens.pushPublicKey,
@@ -160,7 +161,12 @@ async function registerDeviceToken(request: Request): Promise<Response> {
           .from(deviceTokenRevocations)
           .where(and(
             eq(deviceTokenRevocations.userId, user.id),
-            eq(deviceTokenRevocations.deviceToken, deviceToken),
+            or(
+              eq(deviceTokenRevocations.deviceToken, deviceToken),
+              !isLegacy
+                ? eq(deviceTokenRevocations.installationId, installationId)
+                : sql`false`,
+            ),
             eq(deviceTokenRevocations.bundleId, bundle.bundleId),
             eq(deviceTokenRevocations.authSessionFingerprint, authSessionFingerprint),
             gt(deviceTokenRevocations.expiresAt, new Date()),
@@ -252,10 +258,13 @@ async function registerDeviceToken(request: Request): Promise<Response> {
             authSessionFingerprint
               ? sql`not exists (
                   select 1
-                  from device_token_revocations
-                  where user_id = ${user.id}
-                    and device_token = ${deviceToken}
-                    and bundle_id = ${bundle.bundleId}
+                from device_token_revocations
+                where user_id = ${user.id}
+                and (
+                  device_token = ${deviceToken}
+                  ${isLegacy ? sql`` : sql`or installation_id = ${installationId}`}
+                )
+                and bundle_id = ${bundle.bundleId}
                     and auth_session_fingerprint = ${authSessionFingerprint}
                     and expires_at > now()
                 )`
@@ -411,6 +420,7 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
   if (parsedRequest instanceof Response) return parsedRequest;
   const {
     deviceToken,
+    installationId,
     clientNamespace,
     revokeSession,
     authSessionFingerprint,
@@ -423,6 +433,7 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
       .select({
         id: deviceTokens.id,
         bundleId: deviceTokens.bundleId,
+        installationId: deviceTokens.installationId,
         deliveryLeaseUntil: deviceTokens.deliveryLeaseUntil,
         deliveryStartedAt: deviceTokens.deliveryStartedAt,
       })
@@ -446,6 +457,7 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
     return applyDeviceTokenDeletion(tx, {
       userId: user.id,
       deviceToken,
+      installationId,
       clientNamespace,
       revokeSession,
       authSessionFingerprint,
@@ -463,6 +475,7 @@ async function deleteDeviceToken(request: Request): Promise<Response> {
 
 type DeviceTokenDeletionRequest = {
   readonly deviceToken: string;
+  readonly installationId: string | null;
   readonly clientNamespace: string | null;
   readonly revokeSession: boolean;
   readonly authSessionFingerprint: string | null;
@@ -480,18 +493,30 @@ function parseDeviceTokenDeletionRequest(
     return jsonResponse({ error: "push_revocation_requires_session_id" }, 409);
   }
   const deviceToken = typeof body.deviceToken === "string" ? body.deviceToken.trim().toLowerCase() : "";
+  const installationId = typeof body.installationId === "string"
+    ? body.installationId.trim()
+    : "";
   const bodyBundleId = typeof body.bundleId === "string" ? body.bundleId.trim() : "";
   const headerNamespace = request.headers.get("x-cmux-app-namespace");
   const clientNamespace = headerNamespace ?? bodyBundleId;
   if (!deviceToken) return jsonResponse({ error: "missing_device_token" }, 400);
   if (!HEX_TOKEN.test(deviceToken)) return jsonResponse({ error: "invalid_device_token" }, 400);
+  if (installationId && !SAFE_INSTALLATION_ID.test(installationId)) {
+    return jsonResponse({ error: "invalid_installation_id" }, 400);
+  }
   if (clientNamespace && (
     !normalizeApnsBundle(clientNamespace) ||
     (headerNamespace !== null && bodyBundleId !== "" && headerNamespace !== bodyBundleId)
   )) {
     return jsonResponse({ error: "invalid_client_namespace" }, 400);
   }
-  return { deviceToken, clientNamespace, revokeSession, authSessionFingerprint };
+  return {
+    deviceToken,
+    installationId: installationId || null,
+    clientNamespace,
+    revokeSession,
+    authSessionFingerprint,
+  };
 }
 
 type DeviceTokenDeletionTransaction =
@@ -509,6 +534,7 @@ async function lockDeviceTokenMutations(
 type DeviceTokenMatch = {
   readonly id: string;
   readonly bundleId: string;
+  readonly installationId: string;
   readonly deliveryLeaseUntil: Date | null;
   readonly deliveryStartedAt: Date | null;
 };
@@ -518,6 +544,7 @@ async function applyDeviceTokenDeletion(
   input: {
     readonly userId: string;
     readonly deviceToken: string;
+    readonly installationId: string | null;
     readonly clientNamespace: string | null;
     readonly revokeSession: boolean;
     readonly authSessionFingerprint: string | null;
@@ -530,6 +557,7 @@ async function applyDeviceTokenDeletion(
   const {
     userId,
     deviceToken,
+    installationId,
     clientNamespace,
     revokeSession,
     authSessionFingerprint,
@@ -541,6 +569,7 @@ async function applyDeviceTokenDeletion(
       .values({
         userId,
         deviceToken,
+        installationId: existingToken.installationId,
         bundleId: existingToken.bundleId,
         authSessionFingerprint: authSessionFingerprint!,
         expiresAt: deviceTokenRevocationExpiresAt(),
@@ -579,6 +608,7 @@ async function applyDeviceTokenDeletion(
         .values({
           userId,
           deviceToken,
+          installationId: installationId ?? "legacy",
           bundleId: bundle.bundleId,
           authSessionFingerprint: authSessionFingerprint!,
           expiresAt: deviceTokenRevocationExpiresAt(),

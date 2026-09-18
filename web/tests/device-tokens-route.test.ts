@@ -656,6 +656,8 @@ describe("device token route", () => {
   dbTest("does not let a delayed old-session registration clear sign-out revocation", async () => {
     if (!sql) throw new Error("test database not initialized");
     const token = "f".repeat(64);
+    const rotatedToken = "e".repeat(64);
+    const installationId = "installation-revocation-1";
     const bundleId = "dev.cmux.ios.revocation";
     const accessTokenFor = (sessionID: string) =>
       `header.${Buffer.from(
@@ -674,7 +676,7 @@ describe("device token route", () => {
           deviceToken: token,
           bundleId,
           platform: "ios",
-          ...pushFieldsFor(token),
+          ...pushFieldsFor(token, installationId),
         }),
       }),
     );
@@ -689,6 +691,7 @@ describe("device token route", () => {
         body: JSON.stringify({
           deviceToken: token,
           bundleId,
+          installationId,
           revokeSession: true,
         }),
       }),
@@ -701,11 +704,40 @@ describe("device token route", () => {
       error: "push_registration_revoked",
     });
 
-    expect((await register(newAccessToken, "new-refresh")).status).toBe(200);
+    const delayedOldRotatedRegistration = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: requestHeaders(oldAccessToken, "old-refresh"),
+        body: JSON.stringify({
+          deviceToken: rotatedToken,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(rotatedToken, installationId),
+        }),
+      }),
+    );
+    expect(delayedOldRotatedRegistration.status).toBe(409);
+    expect(await delayedOldRotatedRegistration.json()).toEqual({
+      error: "push_registration_revoked",
+    });
+
+    const newSessionRegistration = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: requestHeaders(newAccessToken, "new-refresh"),
+        body: JSON.stringify({
+          deviceToken: rotatedToken,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(rotatedToken, installationId),
+        }),
+      }),
+    );
+    expect(newSessionRegistration.status).toBe(200);
     const [row] = await sql<{ revokedAt: Date | null }[]>`
       select revoked_at as "revokedAt"
       from device_tokens
-      where user_id = 'push-user-1' and device_token = ${token}
+      where user_id = 'push-user-1' and device_token = ${rotatedToken}
     `;
     expect(row?.revokedAt).toBeNull();
   });

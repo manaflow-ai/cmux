@@ -567,6 +567,7 @@ public actor PushRegistrationService: PushRegistering {
             tokenHex: hex,
             capturedAccessToken: accessToken,
             capturedRefreshToken: refreshToken,
+            installationID: pushIdentityProvider?()?.installationID ?? pushInstallationID,
             revokeSession: true
         ), let ownerID {
             clearPendingUnregister(tokenHex: hex, accountID: ownerID)
@@ -865,6 +866,7 @@ public actor PushRegistrationService: PushRegistering {
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
         sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
+        installationID: String? = nil,
         revokeSession: Bool = false
     ) async -> Bool {
         guard case let .success(context) = await makeRequest(
@@ -874,6 +876,9 @@ public actor PushRegistrationService: PushRegistering {
                 "deviceToken": tokenHex,
                 "bundleId": bundleID,
             ].merging(
+                installationID.map { ["installationId": $0] } ?? [:],
+                uniquingKeysWith: { _, new in new }
+            ).merging(
                 revokeSession ? ["revokeSession": "true"] : [:],
                 uniquingKeysWith: { _, new in new }
             ),
