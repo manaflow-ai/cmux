@@ -38,6 +38,9 @@ class FakeClient:
     def assets(self, release_id):
         return dict(self.stored)
 
+    def asset_digest(self, remote):
+        return remote.get("actual_digest") or remote.get("digest")
+
     def delete(self, asset_id):
         self.events.append(("delete", asset_id))
         self.stored = {name: value for name, value in self.stored.items() if value["id"] != asset_id}
@@ -141,6 +144,14 @@ class PublicationTests(unittest.TestCase):
         self.publish([payload], [feed])
         self.client.events.clear()
         self.publish([payload], [feed])
+        self.assertEqual(self.client.events, [])
+
+    def test_null_github_digest_is_rehashed_before_reuse(self):
+        asset = self.asset("build.dmg")
+        self.client.stored[asset.path.name] = {
+            **remote(asset), "digest": None, "actual_digest": asset.digest
+        }
+        self.publish([asset])
         self.assertEqual(self.client.events, [])
 
     def test_failed_alias_rename_restores_the_current_asset(self):

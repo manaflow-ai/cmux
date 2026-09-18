@@ -22,6 +22,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from urllib.parse import quote, urlencode
 
 
@@ -176,10 +178,42 @@ class GitHub:
             body=json.dumps({"name": name}).encode(),
         )
 
+    def asset_digest(self, remote: dict) -> str:
+        """Hash an asset when GitHub's nullable API digest is absent."""
+        url = remote.get("browser_download_url") or remote.get("url")
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise RequestError("release asset has no safe download URL")
+        request = urllib.request.Request(
+            url,
+            headers={
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/octet-stream",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with urllib.request.urlopen(request, timeout=600) as response:
+                for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                    size += len(chunk)
+                    digest.update(chunk)
+        except (OSError, urllib.error.URLError) as error:
+            raise RequestError(f"could not hash release asset {remote.get('name')}: {error}") from error
+        if remote.get("size") is not None and int(remote["size"]) != size:
+            raise RequestError(f"release asset size changed while hashing: {remote.get('name')}")
+        return "sha256:" + digest.hexdigest()
 
-def _remote_matches(remote: dict | None, *, name: str, size: int, digest: str) -> bool:
-    return bool(remote and remote.get("name") == name and remote.get("state") == "uploaded"
-                and remote.get("size") == size and remote.get("digest") == digest)
+
+def _asset_matches(client: GitHub, asset: Asset, remote: dict | None) -> bool:
+    return _remote_matches(client, remote, name=asset.path.name, size=asset.size, digest=asset.digest)
+
+
+def _remote_matches(client: GitHub, remote: dict | None, *, name: str, size: int, digest: str) -> bool:
+    if not (remote and remote.get("name") == name and remote.get("state") == "uploaded"
+            and remote.get("size") == size):
+        return False
+    return (remote.get("digest") or client.asset_digest(remote)) == digest
 
 
 def _rename_verified(client: GitHub, release_id: int, remote: dict, name: str,
@@ -189,13 +223,13 @@ def _rename_verified(client: GitHub, release_id: int, remote: dict, name: str,
         renamed = client.rename(int(remote["id"]), name)
     except RequestError:
         renamed = client.assets(release_id).get(name)
-        if not _remote_matches(renamed, name=name, size=size, digest=digest):
+        if not _remote_matches(client, renamed, name=name, size=size, digest=digest):
             raise
         print(f"Verified rename of {name} after ambiguous response", flush=True)
         return renamed
-    if not _remote_matches(renamed, name=name, size=size, digest=digest):
+    if not _remote_matches(client, renamed, name=name, size=size, digest=digest):
         renamed = client.assets(release_id).get(name)
-        if not _remote_matches(renamed, name=name, size=size, digest=digest):
+        if not _remote_matches(client, renamed, name=name, size=size, digest=digest):
             raise RuntimeError(f"Rename verification failed: {name}")
     return renamed
 
@@ -204,7 +238,7 @@ def _upload_verified(client: GitHub, release_id: int, asset: Asset, existing: di
     """Upload an asset under its final name, repairing only an incomplete starter."""
     name = asset.path.name
     for attempt in range(3):
-        if existing and asset.matches(existing):
+        if existing and _asset_matches(client, asset, existing):
             print(f"Verified {name} ({asset.size} bytes), reusing", flush=True)
             return existing
         if existing:
@@ -221,14 +255,14 @@ def _upload_verified(client: GitHub, release_id: int, asset: Asset, existing: di
             if not error.retryable and error.status != 422:
                 raise
             existing = client.assets(release_id).get(name)
-            if existing and asset.matches(existing):
+            if existing and _asset_matches(client, asset, existing):
                 print(f"Verified {name} after ambiguous upload response", flush=True)
                 return existing
             if attempt == 2:
                 raise
             backoff(attempt)
             continue
-        if not asset.matches(uploaded):
+        if not _asset_matches(client, asset, uploaded):
             raise RuntimeError(f"Upload verification failed (state/size/SHA-256): {name}")
         print(f"Verified {name}", flush=True)
         return uploaded
@@ -237,7 +271,7 @@ def _upload_verified(client: GitHub, release_id: int, asset: Asset, existing: di
 
 def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict | None) -> None:
     name = asset.path.name
-    if existing and asset.matches(existing):
+    if existing and _asset_matches(client, asset, existing):
         print(f"Verified {name} ({asset.size} bytes), reusing", flush=True)
         return
     if not asset.replace:
@@ -255,7 +289,7 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
         backup_name = f"cmux-backup-{name}"
         listing = client.assets(release_id)
         temp_existing = listing.get(temporary_name)
-        if temp_existing and not temporary.matches(temp_existing):
+        if temp_existing and not _asset_matches(client, temporary, temp_existing):
             client.delete(int(temp_existing["id"]))
             temp_existing = None
         temp_remote = _upload_verified(client, release_id, temporary, temp_existing)
@@ -263,7 +297,7 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
         listing = client.assets(release_id)
         current = listing.get(name)
         backup = listing.get(backup_name)
-        if current and asset.matches(current):
+        if current and _asset_matches(client, asset, current):
             client.delete(int(temp_remote["id"]))
             if backup:
                 client.delete(int(backup["id"]))
