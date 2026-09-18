@@ -16,3 +16,21 @@ extension WindowBrowserPortal {
         return false
     }
 }
+
+extension BrowserWindowPortalRegistry {
+    private static var browserHostMountObserver: NSObjectProtocol?
+
+    fileprivate static func installBrowserHostMountObserverIfNeeded() {
+        guard browserHostMountObserver == nil else { return }
+        browserHostMountObserver = NotificationCenter.default.addObserver(
+            forName: .windowContentOverlayBrowserHostDidMount,
+            object: nil,
+            queue: .main
+        ) { notification in
+            MainActor.assumeIsolated {
+                guard let window = notification.object as? NSWindow else { return }
+                scheduleExternalGeometrySynchronize(for: window)
+            }
+        }
+    }
+}
