@@ -36,16 +36,18 @@ import Testing
         let glass = FakeOverlayGlassEffect()
         let resolver = WindowContentOverlayTargetResolver(glassEffect: glass)
         let window = makeWindow()
-        let contentView = window.contentView
+        let contentView = try #require(window.contentView)
+        let browserHost = WindowContentOverlayBrowserHostView(frame: contentView.bounds)
+        contentView.addSubview(browserHost)
 
         let target = try #require(resolver.browserInstallationTarget(for: window))
         let overlay = NSView(frame: target.reference.bounds)
         target.container.addSubview(overlay, positioned: .above, relativeTo: nil)
 
-        #expect(target.reference === contentView)
-        #expect(overlay.isDescendant(of: try #require(window.contentView)))
+        #expect(target.reference === browserHost)
+        #expect(overlay.isDescendant(of: browserHost))
         #expect(window.contentView === contentView)
-        #expect(target.container === contentView)
+        #expect(target.container === browserHost)
         #expect(target.container.subviews.last === overlay)
     }
 

@@ -15,7 +15,7 @@ import WebKit
 struct WindowOverlayChromeTests {
     @Test("Installing native portals preserves the SwiftUI chrome root and layout contract")
     func portalsPreserveContentOwnership() throws {
-        let window = makeWindow()
+        let window = makeWindow(withBrowserHost: true)
         defer { window.orderOut(nil) }
         let content = try #require(window.contentView)
         let parent = content.superview
@@ -47,7 +47,7 @@ struct WindowOverlayChromeTests {
 
     @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
     func browserAndTerminalRespectChrome(useGlass: Bool) throws {
-        let window = makeWindow()
+        let window = makeWindow(withBrowserHost: true)
         defer { window.orderOut(nil) }
         let content = try #require(window.contentView)
         let browserAnchor = try #require(find("overlay.browser", in: content))
@@ -122,6 +122,10 @@ struct WindowOverlayChromeTests {
     }
 
     private func makeWindow() -> NSWindow {
+        makeWindow(withBrowserHost: false)
+    }
+
+    private func makeWindow(withBrowserHost: Bool) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
@@ -129,7 +133,13 @@ struct WindowOverlayChromeTests {
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.contentView = MainWindowHostingView(rootView: chromeFixture)
+        let fixture = chromeFixture.overlay {
+            if withBrowserHost {
+                WindowContentOverlayBrowserHost()
+                    .allowsHitTesting(false)
+            }
+        }
+        window.contentView = MainWindowHostingView(rootView: fixture)
         window.contentView?.layoutSubtreeIfNeeded()
         return window
     }

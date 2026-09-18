@@ -35,6 +35,21 @@ public struct WindowContentOverlayTargetResolver {
             return glassTarget
         }
         guard let contentView = window.contentView else { return nil }
-        return WindowContentOverlayInstallationTarget(container: contentView, reference: contentView)
+        if let browserHost = Self.descendant(
+            in: contentView,
+            matching: WindowContentOverlayBrowserHostView.identifier
+        ) {
+            return WindowContentOverlayInstallationTarget(container: browserHost, reference: browserHost)
+        }
+        guard let themeFrame = contentView.superview else { return nil }
+        return WindowContentOverlayInstallationTarget(container: themeFrame, reference: contentView)
+    }
+
+    private static func descendant(in root: NSView, matching identifier: NSUserInterfaceItemIdentifier) -> NSView? {
+        if root.identifier == identifier { return root }
+        for subview in root.subviews {
+            if let match = descendant(in: subview, matching: identifier) { return match }
+        }
+        return nil
     }
 }
