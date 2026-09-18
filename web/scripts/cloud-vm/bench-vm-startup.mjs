@@ -48,6 +48,19 @@ const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
 const liveVmIds = new Set();
 let user;
 let authHeaders;
+// Fail closed: an interrupt stops scheduling, the current request finishes,
+// and the `finally` below still destroys every machine and the user. Node's
+// default signal handling would exit without running it.
+let interrupted = false;
+const interrupt = () => { interrupted = true; };
+process.once("SIGINT", interrupt);
+process.once("SIGTERM", interrupt);
+
+function requireStatus(stage, response, expected = 200) {
+  if (response.status !== expected) {
+    throw new Error(`${stage} expected ${expected}, got ${response.status}: ${response.text.slice(0, 300)}`);
+  }
+}
 
 async function fetchTimed(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -93,10 +106,13 @@ async function attachUntilReady(vmId, stage) {
         [`${stage}DaemonCommit`]: body.daemonBuild?.commit ?? null,
       };
     }
-    if (response.status !== 502 || body.retryable !== true || performance.now() - startedAt >= ATTACH_BUDGET_MS) {
+    // The API may ask for a long Retry-After; the benchmark's own budget wins,
+    // so one retry can never sleep past the deadline (and past teardown).
+    const remainingMs = ATTACH_BUDGET_MS - (performance.now() - startedAt);
+    if (response.status !== 502 || body.retryable !== true || remainingMs <= 0 || interrupted) {
       throw new Error(`${stage} attach for ${vmId} failed: ${response.status} ${response.text.slice(0, 300)}`);
     }
-    await new Promise((resolve) => setTimeout(resolve, Math.max(1, Number(body.retryAfterSeconds) || 2) * 1000));
+    await new Promise((resolve) => setTimeout(resolve, Math.min(remainingMs, Math.max(1, Number(body.retryAfterSeconds) || 2) * 1000)));
   }
 }
 
@@ -115,8 +131,8 @@ async function edgeReady(vmId) {
     if (exec.status === 200 && /^[1-5]\d\d$/.test(code)) {
       return { edgeReadyMs: elapsedMs(startedAt), edgeProbes: probes, edgeHttpCode: code };
     }
-    if (performance.now() - startedAt >= EDGE_BUDGET_MS) {
-      return { edgeReadyMs: null, edgeProbes: probes, edgeHttpCode: code || null };
+    if (performance.now() - startedAt >= EDGE_BUDGET_MS || interrupted) {
+      throw new Error(`edge alias did not answer within ${EDGE_BUDGET_MS} ms (last exec ${exec.status}, code ${code || "none"})`);
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
@@ -133,7 +149,7 @@ async function runTrial(index) {
   trial.createStatus = create.status;
   trial.createTraceId = create.headers.get("x-cmux-trace-id");
   trial.createStages = parseServerTiming(create.headers.get("server-timing"));
-  if (create.status !== 200) throw new Error(`POST /api/vm failed: ${create.status} ${create.text.slice(0, 300)}`);
+  requireStatus("POST /api/vm", create);
   const created = json(create.text);
   const vmId = created.id;
   if (!vmId) throw new Error("create response missing id");
@@ -152,20 +168,22 @@ async function runTrial(index) {
     });
     trial.execMs = exec.ms;
     trial.execStatus = exec.status;
+    requireStatus("POST exec", exec);
   }
   if (edgeCheck) Object.assign(trial, await edgeReady(vmId));
   if (!skipPause) {
     const pause = await fetchTimed(vmUrl(vmId, "/pause"), { method: "POST", headers: authHeaders });
     trial.pauseMs = pause.ms;
     trial.pauseStatus = pause.status;
-    if (pause.status === 200) {
-      Object.assign(trial, await attachUntilReady(vmId, "resumeAttach"));
-    }
+    requireStatus("POST pause", pause);
+    Object.assign(trial, await attachUntilReady(vmId, "resumeAttach"));
   }
   const destroy = await fetchTimed(vmUrl(vmId), { method: "DELETE", headers: authHeaders });
   trial.destroyMs = destroy.ms;
   trial.destroyStatus = destroy.status;
-  if (destroy.status === 200) liveVmIds.delete(vmId);
+  // A failed destroy keeps the id in liveVmIds so the exit path retries it.
+  requireStatus("DELETE /api/vm/{id}", destroy);
+  liveVmIds.delete(vmId);
   return trial;
 }
 
@@ -176,7 +194,7 @@ async function runBatches() {
     for (;;) {
       const index = next;
       next += 1;
-      if (index >= trials) return;
+      if (index >= trials || interrupted) return;
       const startedAt = performance.now();
       try {
         results[index] = await runTrial(index);
@@ -232,7 +250,8 @@ try {
   const results = await runBatches();
   const ok = results.filter((trial) => trial && trial.ok !== false);
   const summary = {
-    ok: ok.length === results.length,
+    ok: !interrupted && ok.length === results.length && results.length === trials,
+    interrupted,
     target,
     url: targetUrl,
     label,
@@ -258,6 +277,7 @@ try {
 } finally {
   await destroyLeftovers();
   for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
+  if (liveVmIds.size > 0) process.exitCode = 1;
   if (user) {
     try {
       await user.delete();
@@ -266,4 +286,6 @@ try {
       process.exitCode = 1;
     }
   }
+  process.off("SIGINT", interrupt);
+  process.off("SIGTERM", interrupt);
 }
