@@ -392,12 +392,21 @@ async function resolveAmbiguousCreates() {
     const deadline = requestedAt + CREATE_TIMEOUT_MS;
     let outcome = null;
     while (outcome === null) {
+      // The route's deadline bounds every attempt, the request included:
+      // once it has passed nothing can still be in progress, and no further
+      // request (which could itself start a create) is issued.
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        outcome = "past server deadline";
+        unresolved.push(key);
+        break;
+      }
       try {
         const response = await fetchTimed(`${targetUrl}/api/vm`, {
           method: "POST",
           headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": key },
           body: "{}",
-        }, CREATE_TIMEOUT_MS);
+        }, Math.min(CREATE_TIMEOUT_MS, remainingMs));
         const body = json(response.text);
         if (response.status === 200 && typeof body.id === "string") {
           liveVmIds.add(body.id);
@@ -412,14 +421,7 @@ async function resolveAmbiguousCreates() {
       } catch (error) {
         console.error(`cleanup_resolve_create_failed key=${key} error=${error instanceof Error ? error.message : String(error)}`);
       }
-      if (outcome === null) {
-        if (Date.now() >= deadline) {
-          outcome = "past server deadline";
-          unresolved.push(key);
-        } else {
-          await sleep(5_000);
-        }
-      }
+      if (outcome === null) await sleep(Math.min(5_000, Math.max(1, deadline - Date.now())));
     }
     console.error(`cleanup_resolve_create key=${key} ${outcome}`);
   }
