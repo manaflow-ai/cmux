@@ -280,17 +280,19 @@ actor CloudWireGuardHub {
             break
         }
         let startGeneration = generation
-        pendingStartupExit = nil
         let task = Task<Ready, Error> { try await self.startWithRecovery(generation: startGeneration) }
         state = .starting(generation: startGeneration, task: task)
         do {
             let ready = try await task.value
-            if let pendingStartupExit {
+            if let pendingStartupExit, processID == pendingStartupExit.processID {
                 self.pendingStartupExit = nil
                 throw HubError.exitedDuringStart(
                     status: pendingStartupExit.status,
                     output: lastError ?? "hub exited during startup"
                 )
+            } else if pendingStartupExit != nil {
+                // A callback from an older child cannot invalidate this one.
+                self.pendingStartupExit = nil
             }
             guard generation == startGeneration,
                   case .starting(let stateGeneration, _) = state,
@@ -320,6 +322,10 @@ actor CloudWireGuardHub {
         for attempt in 0...delays.count {
             try Task.checkCancellation()
             guard generation == startGeneration else { throw CancellationError() }
+            // Each child owns its own startup-exit signal. A late callback from
+            // a failed child cannot poison a later recovery attempt because its
+            // process identity no longer matches the replacement.
+            pendingStartupExit = nil
             do {
                 return try await start(generation: startGeneration)
             } catch {
