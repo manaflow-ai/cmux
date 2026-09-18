@@ -404,7 +404,7 @@ struct MobileSettingsView: View {
                 }
                 #endif
 
-                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                AnyView(Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
                     Toggle(isOn: $displaySettings.showMissingFiles) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L10n.string(
@@ -449,7 +449,7 @@ struct MobileSettingsView: View {
                         Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalScrollback")
-                }
+                })
 
                 // Release builds keep the section to the single agent-alerts
                 // toggle the app always had; the delivery-status diagnostics,
