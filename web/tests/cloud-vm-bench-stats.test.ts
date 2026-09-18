@@ -140,29 +140,39 @@ describe("pollBoundedFetch", () => {
     expect(abandoned.size).toBe(0);
   });
 
-  test("refuses to keep polling a background request past the deadline, per request", async () => {
+  test("keeps a background request outstanding until a terminal answer, and refuses to poll past the deadline", async () => {
     let clock = 0;
     const seen: string[] = [];
     const fetchImpl = (async (input: string | URL | Request) => {
-      seen.push(String(input));
-      return new Response("", { status: 202 });
+      const url = String(input);
+      seen.push(url);
+      if (url.endsWith("/fails")) throw new Error("connection reset");
+      return new Response("", { status: url.endsWith("/done") ? 200 : 202 });
     }) as typeof fetch;
     const shared = new Set<string>();
     const { fetch: boundedFetch, abandoned } = pollBoundedFetch({ fetchTimeoutMs: 1_000, pollDeadlineMs: 5_000, abandoned: shared, now: () => clock, fetchImpl });
     const poll = "https://api.example/v5/background-requests/abc";
     await boundedFetch(poll);
+    expect([...abandoned]).toEqual([poll]);
     clock = 4_999;
     await boundedFetch(poll);
     clock = 5_001;
     await expect(boundedFetch(poll)).rejects.toThrow("exceeded 5000 ms");
-    // The abandoned request is recorded (in the caller's shared set) because
-    // the platform may still complete it; another background request starts
-    // its own clock, and plain requests are unaffected.
+    // Still outstanding: its polling ended without a terminal answer, and the
+    // platform may complete it. The set is the caller's shared one.
     expect(abandoned).toBe(shared);
     expect([...abandoned]).toEqual([poll]);
-    await boundedFetch("https://api.example/v5/background-requests/def");
+    // A request whose poll fails at the transport stays outstanding too (the
+    // SDK gives up after repeated failures while the platform works on).
+    const failing = "https://api.example/v5/background-requests/fails";
+    await expect(boundedFetch(failing)).rejects.toThrow("connection reset");
+    expect(abandoned.has(failing)).toBe(true);
+    // A terminal answer resolves a request; plain requests never enter the set.
+    const done = "https://api.example/v5/background-requests/done";
+    await boundedFetch(done);
+    expect(abandoned.has(done)).toBe(false);
     await boundedFetch("https://api.example/v5/vms/x");
-    expect(seen).toHaveLength(4);
-    expect(abandoned.size).toBe(1);
+    expect(seen).toHaveLength(5);
+    expect([...abandoned].sort()).toEqual([poll, failing].sort());
   });
 });

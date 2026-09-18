@@ -293,8 +293,8 @@ async function edgeReady(vmId) {
   }
 }
 
-async function runTrial(index) {
-  const trial = { index, startedAt: new Date().toISOString() };
+async function runTrial(trial) {
+  const { index } = trial;
   const idempotencyKey = `bench-${suffix}-${index}`;
   const createRequestedAt = Date.now();
   let create;
@@ -374,11 +374,15 @@ async function runBatches() {
       const index = next;
       next += 1;
       if (index >= trials || interrupted) return;
+      const trial = { index, startedAt: new Date().toISOString() };
       const startedAt = performance.now();
       try {
-        results[index] = await runTrial(index);
+        results[index] = await runTrial(trial);
       } catch (error) {
-        results[index] = { index, ok: false, error: error instanceof Error ? error.message : String(error), failedAfterMs: elapsedMs(startedAt) };
+        // The partial record keeps every stage that did complete, and the
+        // create trace id, so a failure late in a trial still contributes
+        // its earlier measurements and the evidence to investigate it.
+        results[index] = { ...trial, ok: false, error: error instanceof Error ? error.message : String(error), failedAfterMs: elapsedMs(startedAt) };
       }
     }
   });
@@ -857,6 +861,9 @@ async function runCleanup() {
 /** The report is written once, after teardown, so a stored artifact never claims a success cleanup later denied. */
 function emitReport({ results, listMs, startedAt, runError, cleanup }) {
   const ok = results.filter((trial) => trial && trial.ok !== false);
+  // Every stage is summarized from the trials that completed it, a failed
+  // trial's earlier stages included; `succeeded` counts whole trials.
+  const measured = results.filter(Boolean);
   const summary = {
     ok: !runError && !interrupted && cleanup.ok && ok.length === results.length && results.length === trials,
     interrupted,
@@ -871,12 +878,12 @@ function emitReport({ results, listMs, startedAt, runError, cleanup }) {
     totalMs: startedAt === null ? null : elapsedMs(startedAt),
     succeeded: ok.length,
     failed: results.length - ok.length,
-    stages: summarizeFields(ok, ["createMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
-    attachAttempts: summarizeFields(ok.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
-    createServerTiming: summarizeStages(ok.map((trial) => trial.createStages)),
+    stages: summarizeFields(measured, ["createMs", "attachMs", "createToAttachReadyMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
+    attachAttempts: summarizeFields(measured.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
+    createServerTiming: summarizeStages(measured.map((trial) => trial.createStages)),
     results,
   };
-  if (ok.length > 0) {
+  if (measured.length > 0) {
     writeSync(2, `${formatSummary({ ...summary.stages, ...Object.fromEntries(Object.entries(summary.createServerTiming).map(([name, value]) => [`server:${name}`, value])) })}\n`);
   }
   const text = JSON.stringify(summary);

@@ -134,25 +134,28 @@ export function providerCredentialsFromEnv(env = process.env) {
  * timeout, and a background request still being polled `pollDeadlineMs`
  * after its first poll is refused, which makes the SDK give up (after five
  * consecutive failures) and settles the request. Settling is not
- * completion: the platform's own work continues, so every abandoned
- * background request is recorded in `abandoned` (shared between clients
- * when a caller passes one set), and a caller must report its cleanup as
- * unresolved while that set is non-empty. `now` and `fetchImpl` are
- * injectable for tests.
+ * completion: the platform's own work continues. So every background
+ * request stays in `abandoned` from its first poll until a terminal answer
+ * (anything but 202) is observed, whether its polling ended at the deadline
+ * or because the SDK gave up on transport failures before it; the set can
+ * be shared between clients, and a caller must report its cleanup as
+ * unresolved while the set is non-empty once every request has settled.
+ * `now` and `fetchImpl` are injectable for tests.
  */
 export function pollBoundedFetch({ fetchTimeoutMs, pollDeadlineMs, abandoned = new Set(), now = Date.now, fetchImpl = globalThis.fetch }) {
   const firstPollAt = new Map();
-  const fetch = (input, init) => {
+  const fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url.includes("/background-requests/")) {
+    const background = url.includes("/background-requests/");
+    if (background) {
       const first = firstPollAt.get(url) ?? now();
       firstPollAt.set(url, first);
-      if (now() - first > pollDeadlineMs) {
-        abandoned.add(url);
-        return Promise.reject(new Error(`provider background request exceeded ${pollDeadlineMs} ms`));
-      }
+      abandoned.add(url);
+      if (now() - first > pollDeadlineMs) throw new Error(`provider background request exceeded ${pollDeadlineMs} ms`);
     }
-    return fetchImpl(input, { ...(init ?? {}), signal: AbortSignal.timeout(fetchTimeoutMs) });
+    const response = await fetchImpl(input, { ...(init ?? {}), signal: AbortSignal.timeout(fetchTimeoutMs) });
+    if (background && response.status !== 202) abandoned.delete(url);
+    return response;
   };
   return { fetch, abandoned };
 }
