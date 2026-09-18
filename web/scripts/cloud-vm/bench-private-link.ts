@@ -471,14 +471,19 @@ function bench() {
     // proves the network is not ours; any other failure, a 5xx above all,
     // may have made it and marks the create lost for the safety net.
     const network = yield* timed(Effect.acquireRelease(
-      attempt("vpc.create", () => bounded(sdk.vpc.create({ slug, displayName: state.networkMark, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc.create").catch((error: unknown) => {
-        state.networkLost = !(error instanceof FreestyleApiError && error.status === 409);
-        throw error;
-      }))
-        .pipe(Effect.map((created) => {
-          state.networkId = created.data.id;
-          return { id: created.data.id };
-        })),
+      attempt("vpc.create", () => {
+        const request = sdk.vpc.create({ slug, displayName: state.networkMark, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } });
+        // The id is recorded on the request itself: no fiber interrupt can
+        // skip a promise continuation (acquireRelease also runs this acquire
+        // uninterruptibly), and a request whose bound expired still resolves
+        // later, so a network created after the bound is deleted by id as
+        // well as found by slug.
+        request.then((created) => { state.networkId ??= created.data.id; }, () => {});
+        return bounded(request, 120_000, "vpc.create").catch((error: unknown) => {
+          state.networkLost = !(error instanceof FreestyleApiError && error.status === 409);
+          throw error;
+        });
+      }).pipe(Effect.map((created) => ({ id: created.data.id }))),
       (value) => cleanup(`VPC ${value.id}`, () => tracked(networking.deleteNetwork(value.id))),
     ));
     // Registered right after the VPC so it runs before the VPC delete: any
@@ -492,15 +497,18 @@ function bench() {
     // run's (a create whose response was lost, then retried), so it is
     // deleted exactly like a created one.
     const tunnel = yield* timed(Effect.acquireRelease(
-      attempt("createTunnel", () => bounded(networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey }), 120_000, "createTunnel").catch((error: unknown) => {
-        // Only a conflict (409, wrapped by the driver in ProviderError)
-        // proves the tunnel is not ours; anything else, a 5xx above all, may
-        // have made it and marks the create lost for the safety net.
-        state.tunnelLost = !(error instanceof ProviderError && error.cause instanceof FreestyleApiError && error.cause.status === 409);
-        throw error;
-      })).pipe(Effect.tap((value) => Effect.sync(() => {
-        state.tunnelId = value.tunnel.id;
-      }))),
+      attempt("createTunnel", () => {
+        const request = networking.createTunnel({ slug, networkId: network.value.id, clientPublicKey });
+        // Recorded on the request itself, for the same reasons as the network's id.
+        request.then((value) => { state.tunnelId ??= value.tunnel.id; }, () => {});
+        return bounded(request, 120_000, "createTunnel").catch((error: unknown) => {
+          // Only a conflict (409, wrapped by the driver in ProviderError)
+          // proves the tunnel is not ours; anything else, a 5xx above all, may
+          // have made it and marks the create lost for the safety net.
+          state.tunnelLost = !(error instanceof ProviderError && error.cause instanceof FreestyleApiError && error.cause.status === 409);
+          throw error;
+        });
+      }),
       (value) => cleanup(`tunnel ${value.tunnel.id}`, () => tracked(networking.deleteTunnel(value.tunnel.id))),
     ));
     const config = tunnel.value.tunnel.clientConfig.replace(/^PrivateKey\s*=.*$/m, `PrivateKey = ${privateBytes}`);

@@ -453,7 +453,12 @@ try {
     }
     let created: Awaited<ReturnType<typeof timed<Awaited<ReturnType<typeof fs.vpc.create>>>>>;
     try {
-      created = await timed(() => bounded(fs.vpc.create({ slug: runId, displayName: runMark, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } }), 120_000, "vpc create"));
+      const request = fs.vpc.create({ slug: runId, displayName: runMark, firewall: { rules: FREESTYLE_NETWORK_FIREWALL_RULES } });
+      // The id is recorded on the request itself, so a create whose bound
+      // expired but that resolves later is deleted by id as well as found by
+      // slug.
+      request.then((value) => { vpcId ??= value.data.id; }, () => {});
+      created = await timed(() => bounded(request, 120_000, "vpc create"));
     } catch (error) {
       vpcCreateLost = !(error instanceof FreestyleApiError && error.status === 409);
       throw error;
