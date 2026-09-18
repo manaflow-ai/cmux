@@ -42,7 +42,7 @@ actor CloudMachineLinkManager {
     private let isCloudEnabled: @Sendable () -> Bool
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
-    private var cachedClientCapabilities: [URL: [String]] = [:]
+    private var cachedClientCapabilities: [String]?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
@@ -184,7 +184,16 @@ actor CloudMachineLinkManager {
             try Task.checkCancellation()
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
-            let capabilities = self.resolvedClientCapabilities(clientURL: clientURL)
+            let capabilities: [String]
+            if let cached = self.cachedClientCapabilities { capabilities = cached }
+            else if let probed = Self.clientCapabilities(clientURL: clientURL) {
+                capabilities = probed
+                self.cachedClientCapabilities = probed
+            } else {
+                // A failed probe must not poison the actor-wide cache. A later
+                // connection can retry the probe and discover the capability.
+                capabilities = []
+            }
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
             var session = "cmux"
             // The machine's daemon serves a trusted listener inside the private
@@ -322,7 +331,8 @@ actor CloudMachineLinkManager {
             return try await browserProxy(machineID: machineID)
         }
         guard let clientURL, let hub else { throw ManagerError.wireGuardHubMissing }
-        guard resolvedClientCapabilities(clientURL: clientURL).contains("browser-proxy") else {
+        guard let clientCapabilities = Self.clientCapabilities(clientURL: clientURL),
+              clientCapabilities.contains("browser-proxy") else {
             throw ManagerError.retryLater(String(localized: "cloud.browser.clientUpdateRequired", defaultValue: "Update cmux to connect to this Cloud page."))
         }
         let proxy = CloudBrowserProxyProcess(addresses: addresses)
@@ -341,7 +351,7 @@ actor CloudMachineLinkManager {
                 let endpoint = try await client.openCmuxRemote(
                     id: machineID,
                     deviceFingerprint: nil,
-                    clientCapabilities: self.resolvedClientCapabilities(clientURL: clientURL)
+                    clientCapabilities: clientCapabilities
                 )
                 guard endpoint.trustedCarrier else {
                     throw ManagerError.retryLater(String(
@@ -533,15 +543,6 @@ actor CloudMachineLinkManager {
 
     /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
     /// them (a client that sends a User-Agent earns the branded host).
-    /// Cache successful probes per executable URL, while allowing a failed
-    /// probe to be retried by later connection attempts.
-    private func resolvedClientCapabilities(clientURL: URL) -> [String] {
-        if let cached = cachedClientCapabilities[clientURL] { return cached }
-        guard let probed = Self.clientCapabilities(clientURL: clientURL) else { return [] }
-        cachedClientCapabilities[clientURL] = probed
-        return probed
-    }
-
     nonisolated static func clientCapabilities(clientURL: URL) -> [String]? {
         let process = Process()
         process.executableURL = clientURL
