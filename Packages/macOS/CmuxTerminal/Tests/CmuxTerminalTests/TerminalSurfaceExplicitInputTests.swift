@@ -98,6 +98,17 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
+    @Test func pasteTextOnAColdSurfaceReportsQueuedRatherThanDelivered() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        // The cold surface enqueues instead of writing. `sendText` answers `true`
+        // for both branches, so a socket client cannot tell whether the paste is
+        // on screen; `sendTextResult` distinguishes them.
+        #expect(fixture.surface.sendTextResult("hello") == .queued)
+        #expect(fixture.surface.sendText("hello"))
+    }
+
     @Test func parsedInputNotifiesPaneHostBeforeQueueingOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
@@ -239,6 +250,7 @@ struct TerminalSurfaceExplicitInputTests {
         defer { fixture.surface.releaseSurfaceForTesting() }
 
         #expect(fixture.surface.sendText(""))
+        #expect(fixture.surface.sendTextResult("") == .sent)
         #expect(fixture.surface.sendKeyText(""))
         #expect(fixture.surface.sendInputResult("").accepted)
         #expect(fixture.surface.sendNamedKey("") == .unknownKey)

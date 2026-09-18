@@ -16086,8 +16086,27 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        guard terminalTarget.sendText(text) else {
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
+        // Keep the paste outcome, not just "accepted": a queued paste has not
+        // reached the PTY yet, and a client that must not submit unverified text
+        // (or must not report a delivery it cannot see) needs to tell the two
+        // apart. The error code stays `surface_unavailable` so existing clients
+        // are unaffected; the specific cause rides along in `data`.
+        let pasteResult = terminalTarget.sendTextResult(text)
+        guard pasteResult.accepted else {
+            var errorData: [String: Any] = ["surface_id": surfaceId.uuidString]
+            switch pasteResult {
+            case .inputQueueFull:
+                errorData["reason"] = "input_queue_full"
+            case .processExited:
+                errorData["reason"] = "process_exited"
+            case .surfaceUnavailable:
+                errorData["reason"] = "surface_unavailable"
+            case .sent, .queued:
+                // Accepted results, unreachable in this else-branch; listed only
+                // to keep the switch exhaustive.
+                break
+            }
+            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: errorData)
         }
 
         // The paste text is already accepted by the surface above. From here on a
@@ -16127,10 +16146,23 @@ class TerminalController {
         )
         #endif
 
+        // `delivery` distinguishes text written to a live surface from text held
+        // in the ordered pending-input queue for a surface that has not started
+        // yet. Both are accepted; only the first is on screen.
+        let delivery: String
+        switch pasteResult {
+        case .queued:
+            delivery = "queued"
+        case .sent, .inputQueueFull, .surfaceUnavailable, .processExited:
+            // Non-accepted cases already returned above.
+            delivery = "delivered"
+        }
+
         var payload: [String: Any] = [
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
             "submitted": submitted,
+            "delivery": delivery,
         ]
         if let submitError {
             payload["submit_error"] = submitError
