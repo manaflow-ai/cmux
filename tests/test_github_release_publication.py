@@ -187,6 +187,17 @@ class PublicationTests(unittest.TestCase):
             self.assertTrue("scripts/ci/publish-release-assets.py" in text, name)
             self.assertIn("--feed", text)
 
+    def test_stable_release_stays_draft_until_downloads_are_verified(self):
+        text = (ROOT / ".github/workflows/release.yml").read_text()
+        prepare = text.index("- name: Prepare release metadata")
+        upload = text.index("- name: Upload release asset")
+        finalize = text.index("- name: Publish verified release")
+        self.assertLess(prepare, upload)
+        self.assertLess(upload, finalize)
+        self.assertIn("draft: true", text[prepare:upload])
+        self.assertIn("--release-id", text[upload:finalize])
+        self.assertIn("draft: false", text[finalize:])
+
 
 class TransportTests(unittest.TestCase):
     def setUp(self):

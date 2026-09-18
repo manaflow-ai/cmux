@@ -222,7 +222,9 @@ def plan(immutable: list[str], optional: list[str], aliases: list[str], feeds: l
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True)
-    parser.add_argument("--tag", required=True)
+    release = parser.add_mutually_exclusive_group(required=True)
+    release.add_argument("--tag")
+    release.add_argument("--release-id", type=int)
     parser.add_argument("--immutable", action="append", default=[])
     parser.add_argument("--optional-immutable", action="append", default=[])
     parser.add_argument("--alias", action="append", default=[])
@@ -232,7 +234,8 @@ def main() -> int:
     # Hash and validate every local file before any remote mutation.
     phases = plan(args.immutable, args.optional_immutable, args.alias, args.feed, replace_feeds=args.replace_feeds)
     client = GitHub(args.repo, os.environ.get("GH_TOKEN", ""))
-    publish(client, client.release_id(args.tag), phases)
+    release_id = args.release_id if args.release_id is not None else client.release_id(args.tag)
+    publish(client, release_id, phases)
     return 0
 
 
