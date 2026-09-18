@@ -61,7 +61,7 @@ struct CloudClosedPanelRestoreTests {
             let revision = store.revision
             store.remapPanelAnchorIds(from: oldID, to: newID)
             #expect(store.revision == revision + 1)
-            #expect(store.restoreFirstRestorable { entry in
+            let didRestore = store.restoreFirstRestorable { entry in
                 guard case .panel(let panel) = entry,
                       case .split(let split)? = panel.layout,
                       case .pane(let first) = split.first else {
@@ -73,7 +73,8 @@ struct CloudClosedPanelRestoreTests {
                 #expect(first.isFullWidthTabMode == true)
                 #expect(split.dividerPosition == 0.35)
                 return true
-            })
+            }
+            #expect(didRestore)
         }
     }
 
