@@ -41,6 +41,14 @@ class FakeClient:
         self.events.append(("delete", asset_id))
         self.stored = {name: value for name, value in self.stored.items() if value["id"] != asset_id}
 
+    def rename(self, asset_id, name):
+        self.events.append(("rename", name))
+        old_name = next(key for key, value in self.stored.items() if value["id"] == asset_id)
+        value = self.stored.pop(old_name)
+        value["name"] = name
+        self.stored[name] = value
+        return value
+
     def upload(self, release_id, asset):
         name = asset.path.name
         with self.lock:
@@ -113,7 +121,7 @@ class PublicationTests(unittest.TestCase):
         payloads = [self.asset(f"build-{index}.dmg") for index in range(5)]
         feeds = [self.asset("appcast-arm64.xml", True), self.asset("appcast.xml", True)]
         self.publish(payloads, feeds)
-        self.assertEqual([event[1] for event in self.client.events[-2:]], [asset.path.name for asset in feeds])
+        self.assertEqual([event[1] for event in self.client.events if event[0] == "rename"], [asset.path.name for asset in feeds])
         self.assertEqual(self.client.peak, 2)
 
     def test_rerun_reuses_verified_payloads_and_feeds(self):
@@ -122,6 +130,16 @@ class PublicationTests(unittest.TestCase):
         self.client.events.clear()
         self.publish([payload], [feed])
         self.assertEqual(self.client.events, [])
+
+    def test_failed_alias_replacement_preserves_the_current_asset(self):
+        asset = self.asset("latest.dmg", True)
+        old = {**remote(asset), "digest": "sha256:old"}
+        self.client.stored[asset.path.name] = old
+        self.client.failures[".cmux-upload-latest.dmg-" + asset.digest[7:19]] = ["timeout"] * 3
+        with self.assertRaises(publisher.RequestError):
+            self.publish([asset])
+        self.assertEqual(self.client.stored[asset.path.name], old)
+        self.assertEqual([event[0] for event in self.client.events], ["upload", "upload", "upload"])
 
     def test_immutable_digest_collision_is_fatal_without_deletion(self):
         asset = self.asset("build.dmg")
@@ -134,7 +152,7 @@ class PublicationTests(unittest.TestCase):
         asset = self.asset("latest.dmg", True)
         self.client.stored[asset.path.name] = {**remote(asset), "digest": "sha256:different"}
         self.publish([asset])
-        self.assertEqual([event[0] for event in self.client.events], ["delete", "upload"])
+        self.assertEqual([event[0] for event in self.client.events], ["upload", "delete", "rename"])
 
     def test_wrong_uploaded_digest_blocks_feeds(self):
         asset, feed = self.asset("build.dmg"), self.asset("appcast.xml", True)
@@ -174,6 +192,13 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             publisher.Asset.read(path)
 
+    def test_missing_release_is_created_draft_and_existing_release_is_untouched(self):
+        client = publisher.GitHub("owner/repo", "fake-token")
+        with patch.object(client, "request", side_effect=[publisher.RequestError("missing", status=404), {"id": 9}]) as request:
+            self.assertEqual(client.release_id("nightly"), 9)
+        self.assertEqual(request.call_args.args[0], "POST")
+        self.assertIn(b'"draft": true', request.call_args.kwargs["body"])
+
     def test_asset_listing_is_paginated(self):
         client = publisher.GitHub("owner/repo", "fake-token")
         page1 = [{"name": f"file-{index}"} for index in range(100)]
@@ -189,14 +214,12 @@ class PublicationTests(unittest.TestCase):
 
     def test_stable_release_stays_draft_until_downloads_are_verified(self):
         text = (ROOT / ".github/workflows/release.yml").read_text()
-        prepare = text.index("- name: Prepare release metadata")
         upload = text.index("- name: Upload release asset")
         finalize = text.index("- name: Publish verified release")
-        self.assertLess(prepare, upload)
         self.assertLess(upload, finalize)
-        self.assertIn("draft: true", text[prepare:upload])
-        self.assertIn("--release-id", text[upload:finalize])
+        self.assertIn("--tag", text[upload:finalize])
         self.assertIn("draft: false", text[finalize:])
+        self.assertIn("prerelease: false", text[finalize:])
 
 
 class TransportTests(unittest.TestCase):

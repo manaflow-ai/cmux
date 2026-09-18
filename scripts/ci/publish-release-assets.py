@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import glob
 import hashlib
 import json
@@ -72,29 +72,37 @@ class GitHub:
         self.repo, self.token = repo, token
         self.api_url, self.upload_url = api_url, upload_url
 
-    def request(self, method: str, url: str, *, file: Path | None = None):
+    def request(self, method: str, url: str, *, file: Path | None = None,
+                body: bytes | None = None, content_type: str | None = None):
         """curl streams large files and bounds both stalled and total transfer time.
 
         Pass credentials on stdin, never argv, and do not follow redirects.
         JSON reads/deletes can retry directly; uploads reconcile in ensure_asset.
         """
-        attempts = 1 if file else 3
+        if file is not None and body is not None:
+            raise ValueError("file and body are mutually exclusive")
+        attempts = 1 if file or method in {"POST", "PATCH"} else 3
         for attempt in range(attempts):
             try:
-                return self._request(method, url, file=file)
+                return self._request(method, url, file=file, body=body, content_type=content_type)
             except RequestError as error:
                 if not error.retryable or attempt + 1 == attempts:
                     raise
                 backoff(attempt)
 
-    def _request(self, method: str, url: str, *, file: Path | None = None):
+    def _request(self, method: str, url: str, *, file: Path | None = None,
+                 body: bytes | None = None, content_type: str | None = None):
         timeout = 600 if file else 60
-        content_type = (mimetypes.guess_type(file.name)[0] or "application/octet-stream") if file else "application/json"
+        content_type = content_type or ((mimetypes.guess_type(file.name)[0] or "application/octet-stream") if file else "application/json")
         config = (f'header = "Authorization: Bearer {self.token}"\n'
                   'header = "Accept: application/vnd.github+json"\n'
                   'header = "X-GitHub-Api-Version: 2022-11-28"\n')
         with tempfile.TemporaryDirectory(prefix="cmux-release-upload-") as directory:
             output = Path(directory) / "response.json"
+            body_path = None
+            if body is not None:
+                body_path = Path(directory) / "request-body"
+                body_path.write_bytes(body)
             command = ["curl", "--disable", "--config", "-", "--silent", "--show-error",
                        "--request", method, "--connect-timeout", "30", "--max-time", str(timeout),
                        "--speed-limit", "1024", "--speed-time", "60", "--retry", "0",
@@ -102,6 +110,8 @@ class GitHub:
                        "--write-out", "%{http_code}", url]
             if file:
                 command += ["--data-binary", "@" + str(file)]
+            elif body_path:
+                command += ["--data-binary", "@" + str(body_path)]
             try:
                 result = subprocess.run(command, input=config, capture_output=True, text=True, timeout=timeout + 10)
             except subprocess.TimeoutExpired as error:
@@ -123,7 +133,17 @@ class GitHub:
                 raise RequestError(f"{method} returned invalid JSON") from error
 
     def release_id(self, tag: str) -> int:
-        release = self.request("GET", f"{self.api_url}/repos/{self.repo}/releases/tags/{quote(tag, safe='')}")
+        url = f"{self.api_url}/repos/{self.repo}/releases/tags/{quote(tag, safe='')}"
+        try:
+            release = self.request("GET", url)
+        except RequestError as error:
+            if error.status != 404:
+                raise
+            release = self.request(
+                "POST",
+                f"{self.api_url}/repos/{self.repo}/releases",
+                body=json.dumps({"tag_name": tag, "name": tag, "draft": True, "prerelease": True}).encode(),
+            )
         return int(release["id"])
 
     def assets(self, release_id: int) -> dict[str, dict]:
@@ -148,17 +168,25 @@ class GitHub:
         query = urlencode({"name": asset.path.name})
         return self.request("POST", f"{self.upload_url}/repos/{self.repo}/releases/{release_id}/assets?{query}", file=asset.path)
 
+    def rename(self, asset_id: int, name: str) -> dict:
+        return self.request(
+            "PATCH",
+            f"{self.api_url}/repos/{self.repo}/releases/assets/{asset_id}",
+            body=json.dumps({"name": name}).encode(),
+        )
 
-def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict | None) -> None:
+
+def _upload_verified(client: GitHub, release_id: int, asset: Asset, existing: dict | None) -> dict:
+    """Upload an asset under its final name, repairing only an incomplete starter."""
     name = asset.path.name
     for attempt in range(3):
         if existing and asset.matches(existing):
             print(f"Verified {name} ({asset.size} bytes), reusing", flush=True)
-            return
+            return existing
         if existing:
             # A failed POST can leave an empty starter under the reserved name.
             # Completed immutable files must never be silently overwritten.
-            if not asset.replace and existing.get("state") != "starter":
+            if existing.get("state") != "starter":
                 raise RuntimeError(f"Refusing to replace immutable asset with different or unverified bytes: {name}")
             client.delete(int(existing["id"]))
         print(f"Uploading {name} ({asset.size} bytes), attempt {attempt + 1}/3", flush=True)
@@ -171,7 +199,7 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
             existing = client.assets(release_id).get(name)
             if existing and asset.matches(existing):
                 print(f"Verified {name} after ambiguous upload response", flush=True)
-                return
+                return existing
             if attempt == 2:
                 raise
             backoff(attempt)
@@ -179,7 +207,44 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
         if not asset.matches(uploaded):
             raise RuntimeError(f"Upload verification failed (state/size/SHA-256): {name}")
         print(f"Verified {name}", flush=True)
+        return uploaded
+    raise RuntimeError(f"Upload did not complete: {name}")
+
+
+def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict | None) -> None:
+    name = asset.path.name
+    if existing and asset.matches(existing):
+        print(f"Verified {name} ({asset.size} bytes), reusing", flush=True)
         return
+    if not asset.replace:
+        _upload_verified(client, release_id, asset, existing)
+        return
+
+    # Upload replacements under a unique temporary name first. This preserves
+    # the currently working alias/feed if the network or GitHub fails. Once the
+    # new bytes are verified, delete the old name and rename the verified temp
+    # asset. A failed rename leaves verified bytes on the release for the next
+    # run to reconcile instead of losing the replacement.
+    temporary_name = f".cmux-upload-{name}-{asset.digest[7:19]}"
+    temporary = replace(asset, path=asset.path.with_name(temporary_name), replace=False)
+    listing = client.assets(release_id)
+    temp_existing = listing.get(temporary_name)
+    if temp_existing and not temporary.matches(temp_existing):
+        # Temporary names are content-addressed. A stale or corrupt temp is
+        # safe to remove because it can never be a user-facing alias/feed.
+        client.delete(int(temp_existing["id"]))
+        temp_existing = None
+    temp_remote = _upload_verified(client, release_id, temporary, temp_existing)
+    current = client.assets(release_id).get(name)
+    if current and asset.matches(current):
+        client.delete(int(temp_remote["id"]))
+        return
+    if current:
+        client.delete(int(current["id"]))
+    renamed = client.rename(int(temp_remote["id"]), name)
+    if not asset.matches(renamed):
+        raise RuntimeError(f"Replacement verification failed after rename: {name}")
+    print(f"Verified replacement {name}", flush=True)
 
 
 def publish(client: GitHub, release_id: int, phases: list[list[Asset]]) -> None:

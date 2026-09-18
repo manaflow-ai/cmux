@@ -1293,21 +1293,6 @@ jobs:
             --max-assets 950 \
             --execute
 
-      - name: Prepare nightly release metadata
-        if: needs.decide.outputs.should_publish == 'true'
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          tag_name: ${{ needs.decide.outputs.release_tag }}
-          name: ${{ needs.decide.outputs.release_name }}
-          prerelease: true
-          make_latest: false
-          body: |
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
-            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
-            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
-            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
-            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
-
       - name: Publish nightly release assets
         if: needs.decide.outputs.should_publish == 'true'
         env:
@@ -1329,6 +1314,22 @@ jobs:
             --feed nightly-out/appcast-x86_64.xml \
             --feed nightly-out/appcast-universal.xml \
             --feed nightly-out/appcast.xml
+
+      - name: Publish verified nightly release metadata
+        if: needs.decide.outputs.should_publish == 'true'
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          tag_name: ${{ needs.decide.outputs.release_tag }}
+          name: ${{ needs.decide.outputs.release_name }}
+          prerelease: true
+          make_latest: false
+          draft: false
+          body: |
+            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
+            **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
+            - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
+            - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
+            - [Universal (any Mac): ${{ needs.decide.outputs.dmg_prefix }}.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}.dmg), feed `appcast.xml`; the app switches to its architecture's feed on the first update check
 
       - name: Upload nightly appcasts to R2
         if: needs.decide.outputs.should_publish == 'true'
