@@ -11,6 +11,13 @@ public protocol MobileTerminalLatencyObserving: Sendable {
     func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64
     func inputSent(surfaceID: String, sequence: UInt64)
     func inputFailed(surfaceID: String, sequence: UInt64)
+    func inputQueued(surfaceID: String, queueDepth: Int, pendingByteCount: Int)
+    func inputSendCompleted(
+        surfaceID: String,
+        queuedDurationNanos: UInt64,
+        sendDurationNanos: UInt64,
+        byteCount: Int
+    )
     func surfaceClosed(surfaceID: String)
     func outputReceived(
         surfaceID: String,
@@ -37,6 +44,13 @@ public struct NoopMobileTerminalLatencyObserver: MobileTerminalLatencyObserving 
     public func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64 { 0 }
     public func inputSent(surfaceID: String, sequence: UInt64) {}
     public func inputFailed(surfaceID: String, sequence: UInt64) {}
+    public func inputQueued(surfaceID: String, queueDepth: Int, pendingByteCount: Int) {}
+    public func inputSendCompleted(
+        surfaceID: String,
+        queuedDurationNanos: UInt64,
+        sendDurationNanos: UInt64,
+        byteCount: Int
+    ) {}
     public func surfaceClosed(surfaceID: String) {}
     public func outputReceived(
         surfaceID: String,

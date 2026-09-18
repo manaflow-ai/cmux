@@ -131,4 +131,25 @@ import Testing
         #expect(batch?.text == "first\rsecond\r")
         #expect(batch?.sendStatusOperationID == secondOperationID)
     }
+
+    @Test func coalescedChunkRetainsEarliestEnqueueTime() {
+        var buffer = MobileTerminalInputSendBuffer()
+        let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-a")
+
+        #expect(buffer.enqueue(
+            "a",
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            enqueuedAtNanos: 20
+        ) == .startDraining)
+        #expect(buffer.enqueue(
+            "b",
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            enqueuedAtNanos: 30
+        ) == .queued)
+
+        #expect(buffer.nextBatch()?.enqueuedAtNanos == 20)
+    }
 }
