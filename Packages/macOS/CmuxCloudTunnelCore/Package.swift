@@ -22,5 +22,6 @@ let package = Package(
                 .enableUpcomingFeature("InternalImportsByDefault"),
             ]
         ),
+        .testTarget(name: "CmuxCloudTunnelCoreTests", dependencies: ["CmuxCloudTunnelCore"]),
     ]
 )
