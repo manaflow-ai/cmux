@@ -3,7 +3,6 @@ import CmuxRemoteWorkspace
 import CmuxSettings
 import Foundation
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -95,7 +94,6 @@ struct ManagedCapabilityPolicyGateTests {
         // as soon as it is configured; the point is that it dialed at all.
         #expect(workspace.remoteConnectionState != .disconnected)
     }
-
     @Test func theObserverEndsLiveRemoteConnectionsOnActivationOnly() throws {
         let suite = "ManagedCapabilityPolicyGateTests.observer.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -111,21 +109,24 @@ struct ManagedCapabilityPolicyGateTests {
             queue: nil
         ) { _ in recorder.recordChangeSignal() }
         defer { center.removeObserver(token) }
+        var socketPolicy = SocketControlPolicyResolution(mode: .allowAll, configuredMode: .allowAll, source: .userDefaults)
+        var socketReconciliations = 0
         let observer = ManagedPolicyEnforcementObserver(
             notificationCenter: center,
             isBrowserDisabledByPolicy: { false },
             isRemoteControlDisabledByPolicy: { false },
             isCloudDisabledByPolicy: { false },
             isIrohDisabledByPolicy: { false },
+            socketControlPolicy: { socketPolicy },
             capabilityPolicy: resolver,
             enforceBrowserPolicy: {},
             enforceBrowserURLAllowlistPolicy: {},
             enforceRemoteControlPolicy: {},
-            enforceRemoteConnectionsPolicy: { recorder.recordEnforcement() }
+            enforceRemoteConnectionsPolicy: { recorder.recordEnforcement() },
+            enforceSocketControlPolicy: { socketReconciliations += 1 }
         )
         #expect(recorder.enforcements == 0)
 
-        // A mid-session push enforces once and tells Settings.
         defaults.set(true, forKey: ManagedDevicePolicyKey.disableRemoteConnections.rawValue)
         observer.reevaluate()
         #expect(recorder.enforcements == 1)
@@ -133,21 +134,20 @@ struct ManagedCapabilityPolicyGateTests {
         observer.reevaluate()
         #expect(recorder.enforcements == 1)
 
-        // The lift is a Settings-visible transition but tears nothing down.
         defaults.removeObject(forKey: ManagedDevicePolicyKey.disableRemoteConnections.rawValue)
         observer.reevaluate()
         #expect(recorder.enforcements == 1)
         #expect(recorder.changeSignals == 2)
 
-        // A file-transfer flip is its own transition and never touches
-        // remote connections.
         defaults.set(true, forKey: ManagedDevicePolicyKey.disableFileTransfer.rawValue)
         observer.reevaluate()
         #expect(recorder.enforcements == 1)
         #expect(recorder.changeSignals == 3)
+        socketPolicy = SocketControlPolicyResolution(mode: .cmuxOnly, configuredMode: .allowAll, source: .managedReleaseDomain, forcedValueStatus: "valid")
+        observer.reevaluate()
+        #expect(socketReconciliations == 1)
         withExtendedLifetime(observer) {}
     }
-
     @Test func aProfileForcedBeforeLaunchEndsRemoteConnectionsAtConstruction() {
         let recorder = RemoteConnectionsEnforcementRecorder()
         let observer = ManagedPolicyEnforcementObserver(
