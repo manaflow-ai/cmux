@@ -204,7 +204,7 @@ impl App {
                 if let Some(t) = toggle {
                     let open = self.is_open(t);
                     let what = match t {
-                        Toggle::Turn(_) => "turn",
+                        Toggle::Turn(_) => "the turn's work",
                         Toggle::Group(_) => "tool calls",
                         Toggle::Item(_) => "details",
                     };

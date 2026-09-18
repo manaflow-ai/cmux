@@ -206,14 +206,15 @@ background with syntect highlighting when the language is known. Every row start
 two-column gutter (`❯` for you, `▸`/`▾` for collapsibles), so text lines up down the page.
 Your messages look like Codex's: a tinted full-width band with `› ` before the text. The
 transcript looks like Codex's: one blank row before every block, a tinted band with plain text
-and a bold dim `›` for your messages, a dim `•` on the first line of a reply, green and red
+and a bold dim `❯` for your messages, a dim `•` on the first line of a reply, green and red
 bullets for tool outcomes, dim italic thinking, and no rules anywhere. Markdown follows
 Codex's renderer too: a blank row between blocks, list items kept together with `- ` and
 `N. ` markers indented four columns per level, headings bold (h1 underlined, h3 italic),
 code and links cyan, quotes green. Your message shows the instant you press Enter; the
 daemon's echo is matched, not repeated. The
-transcript is a hierarchy of collapsibles, each toggled by a click: the whole turn (click
-your message; collapsed it shows the first line and `· 3 tool calls · 1 reply`), a run of
+transcript is a hierarchy of collapsibles, each toggled by a click: a turn's work (the
+`▾ worked · 3 tool calls · 1 thought` handle under your message collapses everything between
+the message and the turn's final reply; both stay visible), a run of
 consecutive tool calls (`▾ 3 tool calls · Read, Bash, Edit`), one tool call (`▸ ✓ title  kind
 first line of output`), and one thought. Turns and groups start open, details closed. The
 thought being streamed stays open; `/thoughts` opens them all. Right-click a row for

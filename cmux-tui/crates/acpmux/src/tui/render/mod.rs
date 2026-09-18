@@ -176,10 +176,11 @@ pub fn is_system_noise(item: &Item) -> bool {
 
 /// Render a transcript into rows at `width`. Every row starts after a
 /// two-column gutter that holds the role or state marker, so text lines
-/// up down the page. The transcript is a hierarchy of collapsibles: a
-/// turn (your message plus the agent's work until your next one), runs of
+/// up down the page. The transcript is a hierarchy of collapsibles: the
+/// work of a turn (everything between your message and the turn's final
+/// reply; the message and the reply themselves never hide), runs of
 /// consecutive tool calls, and single tool calls or thoughts. `toggled`
-/// holds the ones flipped from their default (turns and groups open,
+/// holds the ones flipped from their default (work and groups open,
 /// details closed); the thought being streamed is always open.
 pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_system: bool, toggled: &std::collections::HashSet<Toggle>, c: &Chrome) -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
@@ -250,54 +251,83 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
 
     let mut k = 0usize;
     let mut turn_open = true;
+    // When a turn's work is collapsed, rendering resumes at this item (the
+    // turn's final reply, or the next user message).
+    let mut reopen_at: Option<usize> = None;
     while k < vis.len() {
         let i = vis[k];
+        if reopen_at == Some(i) {
+            turn_open = true;
+            reopen_at = None;
+        }
         let item = &t.items[i];
         match item {
             Item::User { text, steer, queued } => {
                 k += 1;
-                let open = is_open(Toggle::Turn(i), true);
-                turn_open = open;
+                turn_open = true;
+                reopen_at = None;
                 spacer(&mut rows, i, false);
                 // Codex's user block: a tinted band with a blank row above and
                 // below and `› ` before the text.
                 let bg = Style::default().bg(c.user_bg);
                 // Codex: plain text on the tint, the marker bold and dim.
                 let style = if *queued { c.dim().bg(c.user_bg) } else { bg };
-                let marker = if !open { "▸ " } else if *steer { "» " } else if *queued { "⏳" } else { "› " };
+                let marker = if *steer { "» " } else if *queued { "⏳" } else { "❯ " };
                 let start = rows.len();
                 plain("", bg, i, &mut rows);
-                if open {
-                    wrap_marked(text, w, style, marker, bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD), i, &mut rows);
-                    if *queued {
-                        plain(&format!("{GUTTER}queued · sends when the running turn ends · Ctrl-x cancels it"), c.dim().bg(c.user_bg), i, &mut rows);
-                    }
-                } else {
-                    // Collapsed: first line plus what the turn holds.
-                    let next_user = t.items[i + 1..].iter().position(|x| matches!(x, Item::User { .. })).map(|p| i + 1 + p).unwrap_or(t.items.len());
-                    let tools = t.items[i + 1..next_user].iter().filter(|x| matches!(x, Item::Tool { .. })).count();
-                    let replies = t.items[i + 1..next_user].iter().filter(|x| matches!(x, Item::Assistant { .. })).count();
-                    let mut parts = Vec::new();
-                    if tools > 0 {
-                        parts.push(format!("{tools} tool call{}", if tools == 1 { "" } else { "s" }));
-                    }
-                    if replies > 0 {
-                        parts.push(format!("{replies} repl{}", if replies == 1 { "y" } else { "ies" }));
-                    }
-                    let summary = if parts.is_empty() { String::new() } else { format!("  · {}", parts.join(" · ")) };
-                    let first = text.lines().next().unwrap_or("").trim();
-                    let shown = truncate(first, w.saturating_sub(summary.width() + 4));
-                    let row_text = format!("{marker}{shown}{summary}");
-                    rows.push(Row {
-                        line: Line::from(vec![Span::styled(marker.to_owned(), bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD)), Span::styled(shown, style), Span::styled(summary, c.dim().bg(c.user_bg))]),
-                        text: row_text,
-                        item: i,
-                        toggle: None,
-                    });
+                wrap_marked(text, w, style, marker, bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD), i, &mut rows);
+                if *queued {
+                    plain(&format!("{GUTTER}queued · sends when the running turn ends · Ctrl-x cancels it"), c.dim().bg(c.user_bg), i, &mut rows);
                 }
                 plain("", bg, i, &mut rows);
-                tint_rows(&mut rows[start..], width, c.user_bg, Some(Toggle::Turn(i)));
+                tint_rows(&mut rows[start..], width, c.user_bg, None);
                 let _ = after_user_block;
+                // The turn's work: everything visible between this message
+                // and the final reply. Two or more blocks get a handle row
+                // that collapses them all; one block collapses on its own.
+                let next_user = t.items[i + 1..].iter().position(|x| matches!(x, Item::User { .. })).map(|p| i + 1 + p).unwrap_or(t.items.len());
+                let final_reply = (i + 1..next_user).rev().find(|&j| matches!(t.items[j], Item::Assistant { .. }));
+                let work_end = final_reply.unwrap_or(next_user);
+                let work: Vec<usize> = vis.iter().copied().filter(|&j| j > i && j < work_end).collect();
+                let mut blocks = 0usize;
+                let mut tools = 0usize;
+                let mut thoughts = 0usize;
+                let mut replies = 0usize;
+                let mut prev_group = false;
+                for &j in &work {
+                    match &t.items[j] {
+                        Item::Tool { .. } => {
+                            tools += 1;
+                            if !prev_group {
+                                blocks += 1;
+                            }
+                            prev_group = true;
+                        }
+                        Item::Permission { .. } => {
+                            if !prev_group {
+                                blocks += 1;
+                            }
+                            prev_group = true;
+                        }
+                        Item::Thought { .. } => { thoughts += 1; blocks += 1; prev_group = false; }
+                        Item::Assistant { .. } => { replies += 1; blocks += 1; prev_group = false; }
+                        _ => { blocks += 1; prev_group = false; }
+                    }
+                }
+                if blocks >= 2 {
+                    let open = is_open(Toggle::Turn(i), true);
+                    let mut parts = Vec::new();
+                    if tools > 0 { parts.push(format!("{tools} tool call{}", if tools == 1 { "" } else { "s" })); }
+                    if thoughts > 0 { parts.push(format!("{thoughts} thought{}", if thoughts == 1 { "" } else { "s" })); }
+                    if replies > 0 { parts.push(format!("{replies} interim repl{}", if replies == 1 { "y" } else { "ies" })); }
+                    spacer(&mut rows, i, false);
+                    let text = format!("{} worked · {}", if open { "▾" } else { "▸" }, parts.join(" · "));
+                    rows.push(Row { line: Line::from(Span::styled(text.clone(), c.dim())), text, item: i, toggle: Some(Toggle::Turn(i)) });
+                    if !open {
+                        turn_open = false;
+                        reopen_at = Some(work_end);
+                    }
+                }
                 continue;
             }
             it if group(it) => {
@@ -710,7 +740,7 @@ mod hierarchy_tests {
         let none = std::collections::HashSet::new();
         let rows = transcript_rows(&t, 80, false, false, &none, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("› Use your Bash")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash")), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("▾ 2 tool calls")), "{text:?}");
         assert!(text.iter().any(|l| l.contains("permission: date")), "{text:?}");
         // Collapse the group and the first turn.
@@ -720,12 +750,23 @@ mod hierarchy_tests {
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert!(text.iter().any(|l| l.starts_with("▸ 2 tool calls")), "{text:?}");
         assert!(!text.iter().any(|l| l.contains("permission: date")), "{text:?}");
+        // The first turn's work (a thought and a tool group) has a handle.
+        let rows = transcript_rows(&t, 80, false, false, &none, &c);
+        let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
+        assert!(text.iter().any(|l| l.starts_with("▾ worked · 2 tool calls · 1 thought")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash")), "{text:?}");
+        assert!(!rows.iter().any(|r| r.text.starts_with("❯") && r.toggle.is_some()), "user rows never toggle");
+        // Collapsing the work keeps the message and the final reply.
         flipped.insert(Toggle::Turn(0));
         let rows = transcript_rows(&t, 80, false, false, &flipped, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("▸ Use your Bash tool twice") && l.contains("2 tool calls")), "{text:?}");
-        assert!(!text.iter().any(|l| l == &"  done"), "{text:?}");
-        assert!(text.iter().any(|l| l.starts_with("› again")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("▸ worked · 2 tool calls · 1 thought")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash tool twice")), "{text:?}");
+        assert!(text.iter().any(|l| l == &"• done"), "{text:?}");
+        assert!(!text.iter().any(|l| l.contains("thinking") || l.contains("hostname")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("❯ again")), "{text:?}");
+        // The second turn has one block only: no handle.
+        assert_eq!(text.iter().filter(|l| l.contains("worked ·")).count(), 1, "{text:?}");
     }
 }
 
