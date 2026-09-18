@@ -48,13 +48,14 @@ struct CloudNightlyOverrideTests {
         _ = CmuxFeatureFlags(
             defaults: defaults,
             overrideCapability: CmuxFeatureFlagOverrideCapability(
-                bundleIdentifier: "com.cmuxterm.app.debug.old", isDebugBuild: true, cloudDogfoodRequested: false
+                bundleIdentifier: "com.cmuxterm.app.debug.old", isDebugBuild: true,
+                cloudDogfoodRequested: false, cloudDogfoodMarkerPresent: true
             ),
             remoteFlagValueProvider: { _ in false }
         )
 
-        #expect(defaults.object(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey) == nil)
-        #expect(defaults.object(forKey: "cmux.flags.override.\(cloud.key)") == nil)
+        #expect(defaults.bool(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey) == false)
+        #expect(defaults.bool(forKey: "cmux.flags.override.\(cloud.key)") == false)
     }
 
     @Test
