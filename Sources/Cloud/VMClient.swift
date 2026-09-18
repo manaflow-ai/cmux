@@ -2313,6 +2313,18 @@ actor VMClient {
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
                 continue
             }
+            // The private gateway has not forwarded this request yet. Every
+            // verb is safe to retry while its tagged backend is starting.
+            if http.statusCode == 503, retriesLeft > 0,
+               resolved.host == "cmux-dev-backend-1.tail137216.ts.net",
+               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting" {
+                retriesLeft -= 1
+                onRetry()
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
+                    try await CmxRetryAfterPolicy.sleep(seconds: 2)
+                }
+                continue
+            }
             if let sessionIdentity {
                 guard await auth.isAuthenticatedSessionIdentityCurrent(sessionIdentity) else {
                     throw VMClientError.notSignedIn

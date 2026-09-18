@@ -370,8 +370,17 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func privateRoute(machineID: String) async -> String? {
-        guard isCloudEnabled() else { return nil }
-        return await links.privateRoute(for: machineID)
+        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
+            return nil
+        }
+        let epoch = accessEpoch
+        // The persisted device marker outlives this in-memory registry. An
+        // explicit open must discover its machine before using the saved-device
+        // shortcut, even when the first background fleet read has not run.
+        guard await providerRefreshingIfMissing(machineID: machineID) != nil else { return nil }
+        let route = await links.privateRoute(for: machineID)
+        guard !isRetired, epoch == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return nil }
+        return route
     }
 
     func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {

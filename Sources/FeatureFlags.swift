@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSettings
 import Foundation
 import Observation
 import PostHog
@@ -398,6 +399,23 @@ final class CmuxFeatureFlags {
         self.overrideCapability = overrideCapability
         self.publishesOffMainSnapshot = publishesOffMainSnapshot
         self.remoteFlagValueProvider = remoteFlagValueProvider
+        // Reload's marker travels with the signed artifact, including an HQ
+        // restore on a fresh Mac. Seed both gates before publishing any flag
+        // snapshot; a remote false remains authoritative for release builds.
+        if overrideCapability.enablesCloudDogfood {
+            defaults.set(true, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+            defaults.set(true, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+        } else if overrideCapability.isTaggedDebugArtifact {
+            // A later tagged artifact can explicitly disable Cloud. Clear the
+            // previous debug marker's persisted gates so the old app identity
+            // cannot re-enable Cloud after a reload.
+            defaults.removeObject(forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+            defaults.removeObject(forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+            if overrideCapability.hasCloudDogfoodMarker {
+                defaults.set(false, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+                defaults.set(false, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
+            }
+        }
         if let remoteFlagLoader {
             self.remoteFlagLoader = remoteFlagLoader
         } else {

@@ -492,16 +492,15 @@ if ! awk '
   /^      - name: Publish nightly release assets/ { in_publish=1; next }
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
-  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-\*-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
-  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}\.dmg/ { saw_stable=1 }
-  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-arm64\.dmg/ { saw_arm=1 }
-  in_publish && /\$\{\{ needs\.decide\.outputs\.dmg_prefix \}\}-x86_64\.dmg/ { saw_intel=1 }
-  in_publish && /appcast-arm64\.xml/ { saw_arm_appcast=1 }
-  in_publish && /appcast-x86_64\.xml/ { saw_intel_appcast=1 }
-  in_publish && /appcast-universal\.xml/ { saw_universal_appcast=1 }
-  END { exit !(saw_publish_if && saw_immutable && saw_stable && saw_arm && saw_intel && saw_arm_appcast && saw_intel_appcast && saw_universal_appcast) }
+  in_publish && /publish-release-assets\.py/ { saw_publisher=1 }
+  in_publish && /--immutable .*arm64-.*NIGHTLY_BUILD/ { saw_immutable_arm=1 }
+  in_publish && /--immutable .*x86_64-.*NIGHTLY_BUILD/ { saw_immutable_intel=1 }
+  in_publish && /--immutable .*universal-.*NIGHTLY_BUILD/ { saw_immutable_universal=1 }
+  in_publish && /--alias .*CHANNEL_DMG_PREFIX.*\.dmg/ { alias_count++ }
+  in_publish && /--feed nightly-out\/appcast/ { feed_count++ }
+  END { exit !(saw_publish_if && saw_publisher && saw_immutable_arm && saw_immutable_intel && saw_immutable_universal && alias_count == 4 && feed_count == 4) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: main nightly publish must include per-architecture immutable and stable DMGs, their appcasts, and the legacy names"
+  echo "FAIL: nightly publication must verify every architecture and publish all aliases before the four feeds"
   exit 1
 fi
 
