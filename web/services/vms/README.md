@@ -351,6 +351,18 @@ bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
 bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
 ```
 
+## Startup benchmarks
+
+`docs/cloud-startup-latency.md` records where Cloud machine startup time goes and the
+lower-bound budget (issue #12905). The three benchmarks it is built on live beside the smoke
+scripts and only ever create, measure and delete their own resources:
+
+```bash
+bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5        # create → attach → exec → pause → resume → destroy, with the create route's Server-Timing stages
+bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider floor with the SDK: allocation, daemon listening, exec RTT, guest shell, pause/start
+bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
+```
+
 ## Telemetry
 
 Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`), which owns one request context (`requestContext.ts`) and one route span. The client mints a W3C `traceparent` and an `X-Cmux-Client-Request-Id` per call and sends `X-Cmux-Client`, `X-Cmux-App-Version`, `X-Cmux-App-Build`, `X-Cmux-Channel`. The server answers every response with `x-cmux-trace-id` and `x-cmux-span-id`, and every error body carries `traceId` (also `ui.traceId`). The Mac app prints it as `Reference: <trace id>` on every Cloud VM error, and the socket `vm_error` payload carries it as `data.trace_id`. That id is the join key across the three sinks:
