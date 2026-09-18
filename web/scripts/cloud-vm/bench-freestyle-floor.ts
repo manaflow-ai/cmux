@@ -33,7 +33,7 @@ import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
 import { elapsedMs, formatSummary, summarize, summarizeFields } from "./benchStats.mjs";
 
-type Probe = { ms: number; execOk: boolean; listening: boolean; running: boolean; healthy: boolean; instanceId: string | null };
+type Probe = { ms: number; execOk: boolean; listening: boolean; running: boolean; healthy: boolean; identityBound: boolean; instanceId: string | null };
 type DaemonMilestones = { firstExecMs: number | null; daemonProcessMs: number | null; daemonListenMs: number | null; probeAttempts: number; instanceId: string | null };
 type Trial = Record<string, unknown> & { index: number };
 
@@ -93,13 +93,16 @@ const INSTANCE_ID_COMMAND = "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl
  * this machine. An image that binds identity ships /etc/cmux/bake-instance-id
  * and its supervisor writes the bound id to /etc/cmux/daemon-instance-id; a
  * clone briefly runs the source machine's daemon until the supervisor
- * re-keys it, and that stale listener must not count as ready. The instance
- * id is read from the metadata service until it is known, then passed back
- * in, so a probe costs one exec and no metadata round trips.
+ * re-keys it, and that stale listener must not count as ready. Unlike the
+ * production predicate, which lets an older image without the marker pass
+ * on the listener alone, the benchmark refuses such an image (`m`): a
+ * daemon whose identity cannot be verified is never timed as ready. The
+ * instance id is read from the metadata service until it is known, then
+ * passed back in, so a probe costs one exec and no metadata round trips.
  */
 function probeCommand(instanceId: string | null): string {
   const id = instanceId === null ? `i=$(${INSTANCE_ID_COMMAND})` : `i=${shellQuote(instanceId)}`;
-  return `${id}; l=0; grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null && l=1; r=0; pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && r=1; v=0; { [ ! -f /etc/cmux/bake-instance-id ] || { [ -n "$i" ] && [ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$i" ]; }; } && v=1; echo "$l $r $v $i"`;
+  return `${id}; l=0; grep -qi ':0539 ' /proc/net/tcp6 2>/dev/null && l=1; r=0; pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && r=1; m=0; [ -f /etc/cmux/bake-instance-id ] && m=1; v=0; [ "$m" = 1 ] && [ -n "$i" ] && [ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$i" ] && v=1; echo "$l $r $m $v $i"`;
 }
 const WORK_USER_ENV = "setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty";
 // Each wrapper prints the elapsed milliseconds and then exits with the
@@ -190,11 +193,11 @@ async function execOk(vm: Vm, command: string, label: string, timeoutMs = 10_000
 async function probe(vm: Vm, instanceId: string | null): Promise<Probe> {
   try {
     const result = await exec(vm, probeCommand(instanceId), 6_000);
-    const [listening, running, valid, id] = result.stdout.split(" ");
+    const [listening, running, marker, valid, id] = result.stdout.split(" ");
     const healthy = listening === "1" && running === "1" && valid === "1";
-    return { ms: result.ms, execOk: result.exitCode === 0, listening: listening === "1", running: running === "1", healthy, instanceId: id || null };
+    return { ms: result.ms, execOk: result.exitCode === 0, listening: listening === "1", running: running === "1", healthy, identityBound: marker === "1", instanceId: id || null };
   } catch {
-    return { ms: 0, execOk: false, listening: false, running: false, healthy: false, instanceId: null };
+    return { ms: 0, execOk: false, listening: false, running: false, healthy: false, identityBound: false, instanceId: null };
   }
 }
 
@@ -210,6 +213,9 @@ async function waitForDaemon(vm: Vm, origin: number, budgetMs = 90_000, knownIns
   while (performance.now() - origin < budgetMs) {
     milestones.probeAttempts += 1;
     const result = await probe(vm, milestones.instanceId);
+    if (result.execOk && !result.identityBound) {
+      throw new Error("the image does not bind the daemon identity to the instance id (no /etc/cmux/bake-instance-id); refusing to time a daemon whose identity cannot be verified");
+    }
     if (milestones.instanceId === null && result.instanceId !== null) milestones.instanceId = result.instanceId;
     const at = elapsedMs(origin);
     if (result.execOk && milestones.firstExecMs === null) milestones.firstExecMs = at;
@@ -365,7 +371,11 @@ async function runTrial(index: number, vpcId: string | null): Promise<Trial> {
     Object.assign(trial, boot);
     if (boot.daemonListenMs === null) throw new Error(`daemon not listening within budget (first exec ${boot.firstExecMs ?? "never"} ms)`);
     checkInterrupted();
-    const addresses = (created.data.vpcs ?? []).flatMap((network) => [network.ipv4, network.ipv6]).filter((value): value is string => typeof value === "string" && value.length > 0);
+    // The driver reads the attachment under either name the provider has
+    // used (`vpcs`, or the deprecated `networks`); a VPC trial without an
+    // address is a failed trial, never a sample missing its announce.
+    const addresses = (created.data.vpcs ?? created.data.networks ?? []).flatMap((network) => [network.ipv4, network.ipv6]).filter((value): value is string => typeof value === "string" && value.length > 0);
+    if (vpcId !== null && addresses.length === 0) throw new Error("the machine reports no private address on the benchmark VPC");
     if (addresses.length > 0) {
       trial.announceMs = (await execOk(vm, freestyleNetworkAnnouncementCommand(addresses), "announce", 5_000)).ms;
     }
