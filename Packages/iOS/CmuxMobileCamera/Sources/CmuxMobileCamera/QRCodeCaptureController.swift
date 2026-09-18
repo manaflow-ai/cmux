@@ -102,9 +102,10 @@ public final class QRCodeCaptureController: UIViewController {
         // sync without a layout override.
         let host = CameraPreviewHostView(frame: view.bounds)
         host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.isUserInteractionEnabled = false
         host.previewLayer.session = captureSession
         host.previewLayer.videoGravity = .resizeAspectFill
-        view.addSubview(host)
+        view.insertSubview(host, at: 0)
         previewLayer = host.previewLayer
         isConfigured = true
     }
