@@ -179,7 +179,7 @@ jobs:
         run: |
           set -euo pipefail
           # Version comes from CMUX_IOS_APPSTORE_MARKETING_VERSION in main.
-          ARGS=(--lane appstore --signing automatic --skip-notes)
+          ARGS=(--lane appstore --signing manual --skip-notes)
           if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
             ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
           fi

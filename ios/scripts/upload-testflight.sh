@@ -1054,6 +1054,13 @@ else
   plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
+  EXTENSION_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.NotificationService"
+  EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
+  if [[ -z "$EXTENSION_PROFILE_NAME" ]]; then
+    echo "error: manual App Store export needs IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME for $EXTENSION_BUNDLE_IDENTIFIER" >&2
+    exit 1
+  fi
+  "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
 fi
 
 xcodebuild -exportArchive \
