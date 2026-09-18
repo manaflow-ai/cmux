@@ -144,10 +144,11 @@ function runTrial(index: number, provider: FreestyleProvider, networkId: string,
       const terminal = terminalId(run.value);
       const prompt = yield* timed(command(client, ["--socket", firstSocket, "--json", "terminal", terminal, "screen", "wait", "--pattern", PROMPT_PATTERN, "--timeout-ms", "60000"], "prompt wait", "70 seconds"));
       requireMatched(prompt.value);
-      return { linkMs: link.ms, snapshotMs: snapshot.ms, terminalRunMs: run.ms, promptWaitMs: prompt.ms, runToPromptMs: elapsedMs(runStartedAt) };
+      // Read the clock here, before the scope closes the first link: its
+      // teardown (up to a 2 s SIGKILL escalation) is not startup.
+      return { linkMs: link.ms, snapshotMs: snapshot.ms, terminalRunMs: run.ms, promptWaitMs: prompt.ms, runToPromptMs: elapsedMs(runStartedAt), createToPromptMs: elapsedMs(origin) };
     }));
     Object.assign(trial, first);
-    trial.createToPromptMs = elapsedMs(origin);
     const secondSocket = path.join(root, `link-${index}-b.sock`);
     const reconnect = yield* timed(Effect.gen(function* () {
       const connection = yield* startPrivateLinkClient(client, linkArgs(route, root, hubSocket, secondSocket), { event: "connection-snapshot", socket: secondSocket });

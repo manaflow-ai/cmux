@@ -77,6 +77,20 @@ const WORK_USER_ENV = "setpriv --reuid=cmux --regid=cmux --init-groups env HOME=
 const LOGIN_SHELL_MS = "s=$(date +%s%N); bash -lc true; rc=$?; e=$(date +%s%N); echo $(((e-s)/1000000)); exit $rc";
 const INTERACTIVE_PTY_MS = "s=$(date +%s%N); printf 'exit\\n' | timeout 25 script -q -e -c 'bash -il' /dev/null >/dev/null 2>&1; rc=$?; e=$(date +%s%N); echo $(((e-s)/1000000)); exit $rc";
 
+/**
+ * The SDK can keep polling a backgrounded request while the platform answers
+ * 202, so every provider await is raced against a deadline; on expiry the
+ * caller's budget and interrupt checks run and the trial's cleanup still
+ * deletes the machine (a lost create is found by the run id at exit).
+ */
+function bounded<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} exceeded ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 async function timed<T>(run: () => Promise<T>): Promise<{ ms: number; value: T }> {
   const startedAt = performance.now();
   const value = await run();
@@ -84,7 +98,7 @@ async function timed<T>(run: () => Promise<T>): Promise<{ ms: number; value: T }
 }
 
 async function exec(vm: Vm, command: string, timeoutMs = 10_000): Promise<{ ms: number; exitCode: number | null; stdout: string }> {
-  const { ms, value } = await timed(() => vm.exec({ command, timeoutMs, linuxUser: "root" }));
+  const { ms, value } = await timed(() => bounded(vm.exec({ command, timeoutMs, linuxUser: "root" }), timeoutMs + 15_000, "exec"));
   return { ms, exitCode: value.statusCode ?? null, stdout: (value.stdout ?? "").trim() };
 }
 
@@ -173,7 +187,7 @@ async function deleteVpcWithRetry(id: string): Promise<void> {
 }
 
 async function createVm(vpcId: string | null, name: string) {
-  const { ms, value } = await timed(() => fs.vms.create({
+  const { ms, value } = await timed(() => bounded(fs.vms.create({
     snapshotId: image,
     displayName: name,
     idleTimeoutSeconds: -1,
@@ -185,7 +199,7 @@ async function createVm(vpcId: string | null, name: string) {
     // and this benchmark only ever reaches the guest through the exec API.
     firewall: { rules: freestyleFirewallRules() },
     ...(vpcId ? { vpcs: [{ vpcId, ipv4: true, ipv6: true }] } : {}),
-  }));
+  }), 120_000, "create"));
   return { allocMs: ms, vm: value.vm, vmId: value.vmId, data: value.data };
 }
 
@@ -206,7 +220,7 @@ async function guestShellMs(vm: Vm, script: string, label: string): Promise<numb
 async function deleteVm(vm: Vm, vmId: string): Promise<number | null> {
   const startedAt = performance.now();
   try {
-    await vm.delete();
+    await bounded(vm.delete(), 60_000, "delete");
     return elapsedMs(startedAt);
   } catch (error) {
     cleanupFailures.push(`VM ${vmId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -233,18 +247,18 @@ async function runTrial(index: number, vpcId: string | null): Promise<Trial> {
       trial.announceMs = (await execOk(vm, freestyleNetworkAnnouncementCommand(addresses), "announce", 5_000)).ms;
     }
     trial.execRtt = await repeat(10, async () => (await execOk(vm, "true", "exec true")).ms);
-    trial.dataRtt = await repeat(3, async () => (await timed(() => vm.data())).ms);
+    trial.dataRtt = await repeat(3, async () => (await timed(() => bounded(vm.data(), 30_000, "data"))).ms);
     const payload = "#!/bin/sh\n".padEnd(20_480, "#");
-    trial.fsWriteRtt = await repeat(3, async () => (await timed(() => vm.fs.writeTextFile(`/tmp/${runId}-shim`, payload, { mode: 0o755 }))).ms);
+    trial.fsWriteRtt = await repeat(3, async () => (await timed(() => bounded(vm.fs.writeTextFile(`/tmp/${runId}-shim`, payload, { mode: 0o755 }), 30_000, "fs write"))).ms);
     trial.loginShellGuestMs = await repeat(3, () => guestShellMs(vm, LOGIN_SHELL_MS, "login shell"));
     trial.interactivePtyGuestMs = await repeat(3, () => guestShellMs(vm, INTERACTIVE_PTY_MS, "interactive shell"));
     checkInterrupted();
-    const paused = await timed(() => vm.pause());
+    const paused = await timed(() => bounded(vm.pause(), 60_000, "pause"));
     trial.pauseMs = paused.ms;
     trial.stateAfterPause = paused.value.state;
     if (paused.value.state !== "paused" && paused.value.state !== "pausing") throw new Error(`pause left the VM ${paused.value.state}`);
     const resumeOrigin = performance.now();
-    const started = await timed(() => vm.start());
+    const started = await timed(() => bounded(vm.start(), 120_000, "start"));
     trial.startMs = started.ms;
     trial.stateAfterStart = started.value.state;
     const afterResume = await waitForDaemon(vm, resumeOrigin, 60_000);

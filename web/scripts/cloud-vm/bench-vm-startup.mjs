@@ -456,6 +456,96 @@ function positiveInteger(raw, flag) {
   return value;
 }
 
+/** Everything teardown learned, so the report can say what really happened. */
+async function runCleanup() {
+  const cleanup = { machinesGone: false, providerClean: false, accountOutcome: null, accountDeleted: false, identityGone: false, leftoverVmIds: [], keptUser: null };
+  cleanup.machinesGone = await destroyLeftovers();
+  for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
+  cleanup.leftoverVmIds = [...liveVmIds];
+  // The control plane's list is not the provider's inventory: sweep the
+  // user's own network at the provider before any account cleanup.
+  cleanup.providerClean = user ? await reapOwnerVpcMachines(user.id) : true;
+  if (user && cleanup.machinesGone && cleanup.providerClean) {
+    let outcome = "failed";
+    try {
+      outcome = await deleteAccount();
+    } catch (cleanupError) {
+      console.error(`cleanup_delete_account_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+    }
+    cleanup.accountOutcome = outcome;
+    if (outcome === "deleted") cleanup.accountDeleted = true;
+    if (outcome === "cleanup_incomplete") {
+      // The identity is already gone; only the network can still be verified.
+      cleanup.identityGone = true;
+      cleanup.accountDeleted = await reapOwnerNetwork(user.id);
+      if (!cleanup.accountDeleted) console.error(`cleanup_needed_network=${ownerNetworkSlug(user.id)} (the account route deleted the identity but its cleanup did not finish)`);
+    }
+    if (outcome === "retryable_failure") {
+      // The route answered with its resumable contract (a checkpoint is
+      // recorded; on staging it fails at the final Stack step after it has
+      // already removed the cmux-owned data). Provider inventory is verified
+      // empty above, so take the network out by its slug and drop the
+      // identity with the server key: no billable resource outlives the
+      // account, and at worst inert rows for a deleted user remain. An
+      // unclassified failure ("failed") never reaches this branch: the user
+      // is kept so the route can be retried with its state intact.
+      try {
+        if (await reapOwnerNetwork(user.id)) {
+          await user.delete();
+          cleanup.accountDeleted = true;
+          console.error("cleanup_note=account deletion route failed; the owner network was removed at the provider and the Stack identity with the server key (a cloud_vm_networks row for the deleted user may remain)");
+        }
+      } catch (cleanupError) {
+        console.error(`cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      }
+    }
+  }
+  if (user && !cleanup.accountDeleted && !cleanup.identityGone) {
+    // The throwaway user is the only credential that still owns whatever is
+    // left (machines, or the owner network the app deletes with the account);
+    // deleting the identity now would make them unreachable to any retry.
+    cleanup.keptUser = user.primaryEmail ?? user.id;
+    console.error(`cleanup_needed_user=${cleanup.keptUser} (kept so its resources can still be cleaned up: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account, which also removes its owner network)`);
+  }
+  cleanup.ok = !user || (cleanup.accountDeleted && cleanup.leftoverVmIds.length === 0);
+  return cleanup;
+}
+
+/** The report is written once, after teardown, so a stored artifact never claims a success cleanup later denied. */
+function emitReport({ results, listMs, startedAt, runError, cleanup }) {
+  const ok = results.filter((trial) => trial && trial.ok !== false);
+  const summary = {
+    ok: !runError && !interrupted && cleanup.ok && ok.length === results.length && results.length === trials,
+    interrupted,
+    runError: runError ? (runError instanceof Error ? runError.message : String(runError)) : null,
+    cleanup,
+    target,
+    url: targetUrl,
+    label,
+    trials,
+    concurrency,
+    listMs,
+    totalMs: startedAt === null ? null : elapsedMs(startedAt),
+    succeeded: ok.length,
+    failed: results.length - ok.length,
+    stages: summarizeFields(ok, ["createMs", "attachMs", "createToUsableMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
+    attachAttempts: summarizeFields(ok.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
+    createServerTiming: summarizeStages(ok.map((trial) => trial.createStages)),
+    results,
+  };
+  if (ok.length > 0) {
+    console.error(formatSummary({ ...summary.stages, ...Object.fromEntries(Object.entries(summary.createServerTiming).map(([name, value]) => [`server:${name}`, value])) }));
+  }
+  const text = JSON.stringify(summary);
+  if (outPath) writeFileSync(outPath, `${text}\n`);
+  console.log(text);
+  if (!summary.ok) process.exitCode = 1;
+}
+
+let results = [];
+let listMs = null;
+let startedAt = null;
+let runError = null;
 try {
   user = await app.createUser({
     primaryEmail: `cmux-${project.stackLabel}-bench+${suffix}@manaflow.dev`,
@@ -477,86 +567,16 @@ try {
 
   const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
   if (list.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${list.status}: ${list.text.slice(0, 200)}`);
+  listMs = list.ms;
 
-  const startedAt = performance.now();
-  const results = await runBatches();
-  const ok = results.filter((trial) => trial && trial.ok !== false);
-  const summary = {
-    ok: !interrupted && ok.length === results.length && results.length === trials,
-    interrupted,
-    target,
-    url: targetUrl,
-    label,
-    trials,
-    concurrency,
-    listMs: list.ms,
-    totalMs: elapsedMs(startedAt),
-    succeeded: ok.length,
-    failed: results.length - ok.length,
-    stages: summarizeFields(ok, ["createMs", "attachMs", "createToUsableMs", "warmAttachMs", "execMs", "edgeReadyMs", "pauseMs", "resumeAttachMs", "destroyMs"]),
-    attachAttempts: summarizeFields(ok.map((trial) => ({ attempts: trial.attachAttempts?.length })), ["attempts"]).attempts,
-    createServerTiming: summarizeStages(ok.map((trial) => trial.createStages)),
-    trials: results,
-  };
-  console.error(formatSummary({ ...summary.stages, ...Object.fromEntries(Object.entries(summary.createServerTiming).map(([name, value]) => [`server:${name}`, value])) }));
-  const text = JSON.stringify(summary);
-  if (outPath) writeFileSync(outPath, `${text}\n`);
-  console.log(text);
-  if (!summary.ok) process.exitCode = 1;
+  startedAt = performance.now();
+  results = await runBatches();
 } catch (error) {
+  runError = error;
   console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
 } finally {
-  const machinesGone = await destroyLeftovers();
-  for (const vmId of liveVmIds) console.error(`cleanup_needed_vm=${vmId}`);
-  // The control plane's list is not the provider's inventory: sweep the
-  // user's own network at the provider before any account cleanup.
-  const providerClean = user ? await reapOwnerVpcMachines(user.id) : true;
-  let accountDeleted = false;
-  let identityGone = false;
-  if (user && machinesGone && providerClean) {
-    let outcome = "failed";
-    try {
-      outcome = await deleteAccount();
-    } catch (cleanupError) {
-      console.error(`cleanup_delete_account_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
-    }
-    if (outcome === "deleted") accountDeleted = true;
-    if (outcome === "cleanup_incomplete") {
-      // The identity is already gone; only the network can still be verified.
-      identityGone = true;
-      accountDeleted = await reapOwnerNetwork(user.id);
-      if (!accountDeleted) console.error(`cleanup_needed_network=${ownerNetworkSlug(user.id)} (the account route deleted the identity but its cleanup did not finish)`);
-    }
-    if (outcome === "retryable_failure") {
-      // The route answered with its resumable contract (a checkpoint is
-      // recorded; on staging it fails at the final Stack step after it has
-      // already removed the cmux-owned data). Provider inventory is verified
-      // empty above, so take the network out by its slug and drop the
-      // identity with the server key: no billable resource outlives the
-      // account, and at worst inert rows for a deleted user remain. An
-      // unclassified failure ("failed") never reaches this branch: the user
-      // is kept so the route can be retried with its state intact.
-      try {
-        if (await reapOwnerNetwork(user.id)) {
-          await user.delete();
-          accountDeleted = true;
-          console.error("cleanup_note=account deletion route failed; the owner network was removed at the provider and the Stack identity with the server key (a cloud_vm_networks row for the deleted user may remain)");
-        }
-      } catch (cleanupError) {
-        console.error(`cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
-      }
-    }
-  }
-  if (user && !accountDeleted) {
-    if (!identityGone) {
-      // The throwaway user is the only credential that still owns whatever is
-      // left (machines, or the owner network the app deletes with the account);
-      // deleting the identity now would make them unreachable to any retry.
-      console.error(`cleanup_needed_user=${user.primaryEmail ?? user.id} (kept so its resources can still be cleaned up: mint a session for this user with the Stack server key and call DELETE ${targetUrl}/api/account, which also removes its owner network)`);
-    }
-    process.exitCode = 1;
-  }
+  const cleanup = await runCleanup();
+  emitReport({ results, listMs, startedAt, runError, cleanup });
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", interrupt);
 }
