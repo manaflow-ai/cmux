@@ -214,7 +214,7 @@ struct MobileSettingsView: View {
                 }
 
                 if let irohSettingsController {
-                    Section {
+                    AnyView(Section {
                         NavigationLink {
                             MobileIrohSettingsView(
                                 controller: irohSettingsController,
@@ -229,7 +229,7 @@ struct MobileSettingsView: View {
                         .accessibilityIdentifier("MobileSettingsIroh")
                     } header: {
                         Text(L10n.string("mobile.settings.networking", defaultValue: "Networking"))
-                    }
+                    })
                 }
 
                 AnyView(Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
