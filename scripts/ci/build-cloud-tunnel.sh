@@ -16,7 +16,8 @@ CMUX_WIREGUARD_GO_REQUIRE=1 xcodebuild \
   CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=YES build
 extension="$output/products/Release/cmuxTunnel.systemextension"
 test -x "$extension/Contents/MacOS/cmuxTunnel"
-if nm "$extension/Contents/MacOS/cmuxTunnel" | grep -q cmux_wireguard_go_bridge_is_stub; then
+nm "$extension/Contents/MacOS/cmuxTunnel" > "$output/symbols.txt"
+if grep -q cmux_wireguard_go_bridge_is_stub "$output/symbols.txt"; then
   echo 'Refusing an extension with a stub WireGuard engine' >&2
   exit 1
 fi
