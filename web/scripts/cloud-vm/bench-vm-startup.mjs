@@ -321,6 +321,12 @@ async function runTrial(index) {
   trial.createStatus = create.status;
   trial.createTraceId = create.headers.get("x-cmux-trace-id");
   trial.createStages = parseServerTiming(create.headers.get("server-timing"));
+  if (create.status >= 500) {
+    // A 5xx (a gateway or function timeout above all) can end the invocation
+    // while the provider create continues, with nothing recorded yet; the
+    // key is resolved before teardown like a lost response.
+    ambiguousCreates.set(idempotencyKey, createRequestedAt);
+  }
   requireStatus("POST /api/vm", create);
   const created = json(create.text);
   const vmId = created.id;
@@ -736,6 +742,14 @@ function positiveInteger(raw, flag) {
   return value;
 }
 
+/** A fresh session for the throwaway user; its tokens go only to the target origin. */
+async function mintSessionHeaders(expiresInMillis) {
+  const session = await withTimeout(user.createSession({ expiresInMillis, isImpersonation: true }), STACK_TIMEOUT_MS, "Stack createSession");
+  const tokens = await withTimeout(session.getTokens(), STACK_TIMEOUT_MS, "Stack getTokens");
+  if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return bench session tokens");
+  return { authorization: `Bearer ${tokens.accessToken}`, "x-stack-refresh-token": tokens.refreshToken };
+}
+
 /** Everything teardown learned, so the report can say what really happened. */
 async function runCleanup() {
   const cleanup = { machinesGone: false, providerClean: false, providerSettled: true, accountOutcome: null, accountDeleted: false, identityGone: false, identityUnknown: false, unresolvedCreates: [], leftoverVmIds: [], keptUser: null };
@@ -781,6 +795,14 @@ async function runCleanup() {
     }
     cleanup.ok = cleanup.accountDeleted;
     return cleanup;
+  }
+  // Cleanup's own bounded waits can outlast the run's session, so it works
+  // under a fresh one when Stack can mint it; the run's tokens remain the
+  // fallback.
+  try {
+    authHeaders = await mintSessionHeaders(6 * 60 * 60 * 1000);
+  } catch (error) {
+    console.error(`cleanup_session_renewal_failed error=${error instanceof Error ? error.message : String(error)} (continuing with the run's session)`);
   }
   cleanup.unresolvedCreates = await resolveAmbiguousCreates();
   cleanup.machinesGone = await destroyLeftovers();
@@ -884,14 +906,14 @@ try {
   }), STACK_TIMEOUT_MS, "Stack createUser");
   // Provisioning is paid-plan gated; the plan is metadata on the throwaway user only.
   await withTimeout(user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } }), STACK_TIMEOUT_MS, "Stack user update");
-  // The session must outlive the whole run and its cleanup: budget the worst
-  // case per trial (a 630 s create plus attach, resume and destroy budgets)
-  // and cap at a day, past which the run fails closed and keeps the user.
-  const sessionMs = Math.min(24 * 60 * 60 * 1000, 30 * 60 * 1000 + trials * 20 * 60 * 1000);
-  const session = await withTimeout(user.createSession({ expiresInMillis: sessionMs, isImpersonation: true }), STACK_TIMEOUT_MS, "Stack createSession");
-  const tokens = await withTimeout(session.getTokens(), STACK_TIMEOUT_MS, "Stack getTokens");
-  if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return bench session tokens");
-  authHeaders = { authorization: `Bearer ${tokens.accessToken}`, "x-stack-refresh-token": tokens.refreshToken };
+  // The session must outlive the trials at their bounds: per trial, the
+  // create's deadline, three attach stages (each its budget plus one more
+  // request), exec, pause and destroy requests and the edge probe, in
+  // ceil(trials / concurrency) rounds; capped at a day. Cleanup mints its
+  // own fresh session, so it does not depend on this one.
+  const trialWorstMs = CREATE_TIMEOUT_MS + 3 * (ATTACH_BUDGET_MS + REQUEST_TIMEOUT_MS) + 3 * REQUEST_TIMEOUT_MS + EDGE_BUDGET_MS + REQUEST_TIMEOUT_MS;
+  const sessionMs = Math.min(24 * 60 * 60 * 1000, 30 * 60 * 1000 + Math.ceil(trials / concurrency) * trialWorstMs);
+  authHeaders = await mintSessionHeaders(sessionMs);
 
   const list = await fetchTimed(`${targetUrl}/api/vm`, { headers: authHeaders });
   if (list.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${list.status}: ${list.text.slice(0, 200)}`);
