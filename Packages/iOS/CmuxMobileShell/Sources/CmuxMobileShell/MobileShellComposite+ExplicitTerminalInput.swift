@@ -56,6 +56,9 @@ extension MobileShellComposite {
         let marker = inputSequence != 0 && tracksInputSequence
             ? String(inputSequence)
             : nil
+        if marker != nil {
+            traceLiveInputDispatched(surfaceID: terminalID.rawValue, sequence: inputSequence)
+        }
 
         do {
             var params: [String: Any] = [
@@ -75,12 +78,18 @@ extension MobileShellComposite {
                 surfaceID: terminalID.rawValue,
                 sequence: inputSequence
             )
+            if marker != nil {
+                traceLiveInputSettled(surfaceID: terminalID.rawValue, sequence: inputSequence, failed: false)
+            }
             return true
         } catch {
             terminalLatencyObserver.inputFailed(
                 surfaceID: terminalID.rawValue,
                 sequence: inputSequence
             )
+            if marker != nil {
+                traceLiveInputSettled(surfaceID: terminalID.rawValue, sequence: inputSequence, failed: true)
+            }
             explicitTerminalInputLog.error(
                 "explicit terminal input failed workspace=\(workspaceID.rawValue, privacy: .private) surface=\(terminalID.rawValue, privacy: .private) error=\(String(describing: error), privacy: .private)"
             )

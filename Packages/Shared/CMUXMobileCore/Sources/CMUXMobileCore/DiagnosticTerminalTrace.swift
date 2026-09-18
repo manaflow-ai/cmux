@@ -5,6 +5,14 @@ public enum DiagnosticTerminalTraceOperation: Int, Sendable, Codable, CaseIterab
     case replay = 1
     case artifactScan = 2
     case artifactList = 3
+    /// One marked live terminal input batch: dispatch, settlement, and the
+    /// delivered output frame whose cumulative watermark acknowledges it.
+    /// The trace ID is the input's wire marker.
+    case liveInput = 4
+    /// One live delivered output frame: admission, application, and
+    /// presentation, including gate discards. The trace ID is the frame's
+    /// state sequence; the surface handle disambiguates concurrent surfaces.
+    case liveFrame = 5
 }
 
 /// A phase in one terminal operation.
@@ -18,6 +26,17 @@ public enum DiagnosticTerminalTracePhase: Int, Sendable, Codable, CaseIterable {
     case applied = 7
     case failed = 8
     case discarded = 9
+    /// The renderer confirmed on-screen presentation (live path only).
+    case presented = 10
+}
+
+/// Why a live frame was discarded before painting. Carried in the trace
+/// event's `detail` field; values are stable on the wire.
+public enum DiagnosticTerminalTraceDiscardReason: Int, Sendable, Codable, CaseIterable {
+    case staleSequence = 1
+    case behindPendingInput = 2
+    case replacedInQueue = 3
+    case droppedByOverflow = 4
 }
 
 /// A short opaque ID that can safely cross the mobile RPC boundary.
