@@ -21,7 +21,7 @@ extension WindowBrowserPortal {
 extension BrowserWindowPortalRegistry {
     private static var browserHostMountObserver: NSObjectProtocol?
 
-    fileprivate static func installBrowserHostMountObserverIfNeeded() {
+    static func installBrowserHostMountObserverIfNeeded() {
         guard browserHostMountObserver == nil else { return }
         browserHostMountObserver = NotificationCenter.default.addObserver(
             forName: .windowContentOverlayBrowserHostDidMount,
