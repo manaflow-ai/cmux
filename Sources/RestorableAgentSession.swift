@@ -560,7 +560,12 @@ enum AgentResumeCommandBuilder {
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
+            from: environment,
+            kind: kind.rawValue,
+            launcher: launchCommand?.launcher,
+            arguments: launchCommand?.arguments ?? []
+        )
         let piFamilyUsesCapturedPath = kind == .pi
             || kind.customAgentID == "pi"
             || kind.customAgentID == "omp"
@@ -609,7 +614,8 @@ enum AgentResumeCommandBuilder {
             launcher: launchCommand?.launcher,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
+            arguments: launchCommand?.arguments ?? [],
+            environment: launchCommand?.environment
         ) {
         case .resolved(let argv):
             return argv
@@ -803,7 +809,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             restoringWorkingDirectory: effectiveWorkingDirectory
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
-                .applying(toStoredCommand: command) ?? command
+                .applying(
+                    toStoredCommand: command,
+                    routedLaunchCommand: launchCommand,
+                    checkpointID: sessionId
+                ) ?? command
         }
         return restoreCommand.map { $0 + "\n" }
     }

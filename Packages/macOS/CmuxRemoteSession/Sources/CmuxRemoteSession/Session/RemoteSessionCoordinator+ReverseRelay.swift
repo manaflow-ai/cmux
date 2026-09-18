@@ -362,7 +362,8 @@ extension RemoteSessionCoordinator {
             relayPort: relayPort,
             relayID: relayID,
             relayToken: relayToken,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
+            persistentDaemonSlot: configuration.persistentDaemonSlot,
+            codexWrapperScript: codexWrapperScript
         )
         // Relay credentials are deliberately stored on the remote host, so
         // never place the token-bearing script in SSH argv (argv is visible to
