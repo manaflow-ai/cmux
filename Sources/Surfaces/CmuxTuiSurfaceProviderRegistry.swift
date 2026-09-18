@@ -370,6 +370,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func privateRoute(machineID: String) async -> String? {
+        guard !isRetired, !ManagedDevicePolicy().isEnforced(.disableCloud), isCloudEnabled(), !Task.isCancelled else {
+            return nil
+        }
         let epoch = accessEpoch
         // The persisted device marker outlives this in-memory registry. An
         // explicit open must discover its machine before using the saved-device

@@ -4347,7 +4347,11 @@ class TerminalController {
                 break
             }
         }
-        guard case let VMClientError.httpStatus(status, body) = error else { return fallback }
+        guard case let VMClientError.httpStatus(status, body) = error else {
+            guard let vmError = error as? VMClientError else { return fallback }
+            let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(describing: vmError))
+            return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+        }
         guard let data = body.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return formattedCloudVMHTTPError(status: status, body: "")
