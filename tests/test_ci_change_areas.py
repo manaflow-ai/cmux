@@ -126,10 +126,10 @@ def test_ios_only_skips_main_macos_ci() -> None:
     assert_areas(["ios/cmux/ContentView.swift"], macos=False, web=False)
 
 
-def test_ios_package_only_skips_main_macos_ci() -> None:
+def test_ios_packages_keep_macos_dependency_coverage() -> None:
     assert_areas(
-        ["Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift"],
-        macos=False,
+        ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileTerminalLaneConnection.swift"],
+        macos=True,
         web=False,
     )
 
@@ -305,6 +305,8 @@ exit 9
                 **os.environ,
                 "PATH": f"{fake_bin}:{os.environ['PATH']}",
                 "RUNNER_TEMP": str(runner_temp),
+                "CMUX_APP_HOST_XCTESTRUN": str(root / "cmux-unit.xctestrun"),
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN": str(root / "numeric.xctestrun"),
                 "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
@@ -757,15 +759,16 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "cmux-unit" in admission
     assert "cmux-numeric-locale" in admission
     assert "actions/cache@27d5ce7" in admission
-    assert "cmux-macos-test-products-${{ github.sha }}" in admission
+    assert "steps.upload-products.outputs.artifact-id" in admission
+    assert "app_host_test_products.py stamp" in admission
 
     app_host = workflow_job_block("app-host-unit-tests")
     assert "      - macos-compile-admission" in app_host
     assert "test-without-building" in app_host
-    assert "Require compiled app-host test product" in app_host
-    assert "macOS compile admission cache was not available; refusing to rebuild" in app_host
-    assert 'DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-compile-admission"' in app_host
-    assert 'github.run_id }}-shard-${{ matrix.shard }}' not in app_host
+    assert "needs.macos-compile-admission.outputs.artifact_id" in app_host
+    assert "app_host_test_products.py restore" in app_host
+    assert "EXPECTED_SHA256" in app_host
+    assert "-xctestrun" in app_host
 
     # The focused shard and the logical unit-test batches must both reuse the
     # admission-produced product. A later test invocation that silently changes
@@ -982,6 +985,8 @@ esac
             env={
                 **os.environ,
                 "RUNNER_TEMP": str(runner_temp),
+                "CMUX_APP_HOST_XCTESTRUN": str(root / "cmux-unit.xctestrun"),
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN": str(root / "numeric.xctestrun"),
                 "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                 "CMUX_TEST_INVOCATION_COUNTER": str(counter),
                 "CMUX_TEST_OUTCOMES": str(outcomes_file),
