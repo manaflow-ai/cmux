@@ -11,6 +11,11 @@ import {
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
 const DB_STRESS_TEST_TIMEOUT_MS = 30_000;
+const pushFieldsFor = (deviceToken: string, installationId?: string) => ({
+  installationId: installationId ?? `installation-${deviceToken.slice(-32)}`,
+  pushKeyId: "key-test",
+  pushPublicKey: `${"A".repeat(43)}=`,
+});
 
 const getUser = mock(async () => ({
   id: "push-user-1",
@@ -26,7 +31,7 @@ mock.module("../app/lib/stack", () => ({
   stackServerApp: { getUser },
 }));
 
-const { DELETE, POST } = await import("../app/api/device-tokens/route");
+const { DELETE, GET, POST } = await import("../app/api/device-tokens/route");
 
 let sql: Sql | null = null;
 
@@ -64,6 +69,7 @@ describe("device token route", () => {
           deviceToken: "b".repeat(64),
           bundleId: "dev.cmux.app.internal",
           platform: "ios",
+          ...pushFieldsFor("b".repeat(64)),
         }),
       }),
     );
@@ -71,6 +77,68 @@ describe("device token route", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: "client_namespace_mismatch",
+    });
+  });
+
+  test("rejects a registration without an E2E push key", async () => {
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.app.internal",
+        },
+        body: JSON.stringify({
+          deviceToken: "c".repeat(64),
+          bundleId: "dev.cmux.app.internal",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "invalid_push_key",
+      action: "complete_secure_pairing",
+    });
+  });
+
+  dbTest("allows a legacy registration without an E2E push key", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token = "d".repeat(64);
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify({
+          deviceToken: token,
+          bundleId: "com.cmux.app",
+          platform: "ios",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).ok).toBe(true);
+    const [row] = await sql<{
+      installationId: string;
+      pushKeyId: string;
+      pushPublicKey: string | null;
+    }[]>`
+      select installation_id as "installationId",
+        push_key_id as "pushKeyId",
+        push_public_key as "pushPublicKey"
+      from device_tokens
+      where user_id = 'push-user-1' and device_token = ${token}
+    `;
+    expect(row).toEqual({
+      installationId: "legacy",
+      pushKeyId: "legacy",
+      pushPublicKey: null,
     });
   });
 
@@ -185,6 +253,7 @@ describe("device token route", () => {
           deviceToken: "b".repeat(64),
           bundleId: "dev.cmux.ios.push1",
           platform: "ios",
+          ...pushFieldsFor("b".repeat(64)),
         }),
       }),
     );
@@ -221,6 +290,7 @@ describe("device token route", () => {
           deviceToken: "b".repeat(64),
           bundleId: "dev.cmux.ios.push1",
           platform: "ios",
+          ...pushFieldsFor("b".repeat(64)),
         }),
       }),
     );
@@ -249,6 +319,7 @@ describe("device token route", () => {
               deviceToken: index.toString(16).padStart(64, "0"),
               bundleId: "dev.cmux.ios.push1",
               platform: "ios",
+              ...pushFieldsFor(index.toString(16).padStart(64, "0")),
             }),
           }),
         )
@@ -305,6 +376,7 @@ describe("device token route", () => {
           deviceToken,
           bundleId: "dev.cmux.ios.push1",
           platform: "ios",
+          ...pushFieldsFor(deviceToken),
         }),
       }),
     );
@@ -349,6 +421,9 @@ describe("device token route", () => {
               .padStart(63, "0")}`,
             bundleId,
             platform: "ios",
+            ...pushFieldsFor(`${bundleId === "dev.cmux.app.demo" ? "d" : "e"}${index
+              .toString(16)
+              .padStart(63, "0")}`),
           }),
         }),
       );
@@ -394,6 +469,7 @@ describe("device token route", () => {
           deviceToken: "f".repeat(64),
           bundleId: "dev.cmux.ios.overflow",
           platform: "ios",
+          ...pushFieldsFor("f".repeat(64)),
         }),
       }),
     );
@@ -420,10 +496,11 @@ describe("device token route", () => {
         new Request("https://cmux.test/api/device-tokens", {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            deviceToken,
-            bundleId: "dev.cmux.ios.push1",
-            platform: "ios",
+        body: JSON.stringify({
+          deviceToken,
+          bundleId: "dev.cmux.ios.push1",
+          platform: "ios",
+          ...pushFieldsFor(deviceToken),
           }),
         }),
       );
@@ -472,6 +549,7 @@ describe("device token route", () => {
           deviceToken,
           bundleId,
           platform: "ios",
+          ...pushFieldsFor(deviceToken),
         }),
       });
 
@@ -543,6 +621,7 @@ describe("device token route", () => {
           deviceToken: token,
           bundleId: "com.cmux.app",
           platform: "ios",
+          ...pushFieldsFor(token),
         }),
       }),
     );
@@ -580,5 +659,148 @@ describe("device token route", () => {
       where user_id = 'push-user-1' and device_token = ${ownedToken}
     `;
     expect(owned.total).toBe(1);
+  });
+
+  dbTest("returns only keyed recipients for the authenticated account and bundle", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const token1 = "1".repeat(64);
+    const token2 = "2".repeat(64);
+    const token3 = "3".repeat(64);
+    const token4 = "4".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, installation_id, push_key_id, push_public_key,
+        platform, bundle_id, environment
+        ) values
+        (
+          'push-user-1', ${token1}, 'installation-get-1', 'key-get-1',
+          ${"A".repeat(43) + "="}, 'ios', 'dev.cmux.ios.push1', 'sandbox'
+        ),
+        (
+          'push-user-1', ${token2}, 'installation-get-2', 'key-get-2',
+          ${"B".repeat(43) + "="}, 'ios', 'dev.cmux.ios.push2', 'sandbox'
+        ),
+        (
+          'push-user-1', ${token3}, 'legacy', 'legacy', null,
+          'ios', 'dev.cmux.ios.push1', 'sandbox'
+        ),
+        (
+          'other-user', ${token4}, 'installation-get-4', 'key-get-4',
+          ${"C".repeat(43) + "="}, 'ios', 'dev.cmux.ios.push1', 'sandbox'
+        )
+    `;
+
+    const response = await GET(
+      new Request("https://cmux.test/api/device-tokens?bundleId=dev.cmux.ios.push1", {
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": "dev.cmux.ios.push1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      recipients: [{
+        accountID: "push-user-1",
+        installationID: "installation-get-1",
+        keyID: "key-get-1",
+        publicKey: "A".repeat(43) + "=",
+        bundleID: "dev.cmux.ios.push1",
+      }],
+    });
+  });
+
+  dbTest("rotates a token in place for the same installation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const bundleId = "dev.cmux.ios.rotate";
+    const installationId = "installation-rotate-1";
+    const firstToken = "5".repeat(64);
+    const secondToken = "6".repeat(64);
+    const headers = {
+      authorization: "Bearer access-token",
+      "x-stack-refresh-token": "refresh-token",
+      "x-cmux-app-namespace": bundleId,
+    };
+    const register = (deviceToken: string, keyId: string) => POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          deviceToken,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(deviceToken, installationId),
+          pushKeyId: keyId,
+        }),
+      }),
+    );
+
+    expect((await register(firstToken, "key-rotate-1")).status).toBe(200);
+    expect((await register(secondToken, "key-rotate-2")).status).toBe(200);
+
+    const rows = await sql<{
+      total: number;
+      device_token: string;
+      installation_id: string;
+      push_key_id: string;
+      user_id: string;
+    }[]>`
+      select count(*)::int as total, min(device_token) as device_token,
+        min(installation_id) as installation_id, min(push_key_id) as push_key_id,
+        min(user_id) as user_id
+      from device_tokens
+      where bundle_id = ${bundleId} and installation_id = ${installationId}
+    `;
+    expect(rows[0]).toEqual({
+      total: 1,
+      device_token: secondToken,
+      installation_id: installationId,
+      push_key_id: "key-rotate-2",
+      user_id: "push-user-1",
+    });
+  });
+
+  dbTest("rejects an installation already owned by another account", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const bundleId = "dev.cmux.ios.owner";
+    const installationId = "installation-owner-1";
+    const oldToken = "7".repeat(64);
+    const newToken = "8".repeat(64);
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, installation_id, push_key_id, push_public_key,
+        platform, bundle_id, environment
+      ) values (
+        'other-user', ${oldToken}, ${installationId}, 'key-old',
+        ${"D".repeat(43) + "="}, 'ios', ${bundleId}, 'sandbox'
+      )
+    `;
+
+    const response = await POST(
+      new Request("https://cmux.test/api/device-tokens", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+          "x-cmux-app-namespace": bundleId,
+        },
+        body: JSON.stringify({
+          deviceToken: newToken,
+          bundleId,
+          platform: "ios",
+          ...pushFieldsFor(newToken, installationId),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "push_registration_conflict" });
+    const [stored] = await sql<{ user_id: string; device_token: string }[]>`
+      select user_id, device_token from device_tokens
+      where bundle_id = ${bundleId} and installation_id = ${installationId}
+    `;
+    expect(stored).toEqual({ user_id: "other-user", device_token: oldToken });
   });
 });
