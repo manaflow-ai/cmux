@@ -193,14 +193,18 @@ struct CmuxConfigExecutor {
         ) {
             guard deliver(payload, to: targetTerminal) else {
                 NSSound.beep()
-                return
+                return false
             }
             onExecuted?()
+            return true
         }
     }
 
-    /// Runs `onAuthorized` immediately for insert-only text, or after the
-    /// project-action trust gate for `submit: true` payloads.
+    /// Runs `onAuthorized` immediately for insert-only text and returns its
+    /// delivery result, so callers can tell a refused paste from a success.
+    /// For `submit: true` payloads the callback runs after the project-action
+    /// trust gate and the return value reports authorization only, matching
+    /// `prepareShellInputIfAuthorized`.
     @discardableResult
     static func deliverTextActionIfAuthorized(
         _ payload: CmuxTextActionPayload,
@@ -212,11 +216,10 @@ struct CmuxConfigExecutor {
         icon: CmuxButtonIcon? = nil,
         iconSourcePath: String? = nil,
         presentingWindow: NSWindow? = nil,
-        onAuthorized: @escaping () -> Void
+        onAuthorized: @escaping () -> Bool
     ) -> Bool {
         guard payload.requiresProjectTrust else {
-            onAuthorized()
-            return true
+            return onAuthorized()
         }
         let descriptor = CmuxActionTrustDescriptor(
             actionID: actionID,
@@ -238,9 +241,10 @@ struct CmuxConfigExecutor {
             globalConfigPath: globalConfigPath,
             displayCommand: payload.text,
             displayTitle: displayTitle,
-            presentingWindow: presentingWindow,
-            onAuthorized: onAuthorized
-        )
+            presentingWindow: presentingWindow
+        ) {
+            _ = onAuthorized()
+        }
     }
 
     /// Realises a text payload on a terminal panel: bracketed paste of the

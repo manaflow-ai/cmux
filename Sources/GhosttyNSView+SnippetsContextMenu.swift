@@ -109,9 +109,11 @@ extension GhosttyNSView {
             iconSourcePath: action.iconSourcePath,
             presentingWindow: window
         ) {
-            if !CmuxConfigExecutor.deliver(payload, to: panel) {
+            let delivered = CmuxConfigExecutor.deliver(payload, to: panel)
+            if !delivered {
                 NSSound.beep()
             }
+            return delivered
         }
     }
 }
