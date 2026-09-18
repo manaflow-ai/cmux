@@ -120,6 +120,9 @@ if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
     mkdir -p "$app_framework_destination"
     rsync -aL "$package_framework_root/" "$app_framework_destination/"
     test -f "$app_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+    app_host_test_runner_environment+=(
+      "TEST_RUNNER_DYLD_LIBRARY_PATH=$package_framework_destination:$app_framework_destination"
+    )
   fi
 fi
 
