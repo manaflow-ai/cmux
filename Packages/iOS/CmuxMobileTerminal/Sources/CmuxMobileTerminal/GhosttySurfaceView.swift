@@ -4985,11 +4985,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard reportID == viewportReportID else { return }
         if awaitingViewportEcho {
             awaitingViewportEcho = false
-            // Re-run layout now that the negotiation settled. `applyViewSize`
-            // schedules a sync only when the echoed grid CHANGED, so an
-            // unchanged echo needs this explicit resync (and it re-reports
-            // nothing: reassert is false and the natural grid is unchanged).
-            setNeedsGeometrySync(reassertNaturalSize: false)
+            // The geometry pass that emitted this report already rendered the
+            // current local viewport. `applyViewSize` schedules the only
+            // follow-up pass needed when the daemon grants a different grid.
+            // An unchanged echo only settles the handshake; queuing another
+            // pass here made a keyboard or rotation transition visibly resize
+            // twice even though the rendered grid never changed.
         }
     }
 
