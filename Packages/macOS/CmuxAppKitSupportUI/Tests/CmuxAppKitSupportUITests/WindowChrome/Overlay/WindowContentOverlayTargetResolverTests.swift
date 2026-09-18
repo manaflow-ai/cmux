@@ -32,19 +32,20 @@ import Testing
         #expect(window.contentView === originalContentView)
     }
 
-    @Test func resolverKeepsOverlayInsideWindowContentHierarchy() throws {
+    @Test func browserResolverKeepsOverlayInsideExistingContentHierarchy() throws {
         let glass = FakeOverlayGlassEffect()
         let resolver = WindowContentOverlayTargetResolver(glassEffect: glass)
         let window = makeWindow()
         let contentView = window.contentView
 
-        let target = try #require(resolver.installationTarget(for: window))
+        let target = try #require(resolver.browserInstallationTarget(for: window))
         let overlay = NSView(frame: target.reference.bounds)
-        target.container.addSubview(overlay, positioned: .above, relativeTo: target.reference)
+        target.container.addSubview(overlay, positioned: .above, relativeTo: nil)
 
         #expect(target.reference === contentView)
         #expect(overlay.isDescendant(of: try #require(window.contentView)))
-        #expect(target.reference.superview === target.container)
+        #expect(window.contentView === contentView)
+        #expect(target.container === contentView)
         #expect(target.container.subviews.last === overlay)
     }
 
@@ -62,19 +63,23 @@ import Testing
         #expect(overlay.superview === second.container)
     }
 
-    @Test func wrappedContentTracksWindowResize() throws {
+    @Test func resolvingPreservesContentLayoutDuringResize() throws {
         let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
         let window = makeWindow()
         let target = try #require(resolver.installationTarget(for: window))
+        let translates = target.reference.translatesAutoresizingMaskIntoConstraints
+        let autoresizing = target.reference.autoresizingMask
 
         window.setContentSize(NSSize(width: 360, height: 240))
         window.contentView?.layoutSubtreeIfNeeded()
 
-        #expect(target.reference.frame == target.container.bounds)
+        #expect(window.contentView === target.reference)
+        #expect(target.reference.translatesAutoresizingMaskIntoConstraints == translates)
+        #expect(target.reference.autoresizingMask == autoresizing)
         #expect(target.reference.frame.size == NSSize(width: 360, height: 240))
     }
 
-    @Test func wrappingPreservesFocusedContent() throws {
+    @Test func resolvingPreservesFocusedContent() throws {
         let resolver = WindowContentOverlayTargetResolver(glassEffect: FakeOverlayGlassEffect())
         let window = makeWindow()
         let field = NSTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 60))

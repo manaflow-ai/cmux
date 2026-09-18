@@ -45,13 +45,17 @@ struct WindowOverlayChromeTests {
         #expect(tabsFrame.height == 28)
     }
 
-    @Test("Browser content stays inside the content hierarchy without covering either chrome strip")
-    func browserAndTerminalRespectChrome() throws {
+    @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
+    func browserAndTerminalRespectChrome(useGlass: Bool) throws {
         let window = makeWindow()
         defer { window.orderOut(nil) }
         let content = try #require(window.contentView)
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
+        if useGlass {
+            WindowGlassEffect().apply(to: window)
+        }
+        let windowRoot = window.contentView
         let browser = WindowBrowserPortal(window: window)
         let terminal = WindowTerminalPortal(window: window)
         defer { browser.tearDown(); terminal.tearDown() }
@@ -66,7 +70,18 @@ struct WindowOverlayChromeTests {
             browser.synchronizeWebViewForAnchor(browserAnchor)
             terminal.synchronizeHostedViewForAnchor(terminalAnchor)
             let root = try #require(window.contentView)
+            #expect(root === windowRoot)
             #expect(webView.isDescendant(of: root))
+            let browserFrame = browserAnchor.convert(browserAnchor.bounds, to: nil)
+            let browserPoint = NSPoint(x: browserFrame.midX, y: browserFrame.midY)
+            #expect(browserFrame.width > 100 && browserFrame.height > 100)
+            #expect(browser.webViewAtWindowPoint(browserPoint) === webView)
+            #expect(terminal.viewAtWindowPoint(browserPoint) == nil)
+            let terminalFrame = terminalAnchor.convert(terminalAnchor.bounds, to: nil)
+            let terminalPoint = NSPoint(x: terminalFrame.midX, y: terminalFrame.midY)
+            let terminalHit = try #require(terminal.viewAtWindowPoint(terminalPoint))
+            #expect(terminalHit.isDescendant(of: terminalView))
+            #expect(browser.webViewAtWindowPoint(terminalPoint) == nil)
             for identifier in ["overlay.sidebar", "overlay.tabs"] {
                 let chrome = try #require(find(identifier, in: content))
                 let chromeFrame = chrome.convert(chrome.bounds, to: nil)
@@ -77,6 +92,8 @@ struct WindowOverlayChromeTests {
                 let point = NSPoint(x: chromeFrame.midX, y: chromeFrame.midY)
                 #expect(browser.webViewAtWindowPoint(point) == nil)
                 #expect(terminal.viewAtWindowPoint(point) == nil)
+                let chromeHit = try #require(content.superview?.cmuxHitTest(windowPoint: point))
+                #expect(chromeHit.isDescendant(of: chrome))
             }
         }
     }
@@ -96,12 +113,12 @@ struct WindowOverlayChromeTests {
 
     private var chromeFixture: some View {
         HStack(spacing: 0) {
-            Marker(identifier: "overlay.sidebar").frame(width: 240)
+            Marker(identifier: "overlay.sidebar").frame(width: 240).frame(maxHeight: .infinity)
             VStack(spacing: 0) {
                 Marker(identifier: "overlay.tabs").frame(height: 28)
                 HStack(spacing: 0) {
-                    Marker(identifier: "overlay.terminal")
-                    Marker(identifier: "overlay.browser")
+                    Marker(identifier: "overlay.terminal").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Marker(identifier: "overlay.browser").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
