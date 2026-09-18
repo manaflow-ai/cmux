@@ -286,7 +286,6 @@ class TerminalController {
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
-
     private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
@@ -1082,6 +1081,7 @@ class TerminalController {
         preserveAcceptFailureStreak: Bool = false
     ) {
         self.tabManager = tabManager
+        socketAccessModeCache.update(accessMode)
         socketServer.start(
             socketPath: socketPath,
             accessMode: accessMode,
