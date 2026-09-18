@@ -69,7 +69,7 @@
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> 為遠端機器建立工作區。瀏覽器窗格透過遠端網路路由，因此 localhost 直接可用。將圖片拖入遠端工作階段即可透過 scp 上傳。
+<code>cmux ssh user@remote</code> 為遠端機器建立工作區。傳入 <code>--command 'omp "investigate auth"'</code> 可在其首個遠端終端機中執行一次初始命令。瀏覽器窗格透過遠端網路路由，因此 localhost 直接可用。將圖片拖入遠端工作階段即可透過 scp 上傳。
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -119,6 +119,21 @@ brew upgrade --cask cmux
 ```
 
 首次啟動時，macOS 可能會要求您確認開啟來自已驗證開發者的應用程式。點擊**開啟**即可繼續。
+
+### Shell 補全
+
+Homebrew cask 會安裝 zsh、bash 和 fish 的補全。安裝後啟動一個新 shell 即可。如果沒有生效，請確認 Homebrew 的補全目錄已接入你的 shell（參見 [Homebrew 的 shell 補全文件](https://docs.brew.sh/Shell-Completion)）。
+
+如果你透過其他方式安裝 cmux，請將對應的一行加入 shell 啟動檔，然後啟動一個新 shell：
+
+```bash
+# zsh
+eval "$(cmux completion zsh)"
+# bash
+eval "$(cmux completion bash)"
+# fish
+cmux completion fish | source
+```
 
 ## 為什麼做 cmux？
 

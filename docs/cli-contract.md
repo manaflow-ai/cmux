@@ -60,6 +60,7 @@ Environment:
 
 | Command | Contract |
 | --- | --- |
+| `completion <bash\|zsh\|fish>` | Print a shell completion script without connecting to cmux. |
 | `welcome` | Print the welcome screen. |
 | `guide`, `--skill` | Print the same short Markdown guide to workspace, terminal, browser, computer-use, and Cloud methods. Works without the app, a socket, network access, or sign-in. `--json` returns `{topic: "cmux", format: "markdown", content: "..."}`. |
 | `docs` | Print canonical docs URLs, raw GitHub resources, and useful commands for a topic. |
@@ -735,6 +736,7 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud guide --help` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux cloud --skill -h` -> `Usage: cmux cloud guide | cmux cloud --skill [--json]`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
+- `cmux completion --help` -> `Print a shell completion script for cmux.`
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
@@ -767,7 +769,8 @@ the expected text without connecting to a cmux socket.
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
 - `cmux vault --help` -> `Usage: cmux vault <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
-- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]`
+- `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies|completion]`
+- `cmux docs completion` -> `cmux completion zsh`
 - `cmux docs` -> `Topics:`
 - `cmux docs settings` -> `Config files:`
 - `cmux docs dock` -> `dock: Custom right-sidebar terminal controls`
@@ -910,6 +913,9 @@ the expected text without connecting to a cmux socket.
 - `cmux focus-webview --help` -> `Legacy alias for 'cmux browser focus-webview'`
 - `cmux is-webview-focused --help` -> `Legacy alias for 'cmux browser is-webview-focused'`
 - `cmux markdown --help` -> `Usage: cmux markdown open <path>`
+- `cmux --json list-workspaces --help` -> `List workspaces`
+- `cmux list-workspaces --json --help` -> `List workspaces`
+- `cmux --id-format uuids list-workspaces --help` -> `List workspaces`
 <!-- cli-contract-help-probes:end -->
 
 For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
@@ -939,14 +945,24 @@ changes them:
 
 ## ArgumentParser Migration Sequence
 
-1. Keep this contract file and `tests/test_cli_contract_help.py` green.
-2. Add Swift ArgumentParser as a dependency without changing behavior.
-3. Introduce a parse-only facade that maps ArgumentParser command structs onto
-   existing `CMUXCLI` runner methods.
+1. **Done.** This contract file and `tests/test_cli_contract_help.py` stay green,
+   gated in CI alongside the command tree snapshot and dispatch parity checks.
+2. **Done.** Swift ArgumentParser is a dependency of the `cmux-cli` target,
+   pinned to the same revision already resolved for `CmuxAPIClient`.
+3. **Done.** `CLI/Commands/CmuxCommand.swift` is the parse-only facade; every
+   declared command's `run()` delegates to the existing `CMUXCLI` runner via
+   `GlobalOptions().makeCLI().run()`. The router hands ArgumentParser only the
+   commands the facade implements itself (`completion` and the hidden candidate
+   and tree dumps); every other invocation goes straight to the legacy parser,
+   so a declaration shapes completion and typo suggestions but never runtime
+   behavior. A family joins the routed set when step 4 moves its runner.
 4. Move one command family at a time into small files, starting with no-socket
    commands (`version`, `themes`, hook installers), then socket commands, then
    browser and tmux compatibility.
 5. After each family moves, run the contract probes plus targeted socket tests in
    GitHub Actions.
 6. When all command families are migrated, remove the manual global parser and
-   legacy helper code that no longer owns behavior.
+   legacy helper code that no longer owns behavior. **Deferred one release**:
+   the hand-rolled parser stays reachable behind `CMUX_CLI_LEGACY_PARSER=1` so a
+   regression in the facade has a documented escape hatch; removing it needs a
+   follow-up PR.
