@@ -137,3 +137,48 @@ test("GUI provider picker switches the agent before starting a session", async (
     expect(app.requests.some((request) => request.method === "provider.select" && request.params.providerId === "claude")).toBe(true);
   } finally { await app.cleanup(); }
 });
+
+test("GUI working indicator survives commentary and tools and ends with the turn", async () => {
+  const app = await mount(true);
+  try {
+    app.start(); app.type("Check the project"); app.enter();
+    await waitFor(() => dom.window.document.querySelector(".ProseMirror")?.textContent === "");
+    app.event({ type: "provider.output", providerId: "codex", sessionId: "session-1", stream: "stdout", text: "I’ll check." });
+    app.event({ type: "provider.activity", providerId: "codex", sessionId: "session-1", activityId: "tool-1", kind: "command", status: "inProgress", action: "Running", detail: "pwd" });
+    expect(dom.window.document.querySelector(".gui-mode-thinking-indicator")).not.toBeNull();
+    expect(dom.window.document.querySelector<HTMLButtonElement>(".send-button")?.disabled).toBe(true);
+    app.event({ type: "provider.turnComplete", providerId: "codex", sessionId: "session-1" });
+    expect(dom.window.document.querySelector(".gui-mode-thinking-indicator")).toBeNull();
+    app.type("Follow up"); app.enter();
+    await waitFor(() => app.sends().length === 2);
+    await waitFor(() => dom.window.document.querySelector(".ProseMirror")?.textContent === "");
+    app.event({ type: "provider.turnComplete", providerId: "codex", sessionId: "session-1" });
+    expect(dom.window.document.querySelector(".gui-mode-thinking-indicator")).toBeNull();
+  } finally { await app.cleanup(); }
+});
+
+test("GUI keeps stderr in diagnostics while showing actionable failures", async () => {
+  const app = await mount(true, async () => { throw new Error("Could not send this message."); });
+  try {
+    app.start();
+    app.event({ type: "provider.output", providerId: "codex", sessionId: "session-1", stream: "stderr", text: "\u001b[31mfailed to load models cache: missing field base_instructions" });
+    expect(dom.window.document.body.textContent).not.toContain("base_instructions");
+    app.type("Please help"); app.enter();
+    await waitFor(() => dom.window.document.body.textContent?.includes("Could not send this message.") === true);
+    expect(dom.window.document.querySelector(".ProseMirror")?.textContent).toBe("Please help");
+  } finally { await app.cleanup(); }
+});
+
+test("GUI model menu escapes the composer clipping boundary and Escape restores focus", async () => {
+  const app = await mount(false);
+  try {
+    const trigger = dom.window.document.querySelector<HTMLButtonElement>(".gui-mode-agent-model-trigger")!;
+    act(() => trigger.click());
+    const menu = dom.window.document.querySelector<HTMLElement>(".gui-mode-agent-model-menu")!;
+    expect(menu).not.toBeNull();
+    expect(menu.closest(".codex-composer-surface") === null).toBe(true);
+    act(() => menu.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(dom.window.document.querySelector(".gui-mode-agent-model-menu")).toBeNull();
+    expect(dom.window.document.activeElement === trigger).toBe(true);
+  } finally { await app.cleanup(); }
+});

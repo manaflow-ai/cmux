@@ -44,6 +44,11 @@ struct GuiModeTests {
         #expect(panel.rendererKind == .guiMode)
         #expect(panel.guiModeState == .home)
         #expect(manager.selectedTabId == workspace.id)
+        let count = manager.tabs.count
+        let reopened = try #require(GuiModeWorkspaceCoordinator().createHomeWorkspace(in: manager))
+        #expect(reopened.id == workspace.id)
+        #expect(manager.tabs.count == count)
+        #expect(reopened.focusedPanelId == panel.id)
     }
 
     @Test("command palette exposes the configurable GUI shortcut")

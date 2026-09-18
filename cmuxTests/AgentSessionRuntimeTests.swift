@@ -11,6 +11,30 @@ import Testing
 @MainActor
 struct AgentSessionRuntimeTests {
     @Test
+    func commentaryCompletionKeepsTheTurnActiveThroughTools() async throws {
+        var completions = 0
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { _ in },
+            outputSink: { _, _ in },
+            turnCompleteSink: { completions += 1 }
+        )
+        try await session.start()
+        session.consumeStdout(#"{"id":1,"result":{}}"# + "\n")
+        await Task.yield()
+        session.consumeStdout(#"{"method":"thread/started","params":{"thread":{"id":"thread-1"}}}"# + "\n")
+        try await session.submit("Check the project")
+        session.consumeStdout(#"{"method":"item/completed","params":{"item":{"id":"message-1","type":"agentMessage","text":"I’ll check."}}}"# + "\n")
+        #expect(completions == 0)
+        do {
+            try await session.submit("Duplicate turn")
+            Issue.record("Commentary completion must not unlock a second turn")
+        } catch {}
+        session.consumeStdout(#"{"method":"turn/completed","params":{"turn":{"id":"turn-1","status":"completed"}}}"# + "\n")
+        #expect(completions == 1)
+    }
+
+    @Test
     func childEnvironmentPinsCmuxCliToTheTaggedSocket() {
         let environment = AgentSessionLaunchPlan.withCmuxRuntimeEnvironment([
             "CMUX_SOCKET": "/tmp/stale-cmux.sock",
