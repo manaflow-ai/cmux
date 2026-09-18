@@ -86,8 +86,12 @@ final class NotificationService: UNNotificationServiceExtension {
         macPushPublicKey: String?
     ) -> [AnyHashable: Any] {
         var result = original
-        var cmux = (original["cmux"] as? [String: Any]) ?? [:]
-        for key in ["workspaceId", "surfaceId", "retargetsToLiveSurfaceOwner", "macDeviceId", "macInstanceTag", "macBuildID", "notificationId", "dismissedIds", "category"] {
+        let originalCmux = (original["cmux"] as? [String: Any]) ?? [:]
+        var cmux: [String: Any] = [:]
+        for key in ["encryptedPayloads", "macDeviceId", "macInstanceTag", "correlationId"] {
+            if let value = originalCmux[key] { cmux[key] = value }
+        }
+        for key in ["workspaceId", "surfaceId", "retargetsToLiveSurfaceOwner", "macDeviceId", "macInstanceTag", "macBuildID", "notificationId", "dismissedIds", "category", "macInstallationID", "macPushPublicKey"] {
             if let value = payload[key] { cmux[key] = value }
         }
         if let notificationIds = payload["notificationIds"] {

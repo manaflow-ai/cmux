@@ -558,6 +558,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// means no attached Mac has proved same-account ownership and exposed the
     /// independent Mac privacy gate.
     public internal(set) var phonePushMacStatus: MobileHostPhonePushStatus?
+    /// True after the authenticated E2E push-key exchange exhausts its bounded
+    /// retries. Push delivery remains unavailable until the exchange succeeds.
+    public internal(set) var phonePushKeyExchangeFailed = false
     /// The connected Mac's current cmux-owned keep-awake state. `nil` means
     /// the state has not been read or the current Mac is unavailable.
     public internal(set) var caffeineStatus: MobileCaffeineStatus?
@@ -585,6 +588,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether the authenticated Mac can enqueue a correlated test alert.
     public var supportsPhonePushTest: Bool {
         supportedHostCapabilities.contains(Self.phonePushTestCapability)
+    }
+
+    /// Starts the secure push-key exchange again on the current authenticated
+    /// Mac connection. The failure flag stays visible until the exchange
+    /// succeeds, so Settings never reports readiness optimistically.
+    @discardableResult
+    public func retryPhonePushKeyExchange() -> Bool {
+        guard let client = remoteClient,
+              let status = phonePushKeyExchangeStatus else {
+            return false
+        }
+        exchangePhonePushKeyIfConfigured(client: client, status: status)
+        return true
     }
 
     /// Whether the authenticated Mac supports the Keep Mac Awake RPC.
@@ -1183,6 +1199,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Retries the authenticated phone-push key exchange while the RPC client
     /// remains connected after a transient failure.
     var phonePushKeyExchangeRetryTask: Task<Void, Never>?
+    /// The latest primary-Mac status used to retry the push-key exchange from
+    /// Settings without creating a second connection.
+    @ObservationIgnored var phonePushKeyExchangeStatus: MobileHostStatusResponse?
     /// Tail of the serialized paired-Mac store write chain; see
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
@@ -11425,6 +11444,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hostIdentityAdoptionTask = nil
         phonePushKeyExchangeRetryTask?.cancel()
         phonePushKeyExchangeRetryTask = nil
+        phonePushKeyExchangeFailed = false
+        phonePushKeyExchangeStatus = nil
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         notificationReconcileTask?.cancel()

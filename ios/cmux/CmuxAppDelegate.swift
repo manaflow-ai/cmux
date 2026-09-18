@@ -216,8 +216,16 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
               ), let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        var merged = original
-        merged.merge(payload) { _, new in new }
+        var merged: [String: Any] = [:]
+        for key in ["encryptedPayloads", "macDeviceId", "macInstanceTag", "correlationId"] {
+            if let value = original[key] { merged[key] = value }
+        }
+        for key in ["kind", "badgeCount", "hideContent", "correlationId", "expirationEpochSeconds", "title", "subtitle", "body", "retargetsToLiveSurfaceOwner", "replyShape", "category", "workspaceId", "surfaceId", "macDeviceId", "macInstanceTag", "notificationId", "notificationIds", "macPushPublicKey", "macInstallationID", "macBuildID"] {
+            if let value = payload[key] { merged[key] = value }
+        }
+        if let notificationIds = payload["notificationIds"] {
+            merged["dismissedIds"] = notificationIds
+        }
         return merged
     }
 

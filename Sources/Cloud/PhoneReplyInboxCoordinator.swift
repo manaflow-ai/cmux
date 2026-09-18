@@ -152,17 +152,20 @@ final class PhoneReplyInboxCoordinator {
                         "relayed phone reply dropped after permanent decrypt failure reply=\(reply.replyId.prefix(8), privacy: .public)"
                     )
                 case .retryable:
-                    let failures = (decryptFailureCounts[reply.replyId] ?? 0) + 1
+                    let failures = min(
+                        (decryptFailureCounts[reply.replyId] ?? 0) + 1,
+                        Self.maxDecryptFailures
+                    )
                     decryptFailureCounts[reply.replyId] = failures
-                    if failures >= Self.maxDecryptFailures {
-                        ackIds.append(reply.replyId)
-                        decryptFailureCounts.removeValue(forKey: reply.replyId)
+                    if failures == Self.maxDecryptFailures {
                         phoneReplySweepLog.error(
-                            "relayed phone reply dropped after bounded decrypt retries reply=\(reply.replyId.prefix(8), privacy: .public)"
+                            "relayed phone reply still unavailable after bounded decrypt retries; retaining until expiry reply=\(reply.replyId.prefix(8), privacy: .public)"
                         )
-                    } else {
-                        retryableCount += 1
                     }
+                    // A retryable decrypt failure can be caused by a temporary
+                    // key publication or session race. Keep the record pending
+                    // so a later sweep can deliver it before server expiry.
+                    retryableCount += 1
                 }
                 continue
             }

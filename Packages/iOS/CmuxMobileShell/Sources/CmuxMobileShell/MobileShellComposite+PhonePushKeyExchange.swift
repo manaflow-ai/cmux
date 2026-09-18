@@ -18,7 +18,12 @@ extension MobileShellComposite {
     ) {
         phonePushKeyExchangeRetryTask?.cancel()
         phonePushKeyExchangeRetryTask = nil
+        let isPrimaryClient = client === remoteClient
+        if isPrimaryClient {
+            phonePushKeyExchangeStatus = status
+        }
         guard status.capabilities.contains(Self.phonePushKeyExchangeCapability) else {
+            if isPrimaryClient { phonePushKeyExchangeFailed = false }
             diagnosticLog?.recordAppEvent(.pushKeyExchangeUnsupported, failure: .unsupportedRoute)
             return
         }
@@ -28,6 +33,7 @@ extension MobileShellComposite {
               let macDeviceID = status.macDeviceID,
               let macInstanceTag = status.macInstanceTag,
               let macBuildID = status.macClientNamespace else {
+            if isPrimaryClient { phonePushKeyExchangeFailed = true }
             diagnosticLog?.recordAppEvent(.pushKeyExchangeContextMissing, failure: .credentialUnavailable)
             return
         }
@@ -44,6 +50,9 @@ extension MobileShellComposite {
                 )
                 guard !Task.isCancelled, self.identityProvider?.currentUserID == accountID else { return }
                 if exchanged {
+                    if self.remoteClient === client {
+                        self.phonePushKeyExchangeFailed = false
+                    }
                     self.diagnosticLog?.recordAppEvent(.pushKeyExchangeSucceeded)
                     return
                 }
@@ -51,6 +60,8 @@ extension MobileShellComposite {
                 try? await Task.sleep(for: .seconds(1 << retry))
             }
             guard !Task.isCancelled, let self else { return }
+            guard self.remoteClient === client else { return }
+            self.phonePushKeyExchangeFailed = true
             self.diagnosticLog?.recordAppEvent(.pushKeyExchangeFailed, failure: .secureChannelFailed)
             phonePushKeyExchangeLog.error("key exchange failed; reconnect or reopen the app to retry secure push setup")
         }
