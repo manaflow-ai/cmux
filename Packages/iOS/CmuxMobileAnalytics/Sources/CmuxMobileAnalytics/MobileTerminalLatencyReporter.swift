@@ -14,6 +14,12 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     private struct Window: Sendable {
         var inputCount = 0
         var failedCount = 0
+        var inputQueueSamples = 0
+        var maxInputQueueDepth = 0
+        var maxInputQueueBytes = 0
+        var inputQueueWait = Array(repeating: 0, count: 17)
+        var inputSend = Array(repeating: 0, count: 17)
+        var inputSendSlowCount = 0
         var outputCount = 0
         var appliedCount = 0
         var presentedCount = 0
@@ -23,7 +29,10 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         var inputToOutput = Array(repeating: 0, count: 17)
         var inputToVisible = Array(repeating: 0, count: 17)
         var render = Array(repeating: 0, count: 17)
-        var hasActivity: Bool { inputCount > 0 || failedCount > 0 || outputCount > 0 || presentedCount > 0 || droppedCount > 0 }
+        var hasActivity: Bool {
+            inputCount > 0 || failedCount > 0 || inputQueueSamples > 0
+                || outputCount > 0 || presentedCount > 0 || droppedCount > 0
+        }
     }
 
     private final class SurfaceState {
@@ -126,6 +135,33 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         surface.inputStarts[sequence] = nil
         surface.presentationStarts[sequence] = nil
         surface.window.failedCount += 1
+    }
+
+    public func inputQueued(surfaceID: String, queueDepth: Int, pendingByteCount: Int) {
+        guard let surface = state(for: surfaceID) else { return }
+        surface.window.inputQueueSamples += 1
+        surface.window.maxInputQueueDepth = max(
+            surface.window.maxInputQueueDepth,
+            max(0, queueDepth)
+        )
+        surface.window.maxInputQueueBytes = max(
+            surface.window.maxInputQueueBytes,
+            max(0, pendingByteCount)
+        )
+    }
+
+    public func inputSendCompleted(
+        surfaceID: String,
+        queuedDurationNanos: UInt64,
+        sendDurationNanos: UInt64,
+        byteCount: Int
+    ) {
+        guard let surface = state(for: surfaceID) else { return }
+        Self.record(queuedDurationNanos, in: &surface.window.inputQueueWait)
+        Self.record(sendDurationNanos, in: &surface.window.inputSend)
+        if sendDurationNanos >= 10_000_000 {
+            surface.window.inputSendSlowCount += 1
+        }
     }
 
     public func surfaceClosed(surfaceID: String) {
@@ -279,12 +315,22 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         var values: [String: AnalyticsValue] = [
             "window_ms": .int(Int(snapshot.elapsedNanos / 1_000_000)),
             "input_count": .int(w.inputCount), "input_failed_count": .int(w.failedCount),
+            "input_queue_samples": .int(w.inputQueueSamples),
+            "max_input_queue_depth": .int(w.maxInputQueueDepth),
+            "max_input_queue_bytes": .int(w.maxInputQueueBytes),
+            "input_send_slow_count": .int(w.inputSendSlowCount),
             "output_count": .int(w.outputCount), "presented_count": .int(w.presentedCount),
             "correlated_output_count": .int(w.inputToOutput.reduce(0, +)),
             "dropped_count": .int(w.droppedCount), "output_bytes": .int(w.outputBytes),
             "max_queue_depth": .int(w.maxQueueDepth), "histogram_version": .int(1),
         ]
-        for (name, histogram) in [("input_to_output", w.inputToOutput), ("input_to_visible", w.inputToVisible), ("render", w.render)] {
+        for (name, histogram) in [
+            ("input_queue_wait", w.inputQueueWait),
+            ("input_send", w.inputSend),
+            ("input_to_output", w.inputToOutput),
+            ("input_to_visible", w.inputToVisible),
+            ("render", w.render),
+        ] {
             values["\(name)_histogram"] = .string("[" + histogram.map(String.init).joined(separator: ",") + "]")
             let count = histogram.reduce(0, +)
             for percentile in [50, 95, 99] {

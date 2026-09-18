@@ -9646,7 +9646,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             text,
             workspaceID: workspaceID,
             terminalID: terminalID,
-            sendStatusOperationID: sendStatusOperationID
+            sendStatusOperationID: sendStatusOperationID,
+            enqueuedAtNanos: DispatchTime.now().uptimeNanoseconds
+        )
+        terminalLatencyObserver.inputQueued(
+            surfaceID: terminalID.rawValue,
+            queueDepth: rawTerminalInputBuffer.pendingChunks.count,
+            pendingByteCount: rawTerminalInputBuffer.pendingByteCount
         )
         if enqueueResult == .rejected {
             finishRawTerminalSend(
@@ -9678,7 +9684,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             text,
             workspaceID: workspaceID,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceID),
-            sendStatusOperationID: sendStatusOperationID
+            sendStatusOperationID: sendStatusOperationID,
+            enqueuedAtNanos: DispatchTime.now().uptimeNanoseconds
+        )
+        terminalLatencyObserver.inputQueued(
+            surfaceID: surfaceID,
+            queueDepth: rawTerminalInputBuffer.pendingChunks.count,
+            pendingByteCount: rawTerminalInputBuffer.pendingByteCount
         )
         if enqueueResult == .rejected {
             finishRawTerminalSend(
@@ -9784,17 +9796,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         switch rawTerminalInputBuffer.enqueue(
             text,
             workspaceID: workspaceID,
-            terminalID: terminalID
+            terminalID: terminalID,
+            enqueuedAtNanos: DispatchTime.now().uptimeNanoseconds
         ) {
         case .startDraining:
+            terminalLatencyObserver.inputQueued(
+                surfaceID: terminalID.rawValue,
+                queueDepth: rawTerminalInputBuffer.pendingChunks.count,
+                pendingByteCount: rawTerminalInputBuffer.pendingByteCount
+            )
             await drainRawTerminalInputBuffer()
             // A stale drain loop may still own the buffer (the runner guard
             // made our call a no-op); wait for it so awaited submitters only
             // return once their input has actually been handed to the sender.
             await awaitRawTerminalInputDrainCompletion()
         case .queued:
+            terminalLatencyObserver.inputQueued(
+                surfaceID: terminalID.rawValue,
+                queueDepth: rawTerminalInputBuffer.pendingChunks.count,
+                pendingByteCount: rawTerminalInputBuffer.pendingByteCount
+            )
             await awaitRawTerminalInputDrainCompletion()
         case .rejected:
+            terminalLatencyObserver.inputQueued(
+                surfaceID: terminalID.rawValue,
+                queueDepth: rawTerminalInputBuffer.pendingChunks.count,
+                pendingByteCount: rawTerminalInputBuffer.pendingByteCount
+            )
             handleRawTerminalInputOverflow()
         }
     }
@@ -9831,7 +9859,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 workspaceID: chunk.workspaceID,
                 terminalID: chunk.terminalID,
                 latencyBatchNumber: latencyBatchNumberForSend,
-                sendStatusOperationID: chunk.sendStatusOperationID
+                sendStatusOperationID: chunk.sendStatusOperationID,
+                enqueuedAtNanos: chunk.enqueuedAtNanos
             )
         }
     }
@@ -12773,8 +12802,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
         latencyBatchNumber: UInt64? = nil,
-        sendStatusOperationID: UUID? = nil
+        sendStatusOperationID: UUID? = nil,
+        enqueuedAtNanos: UInt64? = nil
     ) async {
+        let sendStartedAtNanos = DispatchTime.now().uptimeNanoseconds
+        defer {
+            let completedAtNanos = DispatchTime.now().uptimeNanoseconds
+            terminalLatencyObserver.inputSendCompleted(
+                surfaceID: terminalID.rawValue,
+                queuedDurationNanos: enqueuedAtNanos.map {
+                    sendStartedAtNanos >= $0 ? sendStartedAtNanos - $0 : 0
+                } ?? 0,
+                sendDurationNanos: completedAtNanos >= sendStartedAtNanos
+                    ? completedAtNanos - sendStartedAtNanos
+                    : 0,
+                byteCount: text.utf8.count
+            )
+        }
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal input remoteClient=0")

@@ -21,6 +21,9 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         public var text: String
         /// The newest Return-terminated send represented by this chunk.
         public var sendStatusOperationID: UUID?
+        /// Monotonic time when the first input in this coalesced chunk entered
+        /// the buffer. Used to separate queue wait from transport time.
+        public var enqueuedAtNanos: UInt64
 
         /// Creates a pending-input chunk.
         /// - Parameters:
@@ -31,12 +34,14 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
             workspaceID: MobileWorkspacePreview.ID,
             terminalID: MobileTerminalPreview.ID,
             text: String,
-            sendStatusOperationID: UUID? = nil
+            sendStatusOperationID: UUID? = nil,
+            enqueuedAtNanos: UInt64 = 0
         ) {
             self.workspaceID = workspaceID
             self.terminalID = terminalID
             self.text = text
             self.sendStatusOperationID = sendStatusOperationID
+            self.enqueuedAtNanos = enqueuedAtNanos
         }
     }
 
@@ -61,7 +66,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
         terminalID: MobileTerminalPreview.ID,
-        sendStatusOperationID: UUID? = nil
+        sendStatusOperationID: UUID? = nil,
+        enqueuedAtNanos: UInt64 = 0
     ) -> MobileTerminalInputEnqueueResult {
         guard !text.isEmpty else { return .queued }
         let byteCount = text.utf8.count
@@ -75,6 +81,11 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
             if let sendStatusOperationID {
                 last.sendStatusOperationID = sendStatusOperationID
             }
+            if last.enqueuedAtNanos == 0 {
+                last.enqueuedAtNanos = enqueuedAtNanos
+            } else if enqueuedAtNanos != 0 {
+                last.enqueuedAtNanos = min(last.enqueuedAtNanos, enqueuedAtNanos)
+            }
             pendingChunks[pendingChunks.count - 1] = last
         } else {
             pendingChunks.append(
@@ -82,7 +93,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
                     workspaceID: workspaceID,
                     terminalID: terminalID,
                     text: text,
-                    sendStatusOperationID: sendStatusOperationID
+                    sendStatusOperationID: sendStatusOperationID,
+                    enqueuedAtNanos: enqueuedAtNanos
                 )
             )
         }
@@ -132,7 +144,8 @@ public struct MobileTerminalInputSendBuffer: Equatable, Sendable {
                 text: prefix,
                 // Settle only after the final piece of a split chunk has been
                 // handed to the transport.
-                sendStatusOperationID: nil
+                sendStatusOperationID: nil,
+                enqueuedAtNanos: pendingChunks[0].enqueuedAtNanos
             )
         }
         let chunk = pendingChunks.removeFirst()

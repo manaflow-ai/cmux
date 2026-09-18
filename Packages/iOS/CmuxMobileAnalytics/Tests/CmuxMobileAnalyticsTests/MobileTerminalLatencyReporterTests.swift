@@ -45,6 +45,34 @@ import CMUXMobileCore
         #expect(event?.properties["render_p50_ms"] == .int(8))
         #expect(event?.properties["max_queue_depth"] == .int(2))
     }
+
+    @Test @MainActor func reportsInputQueueAndSendTiming() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: FixedLatencyConsent(isTelemetryEnabled: true),
+            anonymousID: "latency-test"
+        )
+        let clock = LatencyTestClock()
+        let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
+
+        reporter.inputQueued(surfaceID: "terminal", queueDepth: 4, pendingByteCount: 512)
+        reporter.inputSendCompleted(
+            surfaceID: "terminal",
+            queuedDurationNanos: 12_000_000,
+            sendDurationNanos: 20_000_000,
+            byteCount: 4
+        )
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first { $0.name == MobileTerminalLatencyReporter.windowEventName }
+        #expect(event?.properties["input_queue_samples"] == .int(1))
+        #expect(event?.properties["max_input_queue_depth"] == .int(4))
+        #expect(event?.properties["max_input_queue_bytes"] == .int(512))
+        #expect(event?.properties["input_queue_wait_p50_ms"] == .int(16))
+        #expect(event?.properties["input_send_p50_ms"] == .int(32))
+        #expect(event?.properties["input_send_slow_count"] == .int(1))
+    }
     @Test @MainActor func repeatedWatermarksDoNotCreateFalseSpikes() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
