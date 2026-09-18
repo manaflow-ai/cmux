@@ -12,6 +12,10 @@ private struct FixedConsent: AnalyticsConsentProviding {
 import UIKit
 
 private final class ReplayMaskProbeView: UIView {}
+private final class GhosttySurfaceView: UIView {}
+private final class BrowserStreamContentView: UIView {}
+private final class SimStreamDisplayView: UIView {}
+private final class CameraPreviewHostView: UIView {}
 #endif
 
 @Suite struct MobileCrashReporterTests {
@@ -77,7 +81,12 @@ private final class ReplayMaskProbeView: UIView {}
     @Test func optionsFactoryMatchesMobileContract() {
         #if os(iOS)
         let options = MobileCrashReporter().makeOptions(
-            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+            replayMaskedViewClasses: [
+                GhosttySurfaceView.self,
+                BrowserStreamContentView.self,
+                SimStreamDisplayView.self,
+                CameraPreviewHostView.self,
+            ]
         )
         #else
         let options = MobileCrashReporter().makeOptions()
@@ -111,8 +120,7 @@ private final class ReplayMaskProbeView: UIView {}
         #expect(options.sessionReplay.maskAllText == true)
         #expect(options.sessionReplay.maskAllImages == true)
         #expect(options.sessionReplay.enableFastViewRendering == false)
-        #expect(options.sessionReplay.maskedViewClasses.count == 1)
-        #expect(options.sessionReplay.maskedViewClasses.first == ReplayMaskProbeView.self)
+        #expect(options.sessionReplay.maskedViewClasses.count == 4)
         #endif
         #if canImport(MetricKit) && !os(tvOS) && !os(visionOS)
         #expect(options.enableMetricKit == true)
@@ -150,11 +158,21 @@ private final class ReplayMaskProbeView: UIView {}
     @Test func replayForceSessionEnvironmentOverridesSampleRateOnlyInDebug() {
         let forced = MobileCrashReporter().makeOptions(
             environment: ["CMUX_REPLAY_FORCE_SESSION": "1"],
-            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+            replayMaskedViewClasses: [
+                GhosttySurfaceView.self,
+                BrowserStreamContentView.self,
+                SimStreamDisplayView.self,
+                CameraPreviewHostView.self,
+            ]
         )
         let normal = MobileCrashReporter().makeOptions(
             environment: [:],
-            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+            replayMaskedViewClasses: [
+                GhosttySurfaceView.self,
+                BrowserStreamContentView.self,
+                SimStreamDisplayView.self,
+                CameraPreviewHostView.self,
+            ]
         )
 
         #if DEBUG
@@ -180,6 +198,15 @@ private final class ReplayMaskProbeView: UIView {}
             #expect(options.sessionReplay.onErrorSampleRate == 0.0)
             #expect(options.sessionReplay.maskedViewClasses.isEmpty)
         }
+    }
+
+    @Test func replayStaysDisabledWithIncompleteMaskClasses() {
+        let incomplete = MobileCrashReporter().makeOptions(
+            replayMaskedViewClasses: [ReplayMaskProbeView.self]
+        )
+
+        #expect(incomplete.sessionReplay.sessionSampleRate == 0.0)
+        #expect(incomplete.sessionReplay.onErrorSampleRate == 0.0)
     }
     #endif
 

@@ -211,7 +211,17 @@ public struct MobileCrashReporter {
         // transport and purges `Caches/io.sentry`, which holds buffered
         // replay segments. Touch capture stays off because it requires
         // `enableSwizzling`.
-        let hasRequiredReplayMasks = !(replayMaskedViewClasses?.isEmpty ?? true)
+        let hasRequiredReplayMasks = replayMaskedViewClasses.map { classes in
+            #if os(iOS)
+            let names = Set(classes.map { NSStringFromClass($0) })
+            return names.contains { $0.hasSuffix("GhosttySurfaceView") }
+                && names.contains { $0.hasSuffix("BrowserStreamContentView") }
+                && names.contains { $0.hasSuffix("SimStreamDisplayView") }
+                && names.contains { $0.hasSuffix("CameraPreviewHostView") }
+            #else
+            return !classes.isEmpty
+            #endif
+        } ?? false
         options.sessionReplay.onErrorSampleRate = hasRequiredReplayMasks ? 1.0 : 0.0
         options.sessionReplay.sessionSampleRate = hasRequiredReplayMasks ? 0.1 : 0.0
         options.sessionReplay.quality = .low
