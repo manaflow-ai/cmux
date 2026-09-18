@@ -440,6 +440,46 @@ struct CloudWireGuardHubTests {
     }
 
     @Test
+    func exitAfterReadinessBeforeStateCommitCannotPublishDeadHub() async throws {
+        let spawner = FakeSpawner()
+        let readinessStarted = CloudLinkFirstValue<Bool>()
+        let releaseReadiness = CloudLinkFirstValue<Bool>()
+        let socketURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hub-test-\(UUID().uuidString.lowercased()).sock")
+        let hub = CloudWireGuardHub(configuration: .init(
+            enroll: { CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: ["10.0.0.0/8"]) },
+            clientURL: URL(fileURLWithPath: "/usr/bin/true"),
+            socketURL: socketURL,
+            spawner: spawner,
+            waitUntilReady: { _ in
+                readinessStarted.resolve(true)
+                _ = await releaseReadiness.result
+            },
+            sleep: { _ in },
+            restartBackoff: [],
+            idleGrace: .seconds(10)
+        ))
+        let acquire = Task { try await hub.acquire() }
+        #expect(await readinessStarted.result)
+        try #require(spawner.last).exit(status: 17)
+        releaseReadiness.resolve(true)
+
+        await #expect(throws: CloudWireGuardHub.HubError.self) { _ = try await acquire.value }
+        #expect(await hub.status().running == false)
+        #expect(await hub.status().leases == 0)
+    }
+
+    @Test
+    func developmentBackendDeadlineWinsOverAHeartbeatStream() async throws {
+        await #expect(throws: DevBackendStartup.StartupError.self) {
+            _ = try await DevBackendStartup.withDeadline(.milliseconds(1)) {
+                try await Task.sleep(for: .seconds(30))
+                return true
+            }
+        }
+    }
+
+    @Test
     func spawnFailureSurfacesAsHubError() async throws {
         let h = makeHarness(backoff: [])
         h.spawner.failNextSpawn = true
