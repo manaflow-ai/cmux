@@ -30,6 +30,7 @@ class FakeClient:
         self.stored = {}
         self.events = []
         self.failures = {}
+        self.rename_failures = []
         self.active = 0
         self.peak = 0
         self.lock = threading.Lock()
@@ -43,10 +44,15 @@ class FakeClient:
 
     def rename(self, asset_id, name):
         self.events.append(("rename", name))
+        mode = self.rename_failures.pop(0) if self.rename_failures else None
+        if mode == "before":
+            raise publisher.RequestError("rename timeout")
         old_name = next(key for key, value in self.stored.items() if value["id"] == asset_id)
         value = self.stored.pop(old_name)
         value["name"] = name
         self.stored[name] = value
+        if mode == "after":
+            raise publisher.RequestError("response lost after rename")
         return value
 
     def upload(self, release_id, asset):
@@ -131,6 +137,16 @@ class PublicationTests(unittest.TestCase):
         self.publish([payload], [feed])
         self.assertEqual(self.client.events, [])
 
+    def test_failed_alias_rename_restores_the_current_asset(self):
+        asset = self.asset("latest.dmg", True)
+        old = {**remote(asset), "digest": "sha256:old"}
+        self.client.stored[asset.path.name] = old
+        self.client.rename_failures = [None, "before", None]
+        with self.assertRaises(publisher.RequestError):
+            self.publish([asset])
+        self.assertEqual(self.client.stored[asset.path.name], old)
+        self.assertNotIn(".cmux-backup-latest.dmg", self.client.stored)
+
     def test_failed_alias_replacement_preserves_the_current_asset(self):
         asset = self.asset("latest.dmg", True)
         old = {**remote(asset), "digest": "sha256:old"}
@@ -152,7 +168,7 @@ class PublicationTests(unittest.TestCase):
         asset = self.asset("latest.dmg", True)
         self.client.stored[asset.path.name] = {**remote(asset), "digest": "sha256:different"}
         self.publish([asset])
-        self.assertEqual([event[0] for event in self.client.events], ["upload", "delete", "rename"])
+        self.assertEqual([event[0] for event in self.client.events], ["upload", "rename", "rename", "delete"])
 
     def test_wrong_uploaded_digest_blocks_feeds(self):
         asset, feed = self.asset("build.dmg"), self.asset("appcast.xml", True)

@@ -176,6 +176,29 @@ class GitHub:
         )
 
 
+def _remote_matches(remote: dict | None, *, name: str, size: int, digest: str) -> bool:
+    return bool(remote and remote.get("name") == name and remote.get("state") == "uploaded"
+                and remote.get("size") == size and remote.get("digest") == digest)
+
+
+def _rename_verified(client: GitHub, release_id: int, remote: dict, name: str,
+                     *, size: int, digest: str) -> dict:
+    """PATCH an asset name and reconcile a response lost after GitHub committed."""
+    try:
+        renamed = client.rename(int(remote["id"]), name)
+    except RequestError:
+        renamed = client.assets(release_id).get(name)
+        if not _remote_matches(renamed, name=name, size=size, digest=digest):
+            raise
+        print(f"Verified rename of {name} after ambiguous response", flush=True)
+        return renamed
+    if not _remote_matches(renamed, name=name, size=size, digest=digest):
+        renamed = client.assets(release_id).get(name)
+        if not _remote_matches(renamed, name=name, size=size, digest=digest):
+            raise RuntimeError(f"Rename verification failed: {name}")
+    return renamed
+
+
 def _upload_verified(client: GitHub, release_id: int, asset: Asset, existing: dict | None) -> dict:
     """Upload an asset under its final name, repairing only an incomplete starter."""
     name = asset.path.name
@@ -221,29 +244,54 @@ def ensure_asset(client: GitHub, release_id: int, asset: Asset, existing: dict |
         return
 
     # Upload replacements under a unique temporary name first. This preserves
-    # the currently working alias/feed if the network or GitHub fails. Once the
-    # new bytes are verified, delete the old name and rename the verified temp
-    # asset. A failed rename leaves verified bytes on the release for the next
-    # run to reconcile instead of losing the replacement.
+    # the currently working alias/feed if the network or GitHub fails.
     temporary_name = f".cmux-upload-{name}-{asset.digest[7:19]}"
     temporary = replace(asset, path=asset.path.with_name(temporary_name), replace=False)
+    backup_name = f".cmux-backup-{name}"
     listing = client.assets(release_id)
     temp_existing = listing.get(temporary_name)
     if temp_existing and not temporary.matches(temp_existing):
-        # Temporary names are content-addressed. A stale or corrupt temp is
-        # safe to remove because it can never be a user-facing alias/feed.
         client.delete(int(temp_existing["id"]))
         temp_existing = None
     temp_remote = _upload_verified(client, release_id, temporary, temp_existing)
-    current = client.assets(release_id).get(name)
+
+    listing = client.assets(release_id)
+    current = listing.get(name)
+    backup = listing.get(backup_name)
     if current and asset.matches(current):
         client.delete(int(temp_remote["id"]))
+        if backup:
+            client.delete(int(backup["id"]))
         return
-    if current:
+
+    # Keep the old bytes under a deterministic backup name while the new temp
+    # is renamed. If the second PATCH is ambiguous or fails, the backup remains
+    # available for immediate restoration and for the next run to reconcile.
+    if current and current.get("state") == "starter":
         client.delete(int(current["id"]))
-    renamed = client.rename(int(temp_remote["id"]), name)
-    if not asset.matches(renamed):
-        raise RuntimeError(f"Replacement verification failed after rename: {name}")
+        current = None
+    if current:
+        if backup:
+            client.delete(int(backup["id"]))
+            backup = None
+        backup = _rename_verified(
+            client, release_id, current, backup_name,
+            size=int(current["size"]), digest=str(current["digest"]),
+        )
+    try:
+        _rename_verified(client, release_id, temp_remote, name, size=asset.size, digest=asset.digest)
+    except Exception:
+        # The old public name is absent only after the backup rename succeeded.
+        # Restore it before propagating the failure; if restoration itself is
+        # ambiguous, _rename_verified leaves the backup for the next run.
+        if backup:
+            _rename_verified(
+                client, release_id, backup, name,
+                size=int(backup["size"]), digest=str(backup["digest"]),
+            )
+        raise
+    if backup:
+        client.delete(int(backup["id"]))
     print(f"Verified replacement {name}", flush=True)
 
 
