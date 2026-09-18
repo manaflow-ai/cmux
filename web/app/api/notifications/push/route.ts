@@ -15,6 +15,7 @@ import {
 } from "../../../../services/apns/routeHandler";
 import {
   MAX_ENCRYPTED_PUSH_REQUEST_BYTES,
+  MAX_PUSH_REQUEST_BYTES,
   normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
@@ -181,7 +182,12 @@ async function sendPush(
   }
   if (!user) return unauthorized();
 
-  const body = await readBoundedJsonObject(request, MAX_ENCRYPTED_PUSH_REQUEST_BYTES);
+  const body = await readBoundedJsonObject(
+    request,
+    protocol === "e2e-v1"
+      ? MAX_ENCRYPTED_PUSH_REQUEST_BYTES
+      : MAX_PUSH_REQUEST_BYTES,
+  );
   if (!body.ok) {
     return jsonResponse({ error: body.error }, body.error === "request_too_large" ? 413 : 400);
   }

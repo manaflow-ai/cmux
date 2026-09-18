@@ -33,7 +33,7 @@ import {
   claimDeviceDeliveryTargets,
   type DeviceDeliveryClaim,
   DeviceDeliveryBusyError,
-  retainAuthorizedDeviceDeliveryTargets,
+  withAuthorizedDeviceDeliveryTargets,
   releaseDeviceDeliveryTargets,
 } from "./deviceDeliveryLease";
 
@@ -178,6 +178,7 @@ async function executePushDelivery(
       input,
       dependencies,
       [...deviceClaim.targets],
+      deviceClaim.leaseToken,
     );
   } finally {
     await releaseDeviceDeliveryTargets(
@@ -194,6 +195,7 @@ async function executePushDeliveryWithTargets(
   input: PushDeliveryInput,
   dependencies: PushDeliveryDependencies,
   tokens: ApnsTarget[],
+  deviceLeaseToken: string | null,
 ): Promise<DeliveryExecution> {
   const { db } = dependencies;
 
@@ -371,12 +373,20 @@ async function executePushDeliveryWithTargets(
     };
   }
 
-  const authorizedTargets = await retainAuthorizedDeviceDeliveryTargets(
+  const authorizedDelivery = await withAuthorizedDeviceDeliveryTargets(
     db,
     input.userId,
-    leaseToken,
+    deviceLeaseToken,
     sendTargets,
+    (authorizedTargets) => (
+      dependencies.send ?? sendApnsNotificationReliably
+    )(
+      dependencies.config!,
+      authorizedTargets,
+      deliveryPayload,
+    ),
   );
+  const authorizedTargets = authorizedDelivery.authorizedTargets;
   const authorizedTargetIDs = new Set(
     authorizedTargets.flatMap((target) =>
       target.targetId == null ? [] : [target.targetId]
@@ -409,13 +419,7 @@ async function executePushDeliveryWithTargets(
   // already-delivered devices on the next same-correlation retry, and it
   // would strand the correlation lease until it times out. The send is
   // bounded (attempt cap x timeout), so it always finishes inside the lease.
-  const rawResults = await (
-    dependencies.send ?? sendApnsNotificationReliably
-  )(
-    dependencies.config,
-    sendTargets,
-    deliveryPayload,
-  );
+  const rawResults = authorizedDelivery.result ?? [];
   const sentTargetByToken = new Map(
     sendTargets.map((target) => [target.deviceToken, target]),
   );

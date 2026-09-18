@@ -117,29 +117,46 @@ export async function claimDeviceDeliveryTargets(
  * must be removed from the provider call even though the original claim is
  * still in memory.
  */
-export async function retainAuthorizedDeviceDeliveryTargets(
+export async function withAuthorizedDeviceDeliveryTargets<T>(
   db: PushDatabase,
   userId: string,
   leaseToken: string | null,
   targets: readonly ApnsTarget[],
-): Promise<ApnsTarget[]> {
-  if (!leaseToken || targets.length === 0) return [];
-  const rows = await db
-    .select({ targetId: deviceTokens.id })
-    .from(deviceTokens)
-    .where(and(
-      eq(deviceTokens.userId, userId),
-      eq(deviceTokens.platform, "ios"),
-      eq(deviceTokens.deliveryLeaseToken, leaseToken),
-      isNull(deviceTokens.revokedAt),
-      inArray(deviceTokens.id, targets.flatMap((target) =>
-        target.targetId == null ? [] : [target.targetId]
-      )),
-    ));
-  const authorized = new Set(rows.map((row) => row.targetId));
-  return targets.filter((target) =>
-    target.targetId != null && authorized.has(target.targetId)
-  );
+  operation: (authorizedTargets: readonly ApnsTarget[]) => Promise<T>,
+): Promise<{ authorizedTargets: ApnsTarget[]; result: T | null }> {
+  if (!leaseToken || targets.length === 0) {
+    return { authorizedTargets: [], result: null };
+  }
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        targetId: deviceTokens.id,
+        deviceToken: deviceTokens.deviceToken,
+        bundleId: deviceTokens.bundleId,
+        environment: deviceTokens.environment,
+        installationId: deviceTokens.installationId,
+        pushKeyId: deviceTokens.pushKeyId,
+      })
+      .from(deviceTokens)
+      .where(and(
+        eq(deviceTokens.userId, userId),
+        eq(deviceTokens.platform, "ios"),
+        eq(deviceTokens.deliveryLeaseToken, leaseToken),
+        isNull(deviceTokens.revokedAt),
+        inArray(deviceTokens.id, targets.flatMap((target) =>
+          target.targetId == null ? [] : [target.targetId]
+        )),
+      ))
+      .for("update");
+    const authorizedIDs = new Set(rows.map((row) => row.targetId));
+    const authorizedTargets = targets.filter((target) =>
+      target.targetId != null && authorizedIDs.has(target.targetId)
+    );
+    const result = authorizedTargets.length > 0
+      ? await operation(authorizedTargets)
+      : null;
+    return { authorizedTargets, result };
+  });
 }
 
 export async function releaseDeviceDeliveryTargets(
