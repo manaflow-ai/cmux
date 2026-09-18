@@ -42,7 +42,6 @@ extension TerminalController {
         routingFallbackTabManager: TabManager? = nil,
         source: String
     ) {
-        socketAccessModeCache.update(configuration.accessMode)
         // Listener configuration is transport state, not focus intent. A window
         // registered in the background may seed routing only when no active
         // manager exists; afterward key-window and explicit-focus paths own it.
@@ -50,6 +49,7 @@ extension TerminalController {
             tabManager = routingFallbackTabManager
         }
         let previousMode = socketServer.accessMode
+        socketAccessModeCache.update(configuration.accessMode)
         let wasRunning = socketServer.isRunning
         let hadPendingRearm = socketServer.hasPendingAcceptLoopRearm
         let pathChanged = socketServer.updateConfiguredPreferredSocketPath(

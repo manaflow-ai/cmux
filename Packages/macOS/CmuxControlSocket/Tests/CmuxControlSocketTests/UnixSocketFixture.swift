@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxControlSocket
 
 /// Test helpers for creating real Unix-domain sockets under temporary paths.
 enum UnixSocketFixture {
@@ -151,5 +152,24 @@ enum UnixSocketFixture {
             code: Int(errno),
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed"]
         )
+    }
+}
+
+extension AsyncStream where Element == ControlConnection {
+    /// Returns the next accepted connection or nil after the bounded test timeout.
+    func nextControlConnection(timeout: TimeInterval = 5.0) async -> ControlConnection? {
+        await withTaskGroup(of: ControlConnection?.self) { group in
+            group.addTask {
+                var iterator = self.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                return nil
+            }
+            let connection = await group.next() ?? nil
+            group.cancelAll()
+            return connection
+        }
     }
 }

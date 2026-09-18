@@ -69,7 +69,7 @@ Environment:
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
-| `socket-status` | Print effective automation socket mode, managed source, and socket-path observation as machine-readable JSON without connecting to the socket. Works when the listener is off or cmux is not running; `live_enforcement` is intentionally `not_observed`. |
+| `socket-status` | Print effective automation socket mode and managed source without connecting to the socket; `--json` also reports configured mode, forced-value status, and socket-path observation (`live_enforcement` is intentionally `not_observed`). Works when the listener is off or cmux is not running. |
 | `agent-hibernation` | Enable or disable routine Agent Hibernation. |
 | `restore` | Replace the CLI with a process restored from structured surface state. |
 | `fork` | Replace the CLI with a provider fork process restored from structured surface state. |

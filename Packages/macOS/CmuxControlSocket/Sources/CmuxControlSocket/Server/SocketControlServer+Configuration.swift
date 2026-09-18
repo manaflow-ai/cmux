@@ -31,7 +31,7 @@ extension SocketControlServer {
     /// - Returns: Whether the live listener accepted the configuration.
     @discardableResult
     public func reconfigure(accessMode: SocketControlMode) -> Bool {
-        let previousMode = self.accessMode
+        let previousMode = withListenerState { $0.accessMode }
         // Rotate the authorization generation before publishing the listener
         // snapshot. Client workers therefore observe the revocation signal and
         // the new admission mode as one policy transition, even when a line is

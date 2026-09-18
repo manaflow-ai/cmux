@@ -3,11 +3,22 @@
     "source": "socket-status [--json]",
     "identityLocales": {
       "ar": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "bs": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "da": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "de": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "es": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "fr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "it": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "ja": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "km": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "ko": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "nb": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pl": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "pt-BR": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "ru": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "th": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "tr": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
+      "uk": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }

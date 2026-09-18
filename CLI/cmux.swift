@@ -8165,7 +8165,7 @@ struct CMUXCLI {
             // `feed tui` is the socket-backed exception; help, clear, and
             // malformed subcommands are all local argument/config paths.
             return commandArgs.first?.lowercased() != "tui"
-        case "disable-browser", "enable-browser", "browser-status", "socket-status":
+        case "disable-browser", "enable-browser", "browser-status":
             return true
         case "browser":
             let availabilityAction = commandArgs

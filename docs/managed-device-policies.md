@@ -375,7 +375,7 @@ cmux socket-status --json
 #   "forced_value_status" : "valid",
 #   "live_enforcement" : "not_observed",
 #   "managed" : true,
-#   "managed_source" : "managed_release_domain",
+#   "managed_source" : "managed_app_domain",
 #   "observation_scope" : "profile_and_socket_path",
 #   "policy_key" : "SocketControlMode",
 #   "socket_path_state" : "present"

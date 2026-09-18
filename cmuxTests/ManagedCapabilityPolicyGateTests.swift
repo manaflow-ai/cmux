@@ -8,7 +8,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// Each resource owner receives its own forced-preference resolver. No test
 /// can replace another test's policy, or bypass the production resolver.
 @MainActor
@@ -18,7 +17,6 @@ struct ManagedCapabilityPolicyGateTests {
             candidate == key.rawValue ? disabled : nil
         })
     }
-
     private func remoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             transport: .websocket,
@@ -146,6 +144,8 @@ struct ManagedCapabilityPolicyGateTests {
         socketPolicy = SocketControlPolicyResolution(mode: .cmuxOnly, configuredMode: .allowAll, source: .managedReleaseDomain, forcedValueStatus: "valid")
         observer.reevaluate()
         #expect(socketReconciliations == 1)
+        #expect(recorder.changeSignals == 4)
+        observer.reevaluate(); #expect(socketReconciliations == 1)
         withExtendedLifetime(observer) {}
     }
     @Test func aProfileForcedBeforeLaunchEndsRemoteConnectionsAtConstruction() {

@@ -6,6 +6,7 @@ import SwiftUI
 public struct AutomationSection: View {
     private let catalog: SettingCatalog
     private let hostActions: any SettingsHostActions
+    private let socketPolicyResolver: SocketControlPolicyResolver
     @State private var socketPasswordModel: SecretValueModel
     @State private var modeModel: DefaultsValueModel<SocketControlMode>
     @State private var claudeCodeModel: DefaultsValueModel<Bool>
@@ -44,6 +45,7 @@ public struct AutomationSection: View {
     ) {
         self.catalog = catalog
         self.hostActions = hostActions
+        self.socketPolicyResolver = socketPolicyResolver
         _socketPolicyResolution = State(initialValue: socketPolicyResolver.resolve())
         _socketPasswordModel = State(initialValue: SecretValueModel(
             store: secretStore,
@@ -123,7 +125,7 @@ public struct AutomationSection: View {
         }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
-                socketPolicyResolution = SocketControlPolicyResolver().resolve()
+                socketPolicyResolution = socketPolicyResolver.resolve()
             }
         }
     }
@@ -371,7 +373,6 @@ public struct AutomationSection: View {
             }
         }
     }
-
     @ViewBuilder
     private var suppressSubagentCard: some View {
         SettingsCard {
@@ -391,7 +392,6 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.suppressSubagentNotifications.note", defaultValue: "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."))
         }
     }
-
     @ViewBuilder
     private var ampCard: some View {
         SettingsCard {

@@ -214,12 +214,13 @@ struct ManagedDevicePolicyTests {
         let (releaseDefaults, releaseCleanup) = try makeSuite("sourceRelease")
         defer { releaseCleanup() }
         let key = ManagedDevicePolicyKey.socketControlMode.rawValue
-        releaseDefaults.set("cmuxOnly", forKey: Self.forcedMirrorPrefix + key)
         let policy = ManagedDevicePolicy(
             defaults: appDefaults,
             releaseDomainDefaults: releaseDefaults,
             forcedObject: Self.probe
         )
+        #expect(policy.forcedValueSource(forUserDefaultsKey: key) == nil)
+        releaseDefaults.set("cmuxOnly", forKey: Self.forcedMirrorPrefix + key)
         #expect(policy.forcedValueSource(forUserDefaultsKey: key) == .releaseDomain)
         appDefaults.set("off", forKey: Self.forcedMirrorPrefix + key)
         #expect(policy.forcedValueSource(forUserDefaultsKey: key) == .appDomain)
