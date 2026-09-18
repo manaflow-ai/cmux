@@ -18,48 +18,48 @@ struct MobileWorkspaceListEmptyRow: View {
         } description: {
             Text(MobilePairingCopy().emptyWorkspaceMessage)
         } actions: {
-            VStack(spacing: 12) {
-                if let retry {
-                    Button {
-                        guard !isRetrying else { return }
-                        isRetrying = true
-                        Task {
-                            defer { isRetrying = false }
-                            await retry()
-                        }
-                    } label: {
-                        HStack {
-                            if isRetrying {
-                                ProgressView().tint(.white)
-                            } else {
-                                Image(systemName: "arrow.clockwise")
-                            }
-                            Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 32)
+            if let retry {
+                Button {
+                    guard !isRetrying else { return }
+                    isRetrying = true
+                    Task {
+                        defer { isRetrying = false }
+                        await retry()
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(isRetrying)
-                    .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
+                } label: {
+                    Label {
+                        Text(L10n.string("mobile.common.retry", defaultValue: "Retry"))
+                    } icon: {
+                        if isRetrying {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
                 }
-                Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
-                    Label(
-                        L10n.string(
-                            "mobile.workspaces.empty.setupGuide",
-                            defaultValue: "Set Up cmux iOS"
-                        ),
-                        systemImage: "book"
-                    )
-                    .frame(minHeight: 44)
-                }
-                .accessibilityIdentifier("MobileWorkspaceEmptySetupGuide")
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(isRetrying)
+                .accessibilityIdentifier("MobileWorkspaceEmptyRetry")
             }
+            Link(destination: URL(string: "https://cmux.com/docs/ios#setup")!) {
+                Label(
+                    L10n.string(
+                        "mobile.workspaces.empty.setupGuide",
+                        defaultValue: "Set Up cmux iOS"
+                    ),
+                    systemImage: "book"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .accessibilityIdentifier("MobileWorkspaceEmptySetupGuide")
         }
         .frame(maxWidth: 420)
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
-        .padding(.vertical, 56)
+        .padding(.vertical, 32)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileWorkspaceEmptyState")
     }
