@@ -4,7 +4,7 @@
 
 import crypto from "node:crypto";
 import { decodeJwt } from "jose";
-import { and, count, eq, gt, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, gt, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceTokenRevocations, deviceTokens } from "../../../db/schema";
@@ -491,7 +491,11 @@ async function deleteRevokedDeviceTokenAfterDelivery(
         eq(deviceTokens.id, targetId),
         eq(deviceTokens.userId, userId),
         isNotNull(deviceTokens.revokedAt),
-        isNull(deviceTokens.deliveryStartedAt),
+        or(
+          isNull(deviceTokens.deliveryStartedAt),
+          isNull(deviceTokens.deliveryLeaseUntil),
+          lte(deviceTokens.deliveryLeaseUntil, new Date()),
+        ),
       ));
   });
 }
