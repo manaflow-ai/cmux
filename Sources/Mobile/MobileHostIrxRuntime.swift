@@ -99,6 +99,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
     }
     private(set) var settingsPhase: SettingsPhase = .idle
+    /// Safe native relay diagnosis, retained through retries until recovery.
+    private(set) var relayFailureDescription: String?
     private(set) var hadLiveDiscoveryThisRun = false
     var irxSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     var irxSettingsRefreshTask: Task<Void, Never>?
@@ -272,9 +274,21 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         }
     }
 
-    func setSettingsPhase(_ phase: SettingsPhase) {
-        guard settingsPhase != phase else { return }
+    func setSettingsPhase(_ phase: SettingsPhase, error: (any Error)? = nil) {
+        let nextFailure: String?
+        if phase == .idle || phase == .active {
+            nextFailure = nil
+        } else if let error {
+            nextFailure = (error as? IrxEndpointError)?.errorDescription
+        } else {
+            // Activation retries briefly re-enter .activating and .failed
+            // without a new endpoint error. Keep the last safe diagnosis
+            // visible until the endpoint recovers or the scope is reset.
+            nextFailure = relayFailureDescription
+        }
+        guard settingsPhase != phase || nextFailure != relayFailureDescription else { return }
         settingsPhase = phase
+        relayFailureDescription = nextFailure
         switch phase {
         case .idle: listenerState = MobileHostListenerState()
         case .activating: listenerState.phase = .starting
@@ -553,6 +567,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     return
                 } catch {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
+                    self.setSettingsPhase(.failed, error: error)
                     self.listenerState.phase = .retrying
                     self.listenerState.boundPort = nil
                     self.listenerState.localSocketAddresses = []
@@ -943,56 +958,5 @@ private actor MobileHostIrxTerminalLaneQuota {
 
     func release() {
         activeCount = max(0, activeCount - 1)
-    }
-}
-
-/// Server-events lane writer over irx: opened lazily at priority 50, reset on
-/// stall so the host service can renegotiate, mirroring the legacy contract.
-actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
-    private let connection: IrxConnection
-    private let journal: IrxJournal
-    private var writer: IrxStreamWriter?
-
-    init(connection: IrxConnection, journal: IrxJournal) {
-        self.connection = connection
-        self.journal = journal
-    }
-
-    func probe(_ framedData: Data) async -> Bool {
-        do {
-            try await send(framedData)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    func send(_ framedData: Data) async throws {
-        let writer = try await openedWriter()
-        try await writer.write(framedData)
-    }
-
-    func reset() async {
-        if let writer {
-            await writer.finish()
-        }
-        writer = nil
-        journal.record("host-events", "writer-reset")
-    }
-
-    func close() async {
-        if let writer {
-            await writer.finish()
-        }
-        writer = nil
-    }
-
-    private func openedWriter() async throws -> IrxStreamWriter {
-        if let writer { return writer }
-        let opened = try await connection.openUniLane(IrxLaneDescriptor(lane: .events))
-        try? await opened.setPriority(50)
-        writer = opened
-        journal.record("host-events", "writer-opened")
-        return opened
     }
 }

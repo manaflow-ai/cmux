@@ -38,6 +38,12 @@ Swift adapter to one reviewed snapshot.
   from module ... before it is required").
 - `Package.swift` excludes only the Go sources that exist in this copy.
 
+- `WireGuardTunnelDevice` selects a process-owned utun by the addresses applied
+  by NetworkExtension, refusing ambiguous matches. Cancelled macOS starts can
+  leave earlier, unconfigured descriptors open; the upstream first-descriptor
+  scan can bind WireGuard to those while routes target the current interface.
+  Tests run with `swift test --package-path vendor/WireGuardKit` without Go.
+
 ## Updating
 
 1. Fetch the new upstream commit and copy `Sources/WireGuardKit`,

@@ -28,6 +28,18 @@ struct CloudTerminalPaneReservationTests {
         #expect(relay.pendingCount == 0)
         relay.send(.bytes(Data("pwd\n".utf8)))
         #expect(relay.pendingCount == 0)
+
+        let transport = CloudTuiManualIOConnection(socketPath: connection.socketPath)
+        defer { transport.close() }
+        try await transport.start()
+        router.setConnection(transport)
+        let first = await connection.nextCommand(timeout: .seconds(2))
+        let second = await connection.nextCommand(timeout: .seconds(2))
+        let third = await connection.nextCommand(timeout: .seconds(2))
+        #expect(first?.inputBytes == Data("ls".utf8))
+        #expect(second?.cmd == "send-key")
+        #expect(third?.inputBytes == Data("pwd\n".utf8))
+        #expect(first?.surface == 17 && second?.surface == 17 && third?.surface == 17)
     }
 
     @Test
