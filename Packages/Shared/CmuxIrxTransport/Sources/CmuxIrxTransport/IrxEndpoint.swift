@@ -382,8 +382,10 @@ public actor IrxEndpointSupervisor {
             await discardBinding(bound)
             throw IrxEndpointError.bindFailed(
                 failure ?? String(
-                    localized: "connection.relay.timedOut",
-                    defaultValue: "The relay connection timed out."
+                    localized: directOnly
+                        ? "settings.networking.diagnostics.failure.timedOut"
+                        : "connection.relay.timedOut",
+                    defaultValue: directOnly ? "Timed out." : "The relay connection timed out."
                 )
             )
         }

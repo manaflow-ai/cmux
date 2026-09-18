@@ -205,25 +205,31 @@ def main():
             results.append(handshake(client, directory, "expired", "expired-certificate", args.output, args.diagnostics))
         finally:
             (args.output / "handshakes.json").write_text(json.dumps(results, indent=2) + "\n")
+            cleanup_errors = []
             for command in [
                 ["sudo", "-n", "security", "remove-trusted-cert", "-d", str(root)],
                 ["sudo", "-n", "security", "delete-certificate", "-Z", fingerprint, KEYCHAIN],
             ]:
                 print(f"Cleanup: {command[3]}", flush=True)
                 try:
-                    subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, check=False, timeout=15)
+                    cleanup_result = subprocess.run(
+                        command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, check=False, timeout=15
+                    )
+                    if cleanup_result.returncode not in (0, 44):
+                        cleanup_errors.append((command[3], cleanup_result.returncode))
                 except subprocess.TimeoutExpired:
                     print(f"Cleanup command timed out: {command[3]}", flush=True)
+                    cleanup_errors.append((command[3], "timeout"))
         results.append(handshake(client, directory, "valid", "removed-root", args.output, args.diagnostics))
         lookup = subprocess.run(["security", "find-certificate", "-c", subject, KEYCHAIN],
                                 capture_output=True, check=False, timeout=15)
         # security exits with errSecItemNotFound (-25300 modulo 256), not an
         # arbitrary failure: a locked/unreadable keychain is not cleanup proof.
-        cleanup = lookup.returncode == 44 and not lookup.stdout
+        cleanup = lookup.returncode == 44 and not lookup.stdout and not cleanup_errors
         report = {"framework": pin, "macos": run("sw_vers", "-productVersion").strip(),
                   "results": results, "root_removed": cleanup,
-                  "root_lookup_exit": lookup.returncode}
+                  "root_lookup_exit": lookup.returncode, "cleanup_errors": cleanup_errors}
         (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
         expected = [False, True, False, False, False]
         if [result["accepted"] for result in results] != expected or not cleanup:
