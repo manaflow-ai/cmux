@@ -329,8 +329,12 @@ impl App {
         if let Some(id) = self.selected_id() {
             self.viewport.entry(id).or_default().to_bottom();
         }
-        if !steer {
-            if let Some(t) = self.transcripts.get_mut(&id) {
+        // Show the message at once; the daemon's echo is matched, not added.
+        if let Some(t) = self.transcripts.get_mut(&id) {
+            let queued = t.status == "running" && !steer;
+            t.items.push(crate::transcript::Item::User { text: text.clone(), steer, queued });
+            t.optimistic.push(text.clone());
+            if !steer && !queued {
                 t.status = "running".into();
             }
         }

@@ -160,14 +160,18 @@ fn code_rows(code: &str, lang: &str, width: usize, indent: &str, c: &Chrome, ite
 }
 
 /// Render markdown into rows. `indent` is the left gutter every row gets;
-/// `base` styles plain text.
+/// `base` styles plain text. Spacing follows Codex's renderer: one blank
+/// row between blocks (paragraphs, headings, lists, code, quotes, rules),
+/// list items kept together, `- ` bullets indented four columns per level,
+/// `N. ` for ordered lists. Styles: h1 bold underlined, h2 bold, h3 bold
+/// italic, h4+ italic, code cyan, links cyan underlined, quotes green.
 pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, item: usize, out: &mut Vec<Row>) {
     let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
     let parser = Parser::new_ext(text, opts);
     let gutter = Style::default();
     let mut frags: Vec<Frag> = Vec::new();
     let mut styles: Vec<Style> = vec![base];
-    // Each list level: (ordered counter, indent columns).
+    // Each list level: ordered counter.
     let mut lists: Vec<Option<u64>> = Vec::new();
     let mut item_first_prefix: Option<String> = None;
     let mut quote = 0usize;
@@ -175,20 +179,32 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
     let mut in_table = false;
     let mut table_row: Vec<String> = Vec::new();
     let mut cell = String::new();
-    let mut heading: Option<u8> = None;
-    let mut pending_blank = false;
     let mut link_url: Option<String> = None;
     let mut link_text = String::new();
+    // A block just ended: the next block gets a blank row first.
+    let mut needs_blank = false;
+    let start_len = out.len();
 
     let cur = |styles: &Vec<Style>| *styles.last().unwrap_or(&base);
-    let list_indent = |lists: &Vec<Option<u64>>| "  ".repeat(lists.len().saturating_sub(1));
+    let blank = |out: &mut Vec<Row>, needs_blank: &mut bool| {
+        if *needs_blank && out.len() > start_len {
+            out.push(Row { line: Line::from(""), text: String::new(), item, toggle: None });
+        }
+        *needs_blank = false;
+    };
+    let list_pad = |lists: &Vec<Option<u64>>| -> String {
+        // Codex: marker width = depth * 4 - 3, right-aligned before "- ".
+        let depth = lists.len().max(1);
+        " ".repeat(depth * 4 - 4)
+    };
     let flush_para = |frags: &mut Vec<Frag>, item_first_prefix: &mut Option<String>, lists: &Vec<Option<u64>>, quote: usize, out: &mut Vec<Row>| {
         if frags.is_empty() {
             return;
         }
         let q = if quote > 0 { "│ ".repeat(quote) } else { String::new() };
-        let li = list_indent(lists);
-        let first = format!("{indent}{q}{li}{}", item_first_prefix.take().unwrap_or_default());
+        let pad = if lists.is_empty() { String::new() } else { list_pad(lists) };
+        let marker = item_first_prefix.take().unwrap_or_default();
+        let first = format!("{indent}{q}{pad}{marker}");
         let cont_pad = " ".repeat(first.width().saturating_sub(indent.width() + q.width()));
         let cont = format!("{indent}{q}{cont_pad}");
         let inner_w = width.saturating_sub(first.width());
@@ -200,22 +216,28 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
         match ev {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => {
-                    if pending_blank {
-                        out.push(Row { line: Line::from(""), text: String::new(), item, toggle: None });
+                    if lists.is_empty() || item_first_prefix.is_none() {
+                        blank(out, &mut needs_blank);
                     }
-                    pending_blank = lists.is_empty();
                 }
                 Tag::Heading { level, .. } => {
-                    if !out.is_empty() {
-                        out.push(Row { line: Line::from(""), text: String::new(), item, toggle: None });
-                    }
-                    heading = Some(level as u8);
-                    styles.push(base.fg(c.heading_fg).add_modifier(Modifier::BOLD));
-                    pending_blank = true;
+                    blank(out, &mut needs_blank);
+                    let st = match level as u8 {
+                        1 => base.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                        2 => base.add_modifier(Modifier::BOLD),
+                        3 => base.add_modifier(Modifier::BOLD | Modifier::ITALIC),
+                        _ => base.add_modifier(Modifier::ITALIC),
+                    };
+                    styles.push(st);
                 }
-                Tag::BlockQuote(_) => quote += 1,
+                Tag::BlockQuote(_) => {
+                    blank(out, &mut needs_blank);
+                    quote += 1;
+                    styles.push(cur(&styles).fg(Color::Green));
+                }
                 Tag::CodeBlock(kind) => {
                     flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
+                    blank(out, &mut needs_blank);
                     let lang = match kind {
                         CodeBlockKind::Fenced(l) => l.to_string(),
                         CodeBlockKind::Indented => String::new(),
@@ -224,8 +246,10 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 }
                 Tag::List(start) => {
                     flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
+                    if lists.is_empty() {
+                        blank(out, &mut needs_blank);
+                    }
                     lists.push(start);
-                    pending_blank = false;
                 }
                 Tag::Item => {
                     flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
@@ -235,7 +259,7 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                             *n += 1;
                             m
                         }
-                        _ => "• ".to_owned(),
+                        _ => "- ".to_owned(),
                     };
                     item_first_prefix = Some(marker);
                 }
@@ -243,12 +267,13 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 Tag::Strong => styles.push(cur(&styles).add_modifier(Modifier::BOLD)),
                 Tag::Strikethrough => styles.push(cur(&styles).add_modifier(Modifier::CROSSED_OUT)),
                 Tag::Link { dest_url, .. } => {
-                    styles.push(cur(&styles).fg(c.link_fg).add_modifier(Modifier::UNDERLINED));
+                    styles.push(cur(&styles).fg(Color::Cyan).add_modifier(Modifier::UNDERLINED));
                     link_url = Some(dest_url.to_string());
                     link_text.clear();
                 }
                 Tag::Table(_) => {
                     flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
+                    blank(out, &mut needs_blank);
                     in_table = true;
                 }
                 Tag::TableHead | Tag::TableRow => table_row.clear(),
@@ -256,28 +281,32 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 _ => {}
             },
             Event::End(tag) => match tag {
-                TagEnd::Paragraph => flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out),
+                TagEnd::Paragraph => {
+                    flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
+                    // Inside a list, items stay together; after the list a blank follows.
+                    needs_blank = lists.is_empty();
+                }
                 TagEnd::Heading(_) => {
-                    let level = heading.take().unwrap_or(1);
-                    let hashes = "#".repeat(level as usize);
-                    frags.insert(0, (format!("{hashes} "), base.fg(c.status_dim_fg)));
                     flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
                     styles.pop();
+                    needs_blank = true;
                 }
                 TagEnd::BlockQuote(_) => {
                     flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
                     quote = quote.saturating_sub(1);
+                    styles.pop();
+                    needs_blank = true;
                 }
                 TagEnd::CodeBlock => {
                     if let Some((lang, text)) = code.take() {
                         code_rows(&text, &lang, width, indent, c, item, out);
                     }
-                    pending_blank = true;
+                    needs_blank = true;
                 }
                 TagEnd::List(_) => {
                     flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
                     lists.pop();
-                    pending_blank = lists.is_empty();
+                    needs_blank = lists.is_empty();
                 }
                 TagEnd::Item => flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out),
                 TagEnd::Link => {
@@ -300,7 +329,7 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 }
                 TagEnd::Table => {
                     in_table = false;
-                    pending_blank = true;
+                    needs_blank = true;
                 }
                 _ => {}
             },
@@ -320,7 +349,7 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 if in_table {
                     cell.push_str(&t);
                 } else {
-                    frags.push((t.to_string(), base.fg(c.code_fg).bg(c.code_bg)));
+                    frags.push((t.to_string(), cur(&styles).fg(Color::Cyan)));
                 }
             }
             Event::SoftBreak => {
@@ -334,11 +363,14 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
             }
             Event::Rule => {
-                let text = format!("{indent}{}", "─".repeat(width.saturating_sub(indent.width()).min(40)));
+                flush_para(&mut frags, &mut item_first_prefix, &lists, quote, out);
+                blank(out, &mut needs_blank);
+                let text = format!("{indent}———");
                 out.push(Row { line: Line::from(Span::styled(text.clone(), base.fg(c.status_dim_fg))), text, item, toggle: None });
+                needs_blank = true;
             }
             Event::TaskListMarker(done) => {
-                frags.push((if done { "☑ " } else { "☐ " }.into(), cur(&styles)));
+                frags.push((if done { "[x] " } else { "[ ] " }.into(), cur(&styles)));
             }
             _ => {}
         }

@@ -130,7 +130,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             link_runs.push(crate::tui::links::LinkCell { x: inner.x + link.start as u16, y, text, href, style: style.unwrap_or_default() });
         }
         if let Some(s) = &sel {
-            if let Some((c0, c1)) = s.cols_on_row(i, row.text.width()) {
+            if let Some((c0, c1)) = s.cols_on_row(i, &row.text) {
                 for x in c0..c1.min(inner.width as usize) {
                     if let Some(cell) = buf.cell_mut((inner.x + x as u16, y)) {
                         cell.set_style(cell.style().patch(c.selection()));

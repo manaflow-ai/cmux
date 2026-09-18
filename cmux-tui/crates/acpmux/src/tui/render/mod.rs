@@ -203,34 +203,17 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
             plain("", Style::default(), i, rows);
         }
     };
-    // A turn's final reply after tool calls or thinking gets a dim rule
-    // above it, like Codex's "worked for" separator.
-    let is_final_reply = |i: usize| -> bool {
-        let mut worked = false;
-        let mut j = i;
-        while j > 0 {
-            j -= 1;
-            match &t.items[j] {
-                Item::User { .. } => break,
-                Item::Tool { .. } | Item::Thought { .. } | Item::Plan { .. } => worked = true,
-                _ => {}
-            }
-        }
-        if !worked {
-            return false;
-        }
-        t.items[i + 1..].iter().take_while(|x| !matches!(x, Item::User { .. })).all(|x| !matches!(x, Item::Tool { .. } | Item::Thought { .. } | Item::Plan { .. } | Item::Assistant { .. }))
-    };
     // One tool or permission row (plus open details) at `indent`.
     let tool_rows = |rows: &mut Vec<Row>, i: usize, indent: &str| {
         let iw = width.saturating_sub(indent.len());
         match &t.items[i] {
             Item::Tool { title, kind, status, detail, .. } => {
+                // Codex: a green or red bullet for the outcome.
                 let (glyph, color) = match status.as_str() {
-                    "completed" => ("✓", c.ok_fg),
-                    "failed" => ("✗", c.error_fg),
-                    "in_progress" => ("…", c.warn_fg),
-                    _ => ("·", c.warn_fg),
+                    "completed" => ("•", ratatui::style::Color::Green),
+                    "failed" => ("•", ratatui::style::Color::Red),
+                    "in_progress" => ("•", c.warn_fg),
+                    _ => ("•", c.status_dim_fg),
                 };
                 let open = !detail.is_empty() && is_open(Toggle::Item(i), false);
                 let arrow = if detail.is_empty() { " " } else if open { "▾" } else { "▸" };
@@ -241,7 +224,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     line: Line::from(vec![
                         Span::raw(indent[GUTTER.len().min(indent.len())..].to_owned()),
                         Span::styled(format!("{arrow} "), c.dim()),
-                        Span::styled(format!("{glyph} "), Style::default().fg(color)),
+                        Span::styled(format!("{glyph} "), Style::default().fg(color).add_modifier(Modifier::BOLD)),
                         Span::styled(title_shown, Style::default().fg(c.tool_fg)),
                         Span::styled(format!("  {kind}"), c.dim()),
                         Span::styled(snippet, c.dim()),
@@ -279,7 +262,8 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 // Codex's user block: a tinted band with a blank row above and
                 // below and `› ` before the text.
                 let bg = Style::default().bg(c.user_bg);
-                let style = if *queued { c.dim().bg(c.user_bg) } else { bg.fg(c.user_fg) };
+                // Codex: plain text on the tint, the marker bold and dim.
+                let style = if *queued { c.dim().bg(c.user_bg) } else { bg };
                 let marker = if !open { "▸ " } else if *steer { "» " } else if *queued { "⏳" } else { "› " };
                 let start = rows.len();
                 plain("", bg, i, &mut rows);
@@ -360,11 +344,6 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 spacer(&mut rows, i, after_user_block);
                 match item {
                     Item::Assistant { text } => {
-                        if is_final_reply(i) {
-                            let rule = "─".repeat(width.saturating_sub(GUTTER.len()));
-                            rows.push(Row { line: Line::from(vec![Span::raw(GUTTER), Span::styled(rule.clone(), c.dim())]), text: format!("{GUTTER}{rule}"), item: i, toggle: None });
-                            plain("", Style::default(), i, &mut rows);
-                        }
                         let start = rows.len();
                         super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
                         // Codex's `• ` bullet on the first line of an agent message.
@@ -384,7 +363,8 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                         let first_line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                         if open {
                             header_row(&format!("▾ thinking · {n} chars"), c.thought_fg, i, Toggle::Item(i), &mut rows);
-                            wrap(text, w, Style::default().fg(c.thought_fg).add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
+                            // Codex: reasoning is dim italic.
+                            wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
                         } else {
                             let summary = truncate(first_line, w.saturating_sub(24));
                             header_row(&format!("▸ thinking · {n} chars  {summary}"), c.thought_fg, i, Toggle::Item(i), &mut rows);
@@ -478,7 +458,8 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let editor_w = main.width.saturating_sub(COMPOSER_INDENT + 1) as usize;
     // Top rule, the text (1-6 rows), bottom rule, controls row.
     let max_rows = app.composer_max_rows.min(main.height / 2).max(1);
-    let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 3;
+    // A blank row, the text, the controls row (Codex: no rules).
+    let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 2;
     let composer = Rect { x: main.x, y: main.y + main.height - input_h, width: main.width, height: input_h };
     let transcript = Rect { x: main.x, y: main.y, width: main.width, height: main.height - input_h };
     app.areas.sidebar = sidebar;
@@ -597,28 +578,59 @@ impl Selection {
     pub fn range(&self) -> ((usize, usize), (usize, usize)) {
         if self.anchor <= self.head { (self.anchor, self.head) } else { (self.head, self.anchor) }
     }
-    /// Columns [c0, c1) selected on row `row`, or None.
-    pub fn cols_on_row(&self, row: usize, row_width: usize) -> Option<(usize, usize)> {
+    /// Columns [c0, c1) selected on row `row`, or None. Only the useful
+    /// part of a row is ever selected: the gutter, role markers and
+    /// trailing padding are left out (see `content_bounds`).
+    pub fn cols_on_row(&self, row: usize, line: &str) -> Option<(usize, usize)> {
         let ((r0, c0), (r1, c1)) = self.range();
         if row < r0 || row > r1 {
             return None;
         }
-        let start = if row == r0 { c0 } else { 0 };
-        let end = if row == r1 { c1.min(row_width) } else { row_width };
+        let (lo, hi) = content_bounds(line);
+        let start = if row == r0 { c0.max(lo) } else { lo };
+        let end = if row == r1 { c1.min(hi) } else { hi };
         if end > start { Some((start, end)) } else if row != r0 && row != r1 { Some((0, 0)) } else { None }
     }
     pub fn text(&self, rows: &[String]) -> String {
-        let ((r0, c0), (r1, c1)) = self.range();
+        let ((r0, _), (r1, _)) = self.range();
         let mut out = Vec::new();
         for r in r0..=r1.min(rows.len().saturating_sub(1)) {
             let line = &rows[r];
             let chars: Vec<char> = line.chars().collect();
-            let s = if r == r0 { c0.min(chars.len()) } else { 0 };
-            let e = if r == r1 { c1.min(chars.len()) } else { chars.len() };
-            out.push(chars[s..e].iter().collect::<String>().trim_end().to_owned());
+            let piece = match self.cols_on_row(r, line) {
+                Some((s, e)) if e > s => chars[s.min(chars.len())..e.min(chars.len())].iter().collect::<String>(),
+                _ => String::new(),
+            };
+            out.push(piece.trim_end().to_owned());
         }
         out.join("\n")
     }
+}
+
+/// The useful span of a transcript row, in char columns: after the gutter
+/// and any role or structure marker (`›`, `•`, `»`, `▸`, `▾`, `⏳`), and
+/// before trailing padding.
+pub fn content_bounds(line: &str) -> (usize, usize) {
+    let chars: Vec<char> = line.chars().collect();
+    let mut lo = 0;
+    while lo < chars.len() && chars[lo] == ' ' {
+        lo += 1;
+    }
+    if lo < chars.len() && matches!(chars[lo], '›' | '•' | '»' | '▸' | '▾' | '⏳' | '❯') {
+        lo += 1;
+        while lo < chars.len() && chars[lo] == ' ' {
+            lo += 1;
+        }
+        // A second marker, e.g. the outcome bullet after the collapse arrow.
+        if lo < chars.len() && matches!(chars[lo], '•' | '✓' | '✗') && chars.get(lo + 1) == Some(&' ') {
+            lo += 2;
+        }
+    }
+    let mut hi = chars.len();
+    while hi > lo && chars[hi - 1] == ' ' {
+        hi -= 1;
+    }
+    (lo, hi)
 }
 
 pub fn word_bounds(line: &str, col: usize) -> (usize, usize) {
@@ -714,5 +726,22 @@ mod hierarchy_tests {
         assert!(text.iter().any(|l| l.starts_with("▸ Use your Bash tool twice") && l.contains("2 tool calls")), "{text:?}");
         assert!(!text.iter().any(|l| l == &"  done"), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("› again")), "{text:?}");
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[test]
+    fn selection_skips_gutter_markers_and_padding() {
+        assert_eq!(content_bounds("  › hello   "), (4, 9));
+        assert_eq!(content_bounds("  ▸ • hostname  execute"), (6, 23));
+        assert_eq!(content_bounds("• reply"), (2, 7));
+        assert_eq!(content_bounds("    - item"), (4, 10));
+        let rows = vec!["  › first line   ".to_owned(), "  • second".to_owned(), "".to_owned()];
+        let sel = Selection { session: "s".into(), anchor: (0, 0), head: (1, 100), mode: SelectMode::Cell };
+        assert_eq!(sel.text(&rows), "first line\nsecond");
+        assert_eq!(sel.cols_on_row(0, &rows[0]), Some((4, 14)));
     }
 }

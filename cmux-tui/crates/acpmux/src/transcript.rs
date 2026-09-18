@@ -40,6 +40,8 @@ pub struct Transcript {
     /// Transient note for the working row, e.g. an API retry in progress.
     pub note: Option<String>,
     pending_user_chunk: bool,
+    /// Texts shown before the daemon echoed them; matched on arrival.
+    pub optimistic: Vec<String>,
 }
 
 fn text_of(content: &Value) -> String {
@@ -250,7 +252,14 @@ impl Transcript {
                 });
                 match promoted {
                     Some(q) => *q = false,
-                    None => self.items.push(Item::User { text, steer, queued: false }),
+                    None => {
+                        if let Some(pos) = self.optimistic.iter().position(|t| *t == text) {
+                            // Already on screen from the local echo.
+                            self.optimistic.remove(pos);
+                        } else {
+                            self.items.push(Item::User { text, steer, queued: false });
+                        }
+                    }
                 }
             }
             "status" => {

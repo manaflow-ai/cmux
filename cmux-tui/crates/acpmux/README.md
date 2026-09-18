@@ -127,8 +127,8 @@ scrolls with the wheel, PgUp/PgDn, Home/End, track click or thumb drag, and a `N
 in the footer when rows overflow. Set `ACPMUX_THEME=light` or `dark` to override the
 `COLORFGBG` guess.
 
-The composer follows Claude Code's shape: a rule, `❯ ` and the message (wrapping under the
-prompt, growing to six rows), a rule, then one row of clickable settings: `⏵⏵ mode`, model,
+The composer follows Codex's shape: a blank row, `› ` and the message (wrapping under the
+prompt, growing to twelve rows), then one row of clickable settings: `⏵⏵ mode`, model,
 `◉ effort`, permissions, directory, and `? keys · / commands` on the right. Each chip opens its
 picker. The transcript title shows only the session name, its state and token usage. The
 status bar shows hosts (click one to filter the sidebar), the last message, and a
@@ -205,9 +205,13 @@ links, nested lists, quotes, rules, simple tables, and fenced code blocks on a s
 background with syntect highlighting when the language is known. Every row starts after a
 two-column gutter (`❯` for you, `▸`/`▾` for collapsibles), so text lines up down the page.
 Your messages look like Codex's: a tinted full-width band with `› ` before the text. The
-transcript spaces blocks like Codex: one blank row before every block, a tinted blank inside the
-user band above and below the text, a dim `• ` on the first line of a reply, and a dim rule
-between the agent's work (tool calls, thinking) and its final reply. The
+transcript looks like Codex's: one blank row before every block, a tinted band with plain text
+and a bold dim `›` for your messages, a dim `•` on the first line of a reply, green and red
+bullets for tool outcomes, dim italic thinking, and no rules anywhere. Markdown follows
+Codex's renderer too: a blank row between blocks, list items kept together with `- ` and
+`N. ` markers indented four columns per level, headings bold (h1 underlined, h3 italic),
+code and links cyan, quotes green. Your message shows the instant you press Enter; the
+daemon's echo is matched, not repeated. The
 transcript is a hierarchy of collapsibles, each toggled by a click: the whole turn (click
 your message; collapsed it shows the first line and `· 3 tool calls · 1 reply`), a run of
 consecutive tool calls (`▾ 3 tool calls · Read, Bash, Edit`), one tool call (`▸ ✓ title  kind
@@ -231,7 +235,8 @@ at the line. Markdown links show their URL after the text so it is visible and c
 
 Mouse selection also works in the composer: drag over the text and release to copy. In the
 transcript, a drag that reaches the top or bottom edge keeps scrolling while the pointer stays
-there. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
+there, and a selection covers only the useful text: the gutter, role markers and trailing
+padding are never highlighted or copied. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
 ## Peers: every session on every machine, from one Mac
