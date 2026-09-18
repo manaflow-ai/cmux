@@ -2,6 +2,13 @@ import Foundation
 
 enum GlobalSearchIndexingLimits {
     static let maxIndexedTextCharacters = 400_000
+    /// Mirrors `SessionPersistencePolicy.maxScrollbackLinesPerTerminal`: the
+    /// same bound session snapshots use when they persist terminal scrollback.
+    static let maxTerminalCaptureRows = 4000
+    /// Byte ceiling for the VT reconstruction Ghostty formats for those rows.
+    /// Generous against escape sequences while keeping one capture bounded;
+    /// the scrollback itself defaults to 50 MB (`GhosttyConfig.scrollbackLimit`).
+    static let maxTerminalCaptureVTBytes = 1_500_000
 }
 
 @MainActor
@@ -34,7 +41,9 @@ enum GlobalSearchDocuments {
             kind = .browser
         case .markdown:
             kind = .markdown
-        case .terminal, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project,
+        case .terminal:
+            kind = .terminal
+        case .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project,
              .extensionBrowser, .simulator, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             kind = .title
         }
@@ -89,6 +98,23 @@ enum GlobalSearchDocuments {
             location: panel.filePath,
             anchor: panel.filePath,
             text: text
+        )
+    }
+
+    static func terminalDocument(for context: GlobalSearchPanelContext, text: String) -> SearchIndexDocument? {
+        let capped = cappedText(text)
+        guard !capped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        return SearchIndexDocument(
+            id: SearchIndexDocument.panelStableID(panelID: context.panelID, kind: .terminal),
+            windowID: context.windowID,
+            workspaceID: context.workspaceID,
+            panelID: context.panelID,
+            kind: .terminal,
+            title: context.panelTitle,
+            location: context.location,
+            anchor: "terminal",
+            text: capped
         )
     }
 
