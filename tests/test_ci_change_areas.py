@@ -761,7 +761,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "actions/cache@27d5ce7" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "app_host_test_products.py stamp" in admission
-    assert "rsync -a \"$products/Frameworks/\" \"$products/PackageFrameworks/\"" in admission
+    assert "rsync -aL \"$products/Frameworks/\" \"$products/PackageFrameworks/\"" in admission
 
     app_host = workflow_job_block("app-host-unit-tests")
     assert "      - macos-compile-admission" in app_host
