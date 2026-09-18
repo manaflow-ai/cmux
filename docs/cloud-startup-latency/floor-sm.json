@@ -1,0 +1,349 @@
+{
+ "burst": 0,
+ "burstSummary": {
+  "allocDoneAtMs": {
+   "n": 0
+  },
+  "allocMs": {
+   "n": 0
+  },
+  "daemonListenMs": {
+   "n": 0
+  },
+  "daemonProcessMs": {
+   "n": 0
+  }
+ },
+ "guest": {
+  "execRtt": {
+   "max": 22.7,
+   "mean": 19.1,
+   "min": 17.2,
+   "n": 3,
+   "p50": 17.3,
+   "p90": 22.7,
+   "p95": 22.7
+  },
+  "interactivePtyGuestMs": {
+   "max": 1029,
+   "mean": 958,
+   "min": 818,
+   "n": 3,
+   "p50": 1027,
+   "p90": 1029,
+   "p95": 1029
+  },
+  "loginShellGuestMs": {
+   "max": 335,
+   "mean": 313.7,
+   "min": 289,
+   "n": 3,
+   "p50": 317,
+   "p90": 335,
+   "p95": 335
+  }
+ },
+ "image": "sh-1fab582a77924838af8ae8825db329ad",
+ "ok": true,
+ "results": {
+  "burst": [],
+  "sequential": [
+   {
+    "allocMs": 397.9,
+    "announceExit": 0,
+    "announceMs": 140.3,
+    "daemonListenMs": 1143,
+    "daemonProcessMs": 856.5,
+    "dataRtt": {
+     "max": 10.6,
+     "mean": 10.4,
+     "min": 10.2,
+     "n": 3,
+     "p50": 10.4,
+     "p90": 10.6,
+     "p95": 10.6
+    },
+    "deleteMs": 83.7,
+    "execRtt": {
+     "max": 185.6,
+     "mean": 38.2,
+     "min": 16.8,
+     "n": 10,
+     "p50": 22.7,
+     "p90": 25.3,
+     "p95": 185.6
+    },
+    "firstExecMs": 534.2,
+    "fsWriteRtt": {
+     "max": 27,
+     "mean": 25.2,
+     "min": 21.8,
+     "n": 3,
+     "p50": 26.8,
+     "p90": 27,
+     "p95": 27
+    },
+    "image": "sh-1fab582a77924838af8ae8825db329ad",
+    "index": 0,
+    "interactivePtyGuestMs": {
+     "max": 1029,
+     "mean": 1028.7,
+     "min": 1028,
+     "n": 3,
+     "p50": 1029,
+     "p90": 1029,
+     "p95": 1029
+    },
+    "loginShellGuestMs": {
+     "max": 419,
+     "mean": 359,
+     "min": 323,
+     "n": 3,
+     "p50": 335,
+     "p90": 419,
+     "p95": 419
+    },
+    "pauseMs": 160.8,
+    "probeAttempts": 3,
+    "resumeDaemonListenMs": 123,
+    "resumeFirstExecMs": 123,
+    "size": "sm",
+    "startMs": 88.3,
+    "startedAt": "2026-09-18T00:53:31.799Z",
+    "stateAfterPause": "paused",
+    "stateAfterStart": "running",
+    "stateAtCreate": "running",
+    "vmId": "vm-84c19395f97a40c6b6ece5f377a21ae5"
+   },
+   {
+    "allocMs": 474.6,
+    "announceExit": 0,
+    "announceMs": 135.7,
+    "daemonListenMs": 1251.6,
+    "daemonProcessMs": 953.6,
+    "dataRtt": {
+     "max": 13.6,
+     "mean": 12.1,
+     "min": 11.1,
+     "n": 3,
+     "p50": 11.7,
+     "p90": 13.6,
+     "p95": 13.6
+    },
+    "deleteMs": 81,
+    "execRtt": {
+     "max": 49.1,
+     "mean": 21.8,
+     "min": 15.3,
+     "n": 10,
+     "p50": 17.2,
+     "p90": 30,
+     "p95": 49.1
+    },
+    "firstExecMs": 632.8,
+    "fsWriteRtt": {
+     "max": 23.5,
+     "mean": 22.8,
+     "min": 22.1,
+     "n": 3,
+     "p50": 22.7,
+     "p90": 23.5,
+     "p95": 23.5
+    },
+    "image": "sh-1fab582a77924838af8ae8825db329ad",
+    "index": 1,
+    "interactivePtyGuestMs": {
+     "max": 853,
+     "mean": 821.3,
+     "min": 793,
+     "n": 3,
+     "p50": 818,
+     "p90": 853,
+     "p95": 853
+    },
+    "loginShellGuestMs": {
+     "max": 358,
+     "mean": 323,
+     "min": 294,
+     "n": 3,
+     "p50": 317,
+     "p90": 358,
+     "p95": 358
+    },
+    "pauseMs": 185.1,
+    "probeAttempts": 3,
+    "resumeDaemonListenMs": 135.9,
+    "resumeFirstExecMs": 135.9,
+    "size": "sm",
+    "startMs": 87.4,
+    "startedAt": "2026-09-18T00:53:38.363Z",
+    "stateAfterPause": "paused",
+    "stateAfterStart": "running",
+    "stateAtCreate": "running",
+    "vmId": "vm-739411b88b374760be1e2ceef076ef1f"
+   },
+   {
+    "allocMs": 364.8,
+    "announceExit": 0,
+    "announceMs": 117.2,
+    "daemonListenMs": 1103.5,
+    "daemonProcessMs": 815.2,
+    "dataRtt": {
+     "max": 11.9,
+     "mean": 11.5,
+     "min": 10.8,
+     "n": 3,
+     "p50": 11.9,
+     "p90": 11.9,
+     "p95": 11.9
+    },
+    "deleteMs": 80.8,
+    "execRtt": {
+     "max": 20.1,
+     "mean": 17.7,
+     "min": 16.3,
+     "n": 10,
+     "p50": 17.3,
+     "p90": 19.6,
+     "p95": 20.1
+    },
+    "firstExecMs": 517.4,
+    "fsWriteRtt": {
+     "max": 28.1,
+     "mean": 24.8,
+     "min": 22.7,
+     "n": 3,
+     "p50": 23.7,
+     "p90": 28.1,
+     "p95": 28.1
+    },
+    "image": "sh-1fab582a77924838af8ae8825db329ad",
+    "index": 2,
+    "interactivePtyGuestMs": {
+     "max": 1028,
+     "mean": 1027.3,
+     "min": 1027,
+     "n": 3,
+     "p50": 1027,
+     "p90": 1028,
+     "p95": 1028
+    },
+    "loginShellGuestMs": {
+     "max": 290,
+     "mean": 284.3,
+     "min": 274,
+     "n": 3,
+     "p50": 289,
+     "p90": 290,
+     "p95": 290
+    },
+    "pauseMs": 204.7,
+    "probeAttempts": 3,
+    "resumeDaemonListenMs": 163.8,
+    "resumeFirstExecMs": 163.8,
+    "size": "sm",
+    "startMs": 115.6,
+    "startedAt": "2026-09-18T00:53:44.127Z",
+    "stateAfterPause": "paused",
+    "stateAfterStart": "running",
+    "stateAtCreate": "running",
+    "vmId": "vm-a663c71ea4aa47ada1c7100f637537b1"
+   }
+  ]
+ },
+ "sequential": {
+  "allocMs": {
+   "max": 474.6,
+   "mean": 412.4,
+   "min": 364.8,
+   "n": 3,
+   "p50": 397.9,
+   "p90": 474.6,
+   "p95": 474.6
+  },
+  "announceMs": {
+   "max": 140.3,
+   "mean": 131.1,
+   "min": 117.2,
+   "n": 3,
+   "p50": 135.7,
+   "p90": 140.3,
+   "p95": 140.3
+  },
+  "daemonListenMs": {
+   "max": 1251.6,
+   "mean": 1166,
+   "min": 1103.5,
+   "n": 3,
+   "p50": 1143,
+   "p90": 1251.6,
+   "p95": 1251.6
+  },
+  "daemonProcessMs": {
+   "max": 953.6,
+   "mean": 875.1,
+   "min": 815.2,
+   "n": 3,
+   "p50": 856.5,
+   "p90": 953.6,
+   "p95": 953.6
+  },
+  "deleteMs": {
+   "max": 83.7,
+   "mean": 81.8,
+   "min": 80.8,
+   "n": 3,
+   "p50": 81,
+   "p90": 83.7,
+   "p95": 83.7
+  },
+  "firstExecMs": {
+   "max": 632.8,
+   "mean": 561.5,
+   "min": 517.4,
+   "n": 3,
+   "p50": 534.2,
+   "p90": 632.8,
+   "p95": 632.8
+  },
+  "pauseMs": {
+   "max": 204.7,
+   "mean": 183.5,
+   "min": 160.8,
+   "n": 3,
+   "p50": 185.1,
+   "p90": 204.7,
+   "p95": 204.7
+  },
+  "resumeDaemonListenMs": {
+   "max": 163.8,
+   "mean": 140.9,
+   "min": 123,
+   "n": 3,
+   "p50": 135.9,
+   "p90": 163.8,
+   "p95": 163.8
+  },
+  "resumeFirstExecMs": {
+   "max": 163.8,
+   "mean": 140.9,
+   "min": 123,
+   "n": 3,
+   "p50": 135.9,
+   "p90": 163.8,
+   "p95": 163.8
+  },
+  "startMs": {
+   "max": 115.6,
+   "mean": 97.1,
+   "min": 87.4,
+   "n": 3,
+   "p50": 88.3,
+   "p90": 115.6,
+   "p95": 115.6
+  }
+ },
+ "size": "sm",
+ "trials": 3,
+ "vpc": true
+}

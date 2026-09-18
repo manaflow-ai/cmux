@@ -1,0 +1,389 @@
+{
+ "attachAttempts": {
+  "max": 1,
+  "mean": 1,
+  "min": 1,
+  "n": 3,
+  "p50": 1,
+  "p90": 1,
+  "p95": 1
+ },
+ "concurrency": 1,
+ "createServerTiming": {
+  "auth": {
+   "max": 218.2,
+   "mean": 72.8,
+   "min": 0.1,
+   "n": 3,
+   "p50": 0.3,
+   "p90": 218.2,
+   "p95": 218.2
+  },
+  "begin_create": {
+   "max": 71.2,
+   "mean": 53.6,
+   "min": 41.6,
+   "n": 3,
+   "p50": 48,
+   "p90": 71.2,
+   "p95": 71.2
+  },
+  "billing": {
+   "max": 1,
+   "mean": 0.7,
+   "min": 0.2,
+   "n": 3,
+   "p50": 0.9,
+   "p90": 1,
+   "p95": 1
+  },
+  "entitlements": {
+   "max": 0.3,
+   "mean": 0.2,
+   "min": 0,
+   "n": 3,
+   "p50": 0.2,
+   "p90": 0.3,
+   "p95": 0.3
+  },
+  "mark_running": {
+   "max": 11.9,
+   "mean": 10.3,
+   "min": 9,
+   "n": 3,
+   "p50": 10,
+   "p90": 11.9,
+   "p95": 11.9
+  },
+  "model_plane_provision": {
+   "max": 9.9,
+   "mean": 8.4,
+   "min": 6.8,
+   "n": 3,
+   "p50": 8.5,
+   "p90": 9.9,
+   "p95": 9.9
+  },
+  "provider_create": {
+   "max": 1943.9,
+   "mean": 1469.6,
+   "min": 1151.3,
+   "n": 3,
+   "p50": 1313.6,
+   "p90": 1943.9,
+   "p95": 1943.9
+  },
+  "request_parse": {
+   "max": 0.9,
+   "mean": 0.6,
+   "min": 0.3,
+   "n": 3,
+   "p50": 0.6,
+   "p90": 0.9,
+   "p95": 0.9
+  },
+  "resolve_network": {
+   "max": 221.5,
+   "mean": 115.5,
+   "min": 47,
+   "n": 3,
+   "p50": 78,
+   "p90": 221.5,
+   "p95": 221.5
+  },
+  "total": {
+   "max": 2294.1,
+   "mean": 1703.6,
+   "min": 1394.9,
+   "n": 3,
+   "p50": 1421.7,
+   "p90": 2294.1,
+   "p95": 2294.1
+  },
+  "usage_events": {
+   "max": 20.9,
+   "mean": 17.7,
+   "min": 15.2,
+   "n": 3,
+   "p50": 16.9,
+   "p90": 20.9,
+   "p95": 20.9
+  }
+ },
+ "failed": 0,
+ "label": "",
+ "listMs": 238.4,
+ "ok": true,
+ "stages": {
+  "attachMs": {
+   "max": 4349.2,
+   "mean": 2350.4,
+   "min": 1211.2,
+   "n": 3,
+   "p50": 1490.8,
+   "p90": 4349.2,
+   "p95": 4349.2
+  },
+  "createMs": {
+   "max": 2371.3,
+   "mean": 1766.8,
+   "min": 1459.7,
+   "n": 3,
+   "p50": 1469.3,
+   "p90": 2371.3,
+   "p95": 2371.3
+  },
+  "createToUsableMs": {
+   "max": 5808.9,
+   "mean": 4117.2,
+   "min": 2680.5,
+   "n": 3,
+   "p50": 3862.1,
+   "p90": 5808.9,
+   "p95": 5808.9
+  },
+  "destroyMs": {
+   "max": 14197.8,
+   "mean": 5266.2,
+   "min": 760.1,
+   "n": 3,
+   "p50": 840.6,
+   "p90": 14197.8,
+   "p95": 14197.8
+  },
+  "execMs": {
+   "max": 2777.1,
+   "mean": 1896,
+   "min": 455.8,
+   "n": 3,
+   "p50": 2455.2,
+   "p90": 2777.1,
+   "p95": 2777.1
+  },
+  "pauseMs": {
+   "max": 999.1,
+   "mean": 766.8,
+   "min": 540.3,
+   "n": 3,
+   "p50": 760.9,
+   "p90": 999.1,
+   "p95": 999.1
+  },
+  "resumeAttachMs": {
+   "max": 2584.7,
+   "mean": 2372.9,
+   "min": 2132.6,
+   "n": 3,
+   "p50": 2401.4,
+   "p90": 2584.7,
+   "p95": 2584.7
+  },
+  "warmAttachMs": {
+   "max": 1696.2,
+   "mean": 1444.5,
+   "min": 1179.2,
+   "n": 3,
+   "p50": 1458,
+   "p90": 1696.2,
+   "p95": 1696.2
+  }
+ },
+ "succeeded": 3,
+ "target": "production",
+ "totalMs": 47598.9,
+ "trials": [
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 1211.1,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 1211.2,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 1469.3,
+   "createStages": {
+    "auth": 0.28,
+    "begin_create": 47.99,
+    "billing": 0.93,
+    "entitlements": 0.22,
+    "mark_running": 10.01,
+    "model_plane_provision": 8.46,
+    "provider_create": 1151.28,
+    "request_parse": 0.88,
+    "resolve_network": 221.54,
+    "total": 1421.73,
+    "usage_events": 16.92
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToUsableMs": 2680.5,
+   "createTraceId": "0b1d3076043a656c70b122ff2c4cf8b1",
+   "destroyMs": 14197.8,
+   "destroyStatus": 200,
+   "execMs": 2777.1,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 0,
+   "pauseMs": 540.3,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 2401.3,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 2401.4,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:53:27.008Z",
+   "vmId": "vm-13e572fc5f8f48c78da3232f64e96f27",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1179.1,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 1179.2,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  },
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 4349.2,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 4349.2,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 1459.7,
+   "createStages": {
+    "auth": 0.1,
+    "begin_create": 41.6,
+    "billing": 0.15,
+    "entitlements": 0.04,
+    "mark_running": 8.96,
+    "model_plane_provision": 6.81,
+    "provider_create": 1313.62,
+    "request_parse": 0.29,
+    "resolve_network": 46.96,
+    "total": 1394.85,
+    "usage_events": 15.17
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToUsableMs": 5808.9,
+   "createTraceId": "b41334f122f262d84d7553b7362a1ab3",
+   "destroyMs": 840.6,
+   "destroyStatus": 200,
+   "execMs": 2455.2,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 1,
+   "pauseMs": 999.1,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 2132.6,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 2132.6,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:53:50.787Z",
+   "vmId": "vm-7c1dc38d7921477fb6ea7c427c86169e",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1696.1,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 1696.2,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  },
+  {
+   "attachAttempts": [
+    {
+     "error": null,
+     "ms": 1490.8,
+     "status": 200
+    }
+   ],
+   "attachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "attachMs": 1490.8,
+   "attachRouteFamily": "ipv4",
+   "attachTrustedCarrier": true,
+   "createMs": 2371.3,
+   "createStages": {
+    "auth": 218.15,
+    "begin_create": 71.17,
+    "billing": 0.99,
+    "entitlements": 0.3,
+    "mark_running": 11.93,
+    "model_plane_provision": 9.92,
+    "provider_create": 1943.86,
+    "request_parse": 0.6,
+    "resolve_network": 78.04,
+    "total": 2294.08,
+    "usage_events": 20.87
+   },
+   "createStatus": 200,
+   "createToAttachStartMs": 0,
+   "createToUsableMs": 3862.1000000000004,
+   "createTraceId": "0c8ca4f9833415bd698ce7cc2907b70e",
+   "destroyMs": 760.1,
+   "destroyStatus": 200,
+   "execMs": 455.8,
+   "execStatus": 200,
+   "imageVersion": "freestyle-cmux-cloud-latency-12739-r4-md",
+   "index": 2,
+   "pauseMs": 760.9,
+   "pauseStatus": 200,
+   "resumeAttachAttempts": [
+    {
+     "error": null,
+     "ms": 2584.6,
+     "status": 200
+    }
+   ],
+   "resumeAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "resumeAttachMs": 2584.7,
+   "resumeAttachRouteFamily": "ipv4",
+   "resumeAttachTrustedCarrier": true,
+   "size": "md",
+   "startedAt": "2026-09-18T00:54:04.723Z",
+   "vmId": "vm-28f1652dda874b81b248eac939093bf3",
+   "warmAttachAttempts": [
+    {
+     "error": null,
+     "ms": 1457.9,
+     "status": 200
+    }
+   ],
+   "warmAttachDaemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "warmAttachMs": 1458,
+   "warmAttachRouteFamily": "ipv4",
+   "warmAttachTrustedCarrier": true
+  }
+ ],
+ "url": "https://cmux.com"
+}

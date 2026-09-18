@@ -1,0 +1,163 @@
+{
+ "clientCommit": "9f4ecba5327184ad3e44ad9d2ef8c48ce7e7c171",
+ "hubReadyMs": 242.4,
+ "image": "sh-397d9f1bacb24f77870a845420d14ea7",
+ "networkMs": 65.5,
+ "ok": true,
+ "results": [
+  {
+   "attachMs": 623.3,
+   "createMs": 1062.4,
+   "createToAttachedMs": 1685.9,
+   "createToPromptMs": 3084.2,
+   "daemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "destroyMs": 34.4,
+   "image": "sh-397d9f1bacb24f77870a845420d14ea7",
+   "index": 0,
+   "linkMs": 163.8,
+   "promptWaitMs": 998.3,
+   "reconnectLinkMs": 110.5,
+   "runToPromptMs": 1114.3,
+   "size": "md",
+   "snapshotMs": 45.7,
+   "startedAt": "2026-09-18T00:53:21.414Z",
+   "terminalRunMs": 115.9,
+   "trustedCarrier": true,
+   "vmId": "vm-8f2a39fe27da492c8b6e25e6e0bb940e"
+  },
+  {
+   "attachMs": 609.3,
+   "createMs": 1184.6,
+   "createToAttachedMs": 1794,
+   "createToPromptMs": 3094.8,
+   "daemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "destroyMs": 28.6,
+   "image": "sh-397d9f1bacb24f77870a845420d14ea7",
+   "index": 1,
+   "linkMs": 167,
+   "promptWaitMs": 954.2,
+   "reconnectLinkMs": 101.8,
+   "runToPromptMs": 1050.5,
+   "size": "md",
+   "snapshotMs": 46.6,
+   "startedAt": "2026-09-18T00:53:24.747Z",
+   "terminalRunMs": 96.2,
+   "trustedCarrier": true,
+   "vmId": "vm-4c82617f1c244c4bb067d38800f0687e"
+  },
+  {
+   "attachMs": 563.8,
+   "createMs": 934.5,
+   "createToAttachedMs": 1498.4,
+   "createToPromptMs": 2823.9,
+   "daemonCommit": "68df8eec35f711ea0f6d55b9df7d00a1f0747d35",
+   "destroyMs": 32.9,
+   "image": "sh-397d9f1bacb24f77870a845420d14ea7",
+   "index": 2,
+   "linkMs": 99.1,
+   "promptWaitMs": 1058.7,
+   "reconnectLinkMs": 88.2,
+   "runToPromptMs": 1162.7,
+   "size": "md",
+   "snapshotMs": 43.5,
+   "startedAt": "2026-09-18T00:53:28.077Z",
+   "terminalRunMs": 103.9,
+   "trustedCarrier": true,
+   "vmId": "vm-af383c7c5c444ceda6384811470e2141"
+  }
+ ],
+ "size": "md",
+ "stages": {
+  "attachMs": {
+   "max": 623.3,
+   "mean": 598.8,
+   "min": 563.8,
+   "n": 3,
+   "p50": 609.3,
+   "p90": 623.3,
+   "p95": 623.3
+  },
+  "createMs": {
+   "max": 1184.6,
+   "mean": 1060.5,
+   "min": 934.5,
+   "n": 3,
+   "p50": 1062.4,
+   "p90": 1184.6,
+   "p95": 1184.6
+  },
+  "createToAttachedMs": {
+   "max": 1794,
+   "mean": 1659.4,
+   "min": 1498.4,
+   "n": 3,
+   "p50": 1685.9,
+   "p90": 1794,
+   "p95": 1794
+  },
+  "createToPromptMs": {
+   "max": 3094.8,
+   "mean": 3001,
+   "min": 2823.9,
+   "n": 3,
+   "p50": 3084.2,
+   "p90": 3094.8,
+   "p95": 3094.8
+  },
+  "destroyMs": {
+   "max": 34.4,
+   "mean": 32,
+   "min": 28.6,
+   "n": 3,
+   "p50": 32.9,
+   "p90": 34.4,
+   "p95": 34.4
+  },
+  "linkMs": {
+   "max": 167,
+   "mean": 143.3,
+   "min": 99.1,
+   "n": 3,
+   "p50": 163.8,
+   "p90": 167,
+   "p95": 167
+  },
+  "reconnectLinkMs": {
+   "max": 110.5,
+   "mean": 100.2,
+   "min": 88.2,
+   "n": 3,
+   "p50": 101.8,
+   "p90": 110.5,
+   "p95": 110.5
+  },
+  "runToPromptMs": {
+   "max": 1162.7,
+   "mean": 1109.2,
+   "min": 1050.5,
+   "n": 3,
+   "p50": 1114.3,
+   "p90": 1162.7,
+   "p95": 1162.7
+  },
+  "snapshotMs": {
+   "max": 46.6,
+   "mean": 45.3,
+   "min": 43.5,
+   "n": 3,
+   "p50": 45.7,
+   "p90": 46.6,
+   "p95": 46.6
+  },
+  "terminalRunMs": {
+   "max": 115.9,
+   "mean": 105.3,
+   "min": 96.2,
+   "n": 3,
+   "p50": 103.9,
+   "p90": 115.9,
+   "p95": 115.9
+  }
+ },
+ "tunnelMs": 120.4
+}
