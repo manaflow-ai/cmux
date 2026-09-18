@@ -106,3 +106,48 @@ export function formatSummary(summaries) {
   const widths = rows[0].map((_, column) => Math.max(...rows.map((row) => row[column].length)));
   return rows.map((row) => row.map((cell, column) => cell.padEnd(widths[column])).join("  ").trimEnd()).join("\n");
 }
+
+/**
+ * The provider credentials in either form the runtime's client accepts
+ * (services/vms/drivers/freestyle.ts): an API key, or a Stack access token
+ * with a team id, plus the optional API base URL; null when neither form is
+ * complete. `env` is the environment to read, so a caller can overlay a
+ * deployment's pulled values on the process environment.
+ * @param {Record<string, string | undefined>} [env]
+ */
+export function providerCredentialsFromEnv(env = process.env) {
+  const value = (key) => (typeof env[key] === "string" ? env[key].trim() : "");
+  const baseUrl = value("FREESTYLE_API_URL") || undefined;
+  const apiKey = value("FREESTYLE_API_KEY");
+  if (apiKey) return { apiKey, baseUrl };
+  const stackAccessToken = value("FREESTYLE_STACK_ACCESS_TOKEN");
+  const teamId = value("FREESTYLE_TEAM_ID");
+  if (stackAccessToken && teamId) return { stackAccessToken, teamId, baseUrl };
+  return null;
+}
+
+/**
+ * A `fetch` for the provider SDK that bounds every request and ends the
+ * SDK's polling of a backgrounded request: the SDK follows a 202 by polling
+ * its result URL with a timer it never cancels, so a request the platform
+ * never finishes would otherwise be tracked forever. Each fetch carries a
+ * timeout, and a background request still being polled `pollDeadlineMs`
+ * after its first poll is refused, which makes the SDK give up (after five
+ * consecutive failures) and settles the request; the platform's own work
+ * continues and the inventory sweeps that follow re-read it. `now` and
+ * `fetchImpl` are injectable for tests.
+ */
+export function pollBoundedFetch({ fetchTimeoutMs, pollDeadlineMs, now = Date.now, fetchImpl = globalThis.fetch }) {
+  const firstPollAt = new Map();
+  return (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.includes("/background-requests/")) {
+      const first = firstPollAt.get(url) ?? now();
+      firstPollAt.set(url, first);
+      if (now() - first > pollDeadlineMs) {
+        return Promise.reject(new Error(`provider background request exceeded ${pollDeadlineMs} ms`));
+      }
+    }
+    return fetchImpl(input, { ...(init ?? {}), signal: AbortSignal.timeout(fetchTimeoutMs) });
+  };
+}

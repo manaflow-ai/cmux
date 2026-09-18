@@ -30,7 +30,7 @@
  * verify-devbox-private-link.ts.
  */
 import { Duration, Effect, Schedule } from "effect";
-import { type Freestyle, FreestyleApiError } from "freestyle";
+import { Freestyle, FreestyleApiError } from "freestyle";
 import { spawn } from "node:child_process";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync, writeSync } from "node:fs";
@@ -38,12 +38,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { cleanupPrivateLinkResource as cleanup } from "../devbox-private-link-cleanup";
 import { startPrivateLinkClient } from "../devbox-private-link-process";
-import { FREESTYLE_NETWORK_FIREWALL_RULES, FreestyleProvider, freestyleClient } from "../../services/vms/drivers/freestyle";
+import { resolveCmuxTuiSource } from "../../services/vms/drivers/cmuxTuiDaemon";
+import { FREESTYLE_NETWORK_FIREWALL_RULES, FreestyleProvider } from "../../services/vms/drivers/freestyle";
 import { ProviderError } from "../../services/vms/drivers/types";
 import type { GuestPromptIdentity } from "../../services/vms/guestPrompt";
 import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
-import { elapsedMs, formatSummary, summarizeFields } from "./benchStats.mjs";
+import { elapsedMs, formatSummary, pollBoundedFetch, providerCredentialsFromEnv, summarizeFields } from "./benchStats.mjs";
 
 type Trial = Record<string, unknown> & { index: number };
 
@@ -61,18 +62,19 @@ if (!Number.isInteger(trials) || trials < 1 || !isVmImageSizeName(sizeName)) {
   process.exit(2);
 }
 const size = vmImageSize(sizeName);
-// The runtime's own credential resolution (API key, or Stack access token
-// with a team id), shared by the reconciliation sweeps; FreestyleProvider
-// resolves the same way for the measured path.
-const sdk = providerClientOrExit();
-function providerClientOrExit(): Freestyle {
-  try {
-    return freestyleClient(60_000);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(2);
-  }
+// The runtime's credential forms (API key, or Stack access token with a
+// team id). Every SDK request, the driver's included, is bounded (a
+// per-fetch timeout) and the SDK's polling of a backgrounded request ends
+// at a deadline, so no tracked request can stay in flight forever and the
+// settle waits are bounded by construction.
+function exitWithoutProviderCredentials(): never {
+  console.error("bench-private-link: FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID, is required (source ~/.secrets/cmux.env)");
+  process.exit(2);
 }
+const providerCredentials = providerCredentialsFromEnv() ?? exitWithoutProviderCredentials();
+const POLL_DEADLINE_MS = 15 * 60 * 1000;
+const providerClient = (timeoutMs = 60_000): Freestyle => new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: timeoutMs, pollDeadlineMs: POLL_DEADLINE_MS }) });
+const sdk = providerClient();
 const selection = resolveVmImage("freestyle", option("--image"), process.env, { kind: "desktop", memoryMb: size.memoryMb });
 const image = selection.image;
 const PROMPT_PATTERN = "λ";
@@ -118,7 +120,9 @@ async function waitForInFlight(ms: number): Promise<boolean> {
  * Blocks until every tracked provider request has settled, reporting every
  * ten minutes. A mutation the SDK cannot cancel must never be swept past or
  * abandoned: a create or delete that completed after an inventory read
- * would leave a resource behind.
+ * would leave a resource behind. The wait is bounded by construction: the
+ * client's fetch timeout and polling deadline (pollBoundedFetch) settle
+ * every request within about the deadline.
  */
 async function waitUntilSettled(): Promise<void> {
   while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle)`);
@@ -436,7 +440,9 @@ function bench() {
     if (probe.app !== "cmux-tui" || !probe.capabilities?.includes("wireguard-hub")) {
       return yield* Effect.fail(new Error("the client lacks wireguard-hub; point --client at a current cmux-tui"));
     }
-    const provider = new FreestyleProvider();
+    // The production driver on the same bounded client, so its create,
+    // attach and destroy requests settle within the polling deadline too.
+    const provider = new FreestyleProvider({ client: providerClient, resolveDaemonSource: resolveCmuxTuiSource });
     const networking = provider.privateNetworking;
     const root = yield* Effect.acquireRelease(
       Effect.sync(() => mkdtempSync(path.join(tmpdir(), "cmux-bench-link-"))),

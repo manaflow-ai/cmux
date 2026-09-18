@@ -23,15 +23,15 @@
  * VPC are deleted before exit, including on failure; existing machines are
  * never read.
  */
-import { type Freestyle, FreestyleApiError, type Vm } from "freestyle";
+import { Freestyle, FreestyleApiError, type Vm } from "freestyle";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, writeSync } from "node:fs";
 import { shellQuote } from "../../services/vms/drivers/cmuxTuiDaemon";
-import { FREESTYLE_NETWORK_FIREWALL_RULES, freestyleClient, freestyleFirewallRules } from "../../services/vms/drivers/freestyle";
+import { FREESTYLE_NETWORK_FIREWALL_RULES, freestyleFirewallRules } from "../../services/vms/drivers/freestyle";
 import { freestyleNetworkAnnouncementCommand } from "../../services/vms/drivers/freestyleNetworkAnnouncement";
 import { resolveVmImage } from "../../services/vms/images/resolver";
 import { isVmImageSizeName, vmImageSize } from "../../services/vms/images/sizes";
-import { elapsedMs, formatSummary, summarize, summarizeFields } from "./benchStats.mjs";
+import { elapsedMs, formatSummary, pollBoundedFetch, providerCredentialsFromEnv, summarize, summarizeFields } from "./benchStats.mjs";
 
 type Probe = { ms: number; execOk: boolean; listening: boolean; running: boolean; healthy: boolean; identityBound: boolean; instanceId: string | null };
 type DaemonMilestones = { firstExecMs: number | null; daemonProcessMs: number | null; daemonListenMs: number | null; probeAttempts: number; instanceId: string | null };
@@ -57,19 +57,18 @@ if (trials === 0 && burst === 0) {
 }
 const size = vmImageSize(sizeName);
 const image = option("--image") ?? resolveVmImage("freestyle", undefined, process.env, { kind: "desktop", memoryMb: size.memoryMb }).image;
-// The runtime's own credential resolution (API key, or Stack access token
-// with a team id). Each fetch is bounded well above the longest guest exec;
-// the SDK backgrounds long requests anyway, and every await is raced by
-// `bounded`.
-const fs = providerClientOrExit();
-function providerClientOrExit(): Freestyle {
-  try {
-    return freestyleClient(180_000);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exit(2);
-  }
+// The runtime's credential forms (API key, or Stack access token with a
+// team id). Every SDK request is bounded (a per-fetch timeout well above the
+// longest guest exec) and the SDK's polling of a backgrounded request ends
+// at a deadline, so no tracked request can stay in flight forever: the
+// settle waits are bounded by construction, and every await is also raced
+// by `bounded`.
+function exitWithoutProviderCredentials(): never {
+  console.error("bench-freestyle-floor: FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID, is required (source ~/.secrets/cmux.env)");
+  process.exit(2);
 }
+const providerCredentials = providerCredentialsFromEnv() ?? exitWithoutProviderCredentials();
+const fs = new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: 180_000, pollDeadlineMs: 15 * 60 * 1000 }) });
 const runId = `bench-${randomUUID().slice(0, 8)}`;
 // The network's label: a mark independent of its slug, so a network that
 // merely carries the run's slug (a stale or colliding one) is never taken
@@ -157,7 +156,9 @@ async function waitForInFlight(ms: number): Promise<boolean> {
  * Blocks until every tracked provider request has settled, reporting every
  * ten minutes. A mutation the SDK cannot cancel must never be swept past or
  * abandoned: a create or delete that completed after an inventory read
- * would leave a resource behind.
+ * would leave a resource behind. The wait is bounded by construction: the
+ * client's fetch timeout and polling deadline (pollBoundedFetch) settle
+ * every request within about the deadline.
  */
 async function waitUntilSettled(): Promise<void> {
   while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle)`);

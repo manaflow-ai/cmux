@@ -5,6 +5,8 @@ import {
   ownerNetworkSlug,
   parseServerTiming,
   percentile,
+  pollBoundedFetch,
+  providerCredentialsFromEnv,
   summarize,
   summarizeFields,
   summarizeStages,
@@ -108,5 +110,52 @@ describe("formatSummary", () => {
     expect(lines[0]).toMatch(/^stage\s+n\s+p50\s+p90\s+p95\s+max$/);
     expect(lines[1]).toMatch(/^create\s+3\s+950\s+1200\s+1200\s+1200$/);
     expect(lines[2]).toMatch(/^empty\s+0\s+-\s+-\s+-\s+-$/);
+  });
+});
+
+describe("providerCredentialsFromEnv", () => {
+  test("prefers the API key, then the Stack token pair, and carries the base URL", () => {
+    expect(providerCredentialsFromEnv({ FREESTYLE_API_KEY: " key ", FREESTYLE_API_URL: "https://api.example" })).toEqual({ apiKey: "key", baseUrl: "https://api.example" });
+    expect(providerCredentialsFromEnv({ FREESTYLE_STACK_ACCESS_TOKEN: "tok", FREESTYLE_TEAM_ID: "team" })).toEqual({ stackAccessToken: "tok", teamId: "team", baseUrl: undefined });
+  });
+
+  test("answers null for an incomplete pair, an empty (sensitive) value, or nothing", () => {
+    expect(providerCredentialsFromEnv({ FREESTYLE_STACK_ACCESS_TOKEN: "tok" })).toBeNull();
+    expect(providerCredentialsFromEnv({ FREESTYLE_API_KEY: "" })).toBeNull();
+    expect(providerCredentialsFromEnv({})).toBeNull();
+  });
+});
+
+describe("pollBoundedFetch", () => {
+  test("passes ordinary requests through with a timeout signal", async () => {
+    const calls: Array<{ url: string; signal: AbortSignal | undefined }> = [];
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(input), signal: init?.signal ?? undefined });
+      return new Response("ok");
+    }) as typeof fetch;
+    const boundedFetch = pollBoundedFetch({ fetchTimeoutMs: 1_000, pollDeadlineMs: 5_000, fetchImpl });
+    await boundedFetch("https://api.example/v5/vms", { method: "POST" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("refuses to keep polling a background request past the deadline, per request", async () => {
+    let clock = 0;
+    const seen: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request) => {
+      seen.push(String(input));
+      return new Response("", { status: 202 });
+    }) as typeof fetch;
+    const boundedFetch = pollBoundedFetch({ fetchTimeoutMs: 1_000, pollDeadlineMs: 5_000, now: () => clock, fetchImpl });
+    const poll = "https://api.example/v5/background-requests/abc";
+    await boundedFetch(poll);
+    clock = 4_999;
+    await boundedFetch(poll);
+    clock = 5_001;
+    await expect(boundedFetch(poll)).rejects.toThrow("exceeded 5000 ms");
+    // Another background request starts its own clock, and plain requests are unaffected.
+    await boundedFetch("https://api.example/v5/background-requests/def");
+    await boundedFetch("https://api.example/v5/vms/x");
+    expect(seen).toHaveLength(4);
   });
 });

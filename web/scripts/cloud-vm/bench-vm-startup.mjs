@@ -12,7 +12,7 @@ import { writeFileSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, summarizeFields, summarizeStages } from "./benchStats.mjs";
+import { elapsedMs, formatSummary, ownerNetworkSlug, parseServerTiming, pollBoundedFetch, providerCredentialsFromEnv, summarizeFields, summarizeStages } from "./benchStats.mjs";
 import { loadTargetEnv, optionValue, parseWebDirAndTarget, requireEnvKeys, runVercel } from "./projects.mjs";
 
 const usage = "Usage: bench-vm-startup.mjs [web-dir] <staging|production> [--trials N] [--concurrency K] [--url https://preview.example] [--allow-preview] [--allow-any-url] [--skip-pause] [--skip-exec] [--edge-check] [--edge-alias <host>] [--label <text>] [--out <file.json>]";
@@ -74,33 +74,22 @@ if (!/^[a-z0-9.-]+$/i.test(edgeAliasHost)) {
   process.exit(2);
 }
 const EDGE_PROBE = `curl -s -o /dev/null -w '%{http_code}' --max-time 4 https://${edgeAliasHost}/api/vm/reflection`;
-const providerCredentials = resolveProviderCredentials(env);
+// The pulled deployment values first, then the operator's own environment
+// (a Vercel "sensitive" value pulls empty; ~/.secrets/cmux.env is the same
+// account), in either credential form the runtime accepts.
+const providerEnv = { ...process.env };
+for (const key of ["FREESTYLE_API_KEY", "FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID", "FREESTYLE_API_URL"]) {
+  if (env[key]?.trim()) providerEnv[key] = env[key];
+}
+const providerCredentials = providerCredentialsFromEnv(providerEnv);
 if (!providerCredentials) {
   console.error("bench-vm-startup: FREESTYLE_API_KEY, or FREESTYLE_STACK_ACCESS_TOKEN with FREESTYLE_TEAM_ID, is required (pulled target env or process env) so cleanup can verify provider inventory");
   process.exit(2);
 }
-// The SDK's default fetch has no timeout, and it follows a backgrounded
-// request (202) by polling with a timer it never cancels, so teardown's
-// wait for tracked requests could otherwise be unbounded. Every provider
-// fetch is bounded, and a background request still being polled past a
-// hard deadline is refused, which ends the SDK's polling loop (it gives up
-// after five consecutive failures) and settles the request; the platform's
-// own work continues and the inventory sweeps that follow re-read it.
-const PROVIDER_FETCH_TIMEOUT_MS = 60_000;
-const PROVIDER_POLL_DEADLINE_MS = 15 * 60 * 1000;
-const providerPollFirstSeen = new Map();
-const providerFetch = (input, init) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  if (url.includes("/background-requests/")) {
-    const firstSeen = providerPollFirstSeen.get(url) ?? Date.now();
-    providerPollFirstSeen.set(url, firstSeen);
-    if (Date.now() - firstSeen > PROVIDER_POLL_DEADLINE_MS) {
-      return Promise.reject(new Error(`provider background request exceeded ${PROVIDER_POLL_DEADLINE_MS} ms`));
-    }
-  }
-  return fetch(input, { ...(init ?? {}), signal: AbortSignal.timeout(PROVIDER_FETCH_TIMEOUT_MS) });
-};
-const providerSdk = new Freestyle({ ...providerCredentials, fetch: providerFetch });
+// Every provider fetch is bounded and the SDK's polling of a backgrounded
+// request ends at a deadline (pollBoundedFetch), so teardown's wait for
+// tracked requests is bounded by construction.
+const providerSdk = new Freestyle({ ...providerCredentials, fetch: pollBoundedFetch({ fetchTimeoutMs: 60_000, pollDeadlineMs: 15 * 60 * 1000 }) });
 const app = new StackServerApp({
   projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
   publishableClientKey: env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY,
@@ -198,7 +187,9 @@ const STACK_TIMEOUT_MS = 60_000;
  * Blocks until every tracked provider request has settled, reporting every
  * ten minutes. A mutation the SDK cannot cancel must never be swept past or
  * abandoned: a delete that completed after the inventory was read, or after
- * the account went, would leave a resource behind.
+ * the account went, would leave a resource behind. The wait is bounded by
+ * construction: the client's fetch timeout and polling deadline
+ * (pollBoundedFetch) settle every request within about the deadline.
  */
 async function waitProviderSettled() {
   while (!(await settleProviderRequests(600_000))) console.error(`cleanup_still_in_flight=${providerInFlight.size} (waiting for them to settle)`);
@@ -430,11 +421,12 @@ async function resolveAmbiguousCreates() {
           outcome = `vm=${body.id}`;
         } else if (body.error === "vm_create_failed") {
           outcome = "failed";
-        } else if (response.status < 500 && response.status !== 409) {
-          // A 409 (in progress, or a limit the original create may already
-          // hold) is not an answer about the original request; keep asking.
-          outcome = `rejected status=${response.status}`;
         }
+        // Anything else (409 in progress, a rate limit, an auth hiccup, a
+        // gateway error) answers about this replay, not about the original
+        // request, which may still be provisioning under the key: keep
+        // asking until the route's deadline, past which the key stays
+        // unresolved and the account is kept.
       } catch (error) {
         console.error(`cleanup_resolve_create_failed key=${key} error=${error instanceof Error ? error.message : String(error)}`);
       }
@@ -664,18 +656,6 @@ async function reconcileCreatedUser() {
     if (attempt < 4) await sleep(5_000);
   }
   return { user: null, verified: false };
-}
-
-/** The provider credentials in either form the runtime's client accepts: the pulled value first, then the process environment. */
-function resolveProviderCredentials(env) {
-  const value = (key) => env[key]?.trim() || process.env[key]?.trim() || "";
-  const baseUrl = value("FREESTYLE_API_URL") || undefined;
-  const apiKey = value("FREESTYLE_API_KEY");
-  if (apiKey) return { apiKey, baseUrl };
-  const stackAccessToken = value("FREESTYLE_STACK_ACCESS_TOKEN");
-  const teamId = value("FREESTYLE_TEAM_ID");
-  if (stackAccessToken && teamId) return { stackAccessToken, teamId, baseUrl };
-  return null;
 }
 
 /**
