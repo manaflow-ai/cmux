@@ -81,7 +81,6 @@ def main():
             run('lipo', '-create', *(str(target/t/profile/'libcmux_v3_ffi.a') for t in triples[:2]), '-output', str(mac), env=env)
             libraries = [
                 ('macos-arm64_x86_64', mac),
-                ('macos-arm64', target/triples[0]/profile/'libcmux_v3_ffi.a'),
                 ('ios-arm64', target/triples[2]/profile/'libcmux_v3_ffi.a'),
                 ('ios-arm64-simulator', target/triples[3]/profile/'libcmux_v3_ffi.a'),
             ]
