@@ -24,12 +24,13 @@ public enum DiagnosticTerminalTracePhase: Int, Sendable, Codable, CaseIterable {
 public struct DiagnosticTerminalTraceID: Sendable, Codable, Equatable, Hashable {
     public let rawValue: UInt64
 
-    public init(rawValue: UInt64) {
-        self.rawValue = rawValue == 0 ? 1 : rawValue
+    public init?(rawValue: UInt64) {
+        guard rawValue != 0 else { return nil }
+        self.rawValue = rawValue
     }
 
     public init() {
-        self.init(rawValue: UInt64.random(in: 1...UInt64.max))
+        self.rawValue = UInt64.random(in: 1...UInt64.max)
     }
 
     /// Fixed-width lowercase hex keeps log searches unambiguous and bounded.

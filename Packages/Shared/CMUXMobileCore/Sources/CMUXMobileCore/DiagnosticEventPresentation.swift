@@ -295,10 +295,11 @@ public struct DiagnosticEventPresentation: Sendable {
             }
             fields.append(Field(key: key, value: String(surface)))
         }
-        if let traceID = event.traceID {
+        if let traceID = event.traceID,
+           let validTraceID = DiagnosticTerminalTraceID(rawValue: traceID) {
             fields.append(Field(
                 key: "trace_id",
-                value: DiagnosticTerminalTraceID(rawValue: traceID).stringValue
+                value: validTraceID.stringValue
             ))
         }
         if let a = event.a {

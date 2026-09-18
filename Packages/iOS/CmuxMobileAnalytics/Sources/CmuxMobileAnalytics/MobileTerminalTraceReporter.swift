@@ -30,6 +30,8 @@ public final class MobileTerminalTraceReporter: Sendable {
         private let permits = DispatchSemaphore(value: 128)
         private var state = State()
 
+        deinit {}
+
         func enqueue(
             _ event: DiagnosticEvent,
             emit: @escaping @Sendable (Observation) -> Void
@@ -63,6 +65,8 @@ public final class MobileTerminalTraceReporter: Sendable {
     public init(emitter: any AnalyticsEmitting) {
         self.emitter = emitter
     }
+
+    deinit {}
 
     /// Queues one trace phase without blocking the diagnostic event tap.
     public func ingest(_ event: DiagnosticEvent) {

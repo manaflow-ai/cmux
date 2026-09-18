@@ -162,7 +162,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
             anonymousID: "local-install"
         )
         let reporter = MobileTerminalTraceReporter(emitter: emitter)
-        let trace = DiagnosticTerminalTraceID(rawValue: 0x1234)
+        let trace = DiagnosticTerminalTraceID(rawValue: 0x1234)!
         reporter.ingest(DiagnosticEvent(
             code: .terminalTrace,
             tNanos: 1_000_000_000,
@@ -177,7 +177,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
             b: DiagnosticTerminalTracePhase.applied.rawValue,
             traceID: trace.rawValue
         ))
-        let fastTrace = DiagnosticTerminalTraceID(rawValue: 0x5678)
+        let fastTrace = DiagnosticTerminalTraceID(rawValue: 0x5678)!
         reporter.ingest(DiagnosticEvent(
             code: .terminalTrace,
             tNanos: 3_000_000_000,
@@ -212,7 +212,7 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         let reporter = MobileTerminalTraceReporter(emitter: emitter)
 
         for index in 0..<31 {
-            let trace = DiagnosticTerminalTraceID(rawValue: UInt64(index + 1))
+            let trace = DiagnosticTerminalTraceID(rawValue: UInt64(index + 1))!
             let started = UInt64(1_000_000_000 + index * 1_100_000_000)
             reporter.ingest(DiagnosticEvent(
                 code: .terminalTrace,

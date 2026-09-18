@@ -887,7 +887,7 @@ import os
 
     @Test func terminalTraceAdmissionIsRateLimitedAndCarriesOpaqueID() async {
         let log = DiagnosticLog(capacity: 256)
-        let traceID = DiagnosticTerminalTraceID(rawValue: 0x1234)
+        let traceID = DiagnosticTerminalTraceID(rawValue: 0x1234)!
         for _ in 0..<121 {
             log.recordTerminalTrace(
                 operation: .replay,
