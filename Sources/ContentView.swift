@@ -1795,7 +1795,11 @@ struct ContentView: View {
     ) -> CGFloat {
         guard isMinimalMode else { return WindowChromeMetrics.appTitlebarHeight }
         guard !isFullScreen else { return 0 }
-        return -max(0, min(titlebarPadding, hostingSafeAreaTop))
+        // The native titlebar/glass layer remains above the content view even
+        // when cmux hides its custom titlebar. Keep Bonsplit's pane tab strip
+        // below that layer so minimal mode does not render the tabs underneath
+        // the window chrome.
+        return max(WindowChromeMetrics.appTitlebarHeight, titlebarPadding, hostingSafeAreaTop)
     }
 
     nonisolated static func customTitlebarLeadingPadding(
