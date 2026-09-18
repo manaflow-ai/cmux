@@ -635,17 +635,22 @@ jobs:
             remote-daemon-assets/cmuxd-remote-*
           if-no-files-found: error
 
-      - name: Upload release asset
+      - name: Prepare release metadata
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
-          files: |
-            cmux-macos.dmg
-            appcast.xml
-            remote-daemon-assets/cmuxd-remote-*
-          fail_on_unmatched_files: true
           generate_release_notes: true
-          overwrite_files: false
+
+      - name: Upload release asset
+        if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
+            --immutable cmux-macos.dmg \
+            --immutable 'remote-daemon-assets/cmuxd-remote-*' \
+            --feed appcast.xml
 
       - name: Upload release appcast to R2
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')

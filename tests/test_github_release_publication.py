@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Publication must recover ambiguous uploads and never advertise missing files."""
-import concurrent.futures
 import hashlib
+import http.server
+import socket
 import importlib.util
 import json
 from pathlib import Path
@@ -11,6 +12,7 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("publisher", ROOT / "scripts/ci/publish-release-assets.py")
@@ -182,8 +184,99 @@ class PublicationTests(unittest.TestCase):
     def test_both_publication_workflows_use_the_shared_publisher(self):
         for name in ("nightly.yml", "release.yml"):
             text = (ROOT / ".github/workflows" / name).read_text()
-            self.assertIn("scripts/ci/publish-release-assets.py", text)
+            self.assertTrue("scripts/ci/publish-release-assets.py" in text, name)
             self.assertIn("--feed", text)
+
+
+class TransportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.uploads = []
+        self.stored = {}
+        self.drop_response = False
+        self.status = 201
+        owner = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def answer(self, code, body):
+                encoded = json.dumps(body).encode()
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_GET(self):
+                self.answer(200, list(owner.stored.values()))
+
+            def do_POST(self):
+                name = parse_qs(urlsplit(self.path).query)["name"][0]
+                data = self.rfile.read(int(self.headers["Content-Length"]))
+                owner.uploads.append((name, data, dict(self.headers)))
+                if owner.status != 201:
+                    self.answer(owner.status, {"message": "failure"})
+                    return
+                asset = {"id": len(owner.stored) + 1, "name": name, "size": len(data),
+                         "digest": "sha256:" + hashlib.sha256(data).hexdigest(), "state": "uploaded"}
+                owner.stored[name] = asset
+                if owner.drop_response:
+                    self.connection.shutdown(socket.SHUT_RDWR)
+                    self.connection.close()
+                    return
+                self.answer(201, asset)
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        thread.start()
+        def stop():
+            server.shutdown()
+            thread.join()
+            server.server_close()
+        self.addCleanup(stop)
+        url = f"http://127.0.0.1:{server.server_port}"
+        self.client = publisher.GitHub("owner/repo", "fake-test-token", api_url=url, upload_url=url)
+
+    def file(self, name="build file+.dmg"):
+        path = self.root / name
+        path.write_bytes(bytes(range(256)) * 32)
+        return publisher.Asset.read(path)
+
+    def test_real_curl_preserves_bytes_name_and_authenticated_headers(self):
+        asset = self.file()
+        publisher.publish(self.client, 42, [[asset], [], []])
+        name, data, headers = self.uploads[0]
+        self.assertEqual(name, asset.path.name)
+        self.assertEqual(data, asset.path.read_bytes())
+        self.assertEqual(headers["Authorization"], "Bearer fake-test-token")
+        self.assertEqual(headers["Accept"], "application/vnd.github+json")
+        self.assertNotIn("Transfer-Encoding", headers)
+
+    def test_real_curl_lost_response_reconciles_server_committed_asset(self):
+        self.drop_response = True
+        publisher.publish(self.client, 42, [[self.file()], [], []])
+        self.assertEqual(len(self.uploads), 1)
+
+    def test_real_curl_permanent_error_blocks_feed(self):
+        self.status = 401
+        with self.assertRaises(publisher.RequestError) as raised:
+            publisher.publish(self.client, 42, [[self.file()], [], [self.file("appcast.xml")]])
+        self.assertEqual(raised.exception.status, 401)
+        self.assertEqual(len(self.uploads), 1)
+
+    def test_token_is_only_in_stdin_and_request_deadlines_are_bounded(self):
+        asset = self.file()
+        real_run = publisher.subprocess.run
+        with patch.object(publisher.subprocess, "run", wraps=real_run) as run:
+            self.client.upload(42, asset)
+        command = run.call_args.args[0]
+        self.assertNotIn("fake-test-token", " ".join(command))
+        self.assertIn("fake-test-token", run.call_args.kwargs["input"])
+        self.assertEqual(command[command.index("--max-time") + 1], "600")
+        self.assertNotIn("--location", command)
 
 
 if __name__ == "__main__":
