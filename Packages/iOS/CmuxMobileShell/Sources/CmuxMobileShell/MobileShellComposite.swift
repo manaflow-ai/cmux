@@ -177,6 +177,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// without an event, preserving lost-registration recovery without adding a
     /// control-lane round trip to healthy continuous typing.
     static let terminalInputAckResubscribeSilenceThreshold: TimeInterval = 2
+    /// A marked input whose accepted-input watermark has not come back after
+    /// this long, with no events consumed since its dispatch, is treated as
+    /// positive evidence of a stalled output path: the watchdog probes
+    /// immediately instead of waiting out the ambient silence window. Healthy
+    /// echo sits far below this (p50 ~8ms, p95 ~128ms in the field), and a
+    /// false suspicion costs one idempotent read-only probe.
+    static let terminalInputEchoStallThreshold: TimeInterval = 2
+    /// Echo-stall evidence with a HEALTHY probe is still ambiguous in one
+    /// narrow case: a program that consumes input while printing nothing (a
+    /// password prompt). Bound the resulting output-path repair to one replay
+    /// per interval per connection so that case costs a rare replay, not a
+    /// replay loop, while a genuinely dead event lane still recovers.
+    static let terminalInputEchoRepairMinimumInterval: TimeInterval = 30
     /// Short background dwells usually preserve the event stream; beyond this,
     /// the liveness watchdog and normal foreground resync own catch-up.
     static let foregroundResyncShortBackgroundThreshold: TimeInterval = 30
@@ -1244,6 +1257,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var renderGridLivenessProbeID: UUID?
     private var renderGridLivenessConsecutiveProbeFailures = 0
     var lastTerminalEventAt: Date?
+    /// Stamped ONLY by envelopes the listener loop actually consumes, never by
+    /// probe round-trips or watchdog arming, so echo-stall evidence can tell
+    /// "the stream delivered something since this input" apart from "a probe
+    /// proved the control channel". `lastTerminalEventAt` cannot serve here:
+    /// a successful probe refreshes it, which is exactly the pacification the
+    /// echo fast path exists to break.
+    @ObservationIgnored var lastConsumedTerminalEventAt: Date?
+    /// Oldest live marked input per surface still waiting for an
+    /// acknowledging output watermark. Bounded by the mounted-surface count.
+    @ObservationIgnored var pendingTerminalInputEchoBySurfaceID: [String: PendingTerminalInputEcho] = [:]
+    /// Rate limit for echo-stall output-path repairs on a healthy probe.
+    @ObservationIgnored var lastTerminalInputEchoRepairAt: Date?
+    /// Session-randomized increasing wire markers for terminal input. Minted
+    /// here, not in the analytics observer, so marker framing and echo-based
+    /// liveness evidence survive telemetry being disabled.
+    @ObservationIgnored var nextTerminalInputMarkerSequence = UInt64.random(in: 1...(UInt64.max / 2))
     @ObservationIgnored var terminalInputAckResubscribeRetryTask: Task<Void, Never>?
     @ObservationIgnored var terminalInputAckResubscribeRetryTaskID: UUID?
     @ObservationIgnored var terminalInputAckResubscribeRetrySurfaceID: String?
@@ -11514,6 +11543,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         cancelTerminalInputAckResubscribeRetry()
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
+        clearTerminalInputEchoTracking()
     }
 
     /// The one shared entry every pairing flow funnels through, so it is also the
@@ -12788,12 +12818,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
-        let inputSequence = terminalLatencyObserver.inputStarted(
+        let inputSequence = mintTerminalInputMarkerSequence()
+        terminalLatencyObserver.inputStarted(
             surfaceID: terminalID.rawValue,
             byteCount: text.utf8.count,
-            correlate: tracksInputSequence
+            sequence: tracksInputSequence ? inputSequence : nil
         )
-        let marker = inputSequence != 0 && tracksInputSequence ? inputSequence : nil
+        let marker = tracksInputSequence ? inputSequence : nil
         let generation = connectionGeneration
         if let terminalLaneCoordinator {
             let laneResult: MobileTerminalLaneCoordinator.InputResult
@@ -12866,6 +12897,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     surfaceID: terminalID.rawValue,
                     sequence: inputSequence
                 )
+                // The lane is fire-and-forget: this write succeeding is the
+                // last direct signal the client gets, so the pending echo is
+                // the only stall evidence for lane input.
+                if marker != nil {
+                    recordTerminalInputAwaitingEcho(
+                        surfaceID: terminalID.rawValue,
+                        sequence: inputSequence
+                    )
+                }
                 Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
                 finishRawTerminalSend(
                     sendStatusOperationID,
@@ -12875,6 +12915,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             case .failed:
                 terminalLatencyObserver.inputFailed(
+                    surfaceID: terminalID.rawValue,
+                    sequence: inputSequence
+                )
+                failTerminalInputEcho(
                     surfaceID: terminalID.rawValue,
                     sequence: inputSequence
                 )
@@ -12921,6 +12965,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 surfaceID: terminalID.rawValue,
                                 sequence: directInputSequence
                             )
+                            if marker != nil {
+                                self?.recordTerminalInputAwaitingEcho(
+                                    surfaceID: terminalID.rawValue,
+                                    sequence: directInputSequence
+                                )
+                            }
                             Self.stampTerminalInputSettlement(
                                 latencyBatchNumber,
                                 succeeded: true
@@ -12941,6 +12991,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             )
                         case let .failure(error):
                             self?.terminalLatencyObserver.inputFailed(
+                                surfaceID: terminalID.rawValue,
+                                sequence: directInputSequence
+                            )
+                            self?.failTerminalInputEcho(
                                 surfaceID: terminalID.rawValue,
                                 sequence: directInputSequence
                             )
@@ -13014,6 +13068,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 surfaceID: terminalID.rawValue,
                 sequence: directInputSequence
             )
+            if marker != nil {
+                recordTerminalInputAwaitingEcho(
+                    surfaceID: terminalID.rawValue,
+                    sequence: directInputSequence
+                )
+            }
             handleTerminalInputResponse(responseData, surfaceID: terminalID.rawValue)
             Self.stampTerminalInputSettlement(latencyBatchNumber, succeeded: true)
             finishRawTerminalSend(
@@ -13722,6 +13782,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // it resets the liveness window (not just render_grid events).
                 self.cancelTerminalInputAckResubscribeRetry()
                 self.recordTerminalEventStreamLiveness()
+                self.recordConsumedTerminalEventForInputEcho()
                 self.markMacConnectionHealthy()
                 if event.topic == "workspace.updated" {
                     self.scheduleWorkspaceListRefreshFromEvent()
@@ -14200,7 +14261,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let now = runtime?.now() ?? Date()
         let last = lastTerminalEventAt ?? now
         let silent = now.timeIntervalSince(last)
-        guard silent >= Self.renderGridLivenessSilenceThreshold else { return }
+        // A stalled input echo is positive evidence the terminal is NOT idle,
+        // so it pulls the probe in ahead of the ambient silence window: the
+        // user is typing into a frozen screen right now.
+        guard silent >= Self.renderGridLivenessSilenceThreshold
+            || hasStalledTerminalInputEcho(now: now) else { return }
         guard renderGridLivenessProbeTask == nil else { return }
         let probeTimeoutNanoseconds = runtime?.livenessProbeTimeoutNanoseconds
             ?? 3_000_000_000
@@ -14235,6 +14300,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // transient RPC failure marked it unavailable, since an idle
                 // terminal may never emit another event to flip it back.
                 self.markMacConnectionHealthy()
+                let probeSettledAt = self.runtime?.now() ?? Date()
                 if alreadySubscribed == false {
                     // The registration had been LOST host-side (the probe just
                     // reinstalled it), so render-grid deltas emitted during the
@@ -14247,6 +14313,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.repairLostTerminalEventSubscription(
                         reason: "liveness_probe_repaired"
                     )
+                } else if self.hasStalledTerminalInputEcho(now: probeSettledAt),
+                          self.canRepairForTerminalInputEchoStall(now: probeSettledAt) {
+                    // Issue 10471: the control channel answers while the event
+                    // lane delivers nothing. The registration looks intact and
+                    // the probe round-trip would otherwise pacify the watchdog
+                    // forever, but a marked input the host accepted has waited
+                    // past the echo threshold with zero consumed events since
+                    // dispatch: the output path is provably not delivering.
+                    // Replay the mounted surfaces instead of going back to
+                    // sleep. Rate-limited because a program that consumes
+                    // input while printing nothing is indistinguishable here.
+                    self.noteTerminalInputEchoRepair(now: probeSettledAt)
+                    MobileDebugLog.anchormux("sync.liveness input_echo_repair silentMs=\(Int(silent * 1000))")
+                    mobileShellLog.info("liveness probe healthy but a marked input has no acknowledging output, replaying mounted surfaces")
+                    self.recordAppEvent(
+                        .terminalRenderLagDetected,
+                        failure: .timedOut,
+                        count: 1
+                    )
+                    self.repairLostTerminalEventSubscription(
+                        reason: "input_echo_stall"
+                    )
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }
@@ -14256,13 +14344,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // stamp means the stream already proved itself, so no recovery.
             let recheckNow = self.runtime?.now() ?? Date()
             let recheckLast = self.lastTerminalEventAt ?? recheckNow
-            guard recheckNow.timeIntervalSince(recheckLast) >= Self.renderGridLivenessSilenceThreshold else {
+            let echoStillStalled = self.hasStalledTerminalInputEcho(now: recheckNow)
+            guard recheckNow.timeIntervalSince(recheckLast) >= Self.renderGridLivenessSilenceThreshold
+                || echoStillStalled else {
                 return
             }
             let silentMs = Int(recheckNow.timeIntervalSince(recheckLast) * 1000)
             self.renderGridLivenessConsecutiveProbeFailures += 1
             let probeFailures = self.renderGridLivenessConsecutiveProbeFailures
-            guard probeFailures >= Self.renderGridLivenessFailuresBeforeRecovery else {
+            // Two consecutive failures confirm ambiguous ambient silence, but
+            // a stalled input echo means the terminal is provably not idle:
+            // one failed probe on top of that evidence is enough to recover.
+            guard probeFailures >= Self.renderGridLivenessFailuresBeforeRecovery
+                || echoStillStalled else {
                 MobileDebugLog.anchormux(
                     "sync.liveness probe_failed awaiting_confirmation failures=\(probeFailures) silentMs=\(silentMs)"
                 )
@@ -14698,6 +14792,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func unregisterTerminalOutput(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
         terminalLatencyObserver.surfaceClosed(surfaceID: surfaceID)
+        clearTerminalInputEchoTracking(surfaceID: surfaceID)
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
         if let terminalLaneCoordinator {
             Task { await terminalLaneCoordinator.deactivate(surfaceID: surfaceID) }

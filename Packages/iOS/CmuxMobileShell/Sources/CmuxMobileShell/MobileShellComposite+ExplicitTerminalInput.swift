@@ -48,12 +48,13 @@ extension MobileShellComposite {
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }
         let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
-        let inputSequence = terminalLatencyObserver.inputStarted(
+        let inputSequence = mintTerminalInputMarkerSequence()
+        terminalLatencyObserver.inputStarted(
             surfaceID: terminalID.rawValue,
             byteCount: text.utf8.count,
-            correlate: tracksInputSequence
+            sequence: tracksInputSequence ? inputSequence : nil
         )
-        let marker = inputSequence != 0 && tracksInputSequence
+        let marker = tracksInputSequence
             ? String(inputSequence)
             : nil
 
@@ -75,9 +76,19 @@ extension MobileShellComposite {
                 surfaceID: terminalID.rawValue,
                 sequence: inputSequence
             )
+            if marker != nil {
+                recordTerminalInputAwaitingEcho(
+                    surfaceID: terminalID.rawValue,
+                    sequence: inputSequence
+                )
+            }
             return true
         } catch {
             terminalLatencyObserver.inputFailed(
+                surfaceID: terminalID.rawValue,
+                sequence: inputSequence
+            )
+            failTerminalInputEcho(
                 surfaceID: terminalID.rawValue,
                 sequence: inputSequence
             )
