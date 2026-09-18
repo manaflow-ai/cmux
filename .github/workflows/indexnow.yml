@@ -16,7 +16,7 @@ jobs:
        github.event.deployment_status.state == 'success' &&
        github.event.deployment.environment == 'Production – cmux')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 2
+    timeout-minutes: 6
     steps:
       # Only public inputs are needed. Read the live sitemap, so a newer main
       # commit cannot cause us to submit URLs that have not been deployed yet.

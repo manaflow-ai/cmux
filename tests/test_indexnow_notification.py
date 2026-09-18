@@ -84,6 +84,7 @@ class IndexNowTests(unittest.TestCase):
         self.assertNotIn("api/cron/indexnow", workflow)
         self.assertIn("web/app/lib/indexnow.ts", workflow)
         self.assertIn("scripts/ci/notify-indexnow.py", workflow)
+        self.assertIn("timeout-minutes: 6", workflow)
 
 if __name__ == "__main__":
     unittest.main()
