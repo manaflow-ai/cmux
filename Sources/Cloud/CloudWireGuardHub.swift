@@ -120,6 +120,9 @@ actor CloudWireGuardHub {
     /// A failed startup process may report termination after its replacement
     /// has started. Only the current child may invalidate the hub's state.
     private var processID: UUID?
+    /// A child can exit after readiness wins but before the shared startup task
+    /// publishes `.running`. Keep that signal until the state transition commits.
+    private var pendingStartupExit: (processID: UUID, status: Int32)?
 
     init(configuration: Configuration) {
         self.configuration = configuration
@@ -237,6 +240,7 @@ actor CloudWireGuardHub {
         if case .starting(_, let task) = state { task.cancel() }
         state = .stopped
         processID = nil
+        pendingStartupExit = nil
         processHandle.terminate()
         removeSocketFile()
     }
@@ -276,10 +280,18 @@ actor CloudWireGuardHub {
             break
         }
         let startGeneration = generation
+        pendingStartupExit = nil
         let task = Task<Ready, Error> { try await self.startWithRecovery(generation: startGeneration) }
         state = .starting(generation: startGeneration, task: task)
         do {
             let ready = try await task.value
+            if let pendingStartupExit {
+                self.pendingStartupExit = nil
+                throw HubError.exitedDuringStart(
+                    status: pendingStartupExit.status,
+                    output: lastError ?? "hub exited during startup"
+                )
+            }
             guard generation == startGeneration,
                   case .starting(let stateGeneration, _) = state,
                   stateGeneration == startGeneration else {
@@ -379,6 +391,7 @@ actor CloudWireGuardHub {
             throw HubError.notReady(output.isEmpty ? detail : "\(detail); hub output: \(output)")
         }
         guard process.isRunning else {
+            pendingStartupExit = nil
             throw HubError.exitedDuringStart(status: process.exitStatus ?? -1, output: process.outputTail)
         }
         lastError = nil
@@ -389,7 +402,10 @@ actor CloudWireGuardHub {
         guard exitGeneration == generation, processID == exitedProcessID else { return }
         switch state {
         case .starting:
-            // The readiness/exit race in start owns this failure and its retry.
+            // Preserve the exit until ensureRunning commits the ready state. If
+            // readiness won immediately before this callback, dropping it would
+            // publish a running hub whose child is already dead.
+            pendingStartupExit = (exitedProcessID, status)
             return
         case .running:
             state = .stopped
