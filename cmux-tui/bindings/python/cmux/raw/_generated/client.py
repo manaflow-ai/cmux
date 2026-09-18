@@ -15,8 +15,8 @@ class GeneratedClientMixin:
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
-    def attach_surface(self, surface: Id, *, cols: Union[int, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> Any:
-        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, mode=mode, rows=rows))
+    def attach_surface(self, surface: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_terminal_id: Union[str, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> Any:
+        return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, expected_generation=expected_generation, expected_terminal_id=expected_terminal_id, mode=mode, rows=rows))
 
     def browser_activate(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-activate', BrowserActivateRequest(surface=surface))
@@ -327,6 +327,18 @@ class GeneratedClientMixin:
     def unregister_browser_provider(self) -> BrowserProviderUnregisterResult:
         return self._invoke_command('unregister-browser-provider', UnregisterBrowserProviderRequest())
 
+    def url_open(self, terminal_id: str, url: str) -> GuestUrlOpenResult:
+        return self._invoke_command('url-open', UrlOpenRequest(terminal_id=terminal_id, url=url))
+
+    def url_open_claim(self, request_id: str) -> GuestUrlClaimResult:
+        return self._invoke_command('url-open-claim', UrlOpenClaimRequest(request_id=request_id))
+
+    def url_open_result(self, opened: bool, request_id: str) -> GuestUrlAcknowledgeResult:
+        return self._invoke_command('url-open-result', UrlOpenResultRequest(opened=opened, request_id=request_id))
+
+    def url_open_subscribe(self, terminal_ids: List[str]) -> Any:
+        return self._open_command_stream('url-open-subscribe', UrlOpenSubscribeRequest(terminal_ids=terminal_ids))
+
     def vt_state(self, surface: Id) -> VtStateResult:
         return self._invoke_command('vt-state', VtStateRequest(surface=surface))
 
@@ -442,6 +454,10 @@ GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_events.__cmux_command__ = COMMANDS['terminal-events']
 GeneratedClientMixin.undo_layout.__cmux_command__ = COMMANDS['undo-layout']
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
+GeneratedClientMixin.url_open.__cmux_command__ = COMMANDS['url-open']
+GeneratedClientMixin.url_open_claim.__cmux_command__ = COMMANDS['url-open-claim']
+GeneratedClientMixin.url_open_result.__cmux_command__ = COMMANDS['url-open-result']
+GeneratedClientMixin.url_open_subscribe.__cmux_command__ = COMMANDS['url-open-subscribe']
 GeneratedClientMixin.vt_state.__cmux_command__ = COMMANDS['vt-state']
 GeneratedClientMixin.wait_for.__cmux_command__ = COMMANDS['wait-for']
 GeneratedClientMixin.zoom_pane.__cmux_command__ = COMMANDS['zoom-pane']

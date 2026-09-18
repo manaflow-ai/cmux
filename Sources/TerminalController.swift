@@ -3186,7 +3186,7 @@ class TerminalController {
             "auth.sign_out",
             "vm.billing_checkout",
             "vm.list",
-            "vm.diagnostics",
+            "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",
@@ -15546,6 +15546,24 @@ class TerminalController {
     }
 
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+        let traceID = v2String(params, "trace_id")
+            .flatMap(DiagnosticTerminalTraceID.init(stringValue:))
+        let traceStartedAt = DispatchTime.now().uptimeNanoseconds
+        func recordTrace(_ event: String) {
+            guard let traceID else { return }
+            let elapsed = (DispatchTime.now().uptimeNanoseconds - traceStartedAt) / 1_000_000
+            MobileHostIrxRuntime.journal.record(
+                "terminal-trace",
+                event,
+                [
+                    "trace_id": traceID.stringValue,
+                    "operation": "replay",
+                    "elapsed_ms": String(elapsed),
+                ]
+            )
+        }
+        recordTrace("host_received")
+        defer { recordTrace("host_response_ready") }
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -15702,6 +15720,7 @@ class TerminalController {
                 payload["data_b64"] = data.base64EncodedString()
             }
         }
+        recordTrace("host_capture_finished")
         return .ok(payload)
     }
 
@@ -15851,7 +15870,10 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalTarget.sendInputResult(text)
+        let sendResult = MobileTerminalByteTee.shared.performMobileInput(
+            surfaceID: surfaceId,
+            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init)
+        ) { terminalTarget.sendInputResult(text) }
         switch sendResult {
         case .sent:
             // PTY output is already observed by MobileTerminalByteTee, which

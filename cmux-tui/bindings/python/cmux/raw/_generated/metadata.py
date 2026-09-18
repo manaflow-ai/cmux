@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3516f328325fbd149ce352bc9e0ac9504d9ee121f4b18f16bdca37ab175b6bea'
+IR_SHA256 = '7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0'
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,8 @@ COMMANDS = {
         'attach',
         {
             'cols': CommandFieldMetadata(None, 'attach-initial-size'),
+            'expected_generation': CommandFieldMetadata(None, 'attach-identity-v1'),
+            'expected_terminal_id': CommandFieldMetadata(None, 'attach-identity-v1'),
             'mode': CommandFieldMetadata(7, None),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'surface': CommandFieldMetadata(None, None),
@@ -1402,6 +1404,52 @@ COMMANDS = {
         {
         },
     ),
+    'url-open': CommandMetadata(
+        'url-open',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-claim': CommandMetadata(
+        'url-open-claim',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-result': CommandMetadata(
+        'url-open-result',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'opened': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-subscribe': CommandMetadata(
+        'url-open-subscribe',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        'subscribe',
+        {
+            'terminal_ids': CommandFieldMetadata(None, None),
+        },
+    ),
     'vt-state': CommandMetadata(
         'vt-state',
         'control',
@@ -1483,6 +1531,7 @@ EVENTS = {
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),
+    'url-open': EventMetadata('url-open', 12, None, ('control',), 'emitted'),
     'vt-state': EventMetadata('vt-state', 5, None, ('attach-byte',), 'emitted'),
     'window-title-requested': EventMetadata('window-title-requested', 6, None, ('subscribe',), 'emitted'),
     'workspace-added': EventMetadata('workspace-added', 7, None, ('subscribe-deltas',), 'emitted'),

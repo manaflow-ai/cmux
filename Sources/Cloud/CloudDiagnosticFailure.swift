@@ -51,6 +51,15 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .httpStatus(let status, _): return classify(status: status)
             }
         }
+        if let error = error as? MachineUsageClientError {
+            switch error {
+            case .notSignedIn: return .authentication
+            case .sessionRefreshFailed: return .sessionRefresh
+            case .backendUnreachable: return .network
+            case .malformedResponse: return .response
+            case .httpStatus(let status, _): return classify(status: status)
+            }
+        }
         if let error = error as? CloudMachineLink.LinkError {
             switch error {
             case .timedOut: return .timeout
@@ -71,6 +80,15 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             }
         }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }
+        if let error = error as? SurfaceCatalogError {
+            switch error {
+            case .unknownResource, .destinationNotFound, .nothingToOpen: return .notFound
+            case .noProvider, .unavailable: return .network
+            case .ambiguousRemotePlacement: return .conflict
+            case .unsupported: return .unsupported
+            case .partialOperation: return .response
+            }
+        }
         if error is DecodingError { return .response }
         return .unknown
     }
