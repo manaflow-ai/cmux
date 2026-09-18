@@ -231,7 +231,7 @@ then skips the provider read.
 | reconnect (second link) | 128 ms |
 
 This is the whole path minus the Mac UI and minus the Vercel/DB/auth layer:
-3.1 s, of which 0.41 s is allocation and 1.1 s is the guest shell. An
+3.1 s, of which 0.44 s is allocation and 1.1 s is the guest shell. An
 earlier run without the prompt identity measured the attach bundle at 609 ms
 and create → prompt at 3084 ms, so the prompt install costs about 85 ms
 inside the one bundle exec.
@@ -278,7 +278,7 @@ list refresh, ble.sh with its cache, and the first-frame pipeline.
 
 ## 6. Where the time goes: avoidable work, with evidence
 
-1. **Create does three guest round trips after allocation** (`installGuestCli`: fs write + exec; `ensureResourceReporter`: exec running `systemctl daemon-reload/restart/enable`). provider_create is 1.30 s from Vercel against a 0.41 s allocation; the transport bench shows the same 1.06 s vs 0.41 s from a closer vantage. The shim and the reporter unit are static per image epoch; the bake already installs the daemon, its pin and the agent hooks the same way. The prompt identity is re-applied by the attach bundle anyway (`promptSetup` in `openCmuxRemote`).
+1. **Create does three guest round trips after allocation** (`installGuestCli`: fs write + exec; `ensureResourceReporter`: exec running `systemctl daemon-reload/restart/enable`). provider_create is 1.30 s from Vercel against a 0.44 s allocation; the transport bench shows the same 1.06 s vs 0.41 s from a closer vantage. The shim and the reporter unit are static per image epoch; the bake already installs the daemon, its pin and the agent hooks the same way. The prompt identity is re-applied by the attach bundle anyway (`promptSetup` in `openCmuxRemote`).
 2. **Attach runs five to six guest execs serially** (announce; bundle with a settle loop that runs two metadata-service curls per 100 ms tick; since #12741 a shim-sha256 + browser-opener readiness check; hooks-ready check with a python JSON parse; reporter install with systemctl) plus a `getStatus` provider probe and three DB writes. Measured 0.61 s from the Mac and 0.85–1.5 s through Vercel before #12741 landed; per-day production p50 doubled when the first of these entered the path on 2026-09-10. On current images the hooks check is always a no-op (the bake proves hooks installed), the shim/opener check is a no-op after the first attach, and the reporter compare/enable is a no-op after the first attach. Each addition is individually small (one exec is ~20 ms of RTT plus its work), which is exactly why the count keeps growing; the fix is structural (one exec, gated by the image epoch), not per-feature.
 3. **Named creates serialize a rename exec** (p90 13.9 s, n=24) before opening the shell. The server already installs the prompt name inside create when `promptIdentity` is passed; the create route just does not accept a display name.
 4. **The daemon waits for a 1 s supervisor tick**: first exec succeeds at 0.58 s, the daemon process appears at 0.91 s, listens (bound to the machine) at 1.21 s. A systemd path/oneshot triggered at resume, or an immediate check at supervisor start, removes ~0.3 s.
