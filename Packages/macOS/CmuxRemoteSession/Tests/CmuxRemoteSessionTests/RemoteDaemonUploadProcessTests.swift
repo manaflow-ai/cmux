@@ -1,3 +1,4 @@
+import CmuxRemoteDaemon
 import CryptoKit
 import Foundation
 import Testing
@@ -5,6 +6,27 @@ import Testing
 
 @Suite("Remote daemon upload process")
 struct RemoteDaemonUploadProcessTests {
+    @Test("Hello execution failures retain the launch phase and safe reason")
+    func helloFailureMessageIdentifiesPermissionDenied() {
+        let error = NSError(domain: "cmux.remote.daemon", code: 40, userInfo: [
+            NSLocalizedDescriptionKey: "failed to start remote daemon: Permission denied",
+        ])
+        let strings = RemoteDaemonStrings(
+            missingPersistentPTYCapability: "missing PTY",
+            missingRequiredFunctionality: "missing functionality",
+            cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+            cloudNotificationClearWorkspaceDenied: "denied workspace",
+            cloudNotificationClearSurfaceInvalid: "invalid surface"
+        )
+
+        #expect(
+            RemoteSessionCoordinator.userFacingRemoteDaemonBootstrapErrorMessage(
+                error,
+                strings: strings
+            ) == "Remote daemon launch failed: Permission denied"
+        )
+    }
+
     @Test("Upload closes inherited writer descriptors before promotion")
     func uploadDoesNotLeavePromotedBinaryBusy() throws {
         let fileManager = FileManager.default
