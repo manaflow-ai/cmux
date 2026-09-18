@@ -3467,11 +3467,7 @@ struct ContentView: View {
             }
         })
 
-        view = AnyView(view.ignoresSafeArea())
-        view = AnyView(view.overlay {
-            WindowContentOverlayBrowserHost()
-                .allowsHitTesting(false)
-        })
+        view = AnyView(view.ignoresSafeArea().overlay(WindowContentOverlayBrowserHost().allowsHitTesting(false)))
         view = AnyView(view.sheet(isPresented: $isFeedbackComposerPresented) {
             SidebarFeedbackComposerSheet()
         })
