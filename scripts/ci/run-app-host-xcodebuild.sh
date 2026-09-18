@@ -107,7 +107,11 @@ app_host_xcodebuild_arguments=("$@")
 if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
   package_products_dir="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
   package_framework_destination="$package_products_dir/PackageFrameworks"
+  stable_framework_destination="${RUNNER_TEMP:-/tmp}/cmux-app-host-package-frameworks"
   package_framework_source="$(find "$package_products_dir" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+  if [ -d "$stable_framework_destination" ] && find "$stable_framework_destination" -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit | grep -q .; then
+    package_framework_source="$(find "$stable_framework_destination" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit)"
+  fi
   if [ -n "$package_framework_source" ]; then
     if [ -L "$package_framework_destination" ]; then
       rm "$package_framework_destination"
@@ -120,7 +124,6 @@ if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
     mkdir -p "$app_framework_destination"
     rsync -aL "$package_framework_root/" "$app_framework_destination/"
     test -f "$app_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
-    stable_framework_destination="${RUNNER_TEMP:-/tmp}/cmux-app-host-package-frameworks"
     mkdir -p "$stable_framework_destination"
     rsync -aL "$package_framework_root/" "$stable_framework_destination/"
     export DYLD_LIBRARY_PATH="$stable_framework_destination:$app_framework_destination${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"

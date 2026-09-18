@@ -736,6 +736,11 @@ jobs:
           echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
           tar -xzf "$archive" -C "$CMUX_DERIVED_DATA_PATH"
           products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
+          stable="$RUNNER_TEMP/cmux-app-host-package-frameworks"
+          mkdir -p "$stable"
+          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+          test -n "$framework_source"
+          rsync -aL "$(dirname "$framework_source")/" "$stable/"
           if [ -L "$products/PackageFrameworks" ]; then
             rm "$products/PackageFrameworks"
           fi
