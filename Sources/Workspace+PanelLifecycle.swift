@@ -346,7 +346,9 @@ extension Workspace {
             refreshTrackedAgentPorts()
         }
         if didChange {
-            syncTerminalTabAgentIconAsset(forPanelId: ownedPanelId ?? panelId)
+            if let changedPanelId = ownedPanelId ?? panelId {
+                syncTerminalTabAgentIconAsset(forPanelId: changedPanelId)
+            }
         }
         return didChange
     }
