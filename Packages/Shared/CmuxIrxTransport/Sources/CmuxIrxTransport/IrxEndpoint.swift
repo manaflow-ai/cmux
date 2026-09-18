@@ -1,5 +1,6 @@
 public import Foundation
 public import IrohLib
+import CmuxIrohTransport
 
 public enum IrxEndpointError: Error, Sendable {
     case noUsableRelayCredential
@@ -62,6 +63,7 @@ public actor IrxEndpointSupervisor {
     private var generation = 0
     private var onlineReached = false
     private var closeWatcher: Task<Void, Never>?
+    private var relayDiagnosticWatch: WatchHandle?
     private var desiredRelayCredentials: [IrxRelayCredential]?
     private var desiredRelayOwnership: IrxRelayCredentialInstallOwnership?
     private var relayInstaller: IrxRelayCredentialInstaller?
@@ -216,11 +218,14 @@ public actor IrxEndpointSupervisor {
         bindID = nil
         closeWatcher?.cancel()
         closeWatcher = nil
+        let diagnosticWatch = relayDiagnosticWatch
+        relayDiagnosticWatch = nil
         let installer = relayInstaller
         relayInstaller = nil
         let old = driver
         driver = nil
         onlineReached = false
+        await diagnosticWatch?.stop()
         await installer?.stop()
         if let old { try? await old.close() }
         journal.record("endpoint", "closed", ["generation": String(generation)])
@@ -243,6 +248,9 @@ public actor IrxEndpointSupervisor {
             onlineReached = false
             closeWatcher?.cancel()
             closeWatcher = nil
+            let diagnosticWatch = relayDiagnosticWatch
+            relayDiagnosticWatch = nil
+            await diagnosticWatch?.stop()
             await installer?.stop()
         }
         try? await bound.close()
@@ -314,6 +322,8 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         driver = bound
+        relayDiagnosticWatch = bound.watchRelayConnectionDiagnostics(
+            callback: CmxIrohRelayDiagnosticObserver())
         if !directOnly {
             let installer = IrxRelayCredentialInstaller(installed: usable, journal: journal) { credential in
                 try await bound.insertRelay(config: RelayConfig(
@@ -363,12 +373,21 @@ public actor IrxEndpointSupervisor {
             throw IrxEndpointError.endpointClosed
         }
         guard cameOnline == true else {
+            // Read this generation's native state, independent of callback delivery.
+            let failure = bound.relayConnectionDiagnostics().lazy.compactMap(\.failureDescription).first
             journal.record(
                 "endpoint", "online-timeout",
                 ["generation": String(generation)]
             )
             await discardBinding(bound)
-            throw IrxEndpointError.bindFailed("relay link never came up (20s)")
+            throw IrxEndpointError.bindFailed(
+                failure ?? String(
+                    localized: directOnly
+                        ? "settings.networking.diagnostics.failure.timedOut"
+                        : "connection.relay.timedOut",
+                    defaultValue: directOnly ? "Timed out." : "The relay connection timed out."
+                )
+            )
         }
         onlineReached = true
         let readyMs =
@@ -397,6 +416,9 @@ public actor IrxEndpointSupervisor {
         driver = nil
         onlineReached = false
         journal.record("endpoint", "closed-unexpectedly", ["generation": String(closedGeneration)])
+        let diagnosticWatch = relayDiagnosticWatch
+        relayDiagnosticWatch = nil
+        await diagnosticWatch?.stop()
         await installer?.stop()
     }
 }

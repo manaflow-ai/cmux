@@ -7,6 +7,7 @@
 mod command;
 mod lifecycle;
 mod raw;
+mod shorthand;
 mod wire;
 
 use std::borrow::Cow;
@@ -143,7 +144,11 @@ impl std::fmt::Display for UsageError {
 impl std::error::Error for UsageError {}
 
 pub fn is_public_scope(value: &str) -> bool {
-    PUBLIC_SCOPES.contains(&value)
+    PUBLIC_SCOPES.contains(&canonical_scope(value))
+}
+
+pub(super) fn canonical_scope(value: &str) -> &str {
+    shorthand::scope(value)
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
@@ -200,6 +205,7 @@ fn parse_command(
     global: GlobalArgs,
     command_args: Vec<String>,
 ) -> Result<ParsedCommand, UsageError> {
+    let command_args = shorthand::normalize(&command_args)?;
     if command_args.is_empty() {
         return Err(UsageError::new("missing resource scope; use --help to list scopes"));
     }
@@ -220,18 +226,16 @@ fn parse_command(
     if command_args[0] == "help" {
         return match command_args.get(1) {
             None => Ok(ParsedCommand::Help(None)),
-            Some(scope) if scope == "start" => Ok(ParsedCommand::Help(Some(scope.clone()))),
-            Some(scope) if PUBLIC_SCOPES.contains(&scope.as_str()) => {
+            Some(scope) if matches!(scope.as_str(), "start" | "shorthands") => {
                 Ok(ParsedCommand::Help(Some(scope.clone())))
+            }
+            Some(scope) if PUBLIC_SCOPES.contains(&shorthand::scope(scope)) => {
+                Ok(ParsedCommand::Help(Some(shorthand::scope(scope).to_string())))
             }
             Some(scope) => Err(unknown_scope(scope)),
         };
     }
-    if command_args
-        .iter()
-        .take_while(|value| value.as_str() != "--")
-        .any(|value| matches!(value.as_str(), "-h" | "--help"))
-    {
+    if has_help_option(&command_args) {
         let words = command_args
             .iter()
             .take_while(|value| value.as_str() != "--")
@@ -368,11 +372,45 @@ fn parse_globals(args: &[String]) -> Result<(GlobalArgs, Vec<String>), (UsageErr
             }
             _ => {
                 command.push(value.clone());
+                if option_takes_value(value)
+                    && let Some(next) = args.get(index + 1)
+                {
+                    command.push(next.clone());
+                    index += 1;
+                }
                 index += 1;
             }
         }
     }
     Ok((global, command))
+}
+
+/// Option arity is shared with resource tokenization. Values such as --help or
+/// --json are payloads when owned by a preceding option, never global switches.
+fn option_takes_value(value: &str) -> bool {
+    shorthand::short_value_option(value)
+        || (value.starts_with("--")
+            && !value.contains('=')
+            && !matches!(
+                value,
+                "--help" | "--json" | "--jsonl" | "--quiet" | "--literal" | "--print"
+            )
+            && !command::is_boolean_flag(value.trim_start_matches("--")))
+}
+
+fn has_help_option(args: &[String]) -> bool {
+    let mut index = 0;
+    while index < args.len() {
+        let value = args[index].as_str();
+        if value == "--" {
+            break;
+        }
+        if matches!(value, "-h" | "--help") {
+            return true;
+        }
+        index += if option_takes_value(value) { 2 } else { 1 };
+    }
+    false
 }
 
 fn global_value(args: &[String], index: usize, flag: &str) -> Result<String, UsageError> {
@@ -412,6 +450,7 @@ fn scope_help_for(
     catalog: &'static crate::localization::Catalog,
 ) -> Cow<'static, str> {
     match scope {
+        "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
@@ -467,6 +506,7 @@ GLOBAL OPTIONS
 
 PROCESS HELP
   cmux help start
+  cmux help shorthands
   cmux attach --help
   cmux relay --help
   cmux wg hub --help
@@ -897,5 +937,93 @@ mod tests {
         assert!(!is_remote_invocation(&strings(&["--session", "--", "remote", "connect",])));
         assert!(!is_remote_invocation(&strings(&["--session", "dev", "--", "remote", "connect",])));
         assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
+    }
+
+    #[test]
+    fn shorthand_resource_paths_preserve_selectors_and_payloads() {
+        for (short, canonical) in [
+            (vec!["ws", "ls"], vec!["workspace", "list"]),
+            (vec!["ws", "new", "--name", "term"], vec!["workspace", "create", "--name", "term"]),
+            (vec!["pane", "split", "--down"], vec!["pane", "current", "split", "--down"]),
+            (
+                vec!["ws", "name:ls", "win", "current", "p", "current", "get"],
+                vec!["workspace", "name:ls", "screen", "current", "pane", "current", "show"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--json"],
+                vec!["terminal", "current", "write", "--text=--json"],
+            ),
+            (
+                vec!["term", "current", "write", "--text", "--help"],
+                vec!["terminal", "current", "write", "--text=--help"],
+            ),
+            (
+                vec!["ws", "current", "run", "--", "echo", "--json", "neww"],
+                vec!["workspace", "current", "run", "--", "echo", "--json", "neww"],
+            ),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { global, plan: CommandPlan::Protocol(request) } =
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
+                (global.output, request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_tmux_commands_share_canonical_operations() {
+        for (short, canonical) in [
+            (vec!["ls"], vec!["session", "list"]),
+            (vec!["lsw"], vec!["screen", "list"]),
+            (vec!["lsp"], vec!["pane", "list"]),
+            (vec!["neww", "-n", "api"], vec!["screen", "create", "--name", "api"]),
+            (vec!["splitw", "-h"], vec!["pane", "current", "split", "--right"]),
+            (vec!["splitw"], vec!["pane", "current", "split", "--down"]),
+            (vec!["selectp", "-L"], vec!["pane", "current", "focus", "direction", "left"]),
+            (vec!["selectw", "-t", "api"], vec!["screen", "api", "focus"]),
+            (
+                vec!["renamew", "-t", "api", "backend"],
+                vec!["screen", "api", "rename", "--name", "backend"],
+            ),
+            (vec!["capturep"], vec!["terminal", "current", "screen", "read"]),
+            (
+                vec!["send-keys", "C-c", "Enter"],
+                vec!["terminal", "current", "keys", "ctrl+c", "enter"],
+            ),
+            (
+                vec!["send-keys", "-l", "hello", "世界"],
+                vec!["terminal", "current", "write", "--text", "hello世界"],
+            ),
+        ] {
+            let plan = |args: Vec<&str>| {
+                let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
+                    parse(&strings(&args)).unwrap()
+                else {
+                    panic!("expected typed request")
+                };
+                (request.operation.name().unwrap(), request.params)
+            };
+            assert_eq!(plan(short), plan(canonical));
+        }
+    }
+
+    #[test]
+    fn shorthand_rejects_unsupported_or_conflicting_flags_before_execution() {
+        for args in [
+            vec!["splitw", "-h", "-v"],
+            vec!["splitw", "-d"],
+            vec!["selectp", "-L", "-R"],
+            vec!["neww", "-n", "one", "--name", "two"],
+            vec!["selectw", "-t"],
+            vec!["capturep", "-t", "one", "--target", "two"],
+            vec!["send-keys", "hello world"],
+            vec!["new-session"],
+        ] {
+            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+        }
     }
 }
