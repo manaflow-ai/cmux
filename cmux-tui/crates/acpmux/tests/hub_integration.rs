@@ -465,3 +465,19 @@ async fn family_defaults_pick_the_profile_model_effort_and_policy() {
     let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "gpt"}}})).await.unwrap_err();
     assert!(err.contains("aliases: fast"), "{err}");
 }
+
+#[tokio::test]
+async fn a_model_alone_picks_the_harness_that_reports_it() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    // Nothing has reported a catalog yet: an unknown model is refused, not run elsewhere.
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"model": "m2"}}})).await.unwrap_err();
+    assert!(err.contains("no harness reports model"), "{err}");
+    // A first session teaches the hub the fake agent's models (m1, m2).
+    c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "seed"}}})).await.unwrap();
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"model": "m2", "name": "bymodel"}}})).await.unwrap();
+    assert_eq!(s["_meta"]["acpmux"]["agent"], "fake");
+    assert_eq!(s["_meta"]["acpmux"]["model"], "m2");
+    let cfg = hub.config.read().await;
+    assert_eq!(hub.resolve_by_model(&cfg, "m1").as_deref(), Some("fake"));
+    assert_eq!(hub.resolve_by_model(&cfg, "nope"), None);
+}

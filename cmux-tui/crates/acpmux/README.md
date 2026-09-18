@@ -99,7 +99,7 @@ acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -a claude -a codex "prompt"                    # one temporary session per harness, run one after another
-acpmux skill                                                  # the agent skill file; acpmux daemon schema prints the RPC surface
+acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
 
 Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
@@ -273,6 +273,12 @@ acpmux run -a local "…"
 so the same alias works on a laptop with Ollama and on a server with OpenRouter. When no
 preferred harness reports the model, the first installed one is used and the model setting
 fails with the ids it does know. Aliases show in `acpmux defaults` with a `*`.
+
+**Convention: harness first, model second.** `-a` says what kind of agent (a family such as
+`claude`, an alias such as `deepseek`, or a profile); `-m` refines the model and `-e` the
+effort. `-m` alone also works: acpmux picks the harness whose reported catalog lists the id
+(`-m sonnet` is a Claude, `-m opencode-go/deepseek-v4-flash` is OpenCode) and refuses an id
+nobody reports rather than running it elsewhere. Explicit flags always win over defaults.
 
 Families are derived from the harness (`claude` for the stdio backend and `sr claude proxy`,
 `codex` for `codex-acp`, `opencode`, `pi`, `gemini`) or set with `"family"` on a profile.

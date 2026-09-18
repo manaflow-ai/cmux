@@ -139,15 +139,23 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 .and_then(Value::as_str)
                 .map(str::to_owned)
                 .or_else(|| params.get("agent").and_then(Value::as_str).map(str::to_owned));
+            let model = meta.and_then(|m| m.get("model")).and_then(Value::as_str).map(str::to_owned);
             let agent = match agent {
                 Some(a) => a,
-                None => hub
-                    .config
-                    .read()
-                    .await
-                    .default_agent
-                    .clone()
-                    .ok_or_else(|| RpcError::invalid_params("no agents configured; add one to config.json"))?,
+                None => {
+                    let cfg = hub.config.read().await;
+                    match model.as_deref().and_then(|m| hub.resolve_by_model(&cfg, m)) {
+                        Some(a) => a,
+                        None => {
+                            if let Some(m) = &model {
+                                // Nothing reports this model: say so instead of running it elsewhere.
+                                let families: Vec<String> = cfg.families().keys().cloned().collect();
+                                return Err(RpcError::invalid_params(format!("no harness reports model {m:?}; pass -a with one of: {}", families.join(", "))));
+                            }
+                            cfg.default_agent.clone().ok_or_else(|| RpcError::invalid_params("no agents configured; add one to config.json"))?
+                        }
+                    }
+                }
             };
             let name = meta
                 .and_then(|m| m.get("name"))
@@ -160,7 +168,6 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 .or_else(|| params.get("policy").and_then(Value::as_str))
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
-            let model = meta.and_then(|m| m.get("model")).and_then(Value::as_str).map(str::to_owned);
             let effort = meta.and_then(|m| m.get("effort")).and_then(Value::as_str).map(str::to_owned);
             let s = hub.new_session(&agent, name, cwd, policy, model, effort).await?;
             attach(hub, conn, &s.id);

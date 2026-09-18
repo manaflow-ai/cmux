@@ -7,7 +7,7 @@ mod cli;
 use cli::run::run_client;
 
 #[derive(Parser)]
-#[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for ACP agents", long_about = None)]
+#[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for ACP agents", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 struct Cli {
     /// Print raw JSON instead of text.
     #[arg(long, global = true)]
@@ -93,7 +93,7 @@ enum Command {
         #[arg(long)]
         timeout: Option<u64>,
     },
-    /// Print the agent skill: how an agent drives acpmux. Also `guide`, `--skill`.
+    /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
@@ -359,7 +359,8 @@ enum PeerCmd {
 
 #[derive(Args)]
 struct NewArgs {
-    /// Agent profile name (codex, claude, ...). Defaults to the configured default.
+    /// Family (claude, codex, opencode, pi), alias (see `acpmux defaults`), or profile name.
+    /// Omitted: inferred from --model when one harness knows it, else the configured default.
     #[arg(long, short)]
     agent: Option<String>,
     /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
@@ -411,7 +412,7 @@ async fn main() -> Result<()> {
     if argv.len() == 2 && argv[1] == "daemon" {
         argv.push("run".into());
     }
-    if argv.get(1).map(|a| a == "--skill").unwrap_or(false) {
+    if argv.get(1).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
         argv[1] = "skill".into();
     }
     let run_alias = argv.get(1).map(|a| a == "run" || a == "exec").unwrap_or(false);

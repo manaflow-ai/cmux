@@ -563,6 +563,44 @@ impl Hub {
         cfg.resolve_agent_where(requested, |p, m| self.knows_model(p, m))
     }
 
+    /// The profile to run a model when the request named no agent: the
+    /// profiles whose reported catalog lists it (Claude profiles for Claude
+    /// aliases and ids), narrowed to the default agent, then family
+    /// preference, then name order. None when nothing knows the model.
+    pub fn resolve_by_model(&self, cfg: &crate::config::Config, model: &str) -> Option<String> {
+        let known = self.known_models.lock().unwrap();
+        let claude_like = model.starts_with("claude") || crate::claude_stdio::models().iter().any(|(id, _)| *id == model);
+        let candidates: Vec<String> = cfg
+            .agents
+            .iter()
+            .filter(|(name, p)| match p.kind {
+                crate::config::AgentKind::ClaudeStdio => claude_like,
+                crate::config::AgentKind::Acp => known.get(*name).map(|l| l.iter().any(|(id, _)| id == model)).unwrap_or(false),
+            })
+            .map(|(n, _)| n.clone())
+            .collect();
+        drop(known);
+        if candidates.is_empty() {
+            return None;
+        }
+        if let Some(d) = &cfg.default_agent {
+            if candidates.contains(d) {
+                return Some(d.clone());
+            }
+        }
+        // The family's preferred profile when it is a candidate.
+        for c in &candidates {
+            if let Some(f) = cfg.family(c) {
+                if let Some(p) = cfg.resolve_agent(&f) {
+                    if candidates.contains(&p) {
+                        return Some(p);
+                    }
+                }
+            }
+        }
+        candidates.into_iter().next()
+    }
+
     /// The profile with the family's default env underneath its own.
     fn with_default_env(&self, profile: &AgentProfile, env: &std::collections::BTreeMap<String, String>) -> AgentProfile {
         let mut p = profile.clone();
