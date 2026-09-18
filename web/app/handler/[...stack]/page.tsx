@@ -1,6 +1,6 @@
 import { MagicLinkSignIn, StackHandler } from "@stackframe/stack";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
@@ -14,7 +14,10 @@ import { loadMessages } from "../../../i18n/messages";
 export const instant = false;
 
 export default async function StackHandlerPage(
-  props: { params: Promise<{ stack: string[] }> },
+  props: {
+    params: Promise<{ stack: string[] }>;
+    searchParams: Promise<Record<string, string | string[] | undefined>>;
+  },
 ) {
   // Stack consumes one-time query parameters from the actual request URL.
   // Keep everything below this boundary out of the prerender cache.
@@ -24,6 +27,14 @@ export default async function StackHandlerPage(
     props.params,
     headers(),
   ]);
+
+  if (stack.length === 1 && stack[0] === "cli-auth-confirm") {
+    const user = await stackServerApp.getUser({ or: "return-null" });
+    if (!user) {
+      const searchParams = await props.searchParams;
+      redirect(cliAuthSignInHref(firstSearchParam(searchParams.login_code)));
+    }
+  }
 
   const isCoderouterSignIn =
     coderouterHost(requestHeaders.get("host")) &&
@@ -87,4 +98,20 @@ function coderouterHost(host: string | null): boolean {
   const hostname = host?.split(":", 1)[0]?.toLowerCase();
   return hostname === "coderouter.dev" ||
     hostname?.endsWith(".coderouter.dev") === true;
+}
+
+function cliAuthSignInHref(loginCode: string | null): string {
+  const confirmation = new URL("/handler/cli-auth-confirm", "https://cmux.com");
+  if (loginCode) confirmation.searchParams.set("login_code", loginCode);
+
+  const signIn = new URL("/handler/sign-in", "https://cmux.com");
+  signIn.searchParams.set(
+    "after_auth_return_to",
+    `${confirmation.pathname}${confirmation.search}`,
+  );
+  return `${signIn.pathname}${signIn.search}`;
+}
+
+function firstSearchParam(value: string | string[] | undefined): string | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
