@@ -515,16 +515,19 @@ final class MachinesPanelViewModel: ObservableObject {
             return
         }
         isLoading = true
+        refreshGeneration &+= 1
         let generation = refreshGeneration
         refreshTask = Task { [weak self] in
-            await self?.performRefresh()
-            guard let self else { return }
-            guard generation == self.refreshGeneration else { return }
-            self.refreshTask = nil
-            if self.refreshRequestedWhileLoading {
-                self.refreshRequestedWhileLoading = false
-                self.refresh()
+            defer {
+                if let self, self.refreshGeneration == generation {
+                    self.refreshTask = nil
+                    if !Task.isCancelled, self.refreshRequestedWhileLoading {
+                        self.refreshRequestedWhileLoading = false
+                        self.refresh()
+                    }
+                }
             }
+            await self?.performRefresh()
         }
     }
     func startPolling() {
@@ -635,12 +638,19 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     private func performRefresh() async {
+        guard !Task.isCancelled else { return }
         guard CloudMachinesFeature.isEnabled else {
             isLoading = false
             return
         }
         guard let client = VMClient.shared else {
+            lastErrorDescription = String(
+                localized: "machines.unavailable.title",
+                defaultValue: "Cloud is unreachable"
+            )
+            listProblem = .unreachable
             isLoading = false
+            hasLoadedOnce = true
             return
         }
         do {
@@ -677,6 +687,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = nil
             listProblem = nil
         } catch let error as VMClientError {
+            guard !Task.isCancelled else { return }
             if case .notSignedIn = error {
                 // A request can race sign-out before the auth observation or
                 // notification arrives. Clear the authoritative-looking
@@ -694,9 +705,11 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
         } catch {
+            guard !Task.isCancelled else { return }
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }
+        guard !Task.isCancelled else { return }
         isLoading = false
         hasLoadedOnce = true
     }
