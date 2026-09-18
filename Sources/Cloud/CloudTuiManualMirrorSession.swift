@@ -792,8 +792,6 @@ final class CloudTuiManualMirrorSession {
             if diagnosticReplayReceived { finishDiagnostics() }
             remoteLease = lease
             transition(to: .attached)
-            presentationReadiness.check()
-            if diagnosticReplayReceived { presentationReadiness.markReadyIfPresented() }
             watchdog.armLiveness(
                 probe: { [weak self] in self?.sendPing() },
                 onExpiry: { [weak self] in self?.deadlineExpired(.livenessTimedOut, while: .attached) }
