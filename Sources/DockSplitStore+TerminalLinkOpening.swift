@@ -42,14 +42,15 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     func openTerminalBrowserLink(
         url: URL,
         sourcePanelId: UUID,
-        placement: TerminalLinkBrowserPlacement
+        placement: TerminalLinkBrowserPlacement,
+        focus: Bool = true
     ) -> Bool {
         guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else { return false }
-        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
         return BrowserSplitContainer.dock(self).openBrowser(
             of: panelId,
             placement: placement,
-            request: BrowserSplitRequest(url: url, focus: true, preloadInBackground: false)
+            request: BrowserSplitRequest(url: url, focus: focus, preloadInBackground: false)
         ) != nil
     }
 }

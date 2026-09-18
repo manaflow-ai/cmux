@@ -51,13 +51,14 @@ extension Workspace: TerminalLinkOpenContainer {
     func openTerminalBrowserLink(
         url: URL,
         sourcePanelId: UUID,
-        placement: TerminalLinkBrowserPlacement
+        placement: TerminalLinkBrowserPlacement,
+        focus: Bool = true
     ) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
         return BrowserSplitContainer.workspace(self).openBrowser(
             of: target.containerPanelID,
             placement: placement,
-            request: BrowserSplitRequest(url: url, focus: true, preloadInBackground: false)
+            request: BrowserSplitRequest(url: url, focus: focus, preloadInBackground: false)
         ) != nil
     }
 }

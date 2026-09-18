@@ -1,6 +1,8 @@
 import AppKit
 import struct CmuxCore.WorkspaceRemoteConfiguration
 import Bonsplit
+import CmuxCore
+import CmuxRemoteSession
 import Testing
 
 #if canImport(cmux_DEV)

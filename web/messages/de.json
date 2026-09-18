@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Mit Team teilen",
+      "makePrivate": "Privat machen",
+      "privateImportHint": "Neue Konten sind privat. Teilen Sie ein Konto, um es den Cloud-VMs dieses Teams verfügbar zu machen.",
+      "description": "Geteilte Konten stehen den Cloud-VMs dieses Teams zur Verfügung. Private Konten bleiben der Person vorbehalten, die sie hinzugefügt hat.",
+      "cancelAction": "Abbrechen"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Falsches Fenster oder blockierter Klick",
       "targetBody": "Untersuche die App erneut und wähle ein aktuelles Element. Verdeckt ein anderes Fenster das Ziel, mache das gewünschte Fenster sichtbar und prüfe es vor dem nächsten Versuch. Verwende keine veralteten Koordinaten oder Elementindizes.",
       "productLink": "Übersicht zu cmux Computer Use",
-    "copyTitle": "Computer-Use-Prompt kopieren",
-    "copyPrompt": "Prompt kopieren",
-    "copiedPrompt": "Kopiert",
-    "installPrompt": "Verwende für diese Aufgabe den Skill $cmux-cua. Falls er fehlt, installiere ihn mit deinem normalen Skill-Installer. Bei fehlenden Berechtigungen bitte mich, cmux Einstellungen → Computer Use zu öffnen. Prüfe vor jeder Aktion und verifiziere jede Änderung.\n\nAufgabe: [Aufgabe hier beschreiben]"
+      "copyTitle": "Computer-Use-Prompt kopieren",
+      "copyPrompt": "Prompt kopieren",
+      "copiedPrompt": "Kopiert",
+      "installPrompt": "Verwende für diese Aufgabe den Skill $cmux-cua. Falls er fehlt, installiere ihn mit deinem normalen Skill-Installer. Bei fehlenden Berechtigungen bitte mich, cmux Einstellungen → Computer Use zu öffnen. Prüfe vor jeder Aktion und verifiziere jede Änderung.\n\nAufgabe: [Aufgabe hier beschreiben]"
     },
     "remoteTmux": {
       "moshContrast": "Verwende cmux mosh-tmux für Roaming zwischen Netzwerken. Es öffnet ein vollständig integriertes Mosh-Terminal, das an eine benannte tmux-Sitzung angehängt ist; die native Spiegelung von Workspaces, Tabs und Teilungen durch den SSH-tmux-Steuermodus wird dadurch nicht ersetzt."
@@ -1213,6 +1220,7 @@
           "globalFontMagnification": "Skaliert cmux-eigene Terminals, Tab-Titel, Seitenleisten, Einstellungen, Overlays und App-Chrome um diesen Prozentsatz. Gerenderte Browserseiteninhalte sind ausgeschlossen."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Bei true (Standard) stellt cmux eine an das Erscheinungsbild angepasste Standardpalette bereit, sofern kein Ghostty-Theme und keine Terminalfarben konfiguriert sind. Schrift- und andere Einstellungen bleiben erhalten. Bei false verwendet Ghostty seine feste integrierte Palette. Explizite Themes und Farben haben immer Vorrang, einschließlich theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Optionale maximale Breite in Punkten für Terminalinhalte und den integrierten Agentenchat. Mit false wird die gesamte Breite des Bereichs verwendet.",
           "sessionContentAlignment": "Horizontale Position von Terminalinhalten und integriertem Agentenchat, wenn sessionContentMaxWidth aktiviert ist.",
           "copyOnSelect": "Bei true wird ausgewählter Terminaltext in die Systemzwischenablage kopiert, sobald die Auswahl bestätigt wird. Bei false gibt cmux keine Ghostty-copy-on-select-Überschreibung aus; Ghostty-Konfiguration und Standardwerte steuern das Verhalten der Auswahlzwischenablage.",
@@ -1328,7 +1336,7 @@
       "plusButtonScreenshotAlt": "Rechtsklickmenü des Plus-Buttons mit Worktree Agents, New Terminal und New Browser",
       "plusButtonScreenshotCaption": "Das Rechtsklickmenü folgt der Reihenfolge aus ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Benutzerdefinierte Aktionen für den Plus-Button",
-      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist.",
+      "newWorkspaceButtonDesc": "Verwende <action>ui.newWorkspace.action</action>, um zu überschreiben, was der Plus-Button ausführt. Verwende <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (oder den Alias <rightClick>rightClick</rightClick>), um das geordnete Rechtsklickmenü zu definieren. Menüeinträge können Aktions-IDs, Aktionsobjekte oder <separator>{ \"type\": \"separator\" }</separator> sein. Wenn nicht festgelegt, listet das Menü cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), jeweils mit dem aktuellen Tastenkürzel. Cloud-Einträge erscheinen nur, wenn Cloud Machines aktiviert ist.",
       "newWorkspaceWorktreeNote": "Dieses Beispiel lässt den normalen Plus-Klick die Aktion <action>worktree-agents</action> ausführen. Der Workspace-Befehl aus <commands>commands</commands> nutzt ein sichtbares Setup-Terminal, um zuerst den Git-<worktree>worktree</worktree> zu erstellen. Codex und Claude starten gleichzeitig, warten auf die workspace-spezifische Statusdatei und wechseln dann vor exec in das erstellte Verzeichnis.",
       "simpleCommands": "Einfache Befehle",
       "simpleCommandsDesc": "Ein einfacher Befehl führt einen Shell-Befehl im aktuell fokussierten Terminal aus:",

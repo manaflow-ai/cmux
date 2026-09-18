@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Поділитися з командою",
+      "makePrivate": "Зробити приватним",
+      "privateImportHint": "Нові облікові записи приватні. Поділіться записом, щоб він став доступним хмарним ВМ цієї команди.",
+      "description": "Спільні облікові записи доступні хмарним ВМ цієї команди. Приватні облікові записи доступні лише тому, хто їх додав.",
+      "cancelAction": "Скасувати"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "Не те вікно або заблоковане клацання",
       "targetBody": "Знову огляньте програму та виберіть актуальний елемент. Якщо інше вікно закриває ціль, покажіть потрібне вікно й огляньте перед повтором. Не використовуйте застарілі координати чи індекси.",
       "productLink": "Огляд cmux Computer Use",
-    "copyTitle": "Копіювати промпт Computer Use",
-    "copyPrompt": "Копіювати промпт",
-    "copiedPrompt": "Скопійовано",
-    "installPrompt": "Використовуй навичку $cmux-cua. Якщо її немає, установи звичайним інсталятором. За відсутності дозволів попроси мене відкрити Параметри cmux → Computer Use. Перевіряй до дії та після кожної зміни.\n\nЗавдання: [опишіть завдання тут]"
+      "copyTitle": "Копіювати промпт Computer Use",
+      "copyPrompt": "Копіювати промпт",
+      "copiedPrompt": "Скопійовано",
+      "installPrompt": "Використовуй навичку $cmux-cua. Якщо її немає, установи звичайним інсталятором. За відсутності дозволів попроси мене відкрити Параметри cmux → Computer Use. Перевіряй до дії та після кожної зміни.\n\nЗавдання: [опишіть завдання тут]"
     },
     "remoteTmux": {
       "moshContrast": "Для роумінгу між мережами використовуйте cmux mosh-tmux. Він відкриває повноцінно інтегрований термінал Mosh, приєднаний до іменованого сеансу tmux; це не замінює нативне дзеркалювання робочих просторів, вкладок і поділів у режимі керування tmux через SSH."
@@ -1197,6 +1204,7 @@
           "globalFontMagnification": "Масштабує на цей відсоток термінали, заголовки вкладок, бічні панелі, налаштування, накладки та chrome застосунку, що належать cmux. Відрендерений вміст сторінок браузера не включено."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Якщо true (типово), cmux надає стандартну палітру, що адаптується до оформлення, якщо не задано тему Ghostty або кольори термінала. Шрифт та інші налаштування зберігаються. Якщо false, Ghostty використовує свою фіксовану вбудовану палітру. Явно задані теми й кольори завжди мають пріоритет, зокрема theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Необов’язкова максимальна ширина в пунктах для вмісту термінала та вбудованого чату агента. Значення false використовує всю ширину панелі.",
           "sessionContentAlignment": "Горизонтальне розташування вмісту термінала та вбудованого чату агента, коли ввімкнено sessionContentMaxWidth.",
           "copyOnSelect": "Якщо значення true, вибраний текст термінала копіюється до системного буфера обміну після підтвердження виділення. Якщо значення false, cmux не виводить перевизначення Ghostty copy-on-select; конфігурація та стандартні значення Ghostty керують поведінкою буфера виділення.",
@@ -1312,7 +1320,7 @@
       "plusButtonScreenshotAlt": "Меню правого кліку кнопки плюс у cmux показує Worktree Agents, New Terminal і New Browser",
       "plusButtonScreenshotCaption": "Меню правого кліку дотримується порядку з ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Користувацькі дії кнопки плюс",
-      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines.",
+      "newWorkspaceButtonDesc": "Використовуйте <action>ui.newWorkspace.action</action>, щоб перевизначити дію кнопки плюс. Використовуйте <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (або alias <rightClick>rightClick</rightClick>), щоб визначити впорядковане меню правого кліку. Пункти меню можуть бути ID дій, об’єктами дій або <separator>{ \"type\": \"separator\" }</separator>. Якщо не задано, меню містить cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) з поточними комбінаціями клавіш. Хмарні пункти відображаються лише коли ввімкнено Cloud Machines.",
       "newWorkspaceWorktreeNote": "У цьому прикладі звичайний клік по плюсу запускає дію <action>worktree-agents</action>. Команда робочого простору з <commands>commands</commands> використовує видимий термінал налаштування, щоб спочатку створити Git <worktree>worktree</worktree>. Codex і Claude запускаються одночасно, чекають файл стану для цього робочого простору, а потім переходять у створений каталог перед exec.",
       "simpleCommands": "Прості команди",
       "simpleCommandsDesc": "Проста команда виконує shell-команду в поточному активному терміналі:",

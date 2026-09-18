@@ -9,7 +9,6 @@ protocol TerminalLinkOpenContainer: AnyObject {
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String?
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool
-
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget?
 
     @discardableResult
@@ -20,7 +19,30 @@ protocol TerminalLinkOpenContainer: AnyObject {
     ) -> Bool
 
     @discardableResult
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, placement: TerminalLinkBrowserPlacement) -> Bool
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement,
+        focus: Bool
+    ) -> Bool
+}
+
+extension TerminalLinkOpenContainer {
+    func openTerminalBrowserLink(
+        url: URL,
+        sourcePanelId: UUID,
+        placement: TerminalLinkBrowserPlacement
+    ) -> Bool {
+        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, placement: placement, focus: true)
+    }
+
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool) -> Bool {
+        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, placement: .split, focus: focus)
+    }
+
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+        openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, placement: .split, focus: true)
+    }
 }
 
 struct CloudTerminalLinkTarget: Sendable, Equatable {
