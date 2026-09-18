@@ -205,6 +205,9 @@ links, nested lists, quotes, rules, simple tables, and fenced code blocks on a s
 background with syntect highlighting when the language is known. Every row starts after a
 two-column gutter (`❯` for you, `▸`/`▾` for collapsibles), so text lines up down the page.
 Your messages look like Codex's: a tinted full-width band with `› ` before the text. The
+transcript spaces blocks like Codex: one blank row before every block, a tinted blank inside the
+user band above and below the text, a dim `• ` on the first line of a reply, and a dim rule
+between the agent's work (tool calls, thinking) and its final reply. The
 transcript is a hierarchy of collapsibles, each toggled by a click: the whole turn (click
 your message; collapsed it shows the first line and `· 3 tool calls · 1 reply`), a run of
 consecutive tool calls (`▾ 3 tool calls · Read, Bash, Edit`), one tool call (`▸ ✓ title  kind

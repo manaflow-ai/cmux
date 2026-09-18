@@ -195,13 +195,31 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
             (show_system || !is_system_noise(it)) && !matches!(it, Item::TurnEnd { stop } if stop == "end_turn")
         })
         .collect();
-    // The user block carries its own tinted blank rows above and below, so
-    // no extra spacer goes next to it.
-    let mut after_user_block = false;
-    let spacer = |rows: &mut Vec<Row>, i: usize, after_user_block: bool| {
-        if !rows.is_empty() && !after_user_block {
+    // Codex spacing: one plain blank row before every block. The user block
+    // also carries a tinted blank row inside its band above and below.
+    let after_user_block = false;
+    let spacer = |rows: &mut Vec<Row>, i: usize, _after_user_block: bool| {
+        if !rows.is_empty() {
             plain("", Style::default(), i, rows);
         }
+    };
+    // A turn's final reply after tool calls or thinking gets a dim rule
+    // above it, like Codex's "worked for" separator.
+    let is_final_reply = |i: usize| -> bool {
+        let mut worked = false;
+        let mut j = i;
+        while j > 0 {
+            j -= 1;
+            match &t.items[j] {
+                Item::User { .. } => break,
+                Item::Tool { .. } | Item::Thought { .. } | Item::Plan { .. } => worked = true,
+                _ => {}
+            }
+        }
+        if !worked {
+            return false;
+        }
+        t.items[i + 1..].iter().take_while(|x| !matches!(x, Item::User { .. })).all(|x| !matches!(x, Item::Tool { .. } | Item::Thought { .. } | Item::Plan { .. } | Item::Assistant { .. }))
     };
     // One tool or permission row (plus open details) at `indent`.
     let tool_rows = |rows: &mut Vec<Row>, i: usize, indent: &str| {
@@ -257,6 +275,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 k += 1;
                 let open = is_open(Toggle::Turn(i), true);
                 turn_open = open;
+                spacer(&mut rows, i, false);
                 // Codex's user block: a tinted band with a blank row above and
                 // below and `› ` before the text.
                 let bg = Style::default().bg(c.user_bg);
@@ -294,7 +313,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 }
                 plain("", bg, i, &mut rows);
                 tint_rows(&mut rows[start..], width, c.user_bg, Some(Toggle::Turn(i)));
-                after_user_block = true;
+                let _ = after_user_block;
                 continue;
             }
             it if group(it) => {
@@ -307,7 +326,6 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 }
                 let members = &vis[start_k..k];
                 spacer(&mut rows, i, after_user_block);
-                after_user_block = false;
                 let tools: Vec<usize> = members.iter().copied().filter(|&m| matches!(t.items[m], Item::Tool { .. })).collect();
                 if tools.len() >= 2 {
                     let g = Toggle::Group(tools[0]);
@@ -340,10 +358,24 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     continue;
                 }
                 spacer(&mut rows, i, after_user_block);
-                after_user_block = false;
                 match item {
                     Item::Assistant { text } => {
+                        if is_final_reply(i) {
+                            let rule = "─".repeat(width.saturating_sub(GUTTER.len()));
+                            rows.push(Row { line: Line::from(vec![Span::raw(GUTTER), Span::styled(rule.clone(), c.dim())]), text: format!("{GUTTER}{rule}"), item: i, toggle: None });
+                            plain("", Style::default(), i, &mut rows);
+                        }
+                        let start = rows.len();
                         super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
+                        // Codex's `• ` bullet on the first line of an agent message.
+                        if let Some(first) = rows.get_mut(start) {
+                            let mut spans: Vec<Span<'static>> = first.line.spans.clone();
+                            if spans.first().map(|s| s.content.as_ref() == GUTTER).unwrap_or(false) {
+                                spans[0] = Span::styled("• ".to_owned(), c.dim());
+                                first.line = Line::from(spans);
+                                first.text = format!("• {}", &first.text[GUTTER.len().min(first.text.len())..]);
+                            }
+                        }
                     }
                     Item::Thought { text } => {
                         let live = running && i == last;
