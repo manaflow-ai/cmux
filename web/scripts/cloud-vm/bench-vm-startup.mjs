@@ -577,22 +577,27 @@ async function deleteAccount() {
 
 /**
  * A user whose creation response was lost is found by its generated email
- * with the server key. `verified` is false when the lookup itself failed
- * after retries: the caller then does not know whether an identity exists
- * and must not claim there is nothing to clean up.
+ * with the server key. The lookup is a search, so an empty answer can be
+ * the index lagging a committed create: absence is retried and never taken
+ * as proof. `verified` is true only when the user was found; otherwise the
+ * caller does not know whether an identity exists and must not claim there
+ * is nothing to clean up.
  */
 async function reconcileCreatedUser() {
   if (user) return { user, verified: true };
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       const listed = await app.listUsers({ query: benchEmail, limit: 5 });
       const found = listed.find((candidate) => candidate.primaryEmail === benchEmail) ?? null;
-      if (found) console.error(`cleanup_reconciled_user=${benchEmail}`);
-      return { user: found, verified: true };
+      if (found) {
+        console.error(`cleanup_reconciled_user=${benchEmail}`);
+        return { user: found, verified: true };
+      }
+      console.error(`cleanup_user_lookup_empty attempt=${attempt + 1}`);
     } catch (error) {
       console.error(`cleanup_user_lookup_failed attempt=${attempt + 1} error=${error instanceof Error ? error.message : String(error)}`);
-      if (attempt < 2) await sleep(2_000);
     }
+    if (attempt < 4) await sleep(5_000);
   }
   return { user: null, verified: false };
 }
@@ -673,12 +678,13 @@ async function runCleanup() {
     user = lookup.user;
     if (!user && !lookup.verified) {
       // createUser threw after Stack may already have persisted the identity,
-      // and the server-key lookup failed too: whether a user exists is
-      // unknown, which is a cleanup failure for an operator, never a clean exit.
+      // and the server-key lookup did not find it (or failed): whether a
+      // user exists is unknown, which is a cleanup failure for an operator,
+      // never a clean exit.
       cleanup.identityUnknown = true;
       cleanup.keptUser = benchEmail;
       cleanup.ok = false;
-      console.error(`cleanup_needed_user=${benchEmail} (creation response lost and the Stack lookup failed; check for this identity with the Stack server key and delete it)`);
+      console.error(`cleanup_needed_user=${benchEmail} (creation response lost and no user with this email was found, or the lookup failed; absence cannot be proven, so check for this identity with the Stack server key and delete it if it exists)`);
       return cleanup;
     }
   }
