@@ -116,6 +116,10 @@ if [ -n "${CMUX_DERIVED_DATA_PATH:-}" ]; then
     package_framework_root="$(dirname "$package_framework_source")"
     rsync -aL "$package_framework_root/" "$package_framework_destination/"
     test -f "$package_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+    app_framework_destination="$package_products_dir/cmux DEV.app/Contents/Frameworks"
+    mkdir -p "$app_framework_destination"
+    rsync -aL "$package_framework_root/" "$app_framework_destination/"
+    test -f "$app_framework_destination/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
   fi
 fi
 
