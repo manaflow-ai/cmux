@@ -146,9 +146,14 @@ async function waitForInFlight(ms: number): Promise<boolean> {
   return inFlight.size === 0;
 }
 
-/** As above, and a request still running afterwards is recorded as a cleanup failure. */
-async function settleInFlight(ms: number): Promise<void> {
-  if (!(await waitForInFlight(ms))) cleanupFailures.push(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
+/**
+ * Blocks until every tracked provider request has settled, reporting every
+ * ten minutes. A mutation the SDK cannot cancel must never be swept past or
+ * abandoned: a create or delete that completed after an inventory read
+ * would leave a resource behind.
+ */
+async function waitUntilSettled(): Promise<void> {
+  while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle)`);
 }
 
 /** Polls until the VM reports `paused` (a `pausing` machine would race the start). */
@@ -453,18 +458,24 @@ try {
     console.error(`burst: ${JSON.stringify(results.burst)}`);
   }
 } finally {
-  await settleInFlight(300_000);
-  await reconcileRunVms();
-  // Reconciliation's own deletes are bounded too: one that timed out is
-  // still running at the provider, and the VPC delete below would race it
-  // (409 until the machine's addresses are released), so wait for those as
-  // well before touching the VPC.
-  await settleInFlight(120_000);
-  if (withVpc && (vpcId !== null || vpcCreateLost)) {
-    await deleteRunVpc(vpcId).catch((error: unknown) => {
-      cleanupFailures.push(`VPC ${vpcId ?? runId}: ${error instanceof Error ? error.message : String(error)}`);
-      console.error(`cleanup_needed_vpc=${vpcId ?? runId}`);
-    });
+  // Every tracked provider request settles before the inventory is read,
+  // and again before the VPC goes (reconciliation's own deletes are bounded
+  // too, and a VPC delete answers 409 until a machine's addresses are
+  // released). The pass runs once more when it recorded a failure, so a
+  // delete that completed late still ends with an empty network and no VPC.
+  for (let pass = 1; pass <= 2; pass += 1) {
+    const failuresBefore = cleanupFailures.length;
+    await waitUntilSettled();
+    await reconcileRunVms();
+    await waitUntilSettled();
+    if (withVpc && (vpcId !== null || vpcCreateLost)) {
+      await deleteRunVpc(vpcId).catch((error: unknown) => {
+        cleanupFailures.push(`VPC ${vpcId ?? runId}: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`cleanup_needed_vpc=${vpcId ?? runId}`);
+      });
+    }
+    if (cleanupFailures.length === failuresBefore) break;
+    if (pass === 1) console.error(`cleanup_pass=${pass} recorded ${cleanupFailures.length - failuresBefore} failure(s); running the pass again once the requests settle`);
   }
   process.off("SIGINT", interrupt);
   process.off("SIGTERM", interrupt);
@@ -505,5 +516,5 @@ writeSync(1, `${text}\n`);
 const warnAbandon = (signal: string) => console.error(`${signal} during the final wait: ${inFlight.size} provider request(s) still in flight; a second ${signal} abandons them`);
 process.once("SIGINT", () => warnAbandon("SIGINT"));
 process.once("SIGTERM", () => warnAbandon("SIGTERM"));
-while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle before exit)`);
+await waitUntilSettled();
 process.exit(summary.ok ? 0 : 1);

@@ -162,6 +162,16 @@ function boundedSdk(promise, ms, label) {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 }
 
+/**
+ * Blocks until every tracked provider request has settled, reporting every
+ * ten minutes. A mutation the SDK cannot cancel must never be swept past or
+ * abandoned: a delete that completed after the inventory was read, or after
+ * the account went, would leave a resource behind.
+ */
+async function waitProviderSettled() {
+  while (!(await settleProviderRequests(600_000))) console.error(`cleanup_still_in_flight=${providerInFlight.size} (waiting for them to settle)`);
+}
+
 /** Waits (bounded) for every timed-out provider request to settle; false when some are still running. */
 async function settleProviderRequests(ms) {
   if (providerInFlight.size === 0) return true;
@@ -704,8 +714,13 @@ async function runCleanup() {
     // the user's slug, then the identity is removed with the server key.
     cleanup.machinesGone = true;
     cleanup.providerClean = await reapOwnerVpcMachines(user.id);
-    cleanup.providerSettled = await settleProviderRequests(120_000);
-    if (cleanup.providerClean && cleanup.providerSettled && (await reapOwnerNetwork(user.id))) {
+    await waitProviderSettled();
+    // A delete that timed out may have completed while settling: read the
+    // inventory once more before the network goes.
+    if (!cleanup.providerClean) cleanup.providerClean = await reapOwnerVpcMachines(user.id);
+    await waitProviderSettled();
+    cleanup.providerSettled = true;
+    if (cleanup.providerClean && (await reapOwnerNetwork(user.id))) {
       try {
         await user.delete();
         cleanup.accountDeleted = true;
@@ -729,8 +744,13 @@ async function runCleanup() {
   // user's own network at the provider before any account cleanup.
   cleanup.providerClean = user ? await reapOwnerVpcMachines(user.id) : true;
   // A timed-out provider request may still be mutating a machine; it must
-  // settle before the network and the account are removed under it.
-  cleanup.providerSettled = await settleProviderRequests(120_000);
+  // settle before the network and the account are removed under it, and a
+  // delete that completed while settling is seen by reading the inventory
+  // once more.
+  await waitProviderSettled();
+  if (user && !cleanup.providerClean) cleanup.providerClean = await reapOwnerVpcMachines(user.id);
+  await waitProviderSettled();
+  cleanup.providerSettled = true;
   if (cleanup.unresolvedCreates.length > 0) {
     // A create whose outcome is still unknown could yet record a machine;
     // the account (and its network) stay until an operator reconciles it.
@@ -854,5 +874,5 @@ try {
 const warnAbandon = (signal) => console.error(`${signal} during the final wait: ${providerInFlight.size} provider request(s) still in flight; a second ${signal} abandons them`);
 process.once("SIGINT", () => warnAbandon("SIGINT"));
 process.once("SIGTERM", () => warnAbandon("SIGTERM"));
-while (!(await settleProviderRequests(600_000))) console.error(`cleanup_still_in_flight=${providerInFlight.size} (waiting for them to settle before exit)`);
+await waitProviderSettled();
 process.exit(process.exitCode ?? 0);

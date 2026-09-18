@@ -114,9 +114,14 @@ async function waitForInFlight(ms: number): Promise<boolean> {
   }
   return inFlight.size === 0;
 }
-/** As above, and a request still running afterwards fails the cleanup step. */
-async function settleInFlight(ms: number): Promise<void> {
-  if (!(await waitForInFlight(ms))) throw new Error(`${inFlight.size} provider request(s) still in flight after ${ms} ms`);
+/**
+ * Blocks until every tracked provider request has settled, reporting every
+ * ten minutes. A mutation the SDK cannot cancel must never be swept past or
+ * abandoned: a create or delete that completed after an inventory read
+ * would leave a resource behind.
+ */
+async function waitUntilSettled(): Promise<void> {
+  while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle)`);
 }
 
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
@@ -212,10 +217,15 @@ type RunNetworkState = { networkLost: boolean; tunnelLost: boolean; networkId: s
  */
 function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, clientPublicKey: string, state: RunNetworkState) {
   const networking = provider.privateNetworking;
-  return Effect.gen(function* () {
+  // One pass of the net: every tracked provider request has settled before
+  // anything is listed or deleted (a create or delete still in flight could
+  // otherwise complete after the sweep; the wait is unbounded and reports
+  // every ten minutes, because sweeping past a mutation the SDK cannot
+  // cancel would abandon it), then the lost tunnel, the known tunnel, the
+  // known network (its machines swept again first) and the lost network.
+  const pass = Effect.gen(function* () {
     const failures: string[] = [];
-    const settled = yield* Effect.either(attempt("settle in-flight provider requests", () => settleInFlight(300_000)));
-    if (settled._tag === "Left") failures.push(settled.left.message);
+    yield* attempt("settle in-flight provider requests", () => waitUntilSettled());
     const tunnels = state.tunnelLost
       ? yield* Effect.either(attemptWithin("list tunnels", () => sdk.tunnels.list(), "60 seconds"))
       : null;
@@ -277,6 +287,17 @@ function reconcileRunNetworkBySlug(provider: FreestyleProvider, slug: string, cl
       }
     } else if (!/404|not found/i.test(network.left.message)) {
       failures.push(network.left.message);
+    }
+    return failures;
+  });
+  // The pass runs once more when it recorded a failure (its own deletes are
+  // bounded and may have timed out while still running), so a delete that
+  // completed late still ends with an empty network and nothing attached.
+  return Effect.gen(function* () {
+    let failures = yield* pass;
+    if (failures.length > 0) {
+      console.error(`cleanup_pass=1 recorded ${failures.length} failure(s); running the pass again once the requests settle`);
+      failures = yield* pass;
     }
     if (failures.length > 0) {
       for (const failure of failures) console.error(`cleanup_reconcile_failed ${failure}`);
@@ -527,5 +548,5 @@ try {
 const warnAbandon = (signal: string) => console.error(`${signal} during the final wait: ${inFlight.size} provider request(s) still in flight; a second ${signal} abandons them`);
 process.once("SIGINT", () => warnAbandon("SIGINT"));
 process.once("SIGTERM", () => warnAbandon("SIGTERM"));
-while (!(await waitForInFlight(600_000))) console.error(`cleanup_still_in_flight=${inFlight.size} (waiting for them to settle before exit)`);
+await waitUntilSettled();
 process.exit(process.exitCode ?? 0);
