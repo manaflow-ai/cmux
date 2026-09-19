@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Verify create-time naming against an isolated socket, without allocating VMs."""
 
+from __future__ import annotations
+
 import os
 import subprocess
 import unittest
