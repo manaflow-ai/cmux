@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
+import datetime
 import http.server
 import json
 import os
@@ -72,7 +72,7 @@ def _profile_plist(
     return {
         "Name": name,
         "UUID": "00000000-0000-0000-0000-000000000001",
-        "ExpirationDate": datetime(2099, 1, 1, tzinfo=timezone.utc),
+        "ExpirationDate": datetime.datetime(2099, 1, 1, tzinfo=datetime.timezone.utc),
         "Entitlements": {
             "application-identifier": app_id,
             "com.apple.developer.team-identifier": TEAM_ID,
@@ -95,7 +95,7 @@ def _install_fake_tools(fakebin: Path) -> None:
     common = f"""
 import os
 import plistlib
-from datetime import datetime, timezone
+import datetime
 from pathlib import Path
 
 TEAM_ID = {TEAM_ID!r}
