@@ -13,10 +13,12 @@ struct CloudTreeMachineRowContent: View {
     var body: some View {
         CloudTreeMachineBand(style: style) {
             HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                Image(systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
+                if machine.freeAccess == .expired {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
+                }
                 VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {
@@ -26,6 +28,13 @@ struct CloudTreeMachineRowContent: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(height: scaled(style.machineSubtitleLineHeight))
+                    }
+                    if style.machineRowLayout == .twoLine && style.showsMachineStats {
+                        CloudTreeMachineResourceView(
+                            metrics: CloudMachineResourcePresentation(machine: machine, now: now),
+                            style: style
+                        )
+                        .frame(minHeight: scaled(style.machineResourceHeight))
                     }
                 }
             }
@@ -50,6 +59,13 @@ struct CloudTreeMachineRowContent: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
+                }
+                if style.machineRowLayout == .singleLine, machine.freeAccess == .expired, let fact = inlineFact {
+                    Text(fact)
+                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             Spacer(minLength: 0)

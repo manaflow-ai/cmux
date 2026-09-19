@@ -421,7 +421,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup:
+            case .localMachine, .terminalsPool, .agentsGroup, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup:
                 toggle(node)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
@@ -578,9 +578,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         func contextMenu(forRow row: Int) -> NSMenu? {
             guard let outlineView else { return nil }
             let resolvedRow = row >= 0 ? row : outlineView.selectedRow
-            guard resolvedRow >= 0, let node = outlineView.item(atRow: resolvedRow) as? CloudTreeNode else { return nil }
             let menu = NSMenu()
             menu.autoenablesItems = false
+            guard resolvedRow >= 0, let node = outlineView.item(atRow: resolvedRow) as? CloudTreeNode else {
+                menu.addItem(customizeGroupsMenuItem())
+                return menu
+            }
+            menu.addItem(customizeGroupsMenuItem())
+            menu.addItem(.separator())
             for item in organizationMenuItems(for: node) + menuItems(for: node) {
                 menu.addItem(item)
             }
@@ -592,6 +597,31 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             cmuxDebugLog("cloudTree.menu.build row=\(resolvedRow) items=\(menu.items.count)")
             #endif
             return menu.items.isEmpty ? nil : menu
+        }
+
+        private func customizeGroupsMenuItem() -> NSMenuItem {
+            let item = NSMenuItem(title: String(localized: "cloudTree.menu.customizeGroups", defaultValue: "Customize Visible Groups…"), action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            for group in CloudTreeGroupPreferences.ordered() {
+                let child = NSMenuItem(title: group.rawValue.capitalized, action: #selector(toggleCloudTreeGroup(_:)), keyEquivalent: "")
+                child.target = self
+                child.representedObject = group.rawValue
+                child.state = CloudTreeGroupPreferences.isVisible(group) ? .on : .off
+                submenu.addItem(child)
+            }
+            item.submenu = submenu
+            return item
+        }
+
+        @objc private func toggleCloudTreeGroup(_ sender: NSMenuItem) {
+            guard let raw = sender.representedObject as? String,
+                  let group = CloudTreeGroupPreferences.Group(rawValue: raw) else { return }
+            _ = CloudTreeGroupPreferences.setVisible(!CloudTreeGroupPreferences.isVisible(group), group: group)
+        }
+
+        private func groupMenuItems(_ group: CloudTreeGroupPreferences.Group) -> [NSMenuItem] {
+            [item("Hide Group: \(group.rawValue.capitalized)") { _ = CloudTreeGroupPreferences.setVisible(false, group: group) }]
         }
 
         private func menuItems(for node: CloudTreeNode) -> [NSMenuItem] {
@@ -702,6 +732,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
+            case .agentsGroup:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }] + groupMenuItems(.agents)
             case .browsersGroup, .portsGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             case .resourcesPool, .resource:
