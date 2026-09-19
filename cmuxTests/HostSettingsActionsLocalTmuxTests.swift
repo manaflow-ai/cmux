@@ -52,6 +52,39 @@ struct HostSettingsActionsLocalTmuxTests {
         #expect(sessions[1].clientCount == 2)
         #expect(sessions[1].cwd == "/Users/test/src/work")
         #expect(sessions[2].isLive == false)
+        #expect(sessions[2].clientCount == 0)
+    }
+
+    @MainActor
+    @Test func rejectsMalformedSessionRows() throws {
+        let malformedRows: [[String: Any]] = [
+            [
+                "id": NSNull(),
+                "session_name": "missing-live",
+                "managed": false,
+            ],
+            [
+                "id": "not-a-uuid",
+                "session_name": "managed-bad-id",
+                "clients": 1,
+                "managed": true,
+                "live": true,
+            ],
+            [
+                "id": NSNull(),
+                "session_name": "bad-clients",
+                "clients": "two",
+                "managed": false,
+                "live": true,
+            ],
+        ]
+
+        for row in malformedRows {
+            let data = try JSONSerialization.data(withJSONObject: ["sessions": [row]])
+            #expect(throws: Error.self) {
+                _ = try HostSettingsActions.decodeLocalTmuxSessions(data)
+            }
+        }
     }
 
     @MainActor

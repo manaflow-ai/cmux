@@ -16,6 +16,28 @@ private struct LocalTmuxSettingsCLIError: LocalizedError, Sendable {
     var errorDescription: String? { message }
 }
 
+private struct LocalTmuxSessionListResponse: Decodable {
+    let sessions: [Session]
+
+    struct Session: Decodable {
+        let id: String?
+        let sessionName: String
+        let cwd: String?
+        let clients: Int?
+        let managed: Bool
+        let live: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case sessionName = "session_name"
+            case cwd
+            case clients
+            case managed
+            case live
+        }
+    }
+}
+
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
 /// services (`BrowserHistoryStore`, `BrowserDataImportCoordinator`,
@@ -280,43 +302,54 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     static func decodeLocalTmuxSessions(_ data: Data) throws -> [LocalTmuxSessionSummary] {
-        guard
-            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let rows = object["sessions"] as? [[String: Any]]
-        else {
-            throw LocalTmuxSettingsCLIError(
-                message: String(
-                    localized: "settings.terminal.localTmux.invalidResponse",
-                    defaultValue: "cmux local-tmux returned an invalid session list."
-                )
-            )
+        let response: LocalTmuxSessionListResponse
+        do {
+            response = try JSONDecoder().decode(LocalTmuxSessionListResponse.self, from: data)
+        } catch {
+            throw invalidLocalTmuxSessionListError()
         }
 
-        return rows.compactMap { row in
-            guard let name = row["session_name"] as? String, !name.isEmpty else { return nil }
-            let logicalID = (row["id"] as? String).flatMap(UUID.init(uuidString:))
-            let clientCount: Int
-            if let clients = row["clients"] as? Int {
-                clientCount = clients
-            } else if let clients = row["clients"] as? NSNumber {
-                clientCount = clients.intValue
-            } else {
-                clientCount = 0
+        return try response.sessions.map { row in
+            guard !row.sessionName.isEmpty else {
+                throw invalidLocalTmuxSessionListError()
             }
+
+            let logicalID: UUID?
+            if let rawID = row.id {
+                guard let parsedID = UUID(uuidString: rawID) else {
+                    throw invalidLocalTmuxSessionListError()
+                }
+                logicalID = parsedID
+            } else {
+                guard !row.managed else {
+                    throw invalidLocalTmuxSessionListError()
+                }
+                logicalID = nil
+            }
+
             return LocalTmuxSessionSummary(
-                id: logicalID?.uuidString ?? "tmux:\(name)",
+                id: logicalID?.uuidString ?? "tmux:\(row.sessionName)",
                 logicalID: logicalID,
-                name: name,
-                cwd: row["cwd"] as? String,
-                clientCount: clientCount,
-                isLive: row["live"] as? Bool ?? false,
-                isManaged: row["managed"] as? Bool ?? false
+                name: row.sessionName,
+                cwd: row.cwd,
+                clientCount: row.clients ?? 0,
+                isLive: row.live,
+                isManaged: row.managed
             )
         }
         .sorted {
             if $0.isLive != $1.isLive { return $0.isLive && !$1.isLive }
             return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+    }
+
+    private static func invalidLocalTmuxSessionListError() -> LocalTmuxSettingsCLIError {
+        LocalTmuxSettingsCLIError(
+            message: String(
+                localized: "settings.terminal.localTmux.invalidResponse",
+                defaultValue: "cmux local-tmux returned an invalid session list."
+            )
+        )
     }
 
     private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {
