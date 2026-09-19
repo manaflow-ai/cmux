@@ -13,6 +13,7 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
+import { ProviderCreateCleanupError } from "./providerCreateCleanup";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
@@ -1005,9 +1006,13 @@ export class FreestyleProvider implements VMProvider {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
             // the plan machine.
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
+            try {
+              await vm.delete();
+            } catch (cleanupErr) {
+              if (!isNotFound(cleanupErr)) {
+                throw new ProviderCreateCleanupError(vmId, err, cleanupErr);
+              }
+            }
             throw err;
           }
           return {

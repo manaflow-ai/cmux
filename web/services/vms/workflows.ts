@@ -92,8 +92,10 @@ import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { withVmProductAnalytics } from "./productAnalytics";
 import {
+  PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
   vmRepositoryLiveShape,
@@ -493,6 +495,10 @@ function rollbackProviderCreate(
   });
 }
 
+function isFailedVmCreate(vm: Pick<CloudVmRow, "status" | "failureCode">): boolean {
+  return vm.status === "failed" || vm.failureCode === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE;
+}
+
 /** Check the copied or requested shape before provisioning side effects. */
 function requireMemoryPlan(planId: string, memoryMb: number | null) {
   const maxMemoryMb = maxMemoryMbForPlan(planId);
@@ -633,7 +639,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
 
     if (!create.inserted) {
       const existing = create.vm;
-      if (existing.status === "failed") {
+      if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: input.idempotencyKey ?? "",
@@ -713,12 +719,15 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
           refundCredit(billing, repo, create.vm, creditReservation),
           repo.markCreateFailed({
             id: create.vm.id,
-            // providers.create fails only with VmProviderOperationError, and
-            // the caller is told it is retryable (vm_cloud_service_unavailable,
-            // retryAfterSeconds ~5), so store the code that lets a same-key
-            // retry reach the provider again immediately.
-            code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
-            message: errorMessage(err.cause),
+            // An unconfirmed rollback remains owned by this failed row. Keep
+            // its provider id and make same-key retries wait for reconciliation
+            // instead of allocating a duplicate machine.
+            ...(isProviderCreateCleanupError(err.cause)
+              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
+              : { code: PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE }),
+            message: isProviderCreateCleanupError(err.cause)
+              ? `${errorMessage(err.cause.cause)}; cleanup: ${errorMessage(err.cause.cleanupCause)}`
+              : errorMessage(err.cause),
           }),
           repo.recordUsageEvent({
             userId: input.userId,
@@ -907,7 +916,7 @@ function finishBaseCreate(
   return Effect.gen(function* () {
     if (create.kind === "existing") {
       const existing = create.vm;
-      if (existing.status === "failed") {
+      if (isFailedVmCreate(existing)) {
         return yield* Effect.fail(
           new VmCreateFailedError({
             idempotencyKey: existing.idempotencyKey ?? "",
@@ -1004,7 +1013,9 @@ function finishBaseCreate(
             generation: create.generation.generation,
             vmId: create.vm.id,
             userId: input.userId,
-            code: err.operation,
+            ...(isProviderCreateCleanupError(err.cause)
+              ? { code: PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE, cleanupProviderVmId: err.cause.providerVmId }
+              : { code: err.operation }),
             message: errorMessage(err.cause),
           }),
           repo.recordUsageEvent({

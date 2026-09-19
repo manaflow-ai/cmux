@@ -39,6 +39,7 @@ import {
   isVmCreateDisabledError,
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
+import { ProviderCreateCleanupError } from "../services/vms/drivers/providerCreateCleanup";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import {
@@ -196,6 +197,49 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("persists allocated provider VM IDs when provider create fails after allocation", async () => {
+    const requested = testCloudVmRow();
+    let failedInput: Parameters<VmRepositoryShape["markCreateFailed"]>[0] | undefined;
+    let finalized = false;
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: requested }),
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      markCreateFailed: (input) => Effect.sync(() => { failedInput = input; }),
+      markCreateRunning: () => Effect.sync(() => { finalized = true; return requested; }),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.fail(new VmProviderOperationError({
+        provider: "freestyle", operation: "create",
+        cause: new ProviderCreateCleanupError("provider-vm-orphan", new Error("setup failed"), new Error("delete failed")),
+      })),
+    };
+    const error = await Effect.runPromise(createVm({
+      userId: requested.userId, billingCustomerType: "team", billingTeamId: requested.billingTeamId!,
+      billingPlanId: "pro", maxActiveVms: 1, provider: "freestyle", image: requested.imageId,
+    }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))));
+    expect(error).toBeInstanceOf(VmProviderOperationError);
+    expect(failedInput).toMatchObject({
+      id: requested.id, code: "provider_create_cleanup_pending", cleanupProviderVmId: "provider-vm-orphan",
+    });
+    expect(finalized).toBe(false);
+  });
+
+  test("cleanup-pending create stays unavailable on same-key retry", async () => {
+    const requested = testCloudVmRow({ failureCode: "provider_create_cleanup_pending" });
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: requested }),
+      beginCreate: () => Effect.succeed({ inserted: false, vm: requested }),
+    };
+    const error = await Effect.runPromise(createVm({
+      userId: requested.userId, billingCustomerType: "team", billingTeamId: requested.billingTeamId!,
+      billingPlanId: "pro", maxActiveVms: 1, provider: "freestyle", image: requested.imageId,
+      idempotencyKey: requested.idempotencyKey!,
+    }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, unusedProviderGateway()))));
+    expect(error).toBeInstanceOf(VmCreateFailedError);
+    expect(error).toMatchObject({ code: "provider_create_cleanup_pending" });
+  });
+
   dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {
     if (!sql) throw new Error("test database not initialized");
     const userId = "user-prompt-revisions";
