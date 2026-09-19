@@ -775,7 +775,11 @@
 		4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */; };
 		7829E36E90E948BB82360052 /* CloudNightlyOverrideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCD9CDECAE2049469F5CAB46 /* CloudNightlyOverrideTests.swift */; };
 		16D0D1DB9FE54DB29743A98A /* CloudNotificationCorrelation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */; };
+		4EFC91B414CF5D9FEA440819 /* CloudNotificationDismissParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8894FC01353CA3B8C9326F /* CloudNotificationDismissParityTests.swift */; };
+		06A7D527A380A87E00C122EE /* CloudNotificationLocalDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */; };
+		ED7A8BCBA7C0A396EAC81DAB /* CloudNotificationPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5BAD7EE4528BF8811C31A6 /* CloudNotificationPlacement.swift */; };
 		8B79FDC5C0ADF0CE973B31F2 /* CloudNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */; };
+		0E06E7885C78B752A9AB83E2 /* CloudNotificationSyncHub.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE060F2CFED4B9FF6EB09FFF /* CloudNotificationSyncHub.swift */; };
 		A12545000000000000000001 /* CloudNotificationSyncPendingAck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12545000000000000000002 /* CloudNotificationSyncPendingAck.swift */; };
 		A12481400000000000000001 /* CloudNotificationSyncPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481400000000000000002 /* CloudNotificationSyncPersistence.swift */; };
 		7032CCF3EC7D4E27A1BE5C19 /* CloudNotificationSyncState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5554C1784C19461FBF5BF408 /* CloudNotificationSyncState.swift */; };
@@ -3398,6 +3402,7 @@
 		596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */; };
 		A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */; };
 		A5001095 /* TerminalNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001092 /* TerminalNotificationStore.swift */; };
+		FF476B958A52306DA7251184 /* TerminalNotificationStoreSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90D990B0BBCB364F2953D267 /* TerminalNotificationStoreSettings.swift */; };
 		0A110711000000000000001C /* TerminalOutputTeeCallback.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001D /* TerminalOutputTeeCallback.swift */; };
 		0A110711000000000000001E /* TerminalOutputTeeContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A110711000000000000001F /* TerminalOutputTeeContext.swift */; };
 		C71500060000000000000001 /* TerminalPaneBackgroundView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71500050000000000000001 /* TerminalPaneBackgroundView.swift */; };
@@ -4739,7 +4744,11 @@
 		5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNativeLayoutProjectionTests.swift"; sourceTree = "<group>"; };
 		DCD9CDECAE2049469F5CAB46 /* CloudNightlyOverrideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNightlyOverrideTests.swift; sourceTree = "<group>"; };
 		503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationCorrelation.swift; sourceTree = "<group>"; };
+		CB8894FC01353CA3B8C9326F /* CloudNotificationDismissParityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationDismissParityTests.swift; sourceTree = "<group>"; };
+		D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNotificationLocalDelivery.swift; sourceTree = "<group>"; };
+		6D5BAD7EE4528BF8811C31A6 /* CloudNotificationPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNotificationPlacement.swift; sourceTree = "<group>"; };
 		FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSync.swift; sourceTree = "<group>"; };
+		BE060F2CFED4B9FF6EB09FFF /* CloudNotificationSyncHub.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncHub.swift; sourceTree = "<group>"; };
 		A12545000000000000000002 /* CloudNotificationSyncPendingAck.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncPendingAck.swift; sourceTree = "<group>"; };
 		A12481400000000000000002 /* CloudNotificationSyncPersistence.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncPersistence.swift; sourceTree = "<group>"; };
 		5554C1784C19461FBF5BF408 /* CloudNotificationSyncState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationSyncState.swift; sourceTree = "<group>"; };
@@ -7235,6 +7244,7 @@
 		596100000000000000000006 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+NativeNotificationDeliveryTesting.swift"; sourceTree = "<group>"; };
 		A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+WorkspaceNotifications.swift"; sourceTree = "<group>"; };
 		A5001092 /* TerminalNotificationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStore.swift; sourceTree = "<group>"; };
+		90D990B0BBCB364F2953D267 /* TerminalNotificationStoreSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationStoreSettings.swift; sourceTree = "<group>"; };
 		0A110711000000000000001D /* TerminalOutputTeeCallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputTeeCallback.swift; sourceTree = "<group>"; };
 		0A110711000000000000001F /* TerminalOutputTeeContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalOutputTeeContext.swift; sourceTree = "<group>"; };
 		C71500050000000000000001 /* TerminalPaneBackgroundView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneBackgroundView.swift; sourceTree = "<group>"; };
@@ -8385,6 +8395,7 @@
 				503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */,
 				A12545000000000000000002 /* CloudNotificationSyncPendingAck.swift */,
 				FCC5CAAFB9D2DBB5186E02EE /* CloudNotificationSync.swift */,
+				BE060F2CFED4B9FF6EB09FFF /* CloudNotificationSyncHub.swift */,
 				5554C1784C19461FBF5BF408 /* CloudNotificationSyncState.swift */,
 				A12481100000000000000002 /* CloudTreeNodeContentSnapshot.swift */,
 				A12481200000000000000002 /* CloudTreeRowUpdate.swift */,
@@ -8448,6 +8459,8 @@
 				A1B2C3D4E5F6071827364950 /* CloudMachineSurfacePresentation.swift */,
 				1CE0A82A4E20E446A21A97BB /* CloudTreeNode.swift */,
 				8EDC6087D41DC9E2271BC886 /* CloudMachineNotificationGate.swift */,
+				D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */,
+				6D5BAD7EE4528BF8811C31A6 /* CloudNotificationPlacement.swift */,
 				DB3D5091A5F87B6B672DF34C /* CloudMachineNotificationEvent.swift */,
 				1652962DDCD1CB279278F8D4 /* CloudMachineCache.swift */,
 				352B2228561CD8C4B042302A /* CloudActivationPolicy.swift */,
@@ -9751,6 +9764,7 @@
 				D79020000000000000000002 /* TerminalNotification+NavigationSnapshot.swift */,
 				A5C0B1E00000000000000002 /* TerminalNotification+Clipboard.swift */,
 				A5001092 /* TerminalNotificationStore.swift */,
+				90D990B0BBCB364F2953D267 /* TerminalNotificationStoreSettings.swift */,
 				468110000000000000000008 /* TerminalNotificationClickAction.swift */,
 				A5F10000000000000000000E /* TerminalNotificationStore+WorkspaceNotifications.swift */,
 				A5001099 /* TerminalNotificationScrollPosition.swift */,
@@ -11270,6 +11284,7 @@
 				BBC170FBE7AEBB71A5BE2922 /* CloudTerminalAttachmentRecoveryTests.swift */,
 				EF70B0862D206C62CA5ACF65 /* CloudManualMirrorSocketFixture.swift */,
 				64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */,
+				CB8894FC01353CA3B8C9326F /* CloudNotificationDismissParityTests.swift */,
 				A12481000000000000000002 /* CloudSidebarScaleTests.swift */,
 				A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */,
 				A12481600000000000000002 /* CloudNotificationSyncStoreTests.swift */,
@@ -12829,7 +12844,10 @@
 				C11324810000000000000001 /* CloudManualMirrorMaterialization.swift in Sources */,
 				A014F45D702B4F71A5E9FB18 /* CloudManualMirrorPresentation.swift in Sources */,
 				16D0D1DB9FE54DB29743A98A /* CloudNotificationCorrelation.swift in Sources */,
+				06A7D527A380A87E00C122EE /* CloudNotificationLocalDelivery.swift in Sources */,
+				ED7A8BCBA7C0A396EAC81DAB /* CloudNotificationPlacement.swift in Sources */,
 				8B79FDC5C0ADF0CE973B31F2 /* CloudNotificationSync.swift in Sources */,
+				0E06E7885C78B752A9AB83E2 /* CloudNotificationSyncHub.swift in Sources */,
 				A12545000000000000000001 /* CloudNotificationSyncPendingAck.swift in Sources */,
 				A12481400000000000000001 /* CloudNotificationSyncPersistence.swift in Sources */,
 				7032CCF3EC7D4E27A1BE5C19 /* CloudNotificationSyncState.swift in Sources */,
@@ -14470,6 +14488,7 @@
 				B7F0000A /* TerminalNotificationStore+Mute.swift in Sources */,
 				A5F10000000000000000000D /* TerminalNotificationStore+WorkspaceNotifications.swift in Sources */,
 				A5001095 /* TerminalNotificationStore.swift in Sources */,
+				FF476B958A52306DA7251184 /* TerminalNotificationStoreSettings.swift in Sources */,
 				0A110711000000000000001C /* TerminalOutputTeeCallback.swift in Sources */,
 				0A110711000000000000001E /* TerminalOutputTeeContext.swift in Sources */,
 				C71500060000000000000001 /* TerminalPaneBackgroundView.swift in Sources */,
@@ -15373,6 +15392,7 @@
 				BC9AC2D1065E4E88A48074BC /* CloudNameAuthorityTests.swift in Sources */,
 				4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */,
 				7829E36E90E948BB82360052 /* CloudNightlyOverrideTests.swift in Sources */,
+				4EFC91B414CF5D9FEA440819 /* CloudNotificationDismissParityTests.swift in Sources */,
 				A12481600000000000000001 /* CloudNotificationSyncStoreTests.swift in Sources */,
 				B71758C265B0439845140478 /* CloudNotificationSyncTests.swift in Sources */,
 				287771C476C483CE2E40E0F6 /* CloudOperationRecorderTests.swift in Sources */,

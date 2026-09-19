@@ -98,6 +98,14 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func storeMarkRead(workspaceId: UUID, surfaceId: UUID?) {
         log.append("markRead:\(short(surfaceId))")
+        // The store's own mark-read is a real mutation: the next read of the
+        // same target finds nothing left, as the workspace-visit path that
+        // marks the focused surface and then the workspace level relies on.
+        if let surfaceId {
+            unreadNotificationSurfaces.remove(surfaceId)
+        } else {
+            workspaceWideUnread.remove(workspaceId)
+        }
     }
 
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
@@ -112,7 +120,7 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func storeClearRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
         log.append("storeClearRestoredUnread")
-        return restoredWorkspaceUnread.contains(workspaceId)
+        return restoredWorkspaceUnread.remove(workspaceId) != nil
     }
 
     func storeClearFocusedReadIndicator(workspaceId: UUID, surfaceId: UUID?) {
@@ -125,6 +133,7 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func workspaceClearRestoredUnreadIndicator(workspaceId: UUID, panelId: UUID) {
         log.append("panelClearRestoredUnread")
+        restoredPanelUnread.remove(panelId)
     }
 
     func workspaceTriggerNotificationDismissFlash(workspaceId: UUID, panelId: UUID) {
@@ -418,5 +427,37 @@ struct NotificationDismissalModelTests {
             workspaceId: workspaceId, surfaceId: nil, context: .activeFocus
         ))
         #expect(host.log.contains("markRead:nil"))
+    }
+
+    /// manaflow-ai/cmux#12387: a notification posted without a surface has no
+    /// pane to focus, so the workspace becoming the visible one is how it is
+    /// seen. Visiting must read it alongside the focused surface's records.
+    @Test func visitingWorkspaceReadsWorkspaceLevelNotifications() {
+        let (model, host, workspaceId, panelId) = makeModel()
+        host.unreadNotificationSurfaces = [panelId]
+        host.workspaceWideUnread = [workspaceId]
+
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: workspaceId, context: .activeFocus)
+
+        let prefix = String(panelId.uuidString.prefix(4))
+        #expect(host.log == [
+            "markRead:\(prefix)", "clearFocusedRead:\(prefix)", "notificationFlash",
+            "markRead:nil", "clearFocusedRead:nil",
+        ])
+        #expect(host.workspaceWideUnread.isEmpty)
+
+        // A workspace with only workspace-level records, and no focused
+        // surface at all, is read by the visit alone.
+        let bare = UUID()
+        host.selectedWorkspaceId = bare
+        host.workspaceWideUnread = [bare]
+        host.log.removeAll()
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: bare, context: .explicitWorkspaceResume)
+        #expect(host.log == ["markRead:nil", "clearFocusedRead:nil"])
+
+        // Nothing left: a second visit is a no-op, not a repeated mutation.
+        host.log.removeAll()
+        model.dismissFocusedPanelNotificationIfActive(workspaceId: bare, context: .explicitWorkspaceResume)
+        #expect(host.log.isEmpty)
     }
 }
