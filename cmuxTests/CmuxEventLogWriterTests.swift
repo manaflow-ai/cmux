@@ -64,6 +64,37 @@ struct CmuxEventLogWriterTests {
     }
 
     @Test
+    func maximumPendingBatchBoundsWritesAtSixteenMiB() throws {
+        // 1,024 maximum-sized producer records plus JSONL delimiters straddle the cap.
+        let line = "{\"text\":\"" + String(repeating: "x", count: 16_384 - 11) + "\"}"
+        #expect(line.utf8.count == 16_384)
+        let lines = Array(repeating: line, count: 1_024)
+        let (writer, url, spy) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        flush(lines, with: writer)
+
+        #expect(spy.writeSizes == [16_385 * 1_023, 16_385])
+        #expect(spy.writeSizes.allSatisfy { $0 <= logLimit })
+        #expect(try Data(contentsOf: url.appendingPathExtension("1")) == jsonl(Array(lines.prefix(1_023))))
+        #expect(try Data(contentsOf: url) == jsonl([line]))
+    }
+
+    @Test
+    func fullExistingLogRotatesBeforeWritingTheBatch() throws {
+        let (writer, url, spy) = makeWriter()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let seed = try seedLog(url, bytes: logLimit)
+        let lines = (0..<32).map { jsonLine(index: $0) }
+
+        flush(lines, with: writer)
+
+        #expect(spy.writeSizes == [jsonl(lines).count])
+        #expect(try Data(contentsOf: url.appendingPathExtension("1")) == seed)
+        #expect(try Data(contentsOf: url) == jsonl(lines))
+    }
+
+    @Test
     func multipleRotationsRetainTheSameLastTwoFiles() throws {
         let lines = (0..<8).map { "{\"seq\":\($0)}" }
         let (writer, url, spy) = makeWriter(maxBytes: 30)
