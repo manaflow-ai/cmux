@@ -600,6 +600,17 @@ enum BrowserAvailabilitySettings {
         defaults.set(disabled, forKey: disabledKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
+
+    /// Whether the UI should offer a browser-creating affordance at all.
+    ///
+    /// Every browser *action* already refuses when the browser is disabled,
+    /// but the affordances that reach those actions were gated one at a time,
+    /// so disabling the browser left inert buttons and menu items behind
+    /// (issue #10866). Affordances resolve visibility here, against the same
+    /// value the action consults, so the two gates cannot drift apart.
+    static func offersBrowserAffordance(isEnabled: Bool) -> Bool {
+        isEnabled
+    }
 }
 
 enum BrowserInsecureHTTPSettings {

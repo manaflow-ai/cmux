@@ -149,4 +149,44 @@ struct ManagedPolicyBrowserGateTests {
         #expect(!withoutBrowser.contains(MobileBrowserStreamCapability.createIdentifier))
         #expect(withoutBrowser.contains("terminal.bytes.v1"))
     }
+
+    /// Regression coverage for issue #10866.
+    ///
+    /// A disabled browser must not leave an affordance behind. The actions
+    /// above already refuse, but the button and menu item that reach them were
+    /// still drawn, so the user got controls that only beep. Affordance
+    /// visibility has to track the same gate the actions consult, under the
+    /// user setting and under managed policy alike.
+    @Test
+    func browserAffordanceVisibilityFollowsTheAvailabilityGate() {
+        withBrowserPolicy(managed: nil, userDisabled: true) {
+            #expect(!BrowserAvailabilitySettings.isEnabled())
+            #expect(
+                !BrowserAvailabilitySettings.offersBrowserAffordance(
+                    isEnabled: BrowserAvailabilitySettings.isEnabled()
+                ),
+                "a user-disabled browser must not offer a create affordance"
+            )
+        }
+
+        withBrowserPolicy(managed: true, userDisabled: false) {
+            #expect(!BrowserAvailabilitySettings.isEnabled())
+            #expect(
+                !BrowserAvailabilitySettings.offersBrowserAffordance(
+                    isEnabled: BrowserAvailabilitySettings.isEnabled()
+                ),
+                "a policy-disabled browser must not offer a create affordance"
+            )
+        }
+
+        withBrowserPolicy(managed: nil, userDisabled: false) {
+            #expect(BrowserAvailabilitySettings.isEnabled())
+            #expect(
+                BrowserAvailabilitySettings.offersBrowserAffordance(
+                    isEnabled: BrowserAvailabilitySettings.isEnabled()
+                ),
+                "an enabled browser must still offer its create affordance"
+            )
+        }
+    }
 }
