@@ -26,6 +26,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
         var replacedPID: Int?
         var missingPID: Int?
         var complete = true
+        var mainThreadReads = 0
         var reads = 0
     }
     // Only fixture instrumentation/clock counters cross concurrent providers.
@@ -48,7 +49,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
     }
 
     func enumerate() -> DarwinProcessListing {
-        state.withLock { $0.counts.enumerations += 1 }
+        state.withLock { $0.counts.enumerations += 1; if Thread.isMainThread { $0.mainThreadReads += 1 } }
         let listing = DarwinProcessEnumerator(
             listPIDs: { [count] pointer, _ in
                 guard let pointer else { return Int32(count) }
@@ -99,7 +100,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
     }
 
     func processPath(pid: Int) -> String? {
-        state.withLock { $0.counts.paths += 1 }
+        state.withLock { $0.counts.paths += 1; if Thread.isMainThread { $0.mainThreadReads += 1 } }
         return "/synthetic/workspace-\(pid % 125)/bin/agent-\(pid)"
     }
 

@@ -100,4 +100,15 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         #expect(reader.state.withLock { $0.counts.enumerations } == 1)
         #expect(reader.state.withLock { $0.counts.paths } == 999)
     }
+    @MainActor @Test func mainActorConsumerSuspendsWhileCensusAndEnrichmentRunOffMain() async {
+        let reader = SyntheticProcessSnapshotReader(count: 100)
+        let sampler = CmuxTopProcessSampler(reader: reader)
+        let service = ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>(
+            capture: { try sampler.capture() }, enrich: { try sampler.enrich($0, fields: $1) }
+        )
+        let value = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, service: service)
+        #expect(value.processesByPID.count == 100)
+        #expect(reader.state.withLock { $0.mainThreadReads } == 0)
+    }
+
 }

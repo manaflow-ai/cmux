@@ -98,4 +98,36 @@ struct ProcessSnapshotServiceTests {
         #expect(try await successor.value.generation == 2)
         #expect(await provider.maximumActive == 1)
     }
+    @Test func enrichmentCannotResetTheCensusAge() async throws {
+        let provider = ProcessSnapshotTestProvider()
+        await provider.release()
+        let clock = ProcessSnapshotTestClock()
+        let service = Service(
+            now: clock.now, capture: { await provider.capture() },
+            enrich: { value, fields in
+                clock.advance(.seconds(3))
+                return await provider.enrich(value, fields: fields)
+            }
+        )
+        await #expect(throws: ProcessSnapshotError.self) {
+            try await service.snapshot(fields: .paths, freshness: .maximumAge(.seconds(2)))
+        }
+        #expect(await provider.captures == 1)
+    }
+
+    @Test func scopeInstancesNeverShareAndSuccessorReleasesTheOldValue() async throws {
+        let provider = ProcessSnapshotTestProvider()
+        await provider.release()
+        let firstScope = Service(capture: { await provider.capture() }, enrich: { await provider.enrich($0, fields: $1) })
+        let secondScope = Service(capture: { await provider.capture() }, enrich: { await provider.enrich($0, fields: $1) })
+        var old: ProcessSnapshotTestValue? = try await firstScope.snapshot(fields: [], freshness: .afterRequest)
+        weak var retained = old
+        old = nil
+        #expect(retained != nil)
+        _ = try await firstScope.snapshot(fields: [], freshness: .afterRequest)
+        #expect(retained == nil)
+        _ = try await secondScope.snapshot(fields: [], freshness: .maximumAge(.seconds(5)))
+        #expect(await provider.captures == 3)
+    }
+
 }

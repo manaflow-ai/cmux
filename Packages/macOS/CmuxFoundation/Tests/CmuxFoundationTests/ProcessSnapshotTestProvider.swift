@@ -1,19 +1,8 @@
 import Foundation
 
 actor ProcessSnapshotTestProvider {
-    struct Fields: OptionSet, Sendable {
-        let rawValue: Int
-        static let paths = Self(rawValue: 1)
-        static let scope = Self(rawValue: 2)
-    }
-    final class Value: Sendable {
-        let generation: Int
-        let fields: Fields
-        init(_ generation: Int, fields: Fields = []) {
-            self.generation = generation
-            self.fields = fields
-        }
-    }
+    typealias Fields = ProcessSnapshotTestFields
+    typealias Value = ProcessSnapshotTestValue
 
     private(set) var captures = 0
     private(set) var enrichments: [Fields] = []

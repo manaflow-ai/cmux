@@ -2,36 +2,13 @@
 ///
 /// Construct once per host/security context and inject into its consumers.
 /// There is at most one active provider and one retained census. Enrichment never
-/// changes the census generation or start time. An expired result is an error,
+/// changes the census generation or start time. Completed storage is replaced by
+/// the next census; there is no history or per-scope global registry. An expired result is an error,
 /// never a fresh empty process table. PID validation remains the provider's duty.
 public actor ProcessSnapshotService<Snapshot: Sendable, Fields: OptionSet & Sendable> {
-    private struct Census {
-        let value: Snapshot
-        let fields: Fields
-        let generation: UInt64
-        let startedAt: ContinuousClock.Instant
-    }
-
-    private struct Waiter {
-        let fields: Fields
-        let minimumGeneration: UInt64
-        let maximumAge: Duration?
-        let continuation: CheckedContinuation<Snapshot, any Error>
-
-        func accepts(_ census: Census, at now: ContinuousClock.Instant) -> Bool {
-            census.generation >= minimumGeneration &&
-                maximumAge.map { census.startedAt.duration(to: now) <= $0 } != false
-        }
-    }
-
-    private struct Operation {
-        let id: UInt64
-        let generation: UInt64
-        let startedAt: ContinuousClock.Instant
-        let fields: Fields
-        let task: Task<Void, Never>
-        var abandoned = false
-    }
+    private typealias Census = ProcessSnapshotCensus<Snapshot, Fields>
+    private typealias Waiter = ProcessSnapshotWaiter<Snapshot, Fields>
+    private typealias Operation = ProcessSnapshotOperation<Fields>
 
     private let now: @Sendable () -> ContinuousClock.Instant
     private let capture: @Sendable () async throws -> Snapshot

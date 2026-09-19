@@ -3,11 +3,7 @@ import os
 
 /// Injected monotonic clock with an admission barrier; no timing assumptions.
 final class ProcessSnapshotTestClock: Sendable {
-    private struct State {
-        var instant = ContinuousClock.now
-        var reads = 0
-    }
-    private let state = OSAllocatedUnfairLock(initialState: State())
+    private let state = OSAllocatedUnfairLock(initialState: ProcessSnapshotTestClockState())
     private let reads = AsyncStream<Int>.makeStream()
 
     func now() -> ContinuousClock.Instant {
