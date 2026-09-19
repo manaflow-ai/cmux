@@ -141,7 +141,7 @@ if [[ "$DEST" == *.app/Contents/Resources ]] && {
 }; then
   helper_output_ok=false
 fi
-if [ -f "$STAMP" ] && [ -s "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
+if [ -f "$STAMP" ] && [ -x "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
   && [ "$helper_output_ok" = true ] && [ -f "$CMUX_CUA_LICENSE_DEST" ] \
   && [ -d "$GHOSTTY_DEST" ] && [ -d "$TERMINFO_DEST" ] \
   && [ -d "$CMUX_SHELL_DEST" ] && [ -f "$INFO_PLIST" ] \

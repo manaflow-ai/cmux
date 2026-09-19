@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-bundled-resources-test.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE \
+  GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
 
 SRCROOT="$TMP_DIR/src"
 BUILD_DIR="$TMP_DIR/build"
@@ -91,6 +93,14 @@ run_app_phase() {
 run_phase > "$TMP_DIR/first.log"
 run_phase > "$TMP_DIR/second.log"
 grep -q 'skipping helper rebuilds' "$TMP_DIR/second.log"
+
+chmod -x "$BUILD_DIR/Resources/bin/ghostty"
+run_phase > "$TMP_DIR/non-executable-helper.log"
+if grep -q 'skipping helper rebuilds' "$TMP_DIR/non-executable-helper.log"; then
+  echo 'FAIL: non-executable Ghostty helper did not invalidate the stamp' >&2
+  exit 1
+fi
+[[ -x "$BUILD_DIR/Resources/bin/ghostty" ]]
 
 rm "$SRCROOT/Resources/shell-integration/current.zsh"
 ln -s alternate.zsh "$SRCROOT/Resources/shell-integration/current.zsh"
