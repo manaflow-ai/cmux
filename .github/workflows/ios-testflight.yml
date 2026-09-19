@@ -268,6 +268,8 @@ jobs:
               'Packages/iOS/',
               'Packages/Shared/',
               'Sources/Mobile/',
+              'vendor/ish',
+              'vendor/ish/',
               'vendor/stack-auth-swift-sdk-prerelease/',
               'ghostty',
               'ghostty.h',
@@ -276,6 +278,12 @@ jobs:
               'scripts/install-zig-ci.sh',
               'scripts/ghostty-zig-version.sh',
               'scripts/validate-xcframework-archive.py',
+              'scripts/build-ish-ios.sh',
+              'scripts/ensure-ish-build-tools.sh',
+              'scripts/verify-ish-ios-artifacts.sh',
+              'scripts/verify-ish-ios-artifacts.py',
+              '.gitmodules',
+              '.github/actions/provision-ish-ios/action.yml',
               '.github/workflows/ios-testflight.yml',
             ];
             const touchesIOS = (filename) =>
@@ -400,6 +408,11 @@ jobs:
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
+
+      - name: Provision iSH kernel
+        uses: ./.github/actions/provision-ish-ios
+        with:
+          device-only: "true"
 
       - name: Materialize App Store Connect API key
         env:

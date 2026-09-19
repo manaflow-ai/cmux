@@ -373,6 +373,19 @@ if [[ "$RELOAD_DEVICE" -eq 1 && -z "$DEVICE_ID" && -z "$DEVICE_NAME" && -n "$DEF
   DEVICE_ID="$DEFAULT_DEVICE_ID"
 fi
 
+# Derive the required iSH slice set from the resolved reload mode, after the
+# default-device policy has run. Do not use CMUX_ISH_DEVICE_ONLY here: that
+# variable is a build-script override and may be left over in a caller's
+# environment from a previous device archive.
+ISH_VERIFY_DEVICE_ONLY=0
+if [[ "$RELOAD_SIMULATOR" -eq 0 ]]; then
+  [[ "$RELOAD_DEVICE" -eq 1 ]] || {
+    echo "error: device-only reload mode has no device leg" >&2
+    exit 1
+  }
+  ISH_VERIFY_DEVICE_ONLY=1
+fi
+
 # iPhone auth gate: installed-but-signed-out is a failed install. Build-only
 # staging (--no-launch) still runs the personal auth-contract preflight because
 # mobile-dev-launch performs the signed launch immediately afterward, or the
@@ -407,6 +420,7 @@ fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
 DEVICE_PROCESS_HELPER="$IOS_DIR/../scripts/ios-device-process.sh"
 GHOSTTYKIT_ENSURE="$IOS_DIR/../scripts/ensure-ghosttykit.sh"
+ISH_ARTIFACT_VERIFY="$IOS_DIR/../scripts/verify-ish-ios-artifacts.sh"
 DEVICE_AUTH_PROFILE="personal"
 DEVICE_AUTH_CREDENTIALS_FILE="${CMUX_IOS_DOGFOOD_CREDENTIALS_FILE:-$HOME/.secrets/cmuxterm-dev.env}"
 DEVICE_AUTH_ACCOUNT=""
@@ -438,6 +452,23 @@ if [[ ! -x "$GHOSTTYKIT_ENSURE" ]]; then
   exit 1
 fi
 "$GHOSTTYKIT_ENSURE"
+
+# CmuxLocalLinux uses a generated local-path binary target. Verify (and build
+# when absent) before Xcode resolves the package graph, otherwise a clean
+# checkout fails with an opaque SwiftPM "binary target not found" diagnostic.
+if [[ -x "$ISH_ARTIFACT_VERIFY" ]]; then
+  ISH_VERIFY_ARGS=(--build)
+  # Pass --device-only only for the resolved device-only mode. The verifier
+  # forces the matching CMUX_ISH_DEVICE_ONLY value in its child build, so a
+  # stale caller environment cannot produce the wrong artifact shape.
+  if [[ "$ISH_VERIFY_DEVICE_ONLY" -eq 1 ]]; then
+    ISH_VERIFY_ARGS+=(--device-only)
+  fi
+  "$ISH_ARTIFACT_VERIFY" "${ISH_VERIFY_ARGS[@]}"
+else
+  echo "error: $ISH_ARTIFACT_VERIFY not found or not executable" >&2
+  exit 1
+fi
 
 # Best-effort user notification (mirrors the queue script's notify).
 reload_device_notify() {

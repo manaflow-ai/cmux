@@ -620,10 +620,24 @@ IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
+ISH_ARTIFACT_VERIFY="$IOS_DIR/../scripts/verify-ish-ios-artifacts.sh"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
 SHARED_XCCONFIG="$IOS_DIR/Config/Shared.xcconfig"
 CHECKED_IN_BETA_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_BETA_MARKETING_VERSION "$SHARED_XCCONFIG")"
 CHECKED_IN_APPSTORE_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_APPSTORE_MARKETING_VERSION "$SHARED_XCCONFIG")"
+
+# A fresh archive resolves the SwiftPM graph on this checkout. CmuxLocalLinux
+# has a local-path IshKernel binary target, so provision and verify it before
+# the expensive archive starts. A reused archive already contains all linked
+# products and does not need a local artifact.
+if [[ -z "$ARCHIVE_PATH" ]]; then
+  if [[ ! -x "$ISH_ARTIFACT_VERIFY" ]]; then
+    echo "error: missing iSH artifact verifier: $ISH_ARTIFACT_VERIFY" >&2
+    echo "Run ./scripts/build-ish-ios.sh, then retry the archive." >&2
+    exit 1
+  fi
+  "$ISH_ARTIFACT_VERIFY" --build --device-only
+fi
 
 case "$LANE" in
   beta)

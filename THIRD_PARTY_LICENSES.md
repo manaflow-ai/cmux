@@ -279,6 +279,60 @@ The following packages are linked into the cmux app binary.
 - **Copyright:** Copyright (c) 2014, Kyle Fuller
 - **Source:** https://github.com/kylef/PathKit
 
+---
+
+## iSH and the Alpine Linux rootfs (iOS local Linux)
+
+cmux iOS can embed the iSH user-mode x86 kernel and an Alpine Linux root filesystem
+resource for its local Linux terminal. The vendored source is the Manaflow fork
+at `vendor/ish`, pinned at commit
+`efd2fa7a2b5a46d601fb0b9e667032591c7ad54d` for this release.
+
+### iSH
+
+- **License:** GNU General Public License v3.0; contributions after iSH commit
+  `0e3a4144f93135c4fd618c8397d2cfd87194f69f` are additionally licensed under
+  GPLv2.
+- **Source:** https://github.com/manaflow-ai/ish
+- **License text:** `vendor/ish/LICENSE.md`
+- **iOS App Store notice:** `vendor/ish/LICENSE.IOS`
+
+The complete GPLv3 and GPLv2 texts are shipped in the app package at
+`CmuxLocalLinux/Resources/GPL-3.0.txt` and `CmuxLocalLinux/Resources/GPL-2.0.txt`.
+
+### libarchive
+
+- **License:** libarchive's BSD-style license and component notices
+- **Source:** `vendor/ish/deps/libarchive`, pinned by the iSH submodule
+- **License text:** `CmuxLocalLinux/Resources/libarchive-COPYING`
+
+`LICENSE.IOS` contains the iSH copyright holders' commitment not to pursue a
+license violation that results solely from a conflict between GPLv2 or GPLv3
+and Apple App Store terms, provided the GPL obligations are otherwise met. The
+complete notice is also shipped in the `CmuxLocalLinux` package resource.
+
+### Alpine Linux root filesystem
+
+The bundled `CmuxLocalLinux` archive is an Alpine Linux 3.24.1 x86 root
+filesystem tarball with the cmux tool set installed, baked by
+`scripts/bake-ish-rootfs.sh` (image 2026.09.02) and converted into iSH's fakefs
+layout on the device at first boot:
+
+- **Source:** https://github.com/manaflow-ai/ish/releases/download/cmux-rootfs-2026.09.02/alpine-rootfs-3.24.1-x86-cmux-2026.09.02.tar.gz
+- **Archive:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz` (downloaded by `scripts/build-ish-ios.sh`, not tracked in Git)
+- **SHA-256:** `1b843033cda58c495469ad9d90f90a5ac3a930b6d2bbbaeaf094e00e0f2b8454`
+- **Package manifest:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json`
+
+The archive's package database reports 63 packages. GPL-2.0-only covers
+alpine-baselayout, alpine-baselayout-data, apk-tools, busybox, busybox-binsh, git, git-init-template, libapk, scanelf, ssl_client; GPL-3.0-or-later covers bash, gdbm, nano, readline; the remaining
+packages are under MIT, BSD, Apache-2.0, PSF-2.0, Vim, X11, ISC, MPL-2.0,
+curl, zlib, and similar permissive licenses. The full per-package table is in
+the package resource `CmuxLocalLinux/Resources/THIRD_PARTY_NOTICES.md`, which
+points to the package metadata and upstream license sources. Node.js and pi are
+installed on demand by `cmux-linux add node` and are not distributed in the
+app. The exact corresponding-source procedure for the distributed app is in
+`Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/SOURCE-OFFER.md`.
+
 ### iroh-ffi
 
 - **License:** MIT License or Apache License 2.0 (dual-licensed; cmux elects MIT)

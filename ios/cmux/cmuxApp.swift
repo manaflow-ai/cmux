@@ -176,6 +176,7 @@ struct cmuxApp: App {
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog,
+            localLinuxComputerProvider: Self.root.localLinuxComputerProvider,
             appLog: Self.root.appLog,
             v2Configuration: Self.root.irx.configuration
         )

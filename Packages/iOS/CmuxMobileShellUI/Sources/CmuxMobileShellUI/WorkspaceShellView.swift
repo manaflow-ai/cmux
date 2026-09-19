@@ -214,6 +214,9 @@ struct WorkspaceShellView: View {
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
+    /// Open the local Linux terminal on this iPhone from the "+" menu. `nil`
+    /// when the runtime is not bundled.
+    var openLocalLinux: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -270,7 +273,7 @@ struct WorkspaceShellView: View {
     /// sidebar it actually renders in, not the full screen.
     @State private var splitSidebarWidth: CGFloat = 0
     #endif
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @State var macSelection: WorkspaceMacSelection = .all
     /// Legacy fallback while the toast presenter is disabled: the old
     /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
@@ -1249,6 +1252,11 @@ struct WorkspaceShellView: View {
             createWorkspaceInGroup: resolvedCreateWorkspaceInGroup,
             createWorkspaceGroup: resolvedCreateWorkspaceGroup,
             canCreateWorkspace: canCreateWorkspaceForSelection,
+            newTerminalHosts: newTerminalHosts,
+            openTerminalOnHost: { host in
+                createWorkspace(on: host, navigationStyle: navigationStyle)
+            },
+            openLocalLinux: openLocalLinux,
             macSelection: $macSelection,
             switchMac: { macDeviceID, instanceTag in
                 await switchMacFromWorkspacePicker(
@@ -1663,8 +1671,18 @@ struct WorkspaceShellView: View {
         )
     }
 
+    /// Every known Mac for the "+" hold menu. The Computers screen snapshots
+    /// already coalesce duplicate pairings and carry presence.
+    private var newTerminalHosts: [MobileNewTerminalMenuValue.Host] {
+        #if os(iOS)
+        MobileNewTerminalMenuValue.hosts(from: MacComputerSnapshot.snapshots(from: store))
+        #else
+        []
+        #endif
+    }
+
     @MainActor
-    private func switchMacFromWorkspacePicker(
+    func switchMacFromWorkspacePicker(
         macDeviceID: String,
         instanceTag: String?
     ) async -> Bool {

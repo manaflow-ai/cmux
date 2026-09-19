@@ -42,6 +42,10 @@ struct MobileRootPresentationState: Equatable {
         case autoConnectMigrationIntroduction
         case settings
         case computers
+        /// The local Linux terminal, hosted full screen so the keyboard and
+        /// terminal grid get the whole display. Owns the modal slot like a
+        /// root sheet, but is presented through its own cover host.
+        case localLinux
         case pairing(PairingPresentation)
         case child(ChildPresentation)
         case dismissingChild(
@@ -59,6 +63,8 @@ struct MobileRootPresentationState: Equatable {
         case dismissSettings(presentAutoConnectMigration: Bool)
         case presentComputers
         case dismissComputers
+        case presentLocalLinux
+        case dismissLocalLinux
         case presentPairing(PairingPresentation)
         case presentChild(ChildPresentation)
         case dismissChild(ChildPresentation)
@@ -95,9 +101,14 @@ struct MobileRootPresentationState: Equatable {
              .computers,
              .pairing:
             true
-        case .child, .dismissingChild, nil:
+        case .localLinux, .child, .dismissingChild, nil:
             false
         }
+    }
+
+    /// Whether the full-screen local Linux cover should be presented.
+    var isLocalLinuxPresented: Bool {
+        presentation == .localLinux
     }
 
     /// Returns whether the requested child currently owns a visible sheet.
@@ -164,12 +175,25 @@ struct MobileRootPresentationState: Equatable {
             case nil, .settings, .autoConnectMigrationIntroduction:
                 presentation = .computers
                 return .none
-            case .computers, .pairing, .child, .dismissingChild:
+            case .computers, .localLinux, .pairing, .child, .dismissingChild:
                 return .none
             }
 
         case .dismissComputers:
             guard presentation == .computers else { return .none }
+            presentation = nil
+            return .retryAutoConnectMigration
+
+        case .presentLocalLinux:
+            // Only an idle slot may open the terminal cover. The Computers
+            // sheet reaches the same terminal by pushing it in place, so no
+            // sheet-to-cover handoff is needed.
+            guard presentation == nil else { return .none }
+            presentation = .localLinux
+            return .none
+
+        case .dismissLocalLinux:
+            guard presentation == .localLinux else { return .none }
             presentation = nil
             return .retryAutoConnectMigration
 
@@ -240,7 +264,7 @@ struct MobileRootPresentationState: Equatable {
             case .pairing:
                 presentation = nil
                 return .finishPairing
-            case .settings, .computers:
+            case .settings, .computers, .localLinux:
                 presentation = nil
                 return .none
             case .child, .dismissingChild, nil:
