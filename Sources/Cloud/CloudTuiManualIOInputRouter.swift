@@ -1,4 +1,5 @@
 import CmuxTerminal
+import CmuxCloudImagePaste
 import Foundation
 
 /// Sends Ghostty manual-surface input to a remote cmux-tui PTY.
@@ -34,7 +35,19 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     func updateSurfaceID(_ surfaceID: UInt64) {
         queue.async { [self, surfaceID] in
             guard self.surfaceID != surfaceID else { return }
+            let previousSurfaceID = self.surfaceID
             self.surfaceID = surfaceID
+            if previousSurfaceID == 0, connection == nil {
+                // The first authenticated attachment resolves an unknown target.
+                // Retain early input, in order, for that exact initial binding.
+                pendingLines = pendingLines.compactMap { line in
+                    guard var command = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return nil }
+                    command["surface"] = surfaceID
+                    return commandBuilder.line(command)
+                }
+                pendingByteCount = pendingLines.reduce(0) { $0 + $1.count }
+                return
+            }
             // Pending lines already contain the old numeric target. Dropping
             // them is safer than delivering input to a reused surface slot;
             // subsequent keystrokes are encoded for the new ID.
@@ -61,6 +74,20 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             pendingLines.removeAll(keepingCapacity: false)
             pendingByteCount = 0
         }
+    }
+
+    /// Orders a control request with the manual input that preceded the paste.
+    func sendControl(
+        _ command: [String: Any], on connection: CloudTuiManualIOConnection, requestID: UInt64
+    ) throws -> UInt64 {
+        let command = command.merging(["id": requestID]) { _, value in value }
+        guard let line = commandBuilder.line(command) else {
+            throw CloudImagePasteError.unavailable
+        }
+        // Image commit shares the input lane. Queue it behind prior manual input,
+        // and retain this exact connection rather than replaying it after reconnect.
+        queue.async { connection.send(line: line) }
+        return requestID
     }
 
     /// Enqueues one manual input event.

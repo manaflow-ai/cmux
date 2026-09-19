@@ -3,7 +3,7 @@ import Foundation
 enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
     case authentication, sessionRefresh = "session_refresh", permission, plan
     case rateLimit = "rate_limit", conflict, network, timeout, server, response, unsupported
-    case process, `protocol`, notFound = "not_found", resourceLimit = "resource_limit"
+    case process, `protocol`, notFound = "not_found", placement, resourceLimit = "resource_limit"
     case storage, cancelled, unknown
 
     var label: String {
@@ -22,6 +22,8 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             return String(localized: "cloud.operation.failure.conflict", defaultValue: "Another operation changed this machine. Refresh its state.")
         case .notFound:
             return String(localized: "cloud.operation.failure.notFound", defaultValue: "The Cloud resource is no longer available. Refresh the machine list.")
+        case .placement:
+            return String(localized: "cloud.operation.failure.placement", defaultValue: "The Cloud terminal placement is unavailable. Refresh the machine, then retry.")
         case .unsupported:
             return String(localized: "cloud.operation.failure.unsupported", defaultValue: "This Cloud operation is not supported. Check for an update.")
         case .cancelled:
@@ -44,8 +46,17 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .sessionRefreshFailed: return .sessionRefresh
             case .backendUnreachable: return .network
             case .malformedResponse: return .response
-            case .disabledByManagedPolicy: return .permission
+            case .disabledByManagedPolicy, .cloudMachinesDisabled: return .permission
             case .lifecycleUnsupported: return .unsupported
+            case .httpStatus(let status, _): return classify(status: status)
+            }
+        }
+        if let error = error as? MachineUsageClientError {
+            switch error {
+            case .notSignedIn: return .authentication
+            case .sessionRefreshFailed: return .sessionRefresh
+            case .backendUnreachable: return .network
+            case .malformedResponse: return .response
             case .httpStatus(let status, _): return classify(status: status)
             }
         }
@@ -56,7 +67,28 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .clientMissing, .spawnFailed, .exited: return .process
             }
         }
+        if let error = error as? CmuxTuiSurfaceProvider.ProviderError {
+            switch error {
+            case .notSignedIn: return .authentication
+            case .machineAsleep, .remoteWorkspaceNotFound, .remoteTabNotFound: return .notFound
+            case .noWorkspaceOnMachine, .remotePlacementUnavailable: return .placement
+            case .terminalNotCreated, .terminalExited: return .process
+            case .terminalAttachTimedOut: return .timeout
+            case .invalidSnapshot, .stateUnavailable: return .response
+            case .snapshotOnly, .hubUnavailable: return .unsupported
+            case .invalidPreviewURL, .localForwardURLUnavailable: return .response
+            }
+        }
         if error is CloudMachineLinkManager.ManagerError { return .connectFailure(error) }
+        if let error = error as? SurfaceCatalogError {
+            switch error {
+            case .unknownResource, .destinationNotFound, .nothingToOpen: return .notFound
+            case .noProvider, .unavailable: return .network
+            case .ambiguousRemotePlacement: return .conflict
+            case .unsupported: return .unsupported
+            case .partialOperation: return .response
+            }
+        }
         if error is DecodingError { return .response }
         return .unknown
     }

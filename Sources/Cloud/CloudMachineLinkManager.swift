@@ -39,8 +39,10 @@ actor CloudMachineLinkManager {
     }
 
     nonisolated let operations: CloudOperationRecorder?
+    private let isCloudEnabled: @Sendable () -> Bool
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
+    private var cachedClientCapabilities: [String]?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
@@ -51,6 +53,8 @@ actor CloudMachineLinkManager {
     private var privateAddressCandidates: [String: [String]] = [:]
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
+    private var browserProxies: [String: CloudBrowserProxyProcess] = [:]
+    private var browserProxyStarts: [String: Task<CloudBrowserProxyEndpoint, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
@@ -75,6 +79,7 @@ actor CloudMachineLinkManager {
         clientURL: URL? = CloudTuiClientPaths.clientURL(),
         hub: CloudWireGuardHub? = nil,
         operations: CloudOperationRecorder? = nil,
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true },
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)? = {
             await MainActor.run {
                 let app = GhosttyApp.shared
@@ -82,6 +87,7 @@ actor CloudMachineLinkManager {
             }
         }
     ) {
+        self.isCloudEnabled = isCloudEnabled
         self.operations = operations
         self.paths = paths
         self.clientURL = clientURL
@@ -127,6 +133,12 @@ actor CloudMachineLinkManager {
 
     /// The link for `machineID`, connecting (and enrolling) if needed.
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
+        guard isCloudEnabled() else {
+            throw ManagerError.retryLater(String(
+                localized: "cloud.feature.disabled",
+                defaultValue: "Cloud Machines are temporarily unavailable."
+            ))
+        }
         if let context = CloudOperationContext.current {
             return try await context.withPhase(.connect) { try await self.connectMeasured(machineID: machineID) }
         }
@@ -169,9 +181,19 @@ actor CloudMachineLinkManager {
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
         let task = Task<CloudMachineLink.Connected, Error> { [paths, hub] in
+            try Task.checkCancellation()
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
-            let capabilities = Self.clientCapabilities(clientURL: clientURL)
+            let capabilities: [String]
+            if let cached = self.cachedClientCapabilities { capabilities = cached }
+            else if let probed = Self.clientCapabilities(clientURL: clientURL) {
+                capabilities = probed
+                self.cachedClientCapabilities = probed
+            } else {
+                // A failed probe must not poison the actor-wide cache. A later
+                // connection can retry the probe and discover the capability.
+                capabilities = []
+            }
             let knownFingerprint = paths.deviceFingerprint(for: machineID)
             var session = "cmux"
             // The machine's daemon serves a trusted listener inside the private
@@ -206,10 +228,13 @@ actor CloudMachineLinkManager {
                 throw ManagerError.wireGuardHubUnsupported
             }
             guard let hub else { throw ManagerError.wireGuardHubMissing }
+            try Task.checkCancellation()
+            guard isCloudEnabled() else { throw VMClientError.cloudMachinesDisabled }
             let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
             let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
             let reachableRoute: String
             do {
+                try Task.checkCancellation()
                 reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
             } catch {
                 await releaseLease()
@@ -218,8 +243,9 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.wireguardHub machine=\(machineID) socket=\(claim.ready.socketPath)")
             #endif
-            let connect = Task {
-                try await link.connect(
+            do {
+                try Task.checkCancellation()
+                let connected = try await link.connect(
                     route: reachableRoute,
                     session: session,
                     carrier: carrier,
@@ -227,23 +253,21 @@ actor CloudMachineLinkManager {
                     wireguardHubSocket: claim.ready.socketPath,
                     releaseHubLease: releaseLease
                 )
-            }
-            do {
-                let connected = try await connect.value
+                try Task.checkCancellation()
                 if carrier, knownFingerprint == nil {
                     paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
                 }
                 return connected
             } catch {
-                connect.cancel()
                 await link.disconnect()
                 throw error
             }
         }
         connecting[machineID] = task
-        defer { connecting[machineID] = nil }
+        defer { if connecting[machineID] == task { connecting[machineID] = nil } }
         do {
             let connected = try await task.value
+            guard connecting[machineID] == task, !task.isCancelled, isCloudEnabled() else { throw CancellationError() }
             lastFailure[machineID] = nil
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
@@ -260,6 +284,7 @@ actor CloudMachineLinkManager {
             pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
             return connected
         } catch {
+            guard connecting[machineID] == task else { throw error }
             let text = CloudMachineLink.errorText(error)
             lastFailure[machineID] = (Date(), text)
             links[machineID] = nil
@@ -281,6 +306,106 @@ actor CloudMachineLinkManager {
 
     func link(machineID: String) -> CloudMachineLink? {
         links[machineID]
+    }
+
+    /// A browser carrier can present the machine's stored device identity directly.
+    /// Only a first-time machine needs the one-time trusted-listener preparation.
+    nonisolated static func browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: String?) -> Bool {
+        deviceFingerprint == nil
+    }
+
+    /// One authenticated browser carrier per machine, sharing the app's userspace WireGuard hub.
+    func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
+        try Task.checkCancellation()
+        guard isCloudEnabled(), privateRoutes[machineID] != nil else {
+            throw ManagerError.privateRouteRequired(machineID)
+        }
+        if let starting = browserProxyStarts[machineID] { return try await browserProxyResult(starting) }
+        let addresses = privateAddresses(for: machineID)
+        if let existing = browserProxies[machineID] {
+            let endpoint = await existing.readyEndpoint
+            if browserProxies[machineID] !== existing { return try await browserProxy(machineID: machineID) }
+            if existing.addresses == addresses, let endpoint { return endpoint }
+            browserProxies[machineID] = nil
+            await existing.stop()
+            return try await browserProxy(machineID: machineID)
+        }
+        guard let clientURL, let hub else { throw ManagerError.wireGuardHubMissing }
+        guard let clientCapabilities = Self.clientCapabilities(clientURL: clientURL),
+              clientCapabilities.contains("browser-proxy") else {
+            throw ManagerError.retryLater(String(localized: "cloud.browser.clientUpdateRequired", defaultValue: "Update cmux to connect to this Cloud page."))
+        }
+        let proxy = CloudBrowserProxyProcess(addresses: addresses)
+        browserProxies[machineID] = proxy
+        let task = Task<CloudBrowserProxyEndpoint, Error> {
+            let knownFingerprint = self.paths.deviceFingerprint(for: machineID)
+            let carrier: Bool
+            if Self.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: knownFingerprint) {
+                // Prepare the trusted listener through the control plane without
+                // starting a second persistent sidebar carrier. The browser
+                // carrier below is the only long-lived machine connection.
+                let client = await MainActor.run { VMClient.shared }
+                guard let client else {
+                    throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")
+                }
+                let endpoint = try await client.openCmuxRemote(
+                    id: machineID,
+                    deviceFingerprint: nil,
+                    clientCapabilities: clientCapabilities
+                )
+                guard endpoint.trustedCarrier else {
+                    throw ManagerError.retryLater(String(
+                        localized: "cloud.link.trustedListenerPending",
+                        defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
+                    ))
+                }
+                paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+                carrier = true
+            } else {
+                carrier = knownFingerprint == CloudTuiClientPaths.carrierDeviceMarker
+            }
+            try Task.checkCancellation()
+            let claim = try await hub.acquire()
+            let route: String
+            do {
+                route = try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready)
+                try Task.checkCancellation()
+            } catch {
+                await hub.release(claim.lease)
+                throw error
+            }
+            let arguments = CloudTuiCommandLine.browserProxyArguments(
+                route: route, addresses: addresses, stateDir: self.paths.stateDir.path,
+                wireGuardHubSocket: claim.ready.socketPath,
+                carrier: carrier
+            )
+            return try await proxy.start(client: clientURL, arguments: arguments) { await hub.release(claim.lease) }
+        }
+        browserProxyStarts[machineID] = task
+        Task { [weak self] in
+            let result = await task.result
+            await self?.browserProxyStartFinished(machineID: machineID, proxy: proxy, result: result)
+        }
+        let endpoint = try await browserProxyResult(task)
+        guard browserProxies[machineID] === proxy else { throw CancellationError() }
+        return endpoint
+    }
+
+    /// A pane may cancel its wait while another pane still needs the shared carrier.
+    private func browserProxyResult(_ task: Task<CloudBrowserProxyEndpoint, Error>) async throws -> CloudBrowserProxyEndpoint {
+        let result = CloudLinkFirstValue<Result<CloudBrowserProxyEndpoint, Error>>()
+        Task { result.resolve(await task.result) }
+        guard let value = await result.result else { throw CancellationError() }
+        return try value.get()
+    }
+
+    private func browserProxyStartFinished(machineID: String, proxy: CloudBrowserProxyProcess, result: Result<CloudBrowserProxyEndpoint, Error>) async {
+        guard browserProxies[machineID] === proxy else { return }
+        browserProxyStarts[machineID] = nil
+        if case .failure = result {
+            browserProxies[machineID] = nil
+            await proxy.stop()
+        }
     }
 
     /// Records a preflight failure without mutating link retry state.
@@ -323,6 +448,11 @@ actor CloudMachineLinkManager {
     }
 
     func disconnect(machineID: String) async {
+        let startingProxy = browserProxyStarts.removeValue(forKey: machineID)
+        startingProxy?.cancel()
+        let proxy = browserProxies.removeValue(forKey: machineID)
+        await proxy?.stop()
+        _ = await startingProxy?.result
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
         // An in-flight drain notices the removed link on its next run; dropping the
@@ -335,7 +465,8 @@ actor CloudMachineLinkManager {
     }
 
     func disconnectAll() async {
-        for id in Array(links.keys) {
+        for task in connecting.values { task.cancel() }
+        for id in Set(links.keys).union(browserProxies.keys).union(browserProxyStarts.keys) {
             await disconnect(machineID: id)
         }
         for task in connecting.values { task.cancel() }
@@ -387,7 +518,7 @@ actor CloudMachineLinkManager {
     private func runThemePush(machineID: String, socketPath: String) async {
         guard let link = links[machineID] else { return }
         guard let colors = await hostThemeColors(),
-              let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
+              let arguments = CloudTuiRequests.setDefaultColorsArguments(
                   socketPath: socketPath, foreground: colors.foreground, background: colors.background
               ) else { return }
         do {
@@ -412,7 +543,7 @@ actor CloudMachineLinkManager {
 
     /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
     /// them (a client that sends a User-Agent earns the branded host).
-    nonisolated static func clientCapabilities(clientURL: URL) -> [String] {
+    nonisolated static func clientCapabilities(clientURL: URL) -> [String]? {
         let process = Process()
         process.executableURL = clientURL
         process.arguments = ["remote-probe", "--json"]
@@ -423,7 +554,7 @@ actor CloudMachineLinkManager {
         do {
             try process.run()
         } catch {
-            return []
+            return nil
         }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
@@ -431,7 +562,7 @@ actor CloudMachineLinkManager {
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (object["app"] as? String) == "cmux-tui",
               let raw = object["capabilities"] as? [Any] else {
-            return []
+            return nil
         }
         return raw.compactMap { $0 as? String }
     }

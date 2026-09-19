@@ -6,6 +6,11 @@ public import Foundation
 /// ``RemoteDaemonPTYEvent`` to ``RemotePTYBridgeEvent`` case-for-case,
 /// exactly like the legacy `WorkspaceRemotePTYBridgeRPCClient` extension.
 extension RemoteDaemonRPCClient: RemotePTYBridgeRPCClient {
+    /// Reads the version from the same connection that will own the attachment.
+    public var daemonVersion: String? {
+        stateQueue.sync { advertisedVersion }
+    }
+
     /// Whether the connected daemon advertised the optional
     /// ``RemoteDaemonCapability/ptyInputSeqAck`` capability in its hello.
     public var supportsInputSeqAck: Bool {

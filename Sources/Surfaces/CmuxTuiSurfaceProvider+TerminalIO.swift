@@ -10,7 +10,6 @@ extension CmuxTuiSurfaceProvider {
     }
 }
 
-
 /// Two more headless terminal primitives over the machine's link, beside `readScreen`
 /// and `waitForScreen`: the process's EXIT (a fact the daemon records) and its retained
 /// OUTPUT (the whole log, not the visible rows). Together they turn "run this to
@@ -26,7 +25,7 @@ extension CmuxTuiSurfaceProvider {
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { return nil }
             let data = try await link.run(
-                arguments: CloudTuiCommandLine.processInfoArguments(
+                arguments: CloudTuiRequests.processInfoArguments(
                     socketPath: connected.socketPath,
                     terminalID: resource.id.key
                 )
@@ -53,7 +52,7 @@ extension CmuxTuiSurfaceProvider {
         let effectiveMs = Self.clampedWaitTimeoutMs(timeoutMs)
         let linkTimeout = Duration.milliseconds(effectiveMs + 5_000)
         let data = try await link.run(
-            arguments: CloudTuiCommandLine.processWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, timeoutMs: effectiveMs),
+            arguments: CloudTuiRequests.processWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, timeoutMs: effectiveMs),
             timeout: linkTimeout
         )
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
@@ -67,7 +66,7 @@ extension CmuxTuiSurfaceProvider {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let data = try await link.run(
-            arguments: CloudTuiCommandLine.outputReadArguments(socketPath: connected.socketPath, terminalID: terminalID, after: after, maxBytes: maxBytes)
+            arguments: CloudTuiRequests.outputReadArguments(socketPath: connected.socketPath, terminalID: terminalID, after: after, maxBytes: maxBytes)
         )
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }

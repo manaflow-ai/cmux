@@ -7,7 +7,7 @@ import {
   issueRouteToken,
   revokeRouteToken,
 } from "../../../../services/coderouter/repository";
-import { authenticateCoderouterCredential } from "../../../../services/coderouter/routeTokenAuth";
+import { authenticateCoderouterCredential, authenticateRequestRouteToken } from "../../../../services/coderouter/routeTokenAuth";
 import { resolveCodeRouterRequestContext } from "../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
@@ -36,7 +36,8 @@ export function makeCoderouterSessionGetHandler(
   return async function GET(request: Request): Promise<Response> {
     const authorization = request.headers.get("authorization")?.trim() ?? "";
     const token = /^Bearer[ \t]+(.+)$/i.exec(authorization)?.[1]?.trim();
-    const identity = token ? await authenticate(token) : null;
+    const auth = await authenticateRequestRouteToken(request, authenticate);
+    const identity = auth.ok ? auth.identity : null;
     if (!identity) {
       addCoderouterBreadcrumb(
         "auth",

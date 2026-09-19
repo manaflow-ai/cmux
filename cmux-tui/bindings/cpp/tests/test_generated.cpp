@@ -84,7 +84,7 @@ static_assert(std::is_same_v<
 static_assert(!std::is_copy_constructible_v<cmux::raw::EventStream>);
 static_assert(std::is_move_constructible_v<cmux::raw::EventStream>);
 
-constexpr std::size_t kExpectedRawCommandCount = 106U;
+constexpr std::size_t kExpectedRawCommandCount = 111U;
 constexpr std::array<std::string_view, 4> kViewportHistoryCommandNames{
     "clear-history",
     "new-pane-right",
@@ -102,7 +102,7 @@ TEST("generated command and event metadata is exhaustive and unique") {
     const auto commands = cmux::raw::command_metadata();
     const auto events = cmux::raw::event_metadata();
     CHECK_EQ(commands.size(), kExpectedRawCommandCount);
-    CHECK_EQ(events.size(), 48U);
+    CHECK_EQ(events.size(), 49U);
 
     std::set<std::string_view> command_names;
     bool checked_attach_fields = false;
@@ -112,9 +112,11 @@ TEST("generated command and event metadata is exhaustive and unique") {
         CHECK(command.since <= cmux::raw::kMuxProtocolVersion);
         command_names.insert(command.name);
         if (command.name == "attach-surface") {
-            CHECK_EQ(command.field_requirements.size(), 3U);
+            CHECK_EQ(command.field_requirements.size(), 5U);
             bool mode_since = false;
             bool cols_capability = false;
+            bool generation_capability = false;
+            bool terminal_capability = false;
             for (const auto& field : command.field_requirements) {
                 mode_since =
                     mode_since || (field.name == "mode" && field.since == 7U);
@@ -122,9 +124,19 @@ TEST("generated command and event metadata is exhaustive and unique") {
                     cols_capability ||
                     (field.name == "cols" &&
                      field.capability == "attach-initial-size");
+                generation_capability =
+                    generation_capability ||
+                    (field.name == "expected_generation" &&
+                     field.capability == "attach-identity-v1");
+                terminal_capability =
+                    terminal_capability ||
+                    (field.name == "expected_terminal_id" &&
+                     field.capability == "attach-identity-v1");
             }
             CHECK(mode_since);
             CHECK(cols_capability);
+            CHECK(generation_capability);
+            CHECK(terminal_capability);
             checked_attach_fields = true;
         }
     }

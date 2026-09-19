@@ -576,12 +576,12 @@ import Testing
     clock.advance(by: 10)
     store.debugRunRenderGridLivenessCheckForTesting()
     #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
-    // The second independent probe succeeds and resets the liveness window.
-    // Reconnecting makes `.connected` prove that its response was applied.
+    // The idempotent subscription retry succeeds on the same connection.
+    // The status change proves that its acknowledgement was applied.
     store.markMacConnectionReconnecting()
     let followUpSucceeded = try await pollUntil {
         store.debugRunRenderGridLivenessCheckForTesting()
-        return await router.count(of: "mobile.events.probe") >= 2
+        return await router.count(of: "mobile.events.subscribe") >= 2
             && store.macConnectionStatus == .connected
     }
     #expect(followUpSucceeded, "the follow-up probe must complete successfully")
@@ -623,7 +623,7 @@ import Testing
         store.debugRunRenderGridLivenessCheckForTesting()
         let probeCount = await router.count(of: "mobile.events.probe")
         let subscribeCount = await router.count(of: "mobile.events.subscribe")
-        return probeCount >= 2 && subscribeCount >= 2
+        return probeCount >= 1 && subscribeCount >= 2
     }
     #expect(repaired, "a live transport must restart only the stalled event listener")
     #expect(store.remoteClient === originalClient)

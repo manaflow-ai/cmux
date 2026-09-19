@@ -446,3 +446,30 @@ provider subcommands pass through unchanged.
 | [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel forks, desktop/browser tasks, showing the human |
 | [../cmux/SKILL.md](../cmux/SKILL.md) | Windows/workspaces/panes when presenting machine panes |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Non-disruptive automation rules (focus, caller workspace) |
+
+## Browser authentication from guest terminals
+
+`cmux open-url <http-or-https-url>` asks the Mac projecting that exact terminal
+to open the URL using its terminal-link preference, without changing workspace
+or keyboard focus. Create/heal installs `cmux-open-url`, PATH wrappers for
+`xdg-open`, `x-www-browser`, and `sensible-browser`, and Bash/zsh/fish defaults
+for `BROWSER` and `GH_BROWSER`. Explicit browser environment overrides survive.
+Direct Chrome, `agent-browser`, and CUA keep their existing `DISPLAY=:1` behavior.
+
+The opener uses a bounded, transient request over the authenticated cmux-tui
+link, with a frontend delivery acknowledgement. No attached projection, old
+binaries, denied placement, disconnect, or timeout prints `Open this URL: <url>`
+and exits successfully so the auth CLI keeps polling. URLs are never stored as
+notifications or replayed on reconnect. This requires the updated daemon and
+Mac client; older combinations safely use the printable fallback.
+
+ブラウザー認証: `cmux open-url <URL>` は、その端末を表示している Mac の
+リンク設定に従って URL を開き、ワークスペースや入力フォーカスを変更しません。
+接続されていない場合、旧バージョンの場合、配信失敗やタイムアウトの場合は
+URL を表示して正常終了します。Chrome、`agent-browser`、CUA の `DISPLAY=:1`
+での動作は変わりません。URL は通知として保存されず、再接続時にも再実行されません。
+
+HTTP(S) MIME handlers also use `cmux-open-url`, covering absolute and CLI-bundled
+`xdg-open` and GIO. File associations and direct Chrome launchers are unchanged.
+HTTP(S) の MIME ハンドラーも cmux を使用します。ファイルの関連付けと
+Chrome の直接起動は変更しません。
