@@ -289,8 +289,9 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 // Codex's user block: a tinted band with a blank row above and
                 // below and `› ` before the text.
                 let bg = Style::default().bg(c.user_bg);
-                // Codex: plain text on the tint, the marker bold and dim.
-                let style = if *queued { c.dim().bg(c.user_bg) } else { bg };
+                // Codex: plain text on the tint, the marker bold and dim. The
+                // foreground is explicit so a light terminal reads it too.
+                let style = if *queued { c.dim().bg(c.user_bg) } else { bg.fg(c.status_fg) };
                 let marker = if *steer { "» " } else if *queued { "⏳" } else { "❯ " };
                 let start = rows.len();
                 plain("", bg, i, &mut rows);
@@ -305,7 +306,10 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 // and the final reply. Two or more blocks get a handle row
                 // that collapses them all; one block collapses on its own.
                 let next_user = t.items[i + 1..].iter().position(|x| matches!(x, Item::User { .. })).map(|p| i + 1 + p).unwrap_or(t.items.len());
-                let final_reply = (i + 1..next_user).rev().find(|&j| matches!(t.items[j], Item::Assistant { .. }));
+                let turn_live = running && next_user == t.items.len();
+                // While the turn runs there is no final reply yet: every block
+                // is work and the handle reads "Working for …".
+                let final_reply = if turn_live { None } else { (i + 1..next_user).rev().find(|&j| matches!(t.items[j], Item::Assistant { .. })) };
                 let work_end = final_reply.unwrap_or(next_user);
                 let work: Vec<usize> = vis.iter().copied().filter(|&j| j > i && j < work_end).collect();
                 let mut blocks = 0usize;
@@ -843,7 +847,7 @@ mod hierarchy_tests {
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash")), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("2 steps") && l.ends_with("▾")), "{text:?}");
-        assert!(text.iter().any(|l| l.contains("permission: date")), "{text:?}");
+        assert!(text.iter().any(|l| l.contains("Allowed  date")), "{text:?}");
         // Collapse the group and the first turn.
         let mut flipped = std::collections::HashSet::new();
         flipped.insert(Toggle::Group(2));

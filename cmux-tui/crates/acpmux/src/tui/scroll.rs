@@ -61,7 +61,8 @@ pub enum ThumbState {
 /// every row fits.
 pub fn draw_thumb(buf: &mut Buffer, track: Rect, thumb: (u16, u16), idle: Color, active: Color, state: ThumbState) {
     let (thumb_y, thumb_height) = thumb;
-    if track.height == 0 || thumb_height == 0 {
+    // Nothing to scroll: no thumb, as in the Codex app.
+    if track.height == 0 || thumb_height == 0 || thumb_height >= track.height {
         return;
     }
     let glyph = if state == ThumbState::Expanded { "▐" } else { "▕" };
