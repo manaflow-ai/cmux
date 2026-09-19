@@ -14,6 +14,7 @@ type ReadStatsOptions = {
   readonly directBackend?: boolean;
   readonly concurrent?: boolean;
   readonly resourceExitCode?: number;
+  readonly environment?: Record<string, string | undefined>;
   readonly resourceOutput?: unknown;
 };
 
@@ -29,8 +30,19 @@ async function readStats(
     fetch: (async (input, init) => {
       const path = new URL(String(input)).pathname;
       calls.push(path);
-      if (path !== "/v5/vms/vm-stats" || init?.method !== "GET") throw new Error(`Guest touched: ${path}`);
-      return Response.json({ state, resources: { cpu: 2, memory: 4096, storage: 16384 } });
+      if (path === "/v5/vms/vm-stats" && init?.method === "GET") {
+        return Response.json({ state, resources: { cpu: 2, memory: 4096, storage: 16384 } });
+      }
+      if (path === "/v5/vms/vm-stats/exec-await" && init?.method === "POST") {
+        resourceCalls.push("probe");
+        expect(JSON.parse(String(init.body))).toMatchObject({ timeoutMs: 5_000, linuxUser: "nobody" });
+        return Response.json({
+          statusCode: options.resourceExitCode ?? 0,
+          stdout: typeof options.resourceOutput === "string"
+            ? options.resourceOutput : JSON.stringify(options.resourceOutput ?? gauges),
+        });
+      }
+      throw new Error(`Unexpected mutation: ${path}`);
     }) as typeof fetch,
   });
   const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("Unexpected install"); } });
@@ -40,47 +52,45 @@ async function readStats(
   } as unknown as VmRepositoryShape;
   const providers = {
     getStats: () => Effect.promise(() => provider.getStats("vm-stats")),
-    getResourceStats: () => {
-      resourceCalls.push("probe");
-      return Effect.succeed({
-        exitCode: options.resourceExitCode ?? 0,
-        stdout: typeof options.resourceOutput === "string"
-          ? options.resourceOutput
-          : JSON.stringify(options.resourceOutput ?? gauges),
-        stderr: "",
-      });
-    },
+    getResourceStats: () => Effect.promise(() => provider.getResourceStats("vm-stats")),
   } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(
     Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers),
     Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
   );
+  const mutableEnvironment: Record<string, string | undefined> = process.env;
   const envKeys = [
+    "NODE_ENV", "VERCEL_ENV",
     "CMUX_DEV_RESOURCE_STATS_DIRECT",
     "CMUX_DEV_BACKEND_TRANSPORT",
     "CMUX_DEV_BACKEND_TAILSCALE_HOST",
     "CMUX_WWW_ORIGIN",
   ] as const;
-  const previousEnvironment = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
-  for (const key of envKeys) delete process.env[key];
+  const previousEnvironment = Object.fromEntries(envKeys.map((key) => [key, mutableEnvironment[key]]));
+  for (const key of envKeys) delete mutableEnvironment[key];
   if (options.directBackend) {
-    process.env.CMUX_DEV_BACKEND_TRANSPORT = "direct";
-    process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = "cmux-dev-backend-1.tail137216.ts.net";
-    process.env.CMUX_WWW_ORIGIN = "https://cmux-dev-backend-1.tail137216.ts.net:4635/";
+    mutableEnvironment.NODE_ENV = "development";
+    mutableEnvironment.CMUX_DEV_BACKEND_TRANSPORT = "direct";
+    mutableEnvironment.CMUX_DEV_BACKEND_TAILSCALE_HOST = "cmux-dev-backend-1.tail137216.ts.net";
+    mutableEnvironment.CMUX_WWW_ORIGIN = "https://cmux-dev-backend-1.tail137216.ts.net:4635/";
+  }
+  for (const [key, value] of Object.entries(options.environment ?? {})) {
+    if (value === undefined) delete mutableEnvironment[key];
+    else mutableEnvironment[key] = value;
   }
   try {
     const run = () => Effect.runPromise(getVmStats({ userId: "user", providerVmId: "vm-stats" }).pipe(Effect.provide(layer)));
     const results = options.concurrent ? await Promise.all([run(), run()]) : [await run()];
     const result = results[0]!;
-    expect(calls).toEqual(options.concurrent
+    expect(calls.filter(path => !path.endsWith("/exec-await"))).toEqual(options.concurrent
       ? ["/v5/vms/vm-stats", "/v5/vms/vm-stats"]
       : ["/v5/vms/vm-stats"]);
     return { result, results, resourceCalls };
   } finally {
     for (const key of envKeys) {
       const value = previousEnvironment[key];
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+      if (value === undefined) delete mutableEnvironment[key];
+      else mutableEnvironment[key] = value;
     }
   }
 }
@@ -98,6 +108,30 @@ describe("Freestyle live machine stats", () => {
     expect(resourceCalls).toHaveLength(1);
     expect(result).toMatchObject({ state: "awake", ...gauges });
     expect(typeof result.resourceSampledAt).toBe("number");
+  });
+
+  test.each([
+    { label: "production", env: { NODE_ENV: "production" } },
+    { label: "hosted preview", env: { VERCEL_ENV: "preview" } },
+    { label: "explicit off", env: { CMUX_DEV_RESOURCE_STATS_DIRECT: "0" } },
+    { label: "mismatched host", env: { CMUX_DEV_BACKEND_TAILSCALE_HOST: "another.ts.net" } },
+    { label: "untrusted transport", env: { CMUX_DEV_BACKEND_TRANSPORT: "ssh" } },
+  ])("$label keeps stats on the reporter path", async ({ env }) => {
+    const { result, resourceCalls } = await readStats("running", undefined, { directBackend: true, environment: env });
+    expect(resourceCalls).toEqual([]);
+    expect(result.cpuPercent).toBeUndefined();
+  });
+
+  test("the explicit operator override still enables direct sampling", async () => {
+    const { result } = await readStats("running", undefined, { environment: { CMUX_DEV_RESOURCE_STATS_DIRECT: "1" } });
+    expect(result.cpuPercent).toBe(gauges.cpuPercent);
+  });
+
+  test("a fresh authenticated callback takes precedence over direct sampling", async () => {
+    const receivedAt = Date.now();
+    const { result, resourceCalls } = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats" }, { directBackend: true });
+    expect(resourceCalls).toEqual([]);
+    expect(result.resourceSampledAt).toBe(receivedAt);
   });
 
   test("coalesces concurrent direct probes for one VM", async () => {

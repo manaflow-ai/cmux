@@ -93,7 +93,7 @@ export type VmProviderGatewayShape = {
   readonly getResourceStats?: (
     provider: ProviderId,
     vmId: string,
-  ) => Effect.Effect<VMResourceStatsResult, VmProviderOperationError>;
+  ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,

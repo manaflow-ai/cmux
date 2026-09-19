@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { GUEST_RESOURCE_SAMPLE_SCRIPT, guestResourceReporterInstallCommand, guestResourceReporterScript } from "../services/vms/guestResourceReporter";
+import { GUEST_RESOURCE_SAMPLE_SCRIPT, guestResourceSampleCommand, guestResourceReporterInstallCommand, guestResourceReporterScript } from "../services/vms/guestResourceReporter";
 
 function runCounterFixture(cpu: string[], meminfo: string) {
   const harness = `import builtins,io,json,os,sys,time,types
@@ -67,4 +67,12 @@ except Finished: pass
 test("installer is a valid portable shell program", () => {
   const result = spawnSync("sh", ["-n"], { input: guestResourceReporterInstallCommand(), encoding: "utf8" });
   expect(result.status).toBe(0);
+});
+
+// Execute the exact shell string sent to Freestyle: a prefix assertion cannot
+// catch broken heredoc quoting or literal backslash-n separators.
+test("the direct sampling command executes and returns measured gauges", () => {
+  const result = spawnSync("sh", ["-c", guestResourceSampleCommand()], { encoding: "utf8" });
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout).diskUsedMb).toBeGreaterThanOrEqual(0);
 });

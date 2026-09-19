@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   applyVmResourceUsage,
-  parseVmResourceUsage,
+  VM_RESOURCE_USAGE_KEY,
+  VM_RESOURCE_USAGE_MAX_AGE_MS,
   shouldReadVmResourceStatsDirectly,
 } from "./resourceUsage";
 import * as Cause from "effect/Cause";
@@ -2926,42 +2927,6 @@ function boundedAccountDeletionIdentityRevokeLimit(limit: number | undefined): n
   return Math.max(1, Math.min(Math.floor(limit), ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH));
 }
 
-const DIRECT_RESOURCE_STATS_TIMEOUT_MS = 5_000;
-const directResourceStatsInFlight = new Map<string, Promise<ExecResult | null>>();
-
-/** Keep one bounded guest probe per VM while concurrent stats requests overlap. */
-function directResourceStatsExec(
-  providers: VmProviderGatewayShape,
-  provider: ProviderId,
-  providerVmId: string,
-): Effect.Effect<ExecResult | null> {
-  const key = `${provider}:${providerVmId}`;
-  const existing = directResourceStatsInFlight.get(key);
-  if (existing) return waitForDirectResourceStats(existing);
-  if (!providers.getResourceStats) return Effect.succeed(null);
-
-  const execution = Effect.runPromise(providers.getResourceStats(provider, providerVmId)).catch(() => null);
-  directResourceStatsInFlight.set(key, execution);
-  void execution.then(
-    () => { if (directResourceStatsInFlight.get(key) === execution) directResourceStatsInFlight.delete(key); },
-    () => { if (directResourceStatsInFlight.get(key) === execution) directResourceStatsInFlight.delete(key); },
-  );
-  return waitForDirectResourceStats(execution);
-}
-
-/** Bound request latency without releasing the shared key while the provider call runs. */
-function waitForDirectResourceStats(execution: Promise<ExecResult | null>): Effect.Effect<ExecResult | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), DIRECT_RESOURCE_STATS_TIMEOUT_MS);
-  });
-  const bounded = Promise.race([execution, deadline]).then((result) => {
-    if (timer !== undefined) clearTimeout(timer);
-    return result;
-  });
-  return Effect.promise(() => bounded);
-}
-
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -3028,35 +2993,21 @@ export function getVmStats(input: {
       Effect.flatMap((stats) => {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
-        // Local GCP dev backends do not share the production coderouter edge,
-        // so their baked guest reporter cannot authenticate its callback. A
-        // validated direct backend selects the fallback automatically; the
-        // explicit operator override remains available for other environments.
-        // Never exec against a sleeping guest: stats reads must not wake VMs.
-        if (stats.state !== "awake" || !shouldReadVmResourceStatsDirectly()) {
+        // The private development backend cannot receive production-edge reports.
+        // Production keeps the push path. Never probe non-awake machines, and
+        // prefer an existing fresh report over another guest round trip.
+        const fresh = reported.resourceSampledAt !== undefined
+          && reported.resourceSampledAt <= now
+          && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
+        if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
           return Effect.succeed(reported);
         }
-        return directResourceStatsExec(
-          providers,
-          vm.provider,
-          input.providerVmId,
-        ).pipe(
-          Effect.map((result) => {
-            if (!result || result.exitCode !== 0) return reported;
-            try {
-              const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
-              if (!usage) return reported;
-              const sampledAt = Date.now();
-              return {
-                ...stats,
-                ...usage,
-                sampledAt,
-                resourceSampledAt: sampledAt,
-              };
-            } catch {
-              return reported;
-            }
-          }),
+        return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
+          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
+            [VM_RESOURCE_USAGE_KEY]: {
+              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+            },
+          }, input.providerVmId, Date.now()) : reported),
           Effect.catchAll(() => Effect.succeed(reported)),
         );
       }),

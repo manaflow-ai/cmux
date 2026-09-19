@@ -16,8 +16,11 @@ export type VmResourceUsage = Pick<VMStats, "cpuPercent" | "memoryUsedMb" | "dis
 export function shouldReadVmResourceStatsDirectly(
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
-  return environment.CMUX_DEV_RESOURCE_STATS_DIRECT === "1"
-    || directDevBackendOrigin(environment) !== undefined;
+  const override = environment.CMUX_DEV_RESOURCE_STATS_DIRECT;
+  if (override !== undefined) return override === "1";
+  return environment.NODE_ENV === "development"
+    && !environment.VERCEL_ENV
+    && directDevBackendOrigin(environment) !== undefined;
 }
 
 function record(value: unknown): Record<string, unknown> | null {

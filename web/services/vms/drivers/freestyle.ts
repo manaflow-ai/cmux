@@ -13,8 +13,9 @@ import {
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
+import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
-import { guestResourceReporterInstallCommand, guestResourceSampleCommand } from "../guestResourceReporter";
+import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
 import {
   ProviderError,
   type AttachTransport,
@@ -169,7 +170,6 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
-const DIRECT_RESOURCE_STATS_TIMEOUT_MS = 5_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
@@ -202,7 +202,9 @@ export function preconnectFreestyle(): void {
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
   const longFetch = ((input: URL | RequestInfo, init?: RequestInit) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) })) as typeof fetch;
+    fetch(input as Request, { ...(init ?? {}), signal: init?.signal
+      ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)])
+      : AbortSignal.timeout(timeoutMs) })) as typeof fetch;
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -903,6 +905,7 @@ export class FreestyleProvider implements VMProvider {
   readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
 
   readonly privateNetworking: VMPrivateNetworking;
+  private readonly resourceStats: FreestyleResourceStatsReader;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
@@ -911,6 +914,7 @@ export class FreestyleProvider implements VMProvider {
     },
   ) {
     this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+    this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
   }
 
   async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
@@ -1243,27 +1247,8 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /** Read guest gauges without the general exec path's CLI installation/heal. */
-  async getResourceStats(vmId: string): Promise<VMResourceStatsResult> {
-    return withVmSpan(
-      "cmux.vm.provider.get_resource_stats",
-      "provider",
-      spanAttributes(vmId, "getResourceStats"),
-      async (span) => {
-        try {
-          const fs = this.deps.client(DIRECT_RESOURCE_STATS_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
-          const result = await fs.vms.ref(vmId).exec({
-            command: guestResourceSampleCommand(),
-            timeoutMs: DIRECT_RESOURCE_STATS_TIMEOUT_MS,
-            linuxUser: GUEST_LINUX_USER,
-          });
-          const exitCode = result.statusCode ?? 124;
-          setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
-          return { exitCode, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
-        } catch (err) {
-          throw new ProviderError("freestyle", `getResourceStats(${vmId})`, err);
-        }
-      },
-    );
+  getResourceStats(vmId: string): Promise<VMResourceStatsResult | null> {
+    return this.resourceStats.read(vmId);
   }
 
   async resize(vmId: string, options: VMResizeOptions): Promise<void> {

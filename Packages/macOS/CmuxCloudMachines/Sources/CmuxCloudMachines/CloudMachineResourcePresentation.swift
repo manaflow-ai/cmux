@@ -14,7 +14,13 @@ private func capacity(
     placeholder: String
 ) -> CloudMachineResourcePresentation.Reading {
     guard let used, let total, used >= 0, total > 0 else {
-        return .init(label: label, percent: nil, detail: "\(label): \(unavailable)", inlineDetail: unavailable, placeholder: placeholder)
+        let detail = total.flatMap { total in
+            total > 0 ? String(
+                format: String(localized: "cloudTree.resources.provisionedCapacity", defaultValue: "%@ GB total · %@"),
+                gb(total), unavailable
+            ) : nil
+        } ?? unavailable
+        return .init(label: label, percent: nil, detail: "\(label): \(detail)", inlineDetail: detail, placeholder: placeholder)
     }
     // Separate OS counters may straddle an update. Keep the percentage within capacity
     // while preserving the actual reported amounts in the detail.
@@ -110,6 +116,7 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
     /// - Parameters:
     ///   - availability: Whether the sample is live, loading, stale, sleeping, or unavailable.
     ///   - cpuPercent: CPU utilization in the inclusive range 0 through 100.
+    ///   - cpus: Provisioned virtual CPU count, independent of sample freshness.
     ///   - memoryUsedMb: Used memory in MiB, when sampled.
     ///   - memoryTotalMb: Provisioned memory in MiB, when known.
     ///   - diskUsedMb: Used root filesystem space in MiB, when sampled.
@@ -117,6 +124,7 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
     public init(
         availability: Availability,
         cpuPercent: Double? = nil,
+        cpus: Int? = nil,
         memoryUsedMb: Int? = nil,
         memoryTotalMb: Int? = nil,
         diskUsedMb: Int? = nil,
@@ -140,21 +148,27 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
             : String(localized: "cloudTree.resources.missing", defaultValue: "—")
         let cpuLabel = String(localized: "machines.stats.cpu", defaultValue: "CPU")
         let cpuPercent = available ? cpuPercent.flatMap(validCPU) : nil
+        let cpuUnavailable = cpus.flatMap { count in
+            count > 0 ? String(
+                format: String(localized: "cloudTree.resources.provisionedCPU", defaultValue: "%@ vCPU · %@"),
+                count.formatted(), unavailable
+            ) : nil
+        } ?? unavailable
         cpu = Reading(
             label: cpuLabel,
             percent: cpuPercent,
             detail: cpuPercent.map {
                 String(format: String(localized: "cloudTree.stats.cpu", defaultValue: "CPU %d%%"), Int($0.rounded()))
-            } ?? "\(cpuLabel): \(unavailable)",
+            } ?? "\(cpuLabel): \(cpuUnavailable)",
             inlineDetail: cpuPercent.map {
                 ($0 / 100).formatted(.percent.precision(.fractionLength(0)))
-            } ?? unavailable,
+            } ?? cpuUnavailable,
             placeholder: placeholder
         )
         memory = capacity(
             label: String(localized: "cloudTree.resources.ram", defaultValue: "RAM"),
             used: available ? memoryUsedMb : nil,
-            total: available ? memoryTotalMb : nil,
+            total: memoryTotalMb,
             format: String(localized: "cloudTree.stats.memory", defaultValue: "Mem %@/%@ GB"),
             unavailable: unavailable,
             placeholder: placeholder
@@ -162,7 +176,7 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
         disk = capacity(
             label: String(localized: "machines.stats.disk", defaultValue: "Disk"),
             used: available ? diskUsedMb : nil,
-            total: available ? diskTotalMb : nil,
+            total: diskTotalMb,
             format: String(localized: "cloudTree.stats.disk", defaultValue: "Disk %@/%@ GB"),
             unavailable: unavailable,
             placeholder: placeholder
