@@ -24,6 +24,7 @@ extension Workspace {
         let activeRemotePanelIds = panels.keys.filter {
             isRemoteTerminalSurface($0) ||
                 (cloudVMBinding != nil && terminalPanel(for: $0) != nil) ||
+                cloudBindingState.projectedResources[$0]?.kind == .terminal ||
                 cloudProjectedResource(forPanel: $0)?.kind == .terminal
         }
         guard !activeRemotePanelIds.isEmpty else { return nil }
