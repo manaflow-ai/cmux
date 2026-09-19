@@ -25,6 +25,10 @@ final class CloudBrowserAccessState {
 
     var showsPage: Bool { model?.isReady == true && loaded && error == nil }
 
+    var isDesktop: Bool {
+        model?.target.port == CmuxTuiSnapshotParser.desktopPort && remoteURL?.path == "/vnc.html"
+    }
+
     var failureMessage: String? {
         if let error = desktopFailure ?? error ?? unavailable { return error }
         if case .failed(let message)? = model?.phase { return message }
@@ -40,8 +44,7 @@ final class CloudBrowserAccessState {
     /// noVNC's document may finish loading before its RFB/WebSocket fails.
     /// Only the current, committed Cloud Desktop document may report its state.
     func desktopConnectionDidChange(url: URL, isConnected: Bool) {
-        guard model?.target.port == CmuxTuiSnapshotParser.desktopPort,
-              remoteURL?.path == "/vnc.html", hasCommittedNavigation,
+        guard isDesktop, hasCommittedNavigation,
               let navigationURL, url == navigationURL else { return }
         if isConnected {
             desktopFailure = nil

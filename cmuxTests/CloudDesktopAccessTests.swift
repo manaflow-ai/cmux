@@ -123,6 +123,26 @@ struct CloudDesktopAccessTests {
         #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
     }
 
+    @Test("Desktop bootstrap does not paint WebKit's default white background")
+    func desktopBackgroundUsesNativeBackingUntilCanvasPaints() async throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let model = CloudPortAccessModel(
+            target: .init(host: "10.0.0.7", port: 6901), coordinator: nil,
+            wake: {}, startForward: { _ in 46_901 }, stopForward: {}, route: .loopback
+        )
+        let url = try #require(URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.0.0.7")))
+        browser.cloudAccess.configure(model: model, url: url)
+        model.connect()
+        #expect(await wait { model.isReady })
+        browser.navigate(to: try #require(browser.cloudAccess.nextURL()))
+        #expect(browser.webView.value(forKey: "drawsBackground") as? Bool == false)
+        browser.navigate(to: URL(string: "https://example.com")!)
+        #expect(browser.webView.value(forKey: "drawsBackground") as? Bool == true,
+                "Ordinary websites still need WebKit's normal document background")
+        await model.retire()
+    }
+
     @Test("Opening Desktop starts exactly one HTTP route without system VPN",
           arguments: [CloudTunnelState.off, .awaitingApproval, .starting, .up, .stopping, .failed("VPN failed")])
     func desktopMaterializationStartsForward(state: CloudTunnelState) async throws {
