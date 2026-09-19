@@ -18,6 +18,8 @@ public extension SettingsHostActions {
     func openComputerUseScreenRecordingSettings() {}
     /// Default unavailable setup state for hosts without Computer Use.
     func computerUseSetupStatus() -> ComputerUseSetupStatus { .unavailable }
+    /// No live status changes are available in previews and unsupported hosts.
+    func computerUseSetupUpdates() -> AsyncStream<Void> { AsyncStream { $0.finish() } }
     /// Default no-op for hosts without Computer Use setup.
     func finishComputerUseSetup() {}
 }

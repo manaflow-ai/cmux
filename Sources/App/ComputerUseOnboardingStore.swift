@@ -1,7 +1,9 @@
 import Foundation
+import Observation
 
 /// Owns verified setup independently of window presentation and session activity files.
 @MainActor
+@Observable
 final class ComputerUseOnboardingStore {
     struct Verification: Equatable {
         fileprivate let generation: Int
@@ -20,11 +22,35 @@ final class ComputerUseOnboardingStore {
     private var completionKey: String { "cmux.computerUse.onboarding.completion.\(scope)" }
     private var helperIdentity: String?
     private var generation = 0
-    private(set) var phase = ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false)
+    @ObservationIgnored private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
+    private(set) var phase = ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false) {
+        didSet { if oldValue != phase { statusChanged() } }
+    }
 
     init(defaults: UserDefaults, scope: String) {
         self.defaults = defaults
         self.scope = scope
+    }
+
+    deinit {
+        for continuation in subscribers.values { continuation.finish() }
+    }
+
+    /// Coalesced snapshot invalidations, including daemon acknowledgements and TCC changes.
+    /// Settings consumes these without starting another permission probe or setup flow.
+    func updates() -> AsyncStream<Void> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID()
+            subscribers[id] = continuation
+            continuation.yield()
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor [weak self] in self?.subscribers.removeValue(forKey: id) }
+            }
+        }
+    }
+
+    func statusChanged() {
+        for continuation in subscribers.values { continuation.yield() }
     }
 
     func apply(_ event: ComputerUseRuntimePermissionPhase.Event) {

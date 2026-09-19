@@ -54,4 +54,8 @@ extension HostSettingsActions {
     func finishComputerUseSetup() {
         runComputerUseOnboardingAction(computerUseRuntimeService.status().accessibility ? .screenRecording : .accessibility)
     }
+
+    func computerUseSetupUpdates() -> AsyncStream<Void> {
+        computerUseRuntimeService.onboarding.updates()
+    }
 }

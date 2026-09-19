@@ -36,9 +36,10 @@ class AdmissionDaemon(socketserver.ThreadingUnixStreamServer):
                 for name in ("check_permissions", "get_screen_size")
             ]}
         if method == "permissions_status":
+            ready = self.ready.is_set()
             self.probed.set()
             return {"accessibility": True, "screen_recording": True,
-                    "external_permission_ready": self.ready.is_set()}
+                    "external_permission_ready": ready}
         if method == "call" and request["name"] == "check_permissions":
             value = {"accessibility": True, "screen_recording": True,
                      "source": {"attribution": "driver-daemon"}}
@@ -147,7 +148,7 @@ def run_admission_contract(binary, send, read):
                 with proxy(binary, socket_path, root, send, read) as process:
                     call(send, process, "get_screen_size")
                     response = read(process, timeout=70)
-                    assert response["result"]["isError"]
+                    assert response["error"]["code"] == -32603
                     assert "onboarding is still in progress" in json.dumps(response)
                     assert not daemon.functional_calls
                 assert not daemon.failures, daemon.failures
@@ -158,7 +159,7 @@ def run_admission_contract(binary, send, read):
         with proxy(binary, socket_path, root, send, read) as process:
             call(send, process, "get_screen_size")
             response = read(process, timeout=20)
-            assert response["result"]["isError"]
+            assert response["error"]["code"] == -32603
             assert "runtime is not listening" in json.dumps(response)
             assert "onboarding is still in progress" not in json.dumps(response)
     print("PASS: real MCP admission preserves host completion, TCC reporting, and unavailable-runtime errors")

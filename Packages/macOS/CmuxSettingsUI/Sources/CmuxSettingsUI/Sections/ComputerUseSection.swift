@@ -123,6 +123,12 @@ public struct ComputerUseSection: View {
         .task(id: permissionRefreshRequest) {
             await refreshPermissions()
         }
+        .task {
+            for await _ in hostActions.computerUseSetupUpdates() {
+                guard !Task.isCancelled else { return }
+                applyPermissionSnapshot()
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             guard permissionCheckArmed else { return }
             permissionCheckArmed = false
@@ -210,6 +216,10 @@ public struct ComputerUseSection: View {
     private func refreshPermissions() async {
         await hostActions.refreshComputerUsePermissions()
         guard !Task.isCancelled else { return }
+        applyPermissionSnapshot()
+    }
+
+    private func applyPermissionSnapshot() {
         accessibilityGranted = hostActions.computerUseAccessibilityGranted()
         screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()
         permissionStatusIsKnown = hostActions.computerUsePermissionStatusIsKnown()

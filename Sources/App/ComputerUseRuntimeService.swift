@@ -38,11 +38,15 @@ final class ComputerUseRuntimeService {
     private var helperTerminationObservationTask: Task<Void, Never>?
     private var helperHealthTask: Task<Void, Never>?
     private var recoveryTask: Task<Void, Never>?
-    private var cachedStatus = ComputerUsePermissionStatus.unknown
+    private var cachedStatus = ComputerUsePermissionStatus.unknown {
+        didSet { if oldValue != cachedStatus { onboarding.statusChanged() } }
+    }
     private var permissionRefreshGeneration = 0
     let onboarding: ComputerUseOnboardingStore
     var permissionPhase: ComputerUseRuntimePermissionPhase { onboarding.phase }
-    private var acknowledgedReadiness: [ComputerUseDaemonProfile: Bool] = [:]
+    private var acknowledgedReadiness: [ComputerUseDaemonProfile: Bool] = [:] {
+        didSet { if oldValue != acknowledgedReadiness { onboarding.statusChanged() } }
+    }
     var setupStatusIsKnown: Bool {
         permissionStatusIsKnown && ComputerUseDaemonProfile.allCases.allSatisfy {
             acknowledgedReadiness[$0] != nil

@@ -10,6 +10,21 @@ import Testing
 @Suite("Computer Use verified completion")
 @MainActor
 struct ComputerUseOnboardingStoreTests {
+    @Test(.timeLimit(.minutes(1))) func completionNotifiesSettingsWithoutAnAppActivation() async throws {
+        let fixture = try ComputerUseOnboardingFixture()
+        defer { fixture.remove() }
+        let store = fixture.store()
+        store.apply(.setEnabled(true))
+        store.restore(for: "synthetic-signed-helper-a")
+        var updates = store.updates().makeAsyncIterator()
+        #expect(await updates.next() != nil)
+        _ = store.finishVerification(.ready, attempt: try #require(store.beginVerification()))
+        #expect(await updates.next() != nil)
+        #expect(store.phase.isReady)
+        store.statusChanged() // The runtime received the final daemon acknowledgement.
+        #expect(await updates.next() != nil)
+    }
+
     @Test func grantsWithoutCompletionRequireCaptureConfirmation() throws {
         let fixture = try ComputerUseOnboardingFixture()
         defer { fixture.remove() }
