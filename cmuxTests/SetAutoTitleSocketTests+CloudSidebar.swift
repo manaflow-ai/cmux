@@ -70,7 +70,7 @@ extension SetAutoTitleSocketTests {
         let other = try #require(fixture.snapshot().resources[1].remoteViews?.first)
         resource.remoteViews?.append(other)
         let projection = SurfaceProjection(resource: resource.id, workspaceID: UUID(), panelID: UUID(), remoteTabID: other.tabID)
-        let target = CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(projections: [projection], resources: [resource])
+        let target = CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(projections: [projection], resourcesByID: [resource.id: resource])
         #expect(target?.machine == fixture.machine)
         #expect(target?.remoteWorkspaceID == other.workspace.id)
     }

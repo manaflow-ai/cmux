@@ -48,7 +48,7 @@ extension SurfaceCatalog {
     ) -> Bool? {
         guard let target = cloudWorkspaceRenameService.remoteTarget(binding: workspace.cloudVMBinding, projectedResources: [])
             ?? cloudWorkspaceRenameService.inferredRemoteWorkspaceTarget(
-                projections: projections.filter { $0.workspaceID == workspace.id }, resources: [], resourcesByID: resources
+                projections: projections.filter { $0.workspaceID == workspace.id }, resourcesByID: resources
             ) else { return nil }
         // Cloud workspaces have one nonempty daemon name. A local-only clear
         // would violate layout/sidebar parity. Local and SSH owners return nil
