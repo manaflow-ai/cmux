@@ -10,11 +10,13 @@ public import StackAuth
 /// safe to inject as `any AuthClient`.
 public struct StackAuthClient: AuthClient {
     private let stack: StackClientApp
+    private let apiBaseURL: URL?
 
     /// Wrap a Stack client app.
     /// - Parameter stack: The configured Stack client to delegate to.
-    public init(stack: StackClientApp) {
+    public init(stack: StackClientApp, apiBaseURL: URL? = nil) {
         self.stack = stack
+        self.apiBaseURL = apiBaseURL
     }
 
     /// Build a Stack client from resolved config and a token-store choice.
@@ -42,7 +44,8 @@ public struct StackAuthClient: AuthClient {
                 tokenStore: tokenStore,
                 noAutomaticPrefetch: noAutomaticPrefetch,
                 oauthBrowserSessionPrivacy: oauthBrowserSessionPrivacy
-            )
+            ),
+            apiBaseURL: URL(string: config.apiBaseURL)
         )
     }
 
@@ -91,6 +94,9 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        if let apiBaseURL {
+            return try await createTeamThroughCmuxBackend(displayName: displayName, apiBaseURL: apiBaseURL)
+        }
         guard let user = try await stack.getUser(or: .returnNull) else {
             throw AuthClientError.unsupported
         }
@@ -99,6 +105,31 @@ public struct StackAuthClient: AuthClient {
             id: team.id,
             displayName: await team.displayName
         )
+    }
+
+    private func createTeamThroughCmuxBackend(
+        displayName: String,
+        apiBaseURL: URL
+    ) async throws -> CMUXAuthTeam {
+        guard let accessToken = await stack.getAccessToken(),
+              let refreshToken = await stack.getRefreshToken() else {
+            throw AuthClientError.unsupported
+        }
+        let endpoint = apiBaseURL.appendingPathComponent("api/subrouter/teams")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        request.httpBody = try JSONEncoder().encode(CreateTeamRequest(displayName: displayName))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw AuthClientError.unsupported
+        }
+        let created = try JSONDecoder().decode(CreateTeamResponse.self, from: data)
+        return CMUXAuthTeam(id: created.team.id, displayName: created.team.name)
     }
 
     public func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
@@ -177,5 +208,18 @@ extension CurrentUser {
         CMUXAuthUser.demonstrationContentEnabled(
             fromClientReadOnlyMetadata: clientReadOnlyMetadata
         )
+    }
+}
+
+private struct CreateTeamRequest: Encodable {
+    let displayName: String
+}
+
+private struct CreateTeamResponse: Decodable {
+    let team: TeamSummary
+
+    struct TeamSummary: Decodable {
+        let id: String
+        let name: String
     }
 }
