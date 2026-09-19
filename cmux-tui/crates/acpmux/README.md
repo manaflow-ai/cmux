@@ -141,12 +141,14 @@ width shades. Drag the sidebar's right edge to resize it.
 permission`, `disconnected`), token use at the right edge.
 
 **Transcript.** A centered muted timestamp (`Today 2:15 AM`) before each of your messages,
-which sit in a tinted full-width band with `❯`. The turn's work follows under a handle,
-`Worked for 19s  ▾` (or `Working for 4s` while it runs), from the daemon's turn markers: each
+which sit right-aligned in a tinted bubble (at most seven tenths of the width) with `❯`. The
+turn's work follows under a handle with a hairline, `Worked for 19s  ▾` (or `Working for 4s`
+while it runs), from the daemon's turn markers: each
 thought as `Thought  <first line>  ›`, each tool call as one muted line with a kind glyph
 (`≡ Read calc.py`, `$ echo hi`, `✎ Edited calc.py  +2 -1`, `⌕ Search …`), paths cut to the
 file name, red only when it failed; a run of tool calls collapses into `3 steps · Read, Bash,
-Edit`; permission rows read `? Needs permission`, `✓ Allowed`, `✗ Rejected`. Edits carry a
+Edit`; permission rows read `? Needs permission`, `✓ Allowed`, `✗ Rejected`; a failed turn is a
+rounded notice card. Edits carry a
 diff: the counts on the row, and the `+`/`-` lines in the diff colors when opened. The final
 reply is plain markdown with no bullet. Click any handle, thought or tool line to open or
 close it; it lights up under the pointer. The thought being streamed stays open; `/thoughts`
