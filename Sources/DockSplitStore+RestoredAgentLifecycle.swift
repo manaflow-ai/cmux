@@ -1,3 +1,4 @@
+import CmuxTerminalCore
 import CmuxNotifications
 import CmuxSidebar
 import CmuxWorkspaces
@@ -75,7 +76,7 @@ extension DockSplitStore {
         internallySeededInput: String?
     ) {
         let boundary = RestoredPanelTitleBoundary(
-            internallySeededInput: internallySeededInput,
+            internallySeededInput: internallySeededInput?.trimmingCharacters(in: .whitespacesAndNewlines).flatMap { AutomaticTerminalTitle($0)?.value ?? $0 },
             shellState: (panels[panelId] as? TerminalPanel)?.shellActivity.state
                 ?? .unknown
         )
