@@ -201,7 +201,9 @@ async fn serve_browser_connection(
     read_exact_until(&mut socket, &mut methods, deadline).await?;
     if !methods.contains(&0x02) {
         socket.write_all(&[0x05, 0xff]).await?;
-        return Err(anyhow!("browser proxy client does not offer username/password authentication"));
+        return Err(anyhow!(
+            "browser proxy client does not offer username/password authentication"
+        ));
     }
     socket.write_all(&[0x05, 0x02]).await?;
 
@@ -216,10 +218,11 @@ async fn serve_browser_connection(
     read_exact_until(&mut socket, &mut password_length, deadline).await?;
     let mut password = vec![0_u8; password_length[0] as usize];
     read_exact_until(&mut socket, &mut password, deadline).await?;
-    let (expected_username, expected_password) = credentials
-        .split_once(':')
-        .ok_or_else(|| anyhow!("invalid browser proxy credentials"))?;
-    if username.as_slice() != expected_username.as_bytes() || password.as_slice() != expected_password.as_bytes() {
+    let (expected_username, expected_password) =
+        credentials.split_once(':').ok_or_else(|| anyhow!("invalid browser proxy credentials"))?;
+    if username.as_slice() != expected_username.as_bytes()
+        || password.as_slice() != expected_password.as_bytes()
+    {
         socket.write_all(&[0x01, 0x01]).await?;
         return Err(anyhow!("browser proxy authentication failed"));
     }
@@ -359,7 +362,11 @@ async fn serve_browser_connection(
     relay_result
 }
 
-async fn read_exact_until(socket: &mut TcpStream, bytes: &mut [u8], deadline: tokio::time::Instant) -> anyhow::Result<()> {
+async fn read_exact_until(
+    socket: &mut TcpStream,
+    bytes: &mut [u8],
+    deadline: tokio::time::Instant,
+) -> anyhow::Result<()> {
     tokio::time::timeout_at(deadline, socket.read_exact(bytes)).await??;
     Ok(())
 }
