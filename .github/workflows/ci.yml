@@ -1875,6 +1875,7 @@ jobs:
             CmuxBrowser
             CmuxCanvasUI
             CmuxCore
+            CmuxRemoteConnections
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession

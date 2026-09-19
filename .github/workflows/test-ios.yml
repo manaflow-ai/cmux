@@ -165,6 +165,9 @@ jobs:
           # or app-target dependency, so it runs as a real CI gate here.
           swift test --package-path Packages/Shared/CmuxSyncStore
 
+      - name: Run CmuxRemoteConnections package tests
+        run: swift test --package-path Packages/Shared/CmuxRemoteConnections
+
       - name: Run CmuxMobilePairedMac package tests
         run: |
           swift test --package-path Packages/iOS/CmuxMobilePairedMac
