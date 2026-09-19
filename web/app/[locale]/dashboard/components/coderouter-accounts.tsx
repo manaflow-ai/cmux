@@ -63,7 +63,7 @@ const buttonClass =
 const primaryButtonClass =
   "border border-foreground bg-foreground px-3 py-1.5 text-sm text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-60";
 const rowGridClass =
-  "grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.3fr_1fr_1.2fr_auto] md:items-center md:gap-3";
+  "grid gap-2 px-3 py-2 text-sm md:grid-cols-[3rem_1.3fr_1fr_1.2fr_auto] md:items-center md:gap-3";
 
 type Translator = ReturnType<typeof useTranslations<"dashboard.coderouterAccounts">>;
 
@@ -122,34 +122,38 @@ export function CoderouterAccountsSection({
         )
       ) : (
         <div className="border border-border">
-          <div className="hidden grid-cols-[1.3fr_1fr_1.2fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
+          <div className="hidden grid-cols-[3rem_1.3fr_1fr_1.2fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
+            <div>#</div>
             <div>{t("providerColumn")}</div>
             <div>{t("labelColumn")}</div>
             <div>{t("statusColumn")}</div>
             <div className="text-right">{canManage ? t("actionsColumn") : ""}</div>
           </div>
           <ul className="divide-y divide-border">
-            {claudeAccounts.map((account) => (
+            {claudeAccounts.map((account, index) => (
               <ClaudeAccountRow
                 key={`claude:${account.id}`}
+                accountNumber={index + 1}
                 teamId={teamId}
                 viewerUserId={viewerUserId}
                 account={account}
                 canManage={canManage}
               />
             ))}
-            {nativeAccounts.map((account) => (
+            {nativeAccounts.map((account, index) => (
               <NativeAccountRow
                 key={`native:${account.id}`}
+                accountNumber={claudeAccounts.length + index + 1}
                 teamId={teamId}
                 viewerUserId={viewerUserId}
                 account={account}
                 canManage={canManage}
               />
             ))}
-            {sharedAccounts.map((account) => (
+            {sharedAccounts.map((account, index) => (
               <SharedAccountRow
                 key={`shared:${account.id}`}
+                accountNumber={claudeAccounts.length + nativeAccounts.length + index + 1}
                 teamId={teamId}
                 account={account}
                 canManage={canManage}
@@ -174,11 +178,13 @@ function Notice({ title, body }: { readonly title: string; readonly body: string
 }
 
 function ClaudeAccountRow({
+  accountNumber,
   teamId,
   viewerUserId,
   account,
   canManage,
 }: {
+  readonly accountNumber: number;
   readonly teamId: string;
   readonly viewerUserId?: string;
   readonly account: ClaudeAccountDescription;
@@ -201,6 +207,7 @@ function ClaudeAccountRow({
     : t("neverUsed");
   return (
     <AccountRowFrame
+      accountNumber={accountNumber}
       provider={claudeKindLabel(account.kind, t)}
       detail={canManage ? `${account.identifier}${account.region ? ` · ${account.region}` : ""}` : null}
       label={account.label}
@@ -218,11 +225,13 @@ function ClaudeAccountRow({
 }
 
 function NativeAccountRow({
+  accountNumber,
   teamId,
   viewerUserId,
   account,
   canManage,
 }: {
+  readonly accountNumber: number;
   readonly teamId: string;
   readonly viewerUserId?: string;
   readonly account: CodeRouterAccountSummary;
@@ -247,6 +256,7 @@ function NativeAccountRow({
   const sessions = t("activeSessions", { count: account.activeSessions });
   return (
     <AccountRowFrame
+      accountNumber={accountNumber}
       provider={nativeKindLabel(account.provider, t)}
       detail={canManage ? account.providerAccountId : null}
       label={account.label}
@@ -340,10 +350,12 @@ function NativeAccountActions({
 }
 
 function SharedAccountRow({
+  accountNumber,
   teamId,
   account,
   canManage,
 }: {
+  readonly accountNumber: number;
   readonly teamId: string;
   readonly account: SubrouterAccount;
   readonly canManage: boolean;
@@ -357,6 +369,7 @@ function SharedAccountRow({
   const healthy = account.health?.ok !== false;
   return (
     <AccountRowFrame
+      accountNumber={accountNumber}
       provider={sharedKindLabel(account.kind, t)}
       detail={null}
       label={account.label ?? null}
@@ -370,6 +383,7 @@ function SharedAccountRow({
 }
 
 function AccountRowFrame({
+  accountNumber,
   provider,
   detail,
   label,
@@ -379,6 +393,7 @@ function AccountRowFrame({
   actions,
   t,
 }: {
+  readonly accountNumber: number;
   readonly provider: string;
   readonly detail: string | null;
   readonly label: string | null;
@@ -390,6 +405,10 @@ function AccountRowFrame({
 }) {
   return (
     <li className={rowGridClass}>
+      <div className="font-mono text-xs font-medium text-muted md:text-sm">
+        <span className="md:hidden">#</span>
+        {accountNumber}
+      </div>
       <div className="min-w-0">
         <div className="mb-1 text-xs text-muted md:hidden">{t("providerColumn")}</div>
         <div>{provider}</div>
