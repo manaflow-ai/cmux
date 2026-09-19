@@ -104,8 +104,8 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertEqual(surfaceView.currentSurfaceResumeContextMenuState(), .unbound)
 
         let unboundMenu = NSMenu()
-        XCTAssertTrue(surfaceView.appendCurrentSurfaceResumeMenuItems(to: unboundMenu))
-        XCTAssertEqual(unboundMenu.items.map(\.title), ["Make Restorable…"])
+        surfaceView.appendCurrentSurfaceContextMenuItems(to: unboundMenu)
+        XCTAssertEqual(unboundMenu.items.first?.title, "Make Restorable…")
 
         let command = "tmux attach -t work"
         guard case .result(let setSnapshot) =
@@ -121,7 +121,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         )
 
         let boundMenu = NSMenu()
-        XCTAssertTrue(surfaceView.appendCurrentSurfaceResumeMenuItems(to: boundMenu))
+        surfaceView.appendCurrentSurfaceContextMenuItems(to: boundMenu)
         let restorableItem = try XCTUnwrap(boundMenu.items.first)
         XCTAssertEqual(restorableItem.title, "Restorable Terminal")
         let submenu = try XCTUnwrap(restorableItem.submenu)
@@ -190,7 +190,7 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
 
         XCTAssertEqual(surfaceView.currentSurfaceResumeContextMenuState(), .agentManaged)
         let menu = NSMenu()
-        XCTAssertTrue(surfaceView.appendCurrentSurfaceResumeMenuItems(to: menu))
+        surfaceView.appendCurrentSurfaceContextMenuItems(to: menu)
         let managedItem = try XCTUnwrap(menu.items.first)
         XCTAssertEqual(managedItem.title, "Agent Session Resume: Managed")
         XCTAssertFalse(managedItem.isEnabled)
