@@ -654,19 +654,6 @@ pub fn when_label(ms: u64) -> String {
     }
 }
 
-/// Give rows a full-width background and a shared toggle (the user block).
-fn tint_rows(rows: &mut [Row], width: usize, bg: ratatui::style::Color, toggle: Option<Toggle>) {
-    for r in rows {
-        let mut spans: Vec<Span<'static>> = r.line.spans.iter().map(|s| Span::styled(s.content.to_string(), s.style.bg(bg))).collect();
-        let used: usize = spans.iter().map(|s| s.content.width()).sum();
-        if used < width {
-            spans.push(Span::styled(" ".repeat(width - used), Style::default().bg(bg)));
-        }
-        r.line = Line::from(spans);
-        r.toggle = toggle;
-    }
-}
-
 /// The left gutter every transcript row shares.
 pub const GUTTER: &str = "  ";
 
@@ -674,20 +661,6 @@ pub const GUTTER: &str = "  ";
 fn header_row(text: &str, color: ratatui::style::Color, item: usize, toggle: Toggle, out: &mut Vec<Row>) {
     let text = text.to_owned();
     out.push(Row { line: Line::from(Span::styled(text.clone(), Style::default().fg(color))), text, item, toggle: Some(toggle) });
-}
-
-/// Wrap with a two-column marker in the gutter on the first row.
-fn wrap_marked(text: &str, width: usize, style: Style, marker: &str, marker_style: Style, item: usize, out: &mut Vec<Row>) {
-    let start = out.len();
-    wrap(text, width, style, GUTTER, item, out);
-    if let Some(first) = out.get_mut(start) {
-        let mut spans: Vec<Span<'static>> = first.line.spans.clone();
-        if let Some(s) = spans.first_mut() {
-            *s = Span::styled(format!("{marker:<2}"), marker_style);
-        }
-        first.line = Line::from(spans);
-        first.text = format!("{marker:<2}{}", &first.text[GUTTER.len().min(first.text.len())..]);
-    }
 }
 
 // ------------------------------------------------------------- frames
