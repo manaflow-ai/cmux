@@ -18,6 +18,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private var pendingLines: [Data] = []
     private let pendingByteLimit = 256 * 1024
     private var pendingByteCount = 0
+    private let inputAdmission = CloudTuiManualIOAdmission()
 
     init(
         surfaceID: UInt64,
@@ -34,6 +35,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// tree's numeric surface IDs may be allocated again.
     func updateSurfaceID(_ surfaceID: UInt64) {
         queue.async { [self, surfaceID] in
+            guard !inputAdmission.isClosed else { return }
             guard self.surfaceID != surfaceID else { return }
             let previousSurfaceID = self.surfaceID
             self.surfaceID = surfaceID
@@ -59,6 +61,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Rebinds pending input to a newly connected transport.
     func setConnection(_ connection: CloudTuiManualIOConnection?) {
         queue.async { [self, connection] in
+            guard !inputAdmission.isClosed else { return }
             self.connection = connection
             guard let connection else { return }
             for line in pendingLines { connection.send(line: line) }
@@ -69,6 +72,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
 
     /// Stops delivery and discards queued bytes during permanent pane teardown.
     func invalidate() {
+        guard inputAdmission.invalidate() else { return }
         queue.async { [self] in
             connection = nil
             pendingLines.removeAll(keepingCapacity: false)
@@ -86,16 +90,30 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
         }
         // Image commit shares the input lane. Queue it behind prior manual input,
         // and retain this exact connection rather than replaying it after reconnect.
-        queue.async { connection.send(line: line) }
+        guard inputAdmission.reserve(line.count) else { throw CloudImagePasteError.unavailable }
+        queue.async { [self, connection, line] in
+            defer { inputAdmission.release(line.count) }
+            guard !inputAdmission.isClosed else { return }
+            connection.send(line: line)
+        }
         return requestID
     }
 
     /// Enqueues one manual input event.
-    func send(_ input: TerminalManualInput) {
+    @discardableResult
+    func send(_ input: TerminalManualInput) -> Bool {
+        let byteCount: Int
+        switch input {
+        case .bytes(let bytes): byteCount = bytes.count
+        case .namedKey(let name): byteCount = name.utf8.count
+        }
+        guard byteCount > 0, inputAdmission.reserve(byteCount) else { return false }
         // Keep base64/JSON work off Ghostty's synchronous I/O callback. The
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.
         queue.async { [self, input] in
+            defer { inputAdmission.release(byteCount) }
+            guard !inputAdmission.isClosed else { return }
             let command: [String: Any]
             switch input {
             case .bytes(let bytes):
@@ -130,6 +148,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
             pendingLines.append(line)
             pendingByteCount += line.count
         }
+        return true
     }
 
     private static func protocolKeyName(for name: String) -> String? {
