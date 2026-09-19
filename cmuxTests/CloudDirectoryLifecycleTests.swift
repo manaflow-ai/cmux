@@ -19,6 +19,8 @@ struct CloudDirectoryLifecycleTests {
         #expect(fixture.workspace.presentedCurrentDirectory == "/srv/focused")
         #expect(fixture.workspace.reportedPanelDirectory(panelId: first) == "/srv/focused")
         #expect(fixture.catalog.resources[fixture.resourceID(0)]?.detail == "/srv/focused")
+        let row = CloudTreeTerminalRow(resource: try #require(fixture.catalog.resources[fixture.resourceID(0)]), isOpen: true)
+        #expect(row.directoryText == "/srv/focused")
         #expect(try fixture.sidebarText().contains("focused"))
 
         try fixture.changeDirectory("/srv/background", terminal: 1)
@@ -59,6 +61,9 @@ struct CloudDirectoryLifecycleTests {
         let old = try #require(fixture.provider.cloudState)
         fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
         #expect(fixture.workspace.presentedCurrentDirectory == nil)
+        #expect(fixture.catalog.snapshot.staleMachineIDs.contains(fixture.machine))
+        let row = CloudTreeTerminalRow(resource: try #require(fixture.catalog.resources[fixture.resourceID(0)]), isOpen: true, directoryIsCurrent: false)
+        #expect(row.directoryText == "Directory unavailable")
         #expect(try fixture.sidebarText().contains("Directory unavailable"))
         let current = try fixture.install(paths: ["/srv/reconnected", nil], revision: 1, generation: "replacement")
         #expect(fixture.workspace.presentedCurrentDirectory == "/srv/reconnected")
@@ -116,5 +121,45 @@ struct CloudDirectoryLifecycleTests {
         #expect(restored.title == "My explicit task title")
         #expect(restored.presentedCurrentDirectory == nil)
         #expect(restored.sidebarGitBranchesInDisplayOrder().isEmpty)
+    }
+
+    @Test("A projected terminal switches machine identity and cwd together")
+    func resourceProjectionChanges() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let workspace = fixture.workspace
+        workspace.cloudVMBinding = nil
+        let other = SurfaceMachineID.cloud("other-machine")
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+            "cursor": ["generation": "other", "revision": "1"],
+            "workspaces": [], "screens": [], "panes": [], "tabs": [],
+            "terminals": [["id": "other", "title": "bash", "cwd": "/srv/other", "lifecycle": "running"]],
+            "browsers": [], "agents": []
+        ], machine: other))
+        var info = fixture.provider.info
+        info.id = other
+        info.name = "Other machine"
+        fixture.catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state), info: info)
+        fixture.catalog.endProjections(panelID: fixture.panels[0], reason: .replaced)
+        fixture.catalog.record(SurfaceProjection(
+            resource: SurfaceResourceID(machine: other, kind: .terminal, key: "other"),
+            workspaceID: workspace.id, panelID: fixture.panels[0]
+        ))
+        #expect(workspace.reportedPanelDirectory(panelId: fixture.panels[0]) == "/srv/other")
+        #expect(try fixture.sidebar().cloudWorkspaceLabel?.contains("other-machine") == true)
+        #expect(try fixture.sidebarText().contains("other-machine ·"))
+        #expect(workspace.title == "My explicit task title")
+    }
+
+    @Test("Local renderer OSC reports cannot overwrite the accepted Cloud graph")
+    func localRendererCannotClaimRemoteProvenance() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer { for panel in workspace.panels.values { panel.close() }; manager.tabs = [] }
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "cloud-machine", isBase: false)
+        workspace.updateCloudPanelDirectory(panelId: panelID, directory: "/srv/accepted")
+        manager.updateReportedSurfaceDirectory(tabId: workspace.id, surfaceId: panelID, directory: "/Users/alice/launcher")
+        #expect(workspace.reportedPanelDirectory(panelId: panelID) == "/srv/accepted")
     }
 }

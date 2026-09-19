@@ -3,6 +3,7 @@
 
 mod public_projections;
 mod resource_content;
+mod terminal_directory;
 mod resource_topology;
 
 pub(crate) use resource_content::ResourceEffectProjection;
@@ -16590,7 +16591,7 @@ fn terminal_exit_snapshot_in_state(
         "rows": rows.max(1),
         "running": false,
     });
-    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
+    if let Some(cwd) = surface.and_then(|surface| surface.published_directory()) {
         snapshot["cwd"] = serde_json::json!(cwd);
     }
     Ok(snapshot)

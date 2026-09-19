@@ -33,9 +33,9 @@ struct CloudSidebarSurfaceRegressionTests {
         let snapshot = SidebarWorkspaceSnapshotFactory(
             workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
         ).makeSnapshot()
-        #expect(snapshot.compactDirectoryCandidates.isEmpty)
+        #expect((snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)).contains { $0.contains("Directory unavailable") })
         #expect(snapshot.compactGitBranchSummaryText == nil)
-        #expect(snapshot.branchDirectoryLines.isEmpty)
+        #expect(snapshot.branchDirectoryLines.allSatisfy { $0.branch == nil })
         #expect(snapshot.pullRequestRows.isEmpty)
         #expect(snapshot.finderDirectoryPath == nil)
         let accessibilityLabel = snapshot.accessibilityLabel(index: 0, workspaceCount: 1)

@@ -437,7 +437,7 @@ pub(crate) fn public_terminal_snapshot(
         "running": durable.lifecycle == TerminalLifecycle::Running,
         "lifecycle": lifecycle,
     });
-    if let Some(cwd) = surface.and_then(crate::Surface::spawn_cwd) {
+    if let Some(cwd) = surface.and_then(crate::Surface::published_directory) {
         terminal["cwd"] = json!(cwd);
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
@@ -465,6 +465,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
 ) -> Result<(Value, u64), ResourceError> {
+    mux.publish_pending_terminal_directories();
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -1023,6 +1024,56 @@ mod tests {
                 .find(|terminal| terminal["id"] == terminal_id.as_str()).unwrap();
             assert_eq!(terminal["cwd"], directory);
         }
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_cwd_changes_publish_ordered_terminal_deltas_and_clear_untrusted_reports() {
+        let mux = Mux::new_for_test("cloud-cwd-events", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let mut revision = initial["cursor"]["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        for raw in [Some("file://localhost/srv/one"), Some("file://localhost/srv/two"), Some("file://unrelated.invalid/Users/local")]
+        {
+            surface.set_test_pwd(raw.map(str::to_string));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let page = mux.resource_events_after(revision).unwrap();
+            assert_eq!(page.batches.len(), 1);
+            let batch = &page.batches[0];
+            assert_eq!(batch.previous_revision, revision);
+            assert_eq!(batch.revision, revision + 1);
+            assert_eq!(batch.changes[0]["resource"], "terminal");
+            assert_eq!(batch.changes[0]["value"]["cwd"], snapshot["terminals"][0]["cwd"]);
+            assert_eq!(snapshot["tabs"], initial["tabs"]);
+            revision = batch.revision;
+            let _ = public_session_snapshot(&mux).unwrap();
+            assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
+        }
+        assert!(public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"].is_null());
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_reaches_snapshot_and_event_feed() {
+        let mux = Mux::new_for_test("cloud-cwd-osc", SurfaceOptions {
+            command: Some(vec!["/bin/sh".into(), "-c".into(),
+                "printf '\\033]7;file://localhost/srv/live\\007'; read value".into()]),
+            ..SurfaceOptions::default()
+        });
+        let _surface = mux.new_workspace(Some("osc".into()), None).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let epoch = mux.resource_event_epoch();
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            if snapshot["terminals"][0]["cwd"] == "/srv/live" { break; }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "OSC 7 cwd never reached the public graph");
+            mux.wait_for_resource_event(epoch, remaining);
+        }
+        assert!(mux.resource_events_after(0).unwrap().batches.iter().any(|batch|
+            batch.changes.as_array().unwrap().iter().any(|change|
+                change["resource"] == "terminal" && change["value"]["cwd"] == "/srv/live")));
         mux.shutdown();
     }
 

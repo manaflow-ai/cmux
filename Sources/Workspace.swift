@@ -296,7 +296,8 @@ extension Workspace {
         )
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
             var panel = panel
-            if cloudProjectedPanelIDs.contains(panel.id), panel.directoryIsTrustedRemoteReport != true {
+            if cloudVMBinding != nil || cloudProjectedPanelIDs.contains(panel.id) {
+                panel.directoryIsTrustedRemoteReport = false
                 panel.directoryRequiresRemoteTrust = true
             }
             return (panel.id, panel)
@@ -5775,7 +5776,6 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     // MARK: - Directory Updates
-
     private func notifyPresentedCurrentDirectoryChanged(from previousDirectory: String?, force: Bool = false) {
         guard force || previousDirectory != presentedCurrentDirectory else { return }
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
