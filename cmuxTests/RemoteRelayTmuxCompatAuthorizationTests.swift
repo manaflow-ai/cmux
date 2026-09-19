@@ -20,6 +20,95 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
     private static let relayToken = String(repeating: "b", count: 64)
 
     @Test
+    func workspaceDiscoveryReturnsOnlyOwnerIdentityOnBothDispatchLanes() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let manager = try #require(fixture.appDelegate.tabManager)
+        let unrelated = manager.addWorkspace(title: "PRIVATE LOCAL WORKSPACE", select: true)
+        defer { _ = manager.closeWorkspaceNonInteractively(unrelated) }
+        let admitted = try fixture.authorize(method: "workspace.list", params: [:])
+        try #require(admitted.errorResponse == nil)
+        let expected = ControlCallResult.ok(.object([
+            "scope": .string("remote_workspace"),
+            "workspaces": .array([.object([
+                "id": .string(fixture.workspace.id.uuidString),
+                "title": .string(fixture.workspace.title)
+            ])])
+        ]))
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        #expect(coordinator.handle(admitted.request) == expected)
+        #expect(coordinator.handleSocketWorkerV2(admitted.request, context: TerminalController.shared) == expected)
+        #expect(manager.selectedTabId == unrelated.id)
+
+        // Discovering an ID grants no new methods or local terminal authority.
+        let mutation = try fixture.authorize(method: "workspace.create", params: ["initial_command": "id"])
+        #expect(mutation.errorResponse != nil)
+        fixture.workspace.untrackRemoteTerminalSurface(fixture.panelID)
+        let input = try fixture.authorize(method: "surface.send_text", params: [
+            "workspace_id": fixture.workspace.id.uuidString,
+            "surface_id": fixture.panelID.uuidString, "text": "id\n"
+        ])
+        #expect(input.errorResponse != nil)
+        fixture.workspace.activeRemoteSessionControllerID = UUID()
+        guard case .err? = coordinator.handleSocketWorkerV2(admitted.request, context: TerminalController.shared) else {
+            Issue.record("Retired relay still enumerated a workspace")
+            return
+        }
+    }
+
+    @Test
+    func coreDiscoveryRejectsForeignSelectorsAndSpoofedOrStaleProvenance() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let invalidSelectors: [Any] = [UUID().uuidString, "workspace:1", "", 17, NSNull(), [fixture.workspace.id.uuidString]]
+        for value in invalidSelectors {
+            let denied = try fixture.authorize(method: "workspace.list", params: ["workspace_id": value])
+            #expect(denied.errorResponse != nil)
+        }
+        // Remote-supplied provenance is overwritten before the local MAC is minted.
+        let request = try fixture.signedRequest(method: "workspace.list", params: [
+            "_cmux_remote_workspace_id": UUID().uuidString,
+            "_cmux_remote_connection_id": UUID().uuidString,
+            "_cmux_remote_relay_request_authentication_code": "forged"
+        ])
+        #expect(request.params["_cmux_remote_workspace_id"] == .string(fixture.workspace.id.uuidString))
+        #expect(TerminalController.shared.authorizeRemoteRelayRequest(request).errorResponse == nil)
+        var forged = request.params
+        forged["_cmux_remote_workspace_id"] = .string(UUID().uuidString)
+        #expect(TerminalController.shared.authorizeRemoteRelayRequest(ControlRequest(
+            id: request.id, method: request.method, params: forged)).errorResponse != nil)
+        forged = request.params
+        forged.removeValue(forKey: "_cmux_remote_relay_request_authentication_code")
+        #expect(TerminalController.shared.authorizeRemoteRelayRequest(ControlRequest(
+            id: request.id, method: request.method, params: forged)).errorResponse != nil)
+        fixture.workspace.disconnectRemoteConnection(clearConfiguration: true)
+        #expect(TerminalController.shared.authorizeRemoteRelayRequest(request).errorResponse != nil)
+    }
+
+    @Test
+    func capabilitiesDescribeRelayScopeWithoutLocalDiscoveryMetadata() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let request = try fixture.signedRequest(method: "system.capabilities", params: [:])
+        let signedLine = try JSONSerialization.data(withJSONObject: [
+            "id": request.id?.foundationObject ?? NSNull(), "method": request.method,
+            "params": request.params.mapValues(\.foundationObject)
+        ])
+        let response = TerminalController.shared.processCommand(String(decoding: signedLine, as: UTF8.self))
+        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let result = try #require(object["result"] as? [String: Any])
+        #expect(Set(result.keys) == ["protocol", "version", "methods", "scope"])
+        #expect(result["scope"] as? String == "remote_workspace")
+        let methods = try #require(result["methods"] as? [String])
+        #expect(methods.contains("system.ping"))
+        #expect(methods.contains("system.capabilities"))
+        #expect(methods.contains("workspace.list"))
+        for method in ["workspace.create", "surface.respawn", "system.tree", "system.command_spec", "browser.open"] {
+            #expect(!methods.contains(method))
+        }
+    }
+
+    @Test
     func relayAdmitsWorkspaceScopedTeammatePaneMutations() throws {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
