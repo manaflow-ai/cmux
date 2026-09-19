@@ -136,6 +136,17 @@ final class MobileTerminalRenderObserver {
         GhosttyApp.shared.scheduleTick()
     }
 
+    /// A viewport report changes the terminal's cell grid without requiring
+    /// PTY bytes. Drop the previous emission baseline before the resize's
+    /// render notification flushes, so the next frame is authoritative for
+    /// the new row count instead of a delta against the old geometry.
+    func noteTerminalViewportChanged(surfaceID: UUID) {
+        clearRenderGridCache(surfaceID: surfaceID)
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        pendingSurfaceIDs.insert(surfaceID)
+        scheduleTerminalUpdateFlush()
+    }
+
     deinit {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
