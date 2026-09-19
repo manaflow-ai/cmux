@@ -33,6 +33,10 @@ enum CloudAttachmentReconcileDecision: Equatable, Sendable {
             return phase == .attached
                 ? .keep
                 : .fence(.unresolved("the machine shows no view of this terminal"))
+        case let .retryable(reason, failure: .missingTab):
+            // A missing exact tab is authoritative even when bytes still arrive
+            // from the old stream; that view no longer owns this attachment.
+            return .fence(.unresolved(reason))
         case let .retryable(reason, _):
             return phase == .attached ? .keep : .fence(.unresolved(reason))
         }

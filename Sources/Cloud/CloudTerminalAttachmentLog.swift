@@ -27,6 +27,8 @@ struct CloudTerminalAttachmentLog: Sendable {
             Self.logger.info("correlation=\(correlationID, privacy: .public) resolve machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempt=\(attempt) outcome=needs-projection")
         case .exited:
             Self.logger.notice("correlation=\(correlationID, privacy: .public) resolve machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempt=\(attempt) outcome=exited")
+        case .retryable(_, failure: .missingTab):
+            Self.logger.notice("correlation=\(correlationID, privacy: .public) resolve machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempt=\(attempt) outcome=missing-tab")
         case let .retryable(reason, _):
             Self.logger.error("correlation=\(correlationID, privacy: .public) resolve machine=\(machineID, privacy: .public) terminal=\(terminalID, privacy: .public) attempt=\(attempt) outcome=retryable reason=\(reason, privacy: .private)")
         }
