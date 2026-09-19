@@ -1409,6 +1409,21 @@ CASES
   echo "PASS: pull request workflows with macOS jobs cancel superseded runs"
 }
 
+check_no_paid_overflow_fallbacks() {
+  # Repository variables are not exposed to pull requests from forks, so the
+  # `vars.X || 'label'` fallback is where every fork pull request runs. Warp is
+  # the paid overflow provider: allowed as an explicit workflow_dispatch choice,
+  # never as a default.
+  local hits
+  hits="$(grep -rnE "\\|\\|[[:space:]]*'warp-" "$ROOT_DIR/.github/workflows" || true)"
+  if [ -n "$hits" ]; then
+    echo "FAIL: workflows must not fall back to a Warp runner; use the Blacksmith label the rest of CI falls back to"
+    echo "$hits" | sed "s|$ROOT_DIR/||" | cut -c1-160
+    exit 1
+  fi
+  echo "PASS: no workflow falls back to a Warp runner"
+}
+
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
 check_gui_smoke_unsupported_launch_handling
@@ -1418,3 +1433,4 @@ check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
 check_pr_macos_workflows_cancel_superseded_runs
+check_no_paid_overflow_fallbacks
