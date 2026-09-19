@@ -7,6 +7,8 @@ import glob
 import json
 import os
 import re
+import plistlib
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -64,8 +66,9 @@ def resolve_cmux_cli() -> str:
     raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
 
 
-def run_cli(cli_path: str, args: list[str]) -> subprocess.CompletedProcess[str]:
+def run_cli(cli_path: str, args: list[str], language: str = "en") -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
+    env["AppleLanguages"] = f"({language})"
     for key in [
         "CMUX_SOCKET_PASSWORD",
         "CMUX_SOCKET",
@@ -115,6 +118,71 @@ def load_json(proc: subprocess.CompletedProcess[str], label: str) -> dict:
         raise RuntimeError(f"{label}: invalid JSON: {exc}: {proc.stdout!r}") from exc
     require(isinstance(value, dict), f"{label}: expected JSON object")
     return value
+
+
+def check_localized_catalog(cli_path: str) -> None:
+    """Exercise shipped translations through the executable's app-bundle lookup."""
+    with tempfile.TemporaryDirectory(prefix="cmux-workflow-localization-") as tmpdir:
+        contents = Path(tmpdir) / "WorkflowTest.app" / "Contents"
+        resources = contents / "Resources"
+        executable = resources / "bin" / "cmux"
+        executable.parent.mkdir(parents=True)
+        shutil.copy2(cli_path, executable)
+        (contents / "Info.plist").write_bytes(plistlib.dumps({
+            "CFBundleIdentifier": "com.cmux.workflow-localization-test",
+            "CFBundleDevelopmentRegion": "en",
+            "CFBundlePackageType": "APPL",
+        }))
+        subprocess.run([
+            "xcrun", "xcstringstool", "compile",
+            str(RECIPE_PATH.parents[3] / "Resources" / "Localizable.xcstrings"),
+            "--output-directory", str(resources),
+        ], check=True, capture_output=True, text=True)
+        english = load_json(run_cli(str(executable), ["docs", "workflows", "--json"]), "English catalog")
+        # Invariant command syntax embedded in otherwise translatable guidance.
+        literals = re.compile(
+            r"cmux layout save <name> --description \"<what this creates>\"|"
+            r"cmux reload-config|gh pr status|ssh devbox|"
+            r"(?:~/\.config/cmux/|\.cmux/)?(?:cmux|dock)\.json|"
+            r"actions/ui/commands|actions/ui|<name>"
+        )
+        for language in ["de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja"]:
+            localized = load_json(
+                run_cli(str(executable), ["docs", "workflows", "--json"], language),
+                f"{language} catalog",
+            )
+            require(localized.keys() == english.keys(), f"{language}: JSON keys changed")
+            require(localized["commands"] == english["commands"], f"{language}: commands changed")
+            require(localized["summary"] != english["summary"], f"{language}: untranslated summary")
+            for base, translated in zip(english["examples"], localized["examples"], strict=True):
+                require(base.keys() == translated.keys(), f"{language}: example keys changed")
+                for field in ["id", "config_files", "source"]:
+                    require(base[field] == translated[field], f"{language}: invariant {field} changed")
+                for field in ["title", "summary", "fit", "creates", "requires", "instantiate", "adapt"]:
+                    require(base[field] != translated[field], f"{language}: untranslated {base['id']}.{field}")
+                    require(literals.findall(str(base[field])) == literals.findall(str(translated[field])),
+                            f"{language}: command/path syntax changed in {base['id']}.{field}")
+                for primitive in base["primitives"]:
+                    if "." in primitive or primitive.startswith("cmux "):
+                        require(primitive in translated["primitives"], f"{language}: primitive syntax changed")
+            for base, translated in zip(english["saved_layouts"]["steps"], localized["saved_layouts"]["steps"], strict=True):
+                require(base["command"] == translated["command"], f"{language}: layout command changed")
+                require(base["label"] != translated["label"], f"{language}: layout label untranslated")
+            require(english["saved_layouts"]["description"] != localized["saved_layouts"]["description"],
+                    f"{language}: saved layout description untranslated")
+            for base, translated in zip(english["saved_layouts"]["native_surfaces"], localized["saved_layouts"]["native_surfaces"], strict=True):
+                require(base != translated, f"{language}: native entry point untranslated")
+                require(literals.findall(base) == literals.findall(translated), f"{language}: native placeholder changed")
+            for base, translated in zip(english["adapt_and_save"], localized["adapt_and_save"], strict=True):
+                require(base != translated, f"{language}: adaptation guidance untranslated")
+                require(literals.findall(base) == literals.findall(translated), f"{language}: guidance syntax changed")
+        japanese = run_cli(str(executable), ["docs", "workflows"], "ja")
+        require(japanese.returncode == 0, "Japanese plain output failed")
+        require("用途:" in japanese.stdout and "必要なもの:" in japanese.stdout,
+                "Japanese labels fell back to English")
+        layout_help = run_cli(str(executable), ["layout", "--help"], "ja")
+        require(layout_help.returncode == 0, "Japanese layout help failed")
+        require("ワークフローのひな形を探す：" in layout_help.stdout, "Layout-help heading fell back to English")
 
 
 def main() -> int:
@@ -225,7 +293,8 @@ def main() -> int:
             workflow_topics == [canonical],
             "docs index and workflow topic must use the same catalog payload",
         )
-    except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        check_localized_catalog(cli_path)
+    except (OSError, RuntimeError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
         print(f"FAIL: {exc}")
         return 1
 
