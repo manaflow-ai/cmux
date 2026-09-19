@@ -49,10 +49,12 @@ The daemon serves a dashboard on the same port as its WebSocket, by default
 `http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
 `config.json`; `acpmux web` prints the full link and opens it. The page follows the Codex
 desktop app like the TUI does: a rail with `New session`, sessions grouped under their project
-and titled by their first prompt, the hosts at the bottom; a centered conversation with
+and titled by their first prompt (hover one for its card, `⋯` or a right-click for rename,
+fork, stop, delete), the hosts at the bottom; a centered conversation with
 timestamps, your messages as right-aligned bubbles, each turn's work folded under `Worked for
-19s ›`, muted activity rows with diff counts and colored diffs on edits, `Thought · summary`
-rows, real markdown with code blocks and a Copy button, failed turns as notice cards; a
+19s ›` with an `Edited N files +a -d` card listing each file, muted activity rows with diff
+counts and colored diffs on edits, `Thought · summary` rows, real markdown with code blocks
+and a Copy button, failed turns as notice cards, queued messages waiting at the bottom; a
 rounded composer with the permission, mode, model and effort chips inside; and a pending
 permission docked above it (`y`/`n` answer it from the keyboard). Every session, local and
 peered, streams live. Dark by default, light through the OS or `?theme=light`; `?open=1`
