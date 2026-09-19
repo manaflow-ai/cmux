@@ -44,13 +44,23 @@ public struct CmuxConfigSemanticValidator {
             with: data,
             options: [.fragmentsAllowed]
         )
-        return validate(instance, against: rootSchema, path: "$")
+        return validate(jsonObject: instance)
+    }
+
+    public func validate(jsonObject instance: Any) -> [CmuxConfigSemanticIssue] {
+        validate(
+            instance,
+            against: rootSchema,
+            path: "$",
+            tolerateUnknownProperties: usesFutureSchemaVersion(instance)
+        )
     }
 
     private func validate(
         _ instance: Any,
         against schema: [String: Any],
-        path: String
+        path: String,
+        tolerateUnknownProperties: Bool
     ) -> [CmuxConfigSemanticIssue] {
         if scope == .project,
            let scopes = schema["x-cmux-scopes"] as? [String],
@@ -69,7 +79,14 @@ public struct CmuxConfigSemanticValidator {
             guard let target = resolvedReference(ref) else {
                 return [CmuxConfigSemanticIssue(path: path, message: "references an unknown schema definition '\(ref)'")]
             }
-            issues.append(contentsOf: validate(instance, against: target, path: path))
+            issues.append(
+                contentsOf: validate(
+                    instance,
+                    against: target,
+                    path: path,
+                    tolerateUnknownProperties: tolerateUnknownProperties
+                )
+            )
         }
 
         if let typeSpec = schema["type"], !matchesType(instance, typeSpec: typeSpec) {
@@ -103,13 +120,27 @@ public struct CmuxConfigSemanticValidator {
         if let allOf = schema["allOf"] as? [Any] {
             for raw in allOf {
                 guard let childSchema = raw as? [String: Any] else { continue }
-                issues.append(contentsOf: validate(instance, against: childSchema, path: path))
+                issues.append(
+                    contentsOf: validate(
+                        instance,
+                        against: childSchema,
+                        path: path,
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                )
             }
         }
 
         if let anyOf = schema["anyOf"] as? [Any] {
             let alternatives = anyOf.compactMap { $0 as? [String: Any] }
-                .map { validate(instance, against: $0, path: path) }
+                .map {
+                    validate(
+                        instance,
+                        against: $0,
+                        path: path,
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                }
             if !alternatives.contains(where: \.isEmpty) {
                 issues.append(CmuxConfigSemanticIssue(path: path, message: "does not match any allowed form"))
                 if let best = alternatives.min(by: { $0.count < $1.count }) {
@@ -120,7 +151,14 @@ public struct CmuxConfigSemanticValidator {
 
         if let oneOf = schema["oneOf"] as? [Any] {
             let alternatives = oneOf.compactMap { $0 as? [String: Any] }
-                .map { validate(instance, against: $0, path: path) }
+                .map {
+                    validate(
+                        instance,
+                        against: $0,
+                        path: path,
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                }
             let passing = alternatives.filter(\.isEmpty).count
             if passing != 1 {
                 let message = passing == 0
@@ -135,13 +173,30 @@ public struct CmuxConfigSemanticValidator {
         }
 
         if let condition = schema["if"] as? [String: Any],
-           validate(instance, against: condition, path: path).isEmpty,
+           validate(
+               instance,
+               against: condition,
+               path: path,
+               tolerateUnknownProperties: tolerateUnknownProperties
+           ).isEmpty,
            let thenSchema = schema["then"] as? [String: Any] {
-            issues.append(contentsOf: validate(instance, against: thenSchema, path: path))
+            issues.append(
+                contentsOf: validate(
+                    instance,
+                    against: thenSchema,
+                    path: path,
+                    tolerateUnknownProperties: tolerateUnknownProperties
+                )
+            )
         }
 
         if let forbidden = schema["not"] as? [String: Any],
-           validate(instance, against: forbidden, path: path).isEmpty {
+           validate(
+               instance,
+               against: forbidden,
+               path: path,
+               tolerateUnknownProperties: tolerateUnknownProperties
+           ).isEmpty {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
@@ -155,9 +210,23 @@ public struct CmuxConfigSemanticValidator {
         } else if let number = jsonNumber(instance) {
             issues.append(contentsOf: validateNumber(number, schema: schema, path: path))
         } else if let array = instance as? [Any] {
-            issues.append(contentsOf: validateArray(array, schema: schema, path: path))
+            issues.append(
+                contentsOf: validateArray(
+                    array,
+                    schema: schema,
+                    path: path,
+                    tolerateUnknownProperties: tolerateUnknownProperties
+                )
+            )
         } else if let object = instance as? [String: Any] {
-            issues.append(contentsOf: validateObject(object, schema: schema, path: path))
+            issues.append(
+                contentsOf: validateObject(
+                    object,
+                    schema: schema,
+                    path: path,
+                    tolerateUnknownProperties: tolerateUnknownProperties
+                )
+            )
         }
 
         return deduplicated(issues)
@@ -225,7 +294,8 @@ public struct CmuxConfigSemanticValidator {
     private func validateArray(
         _ value: [Any],
         schema: [String: Any],
-        path: String
+        path: String,
+        tolerateUnknownProperties: Bool
     ) -> [CmuxConfigSemanticIssue] {
         var issues: [CmuxConfigSemanticIssue] = []
         if let minimum = schemaInteger(schema["minItems"]), value.count < minimum {
@@ -239,9 +309,23 @@ public struct CmuxConfigSemanticValidator {
         let itemSchema = schema["items"] as? [String: Any]
         for (index, item) in value.enumerated() {
             if index < prefixSchemas.count {
-                issues.append(contentsOf: validate(item, against: prefixSchemas[index], path: "\(path)[\(index)]"))
+                issues.append(
+                    contentsOf: validate(
+                        item,
+                        against: prefixSchemas[index],
+                        path: "\(path)[\(index)]",
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                )
             } else if let itemSchema {
-                issues.append(contentsOf: validate(item, against: itemSchema, path: "\(path)[\(index)]"))
+                issues.append(
+                    contentsOf: validate(
+                        item,
+                        against: itemSchema,
+                        path: "\(path)[\(index)]",
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                )
             }
         }
         return issues
@@ -250,7 +334,8 @@ public struct CmuxConfigSemanticValidator {
     private func validateObject(
         _ value: [String: Any],
         schema: [String: Any],
-        path: String
+        path: String,
+        tolerateUnknownProperties: Bool
     ) -> [CmuxConfigSemanticIssue] {
         var issues: [CmuxConfigSemanticIssue] = []
         if let minimum = schemaInteger(schema["minProperties"]), value.count < minimum {
@@ -275,18 +360,39 @@ public struct CmuxConfigSemanticValidator {
             let child = childPath(path, key: key)
             guard let childValue = value[key] else { continue }
             if let propertyNameSchema {
-                issues.append(contentsOf: validate(key, against: propertyNameSchema, path: child))
+                issues.append(
+                    contentsOf: validate(
+                        key,
+                        against: propertyNameSchema,
+                        path: child,
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                )
             }
 
             var matchedPropertySchema = false
             if let propertySchema = properties[key] as? [String: Any] {
-                issues.append(contentsOf: validate(childValue, against: propertySchema, path: child))
+                issues.append(
+                    contentsOf: validate(
+                        childValue,
+                        against: propertySchema,
+                        path: child,
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                )
                 matchedPropertySchema = true
             }
             for pattern in patternProperties.keys.sorted()
             where matchesPattern(key, pattern: pattern) {
                 guard let patternSchema = patternProperties[pattern] as? [String: Any] else { continue }
-                issues.append(contentsOf: validate(childValue, against: patternSchema, path: child))
+                issues.append(
+                    contentsOf: validate(
+                        childValue,
+                        against: patternSchema,
+                        path: child,
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                )
                 matchedPropertySchema = true
             }
             if matchedPropertySchema {
@@ -294,12 +400,32 @@ public struct CmuxConfigSemanticValidator {
             }
 
             if let allowed = additional as? Bool, !allowed {
-                issues.append(CmuxConfigSemanticIssue(path: child, message: "unknown configuration key"))
+                if !tolerateUnknownProperties {
+                    issues.append(CmuxConfigSemanticIssue(path: child, message: "unknown configuration key"))
+                }
             } else if let additionalSchema = additional as? [String: Any] {
-                issues.append(contentsOf: validate(childValue, against: additionalSchema, path: child))
+                issues.append(
+                    contentsOf: validate(
+                        childValue,
+                        against: additionalSchema,
+                        path: child,
+                        tolerateUnknownProperties: tolerateUnknownProperties
+                    )
+                )
             }
         }
         return issues
+    }
+
+    private func usesFutureSchemaVersion(_ instance: Any) -> Bool {
+        guard let root = instance as? [String: Any],
+              let configuredVersion = schemaInteger(root["schemaVersion"]),
+              let properties = rootSchema["properties"] as? [String: Any],
+              let versionSchema = properties["schemaVersion"] as? [String: Any],
+              let currentVersion = schemaInteger(versionSchema["default"]) else {
+            return false
+        }
+        return configuredVersion > currentVersion
     }
 
     private func resolvedReference(_ ref: String) -> [String: Any]? {
