@@ -40,6 +40,7 @@ struct MachinesPanelView: View {
     /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
     /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
+    @State private var devBackend = DevBackendStartup()
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -132,6 +133,10 @@ struct MachinesPanelView: View {
         .task {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
         }
+        .task(id: devBackend.attempt) {
+            await devBackend.observe()
+            if devBackend.status?.isReady == true { viewModel.refresh() }
+        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
@@ -146,7 +151,27 @@ struct MachinesPanelView: View {
                 bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
             )
         }
-        content
+        if includesCloud, let status = devBackend.status, !status.isReady {
+            VStack(spacing: 12) {
+                if status.isFailure {
+                    Image(systemName: "exclamationmark.icloud")
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                Text(status.message)
+                    .cmuxFont(size: 12)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                if status.isFailure {
+                    Button(String(localized: "devBackend.retry", defaultValue: "Try again")) { devBackend.retry() }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("CloudDevBackendStartup")
+        } else {
+            content
+        }
     }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {

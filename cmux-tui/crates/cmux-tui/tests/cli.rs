@@ -4303,7 +4303,8 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     use base64::Engine;
 
     let dir = TestTempDir::create("wg-hub");
-    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
     let (contents, peer) = runtime.block_on(async {
         let cmux_wg::testing::LoopbackPair { client, server, server_socket, .. } =
             cmux_wg::testing::loopback_pair().await.unwrap();

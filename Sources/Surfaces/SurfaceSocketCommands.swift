@@ -44,8 +44,13 @@ extension TerminalController {
             let reuse = Self.surfaceBool(params["reuse"]) ?? true
             let remoteTabID = Self.surfaceString(params["remote_tab_id"])
             let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
-            guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else {
-                return v2Error(id: id, code: "invalid_params", message: "surface.project: no target workspace (pass `workspace_id`, or select one).")
+            guard let workspaceID = surfaceTargetWorkspaceID(params) else {
+                let requested = ["workspace_id", "pane_id", "surface_id"]
+                    .compactMap { Self.surfaceString(params[$0]) }.joined(separator: ", ")
+                let message = requested.isEmpty
+                    ? "surface.project: no target workspace (pass `workspace_id`, or select one)."
+                    : SurfaceCatalogError.destinationNotFound(requested).localizedDescription
+                return v2Error(id: id, code: "invalid_params", message: message)
             }
             let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
             return v2VmCall(id: id, timeoutSeconds: 180) {
@@ -245,7 +250,7 @@ extension TerminalController {
         }
         let hasExplicitTarget = explicitTargetKey != nil
         let explicitWorkspaceID = hasExplicitTarget
-            ? surfaceTargetWorkspaceID(params, strictExplicit: true)
+            ? surfaceTargetWorkspaceID(params)
             : nil
         if hasExplicitTarget, explicitWorkspaceID == nil {
             return v2Error(
@@ -955,14 +960,11 @@ extension TerminalController {
         }
     }
 
-    /// Creates a terminal on `machine` through its provider and, when a destination is given,
-    /// projects it there. Payload: `resource`, `terminal_id` (the provider key), `machine`,
-    /// `remote_workspace_id`, and — when opened — `workspace_id` (local) + `surface_id`.
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
     /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace. When
     /// `strictExplicit` is true, an explicit but stale/malformed pane or surface is rejected
     /// instead of silently falling through to the selected workspace (used by `vm.port_open`).
-    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any], strictExplicit: Bool = false) -> UUID? {
+    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any], strictExplicit: Bool = true) -> UUID? {
         if strictExplicit {
             var explicitWorkspaceID: UUID?
             if v2HasNonNullParam(params, "workspace_id") {

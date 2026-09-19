@@ -71,11 +71,16 @@ extension CloudTreeNodeBuilder {
             workspaceCount: info.remoteWorkspaces?.count ?? 0,
             terminalCount: resources.filter { $0.kind == .terminal }.count
         )
+        // Another Mac publishes no Cloud VM telemetry, so it has no fleet
+        // snapshot and its row carries no Resources group.
         let children = cloudChildren(
             machine: info.id,
+            machineSnapshot: nil,
             info: info,
             snapshot: snapshot,
             projectionIndex: projectionIndex,
+            resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder(),
+            now: .now,
             machineResources: resources
         )
         return CloudTreeNode(

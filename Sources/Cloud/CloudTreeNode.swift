@@ -46,6 +46,8 @@ final class CloudTreeNode: NSObject {
         case browser(CloudTreeBrowserRow)
         /// "Ports" group under a cloud machine.
         case portsGroup(machine: SurfaceMachineID)
+        case resourcesPool(machine: SurfaceMachineID, count: Int)
+        case resource(machine: SurfaceMachineID, row: CloudTreeMachineResourceRow)
         /// The resource plus the URL a click actually opens —
         /// `http://<private-ip>:<port>`, reachable over the WireGuard tunnel —
         /// or nil when the machine has no private address yet. Deliberately the
@@ -111,6 +113,8 @@ final class CloudTreeNode: NSObject {
         case .browsersGroup: return "browsersGroup"
         case .browser: return "browser"
         case .portsGroup: return "portsGroup"
+        case .resourcesPool: return "resourcesPool"
+        case .resource: return "resource"
         case .port: return "port"
         case .placeholder: return "placeholder"
         case .device: return "device"
@@ -138,9 +142,11 @@ final class CloudTreeNode: NSObject {
         // registries, debug logs) without colliding with a real machine.
         case .pendingMachine(let operation): return .cloud("pending:\(operation.id.uuidString)")
         case .localMachine: return .local
-        case .workspacesGroup(let machine), .browsersGroup(let machine), .portsGroup(let machine):
+        case .workspacesGroup(let machine), .browsersGroup(let machine), .portsGroup(let machine), .resourcesPool(let machine, _):
             return machine
         case .terminalsPool(let machine, _), .displaysPool(let machine, _):
+            return machine
+        case .resource(let machine, _):
             return machine
         case .workspace(let machine, _, _, _, _), .placeholder(let machine, _):
             return machine
@@ -183,6 +189,8 @@ final class CloudTreeNode: NSObject {
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
+        case .resourcesPool: return String(localized: "cloudTree.group.resources", defaultValue: "Resources")
+        case .resource(_, let row): return row.title
         case .port(let resource, let url, _):
             return url ?? (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
@@ -243,7 +251,7 @@ final class CloudTreeNode: NSObject {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
         case .display(let resource, _, _), .port(let resource, _, _): return resource
-        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection:
+        case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .resourcesPool, .resource, .placeholder, .device, .devicesSection, .devicesEmpty, .cloudMachinesSection:
             return nil
         }
     }
@@ -325,8 +333,8 @@ struct CloudTreeLocalWorkspace: Equatable {
 
 /// Pure assembly of outline nodes from the fleet rows and the catalog snapshot.
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
-/// cloud machine, with Workspaces first, then Ports, Displays, and the
-/// complete Terminals process index. Workspace children preserve exact daemon
+/// cloud machine, with Workspaces, Ports, Displays, Terminals, and Resources in order.
+/// Workspace children preserve exact daemon
 /// tab placement identities. A machine without a connected link keeps cached
 /// pool rows beside its status placeholder.
 enum CloudTreeNodeBuilder {
@@ -509,7 +517,6 @@ enum CloudTreeNodeBuilder {
                 )
             })
             guard !wanted.isEmpty else { return nil }
-
             var placementCountByResource: [SurfaceResourceID: Int] = [:]
             for identity in wanted {
                 placementCountByResource[identity.resource, default: 0] += 1
@@ -558,7 +565,6 @@ enum CloudTreeNodeBuilder {
         guard let workspace = resource.remoteWorkspace else { return [] }
         return [RemoteResourcePlacement(resource: resource, workspace: workspace, view: nil)]
     }
-
     static func nodes(
         machines: [MachineSnapshot],
         pendingCreates: [MachineCreateOperation] = [],
@@ -567,9 +573,11 @@ enum CloudTreeNodeBuilder {
         unreadTerminalIDs: [String: Set<String>] = [:],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
-        devicesSection: CloudTreeDevicesSection = .init()
+        devicesSection: CloudTreeDevicesSection = .init(),
+        now: Date = .now
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
+        let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
         var nodes: [CloudTreeNode] = []
         guard source.includesCloudMachines else {
             // The Devices tab: other Macs only, no fleet, no This Mac.
@@ -601,9 +609,12 @@ enum CloudTreeNodeBuilder {
                 kind: .machine(machine, info),
                 children: cloudChildren(
                     machine: .cloud(machine.id),
+                    machineSnapshot: machine,
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex
+                    projectionIndex: projectionIndex,
+                    resourceNodeBuilder: resourceNodeBuilder,
+                    now: now
                 )
             ))
         }
@@ -626,9 +637,12 @@ enum CloudTreeNodeBuilder {
                 kind: .machine(placeholderSnapshot, info),
                 children: cloudChildren(
                     machine: info.id,
+                    machineSnapshot: placeholderSnapshot,
                     info: info,
                     snapshot: snapshot,
-                    projectionIndex: projectionIndex
+                    projectionIndex: projectionIndex,
+                    resourceNodeBuilder: resourceNodeBuilder,
+                    now: now
                 )
             ))
         }
@@ -661,7 +675,6 @@ enum CloudTreeNodeBuilder {
         }
         return nodes
     }
-
     /// True when `nodes(machines:snapshot:localWorkspaces:)` would produce no
     /// rows. The panel swaps the outline for its empty state on this; it must
     /// mirror `nodes` exactly (local catalog entries only count while
@@ -740,7 +753,6 @@ enum CloudTreeNodeBuilder {
     static func nodeID(browsersGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/browsers" }
     static func nodeID(portsGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ports" }
     static func nodeID(placeholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/placeholder" }
-
     // MARK: This Mac
 
     private static func localMachineNode(
@@ -820,7 +832,6 @@ enum CloudTreeNodeBuilder {
             children: children
         )
     }
-
     // MARK: Cloud machines
 
     /// `http://<name>.internal:<port>` when the machine has a private address
@@ -837,111 +848,114 @@ enum CloudTreeNodeBuilder {
 
     static func cloudChildren(
         machine: SurfaceMachineID,
+        machineSnapshot: MachineSnapshot?,
         info: SurfaceMachineInfo?,
         snapshot: SurfaceCatalogSnapshot,
         projectionIndex: LocalProjectionIndex,
+        resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder,
+        now: Date,
         machineResources: [SurfaceResource]? = nil
     ) -> [CloudTreeNode] {
-        // The catalog has not registered this machine yet: nothing to expand.
-        guard let info else {
-            return [placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…"), style: .connecting)]
-        }
         var children: [CloudTreeNode] = []
         let resources = machineResources ?? snapshot.resources(on: machine)
         let terminals = resources.filter { $0.kind == .terminal }
-        let displays = CloudMachineSurfacePresentation.displays(resources: resources, info: info)
-
-        switch info.linkState {
-        case .asleep:
-            children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.asleep", defaultValue: "Asleep \u{2014} open to wake"), style: .dimmed, opensMachine: true))
-        case .connecting:
-            children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting\u{2026}"), style: .connecting))
-        case .error:
-            children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
-        case .unavailable:
-            children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
-        case .offline:
-            children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.deviceOffline", defaultValue: "Offline \u{2014} its workspaces return when it does"), style: .dimmed))
-        case .connected, .notApplicable:
-            // Workspaces stay first. Their child rows retain exact remote tab
-            // identities, while the later Terminals group lists every process.
-            children.append(workspacesGroupNode(
-                machine: machine,
-                info: info,
-                resources: resources,
-                snapshot: snapshot,
-                projectionIndex: projectionIndex
-            ))
-        }
-        // Ports: one row per listening port, titled as the URL a person would
-        // paste (`http://<private-ip>:<port>`) when the machine has a private
-        // address; the bare `:<port>` otherwise. Click opens it as a browser
-        // pane; the row's menu copies the link. Another Mac exposes no
-        // cmux-managed ports or desktop, so device rows skip both groups.
-        let portBrowsers = machine.isDevice ? [] : resources
-            .filter { $0.id.isForwardedPort }
-            .sorted {
-                let left = ($0.id.forwardedPort ?? $0.port ?? 0, $0.id.key)
-                let right = ($1.id.forwardedPort ?? $1.port ?? 0, $1.id.key)
-                return left.0 != right.0 ? left.0 < right.0 : left.1 < right.1
+        let displays = info.map { CloudMachineSurfacePresentation.displays(resources: resources, info: $0) } ?? []
+        if let info {
+            switch info.linkState {
+            case .asleep:
+                children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.asleep", defaultValue: "Asleep \u{2014} open to wake"), style: .dimmed, opensMachine: true))
+            case .connecting:
+                children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting\u{2026}"), style: .connecting))
+            case .error:
+                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
+            case .unavailable:
+                children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
+            case .offline:
+                children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.deviceOffline", defaultValue: "Offline \u{2014} its workspaces return when it does"), style: .dimmed))
+            case .connected, .notApplicable:
+                // Workspaces stay first. Their child rows retain exact remote tab
+                // identities, while the later Terminals group lists every process.
+                children.append(workspacesGroupNode(
+                    machine: machine,
+                    info: info,
+                    resources: resources,
+                    snapshot: snapshot,
+                    projectionIndex: projectionIndex
+                ))
             }
-        if !machine.isDevice {
-            children.append(CloudTreeNode(
-                id: nodeID(portsGroup: machine),
-                kind: .portsGroup(machine: machine),
-                children: portBrowsers.isEmpty ? [CloudMachineSurfacePresentation.emptyPorts(info: info)] : portBrowsers.map {
-                    CloudTreeNode(
-                        id: nodeID(resource: $0.id),
-                        kind: .port(
-                            $0,
-                            url: $0.url ?? portURL(
-                                machine: machine,
-                                info: info,
-                                port: $0.id.forwardedPort ?? $0.port
-                            ),
-                            openIn: projectionIndex.localWorkspaceShowing(resource: $0.id)
-                        )
-                    )
-                }
-            ))
-        }
-
-        // Cloud machines expose Displays as a machine-level category, just like
-        // Ports and Terminals. Personal Macs do not publish Cloud desktop/VNC
-        // resources, so omit the category entirely instead of rendering an
-        // empty "No displays available" row on every connected device.
-        if !machine.isDevice && (info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty) {
-            children.append(CloudTreeNode(
-                id: nodeID(displaysPool: machine),
-                kind: .displaysPool(machine: machine, count: displays.count),
-                children: displays.isEmpty
-                    ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
-                    : displays.map {
+            // Ports: one row per listening port, titled as the URL a person would
+            // paste (`http://<private-ip>:<port>`) when the machine has a private
+            // address; the bare `:<port>` otherwise. Click opens it as a browser
+            // pane; the row's menu copies the link. Another Mac exposes no
+            // cmux-managed ports or desktop, so device rows skip both groups.
+            if !machine.isDevice {
+                let portBrowsers = resources
+                    .filter { $0.id.isForwardedPort }
+                    .sorted {
+                        let left = ($0.id.forwardedPort ?? $0.port ?? 0, $0.id.key)
+                        let right = ($1.id.forwardedPort ?? $1.port ?? 0, $1.id.key)
+                        return left.0 != right.0 ? left.0 < right.0 : left.1 < right.1
+                    }
+                children.append(CloudTreeNode(
+                    id: nodeID(portsGroup: machine),
+                    kind: .portsGroup(machine: machine),
+                    children: portBrowsers.isEmpty ? [CloudMachineSurfacePresentation.emptyPorts(info: info)] : portBrowsers.map {
                         CloudTreeNode(
                             id: nodeID(resource: $0.id),
-                            kind: .display(
+                            kind: .port(
                                 $0,
-                                openIn: nil,
-                                remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
+                                url: $0.url ?? portURL(
+                                    machine: machine,
+                                    info: info,
+                                    port: $0.id.forwardedPort ?? $0.port
+                                ),
+                                openIn: projectionIndex.localWorkspaceShowing(resource: $0.id)
                             )
                         )
                     }
-            ))
+                ))
+            }
+            // Cloud machines expose Displays as a machine-level category, just like
+            // Ports and Terminals. Personal Macs do not publish Cloud desktop/VNC
+            // resources, so omit the category entirely instead of rendering an
+            // empty "No displays available" row on every connected device.
+            if !machine.isDevice && (info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty) {
+                children.append(CloudTreeNode(
+                    id: nodeID(displaysPool: machine),
+                    kind: .displaysPool(machine: machine, count: displays.count),
+                    children: displays.isEmpty
+                        ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
+                        : displays.map {
+                            CloudTreeNode(
+                                id: nodeID(resource: $0.id),
+                                kind: .display(
+                                    $0,
+                                    openIn: nil,
+                                    remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
+                                )
+                            )
+                        }
+                ))
+            }
+            if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
+                children.append(terminalsGroupNode(
+                    machine: machine,
+                    terminals: terminals,
+                    snapshot: snapshot,
+                    projectionIndex: projectionIndex
+                ))
+            }
+        } else {
+            children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting\u{2026}"), style: .connecting))
         }
-
-        // The pool is a process index. It lists every terminal, including
-        // terminals already placed in workspaces and detached terminals.
-        if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
-            children.append(terminalsGroupNode(
-                machine: machine,
-                terminals: terminals,
-                snapshot: snapshot,
-                projectionIndex: projectionIndex
-            ))
+        // VM telemetry owns its availability and freshness independently of
+        // the terminal link and surface catalog. Another Mac publishes no fleet
+        // snapshot, so device rows carry no Resources group.
+        if let machineSnapshot {
+            children.append(resourceNodeBuilder.groupNode(machine: machine, snapshot: machineSnapshot, now: now))
         }
         return children
     }
-
     /// Builds every nonempty Cloud workspace from its actual layout members.
     /// Empty daemon records remain available to lookup and persistence.
     private static func workspacesGroupNode(

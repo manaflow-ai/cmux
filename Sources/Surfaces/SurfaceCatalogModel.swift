@@ -1634,12 +1634,19 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneIndex: Int? = nil
 }
 
+/// Stable identity from the creation receipt, checked again before attachment.
+struct CloudCreationAttachment: Hashable, Codable, Sendable {
+    let generation: String
+    let terminalID: String
+}
+
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     var id: SurfaceResourceID
     var title: String
     /// cwd for terminals, URL for browsers, display name for screens.
     var detail: String?
     var lifecycle: SurfaceLifecycle
+    var creationAttachment: CloudCreationAttachment? = nil
     var agent: SurfaceAgentBadge?
     /// The workspace of the resource's first view (compat: pre-multi-view callers read
     /// one workspace). nil when the resource has zero views, or is local.

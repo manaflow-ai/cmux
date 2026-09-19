@@ -13,8 +13,8 @@ struct CloudTreeRowHeight {
             return GlobalFontMagnification.scaledSize(CloudTreeDevicesEmptyView.rowHeight(for: section))
         case .machine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(
-                hasStats: true,
-                hasUsage: style.machineRowLayout == .twoLine
+                hasStats: false,
+                hasUsage: false
             ))
         // Devices sit on This Mac's single line: presence and counts are a dim
         // inline fact and a tooltip, never extra lines.

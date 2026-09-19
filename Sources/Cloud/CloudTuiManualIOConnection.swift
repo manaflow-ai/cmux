@@ -14,6 +14,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private static let maximumLineBytes = 16 * 1024 * 1024
     private static let readChunkBytes = 16 * 1024
 
+    private let deliversJSONMessages: Bool
     private let socketPath: String
     private let queue: DispatchQueue
     private let commandBuilder: CloudTuiManualIOCommand
@@ -49,12 +50,14 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     init(
         socketPath: String,
+        deliversJSONMessages: Bool = false,
         queue: DispatchQueue = DispatchQueue(
             label: "com.cmux.cloud-manual-io",
             qos: .userInitiated
         ),
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand()
     ) {
+        self.deliversJSONMessages = deliversJSONMessages
         self.socketPath = socketPath
         self.queue = queue
         self.commandBuilder = commandBuilder
@@ -261,7 +264,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingLine.removeSubrange(...newline)
                 pendingLineSearchOffset = 0
                 guard !line.isEmpty,
-                      let frame = CloudTuiManualIOFrameDecoder().decode(line) else { continue }
+                      let frame = deliversJSONMessages ? CloudTuiManualIOFrame.message(line) : CloudTuiManualIOFrameDecoder().decode(line) else { continue }
                 let continuation = nextFrameContinuation
                 nextFrameContinuation = nil
                 suspendReadSourceLocked()
