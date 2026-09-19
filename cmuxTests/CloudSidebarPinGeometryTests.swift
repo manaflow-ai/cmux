@@ -20,6 +20,13 @@ struct CloudSidebarPinGeometryTests {
         #expect(abs(pinned.maxX - unpinned.maxX) <= 1, "Trailing alignment must not move when pinning")
     }
 
+    @Test("Read rows start at the caret content edge without an invisible attention column",
+          arguments: [75, 100, 150, 200])
+    func noEmptyAttentionGutter(percent: Int) throws {
+        let bounds = try contentBounds(width: 220, pinned: false, percent: percent)
+        #expect(bounds.minX <= 1, "Hidden unread decoration must not indent the folder or terminal: \(bounds.minX)")
+    }
+
     @Test("Pin geometry follows the same magnification as row text")
     func pinMagnification() throws {
         let small = try contentBounds(width: 140, pinned: true, percent: 75)
