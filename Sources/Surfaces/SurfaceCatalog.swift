@@ -12,9 +12,7 @@ import Observation
 @MainActor
 @Observable
 final class SurfaceCatalog {
-    /// A terminal identity is not enough while a remote terminal has several
-    /// placement-local tabs. An explicit tab therefore gets its own single-flight
-    /// lane. The nil lane preserves the legacy resource-wide open behavior.
+    /// Exact remote tabs get separate materialization lanes; nil retains resource-wide reuse.
     private struct MaterializationKey: Hashable {
         let resource: SurfaceResourceID
         let remoteTabID: String?
@@ -42,7 +40,8 @@ final class SurfaceCatalog {
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     private var cloudProjectionIndex = Set<CloudProjectionKey>()
     private var cloudProjectionIndexDirty = true
-    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true } }
+    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true; noteProjectionChanges(from: oldValue) } }
+    var projectionVersions: [SurfaceMachineID: UInt64] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
     private(set) var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
@@ -143,10 +142,10 @@ final class SurfaceCatalog {
             catalog: self
         )
         requestCloudWorkspaceProjection(localWorkspaceID)
+        updateCloudDirectoryMetadata(localWorkspaceID: localWorkspaceID)
     }
 
     // MARK: Providers
-
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
             cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
@@ -197,7 +196,9 @@ final class SurfaceCatalog {
         cloudProjectionIndexDirty = true
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
+        updateCloudDirectoryMetadata(on: machine)
         projections = projections.filter { $0.resource.machine != machine }
+        projectionVersions[machine] = nil
         notifyChange()
     }
 
@@ -289,6 +290,7 @@ final class SurfaceCatalog {
         }
         if let info { machines[machine] = machineInfoPreservingCanonicalCloudState(info) }
         resolvePendingRestoredProjections(on: machine)
+        updateCloudDirectoryMetadata(on: machine)
         notifyChange()
         return true
     }
@@ -318,6 +320,7 @@ final class SurfaceCatalog {
     func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: info.id, from: source) else { return }
         machines[info.id] = machineInfoPreservingCanonicalCloudState(info)
+        updateCloudDirectoryMetadata(on: info.id)
         notifyChange()
     }
 
@@ -342,13 +345,11 @@ final class SurfaceCatalog {
             precondition(info.id == machine, "machine info and stale machine disagree")
             machines[machine] = machineInfoPreservingCanonicalCloudState(info)
         }
+        updateCloudDirectoryMetadata(on: machine)
         notifyChange()
     }
 
-    /// Updates only transient mutation metadata for an already accepted cloud
-    /// graph. The daemon document and derived rows remain unchanged. This lets
-    /// an agent see a committed write receipt during the refresh that will
-    /// confirm it, without treating the receipt as remote state.
+    /// Publishes pending receipts separately from the accepted daemon document and derived rows.
     func updateCloudPendingWrites(
         on machine: SurfaceMachineID,
         writes: [CloudVMPendingMutation],
@@ -446,10 +447,12 @@ final class SurfaceCatalog {
         // canonical resource map.
         rebuildResourceIndex(for: state.machine)
 
+        let freshnessChanged = cloudStateObservations[state.machine]?.freshness != observation.freshness
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         resolvePendingRestoredProjections(on: state.machine)
+        updateCloudDirectoryMetadata(on: state.machine, affectedResourceIDs: freshnessChanged ? nil : affectedResourceIDs)
         notifyChange()
         return changed
     }
@@ -487,6 +490,7 @@ final class SurfaceCatalog {
         cloudStateObservations[state.machine] = observation
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         resolvePendingRestoredProjections(on: state.machine)
+        updateCloudDirectoryMetadata(on: state.machine)
         notifyChange()
         return changed
     }
@@ -495,6 +499,7 @@ final class SurfaceCatalog {
         let removedState = cloudStates.removeValue(forKey: machine) != nil
         let removedObservation = cloudStateObservations.removeValue(forKey: machine) != nil
         guard removedState || removedObservation else { return }
+        updateCloudDirectoryMetadata(on: machine)
         notifyChange()
     }
 
@@ -531,6 +536,7 @@ final class SurfaceCatalog {
         rebuildResourceIndex(for: machine)
         machines[machine] = machineInfoPreservingCanonicalCloudState(info)
         resolvePendingRestoredProjections(on: machine)
+        updateCloudDirectoryMetadata(on: machine)
         notifyChange()
     }
 
@@ -1060,15 +1066,10 @@ final class SurfaceCatalog {
 
     /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
-        pendingRestoredProjections.remove(panelID: projection.panelID)
+        consumePendingProjectionIfMaterialized(projection)
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
-        if let resource = resources[projection.resource], !resource.machine.isLocal,
-           resource.kind == .terminal,
-           let workspace = cloudWorkspaceRenameService.environment.workspace(projection.workspaceID) {
-            workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: resource.detail)
-        }
         notifyChange()
     }
 
@@ -1213,9 +1214,6 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
-    func projections(of id: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == id }.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
-    }
 
     /// Resolves an agent-provided remote placement against the latest accepted
     /// graph. A workspace id alone is valid only when it identifies one view;
@@ -1365,11 +1363,12 @@ final class SurfaceCatalog {
             if lhs.id.isLocal != rhs.id.isLocal { return lhs.id.isLocal }
             return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
         }
-        let orderedResources = resources.values.sorted { $0.catalogPrecedes($1) }
+        let orderedResources = resources.values.map(resourceForPresentation).sorted { $0.catalogPrecedes($1) }
         return SurfaceCatalogSnapshot(
             machines: orderedMachines,
             resources: orderedResources,
-            projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+            projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
+            staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys)
         )
     }
 
