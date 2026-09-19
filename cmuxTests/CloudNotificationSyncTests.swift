@@ -161,6 +161,38 @@ struct CloudNotificationSyncTests {
         #expect(none == next.state)
     }
 
+    @Test @MainActor func handledControlRowsAreConsumedAndAcknowledgedWithoutDelivery() async {
+        let defaults = UserDefaults(suiteName: "cmux.tests.cloud-notification-handler.\(UUID().uuidString)")!
+        let store = CloudNotificationSyncStore(defaults: defaults)
+        defer { defaults.removePersistentDomain(forName: defaults.volatileDomainNames.first ?? "") }
+        let control = Self.row("open", terminal: "term_00000000000000000000000000000002")
+        var handled: [String] = []
+        var delivered: [String] = []
+        var acked: [[String]] = []
+        let sendCompleted = AsyncStream<Void>.makeStream()
+        let sync = CloudNotificationSync(
+            machineID: "vm-handler",
+            clientID: Self.me,
+            store: store,
+            newKey: { "handler-key" },
+            resolveTarget: { _ in CloudNotificationDeliveryTarget(workspaceID: UUID(), panelID: UUID()) },
+            deliver: { row, _ in delivered.append(row.id); return true },
+            send: { batch in
+                acked.append(batch.ids)
+                sendCompleted.continuation.yield(())
+            },
+            handle: { row, _ in handled.append(row.id); return row.id == control.id }
+        )
+
+        sync.apply(rows: [control])
+        #expect(await sendCompleted.stream.first(where: { _ in true }) != nil)
+
+        #expect(handled == [control.id])
+        #expect(delivered.isEmpty)
+        #expect(acked == [[control.id]])
+        #expect(sync.unreadTerminalIDs.isEmpty)
+    }
+
     @Test func evictionPrunesDeliveredButNeverAPendingAck() {
         let a = Self.row("a")
         let b = Self.row("b")

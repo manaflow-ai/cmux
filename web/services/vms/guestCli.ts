@@ -31,10 +31,9 @@
 // reaches machines created from any existing snapshot. This driver-installed
 // adapter is the sole source; image bakes keep their promoted CLI until healing.
 
-import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
-import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
+import { GUEST_CMUX_OPEN_SHELL } from "./guestBrowserOpen";
 
 export const GUEST_CMUX_SHIM_PATH = "/usr/local/bin/cmux";
 
@@ -47,11 +46,6 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
-
-if [ "\${1:-}" = open-url ]; then
-  shift
-  exec ${GUEST_BROWSER_OPENER_PATH} "$@"
-fi
 
 # The daemon binary lives under the daemon's home, which depends on the image
 # layout (root daemon: /root; layout-aware bakes: the cmux user's home or the
@@ -101,7 +95,7 @@ case "\${1:-}:\${2:-}:\${3:-}" in
 esac
 case "\${1:-}:\${2:-}" in
   workspace:help|workspace:--help|workspace:-h|workspace:|pane:help|pane:--help|pane:-h|pane:|tab:help|tab:--help|tab:-h|tab:|terminal:help|terminal:--help|terminal:-h) ;;
-  self:*|whoami:*|reflect:*|reflection:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
+  self:*|whoami:*|reflect:*|reflection:*|open:*|open-url:*|vm:ls|vm:list|vm:peers|vm:links|vm:help|vm:--help|vm:-h|vm:|:*|help:*|--help:*|-h:*|--version:*|-V:*) ;;
   *) [ -x "\$CMUX_TUI_BIN" ] || die_message 1 missingDaemon "\$CMUX_TUI_BIN" ;;
 esac
 
@@ -839,19 +833,16 @@ guest_agent_command() {
   esac
 }
 
-${GUEST_CODEROUTER_SHELL}
 guest_coderouter_command() {
   cmux_coderouter_sub="\${1:-help}"
   [ "\$#" -gt 0 ] && shift
   case "\$cmux_coderouter_sub" in
-    accounts|list|ls) guest_coderouter_accounts "\$@" ;;
-    org|organization|team) guest_coderouter_org "\$@" ;;
     status|auth) guest_auth_status "\$@" ;;
     usage|machines) guest_coderouter_usage "\$@" ;;
     models) guest_coderouter_models "\$@" ;;
     agent|run) guest_coderouter_agent "\$@" ;;
     help|--help|-h) guest_usage ;;
-    claude|login|logout)
+    claude|accounts|login|logout)
       die_message 2 accountHostOnly "\$cmux_coderouter_sub"
       ;;
     *) die_message 2 unknownCodeRouter "\$cmux_coderouter_sub" ;;
@@ -1554,6 +1545,7 @@ default_pane() {
 }
 
 ${GUEST_CMUX_TOPOLOGY_SHELL}
+${GUEST_CMUX_OPEN_SHELL}
 # ---------------------------------------------------------------------------
 # Layouts as data. \`layout export\` turns a daemon workspace into the same
 # declarative document the Mac accepts (\`cmux new-workspace --layout\`, cmux.json
@@ -2475,6 +2467,10 @@ workspace_verb() {
 }
 
 case "\${1:-}" in
+  open|open-url)
+    shift
+    guest_open_url "\$@"
+    ;;
   --version|-v|version)
     cmux_message version
     exec "\$CMUX_TUI_BIN" --version
@@ -2744,25 +2740,40 @@ case "\${1:-}" in
     ;;
   notify)
     # Mac-CLI compatible \`cmux notify\` inside a machine (agent hooks call it
-    # with --title/--subtitle/--body). cmux-tui's own \`notify\` verb takes the
-    # macOS signature: it stores --subtitle as its own field, scopes --clear,
-    # refuses --reply, and validates any selector it is handed, so the shim
-    # forwards the arguments verbatim and the daemon stays the one place that
-    # knows the grammar. Nothing here can name a Mac workspace, surface, or
-    # socket: those selectors are rejected by the daemon rather than mapped.
+    # with --title/--subtitle/--body). cmux-tui's verb is \`notification create\`;
+    # the notification lands in this machine's daemon ledger and the user's Mac
+    # picks it up from the session event stream it already follows. The Mac
+    # attributes it to the pane showing this terminal, so the daemon-assigned
+    # CMUX_TUI_TERMINAL_ID is the only selector that means anything here: Mac
+    # topology selectors are ignored, --subtitle folds into the body (cmux-tui
+    # has no such field), and only the levels the daemon accepts are forwarded.
+    # Nothing here can name a Mac workspace, surface, or socket.
     shift
-    # Silent on success like the Mac CLI, unless the caller asked for the
-    # JSON result: --quiet and --json are exclusive global output modes.
-    cmux_notify_json=
-    for cmux_notify_arg in "\$@"; do
-      case "\$cmux_notify_arg" in
-        --json|--jsonl) cmux_notify_json=1; break ;;
+    title=""; subtitle=""; body=""; level=""; terminal="\${CMUX_TUI_TERMINAL_ID:-}"
+    while [ "\$#" -gt 0 ]; do
+      case "\$1" in
+        --title) title="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
+        --title=*) title="\${1#--title=}"; shift ;;
+        --subtitle) subtitle="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
+        --subtitle=*) subtitle="\${1#--subtitle=}"; shift ;;
+        --body) body="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
+        --body=*) body="\${1#--body=}"; shift ;;
+        --level) level="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
+        --level=*) level="\${1#--level=}"; shift ;;
+        --terminal) terminal="\${2:-}"; shift; [ "\$#" -gt 0 ] && shift ;;
+        --terminal=*) terminal="\${1#--terminal=}"; shift ;;
+        --workspace|--surface|--window|--tab|--panel) shift; [ "\$#" -gt 0 ] && shift ;;
+        *) shift ;;
       esac
     done
-    if [ -n "\$cmux_notify_json" ]; then
-      exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" notify "\$@"
+    [ -n "\$title" ] || title=Notification
+    if [ -n "\$subtitle" ]; then
+      if [ -n "\$body" ]; then body="\$subtitle — \$body"; else body="\$subtitle"; fi
     fi
-    exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet notify "\$@"
+    set -- notification create --title "\$title" --body "\$body"
+    case "\$level" in info|warning|error) set -- "\$@" --level "\$level" ;; esac
+    if [ -n "\$terminal" ]; then set -- "\$@" --terminal "\$terminal"; fi
+    exec "\$CMUX_TUI_BIN" --session "\$LOCAL_SESSION" --quiet "\$@"
     ;;
   *)
     # Local daemon session. cmux-tui's own grammar is \`cmux <resource> <action>\`.
@@ -2776,7 +2787,6 @@ export function guestCliInstallCommand(): string {
   const encoded = Buffer.from(GUEST_CMUX_SHIM, "utf8").toString("base64");
   return [
     `printf '%s' '${encoded}' | base64 -d > ${GUEST_CMUX_SHIM_PATH}.tmp`,
-    guestBrowserInstallCommand(),
     `chmod 0755 ${GUEST_CMUX_SHIM_PATH}.tmp`,
     `mv ${GUEST_CMUX_SHIM_PATH}.tmp ${GUEST_CMUX_SHIM_PATH}`,
   ].join(" && ");

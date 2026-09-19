@@ -42,6 +42,110 @@ const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
 // The in-VM `cmux` shim is shipped as driver-written bytes; a syntax error
 // would surface only inside a live machine, so validate it here.
 describe("in-VM cmux shim", () => {
+  test("open submits a URL to the host request stream when a native mirror is attached", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-guest-open-"));
+    const shim = join(dir, "cmux");
+    const tui = join(dir, "cmux-tui");
+    const snapshot = join(dir, "snapshot.json");
+    writeFileSync(shim, GUEST_CMUX_SHIM);
+    chmodSync(shim, 0o755);
+    writeFileSync(
+      snapshot,
+      JSON.stringify({
+        clients: [{ client_kind: "native-mirror", attached_terminal_ids: [TERMINAL_ID] }],
+        tabs: [{ content_kind: "terminal", content_id: TERMINAL_ID, pane_id: "pane_1" }],
+        browsers: [{ id: "browser_1" }],
+      }),
+    );
+    writeFileSync(
+      tui,
+      `#!/bin/sh
+case "$*" in
+  *"session current snapshot"*) cat "${snapshot}" ;;
+  *"notification create"*) printf '%s\\n' '{"value":{"notification_id":"notification_1"}}' ;;
+  *"tab create browser"*) printf '%s\\n' '{"value":{"browser_id":"browser_1"}}' ;;
+  *) exit 91 ;;
+esac
+`,
+    );
+    chmodSync(tui, 0o755);
+    try {
+      const result = spawnSync("sh", [shim, "open", "https://github.com/login/device"], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          HOME: dir,
+          CMUX_TUI_BIN: tui,
+          CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
+          PATH: `${dir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("open prints a URL and exits successfully when no browser resource is retained", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-guest-open-fallback-"));
+    const shim = join(dir, "cmux");
+    const tui = join(dir, "cmux-tui");
+    writeFileSync(shim, GUEST_CMUX_SHIM);
+    chmodSync(shim, 0o755);
+    writeFileSync(
+      tui,
+      `#!/bin/sh
+case "$*" in
+  *"session current snapshot"*) printf '%s\\n' '{"browsers":[]}' ;;
+  *"tab create browser"*) printf '%s\\n' '{"value":{"browser_id":"browser_1"}}' ;;
+  *) exit 91 ;;
+esac
+`,
+    );
+    chmodSync(tui, 0o755);
+    try {
+      const result = spawnSync("sh", [shim, "open", "https://github.com/login/device"], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          HOME: dir,
+          CMUX_TUI_BIN: tui,
+          CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
+          PATH: `${dir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Open this URL: https://github.com/login/device");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("open prints unsupported schemes instead of dropping the URL", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-guest-open-invalid-"));
+    const shim = join(dir, "cmux");
+    writeFileSync(shim, GUEST_CMUX_SHIM);
+    chmodSync(shim, 0o755);
+    try {
+      const result = spawnSync("sh", [shim, "open", "mailto:user@example.com"], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          HOME: dir,
+          CMUX_TUI_BIN: join(dir, "missing-cmux-tui"),
+          CMUX_TUI_TERMINAL_ID: TERMINAL_ID,
+          PATH: `${dir}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Open this URL: mailto:user@example.com");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test.each(["existing", "create", "create-failed", "missing-id"])("peer exec selects a supported workspace and fails closed (%s)", async (mode) => {
     const directory = mkdtempSync(join(tmpdir(), "cmux-peer-exec-"));
     const socket = join(directory, "peer.sock");

@@ -32,6 +32,8 @@ import {
   normalizedDockerfileInstructions,
   rewriteDevboxAgentPins,
 } from "../scripts/devbox-image-common";
+import { GUEST_CMUX_OPEN_URL_SCRIPT } from "../services/vms/guestBrowserOpen";
+import { chmodSync, symlinkSync } from "node:fs";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
 import {
   DEVBOX_WORK_HOME,
@@ -114,6 +116,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-open-url",
       "cmux-opencode",
       "cmux-prompt.bash",
       "cmux-terminfo.sh",
@@ -131,8 +134,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
-      "cmux-opencode",
-      "cmux-prompt.bash",
+      "cmux-open-url",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -1116,4 +1118,21 @@ describe("devbox terminfo overlay", () => {
     expect(dockerfile).toContain("xterm-ghostty; do");
     expect(readFileSync(path.join(templateDir, "cmux-terminfo.sh"), "utf8")).toContain("TERMINFO_DIRS=/etc/terminfo:");
   });
+  test("cloud browser openers are baked and preserve explicit desktop browser tools", () => {
+    const opener = read("cmux-open-url");
+    expect(opener).toBe(GUEST_CMUX_OPEN_URL_SCRIPT);
+    expect(spawnSync("sh", ["-n", path.join(templateDir, "cmux-open-url")]).status).toBe(0);
+    expect(opener).toContain("command -v cmux");
+    expect(opener).toContain("Open this URL:");
+    expect(dockerfile).toContain("COPY cmux-open-url /usr/local/bin/cmux-open-url");
+    for (const name of ["xdg-open", "x-www-browser", "sensible-browser"]) {
+      expect(dockerfile).toContain(`ln -sfn cmux-open-url /usr/local/bin/${name}`);
+    }
+    const bake = readScript("build-devbox-freestyle.ts");
+    expect(bake).toContain('await put("cmux-open-url", "/usr/local/bin/cmux-open-url", 0o755);');
+    expect(readScript("verify-devbox-image.ts")).toContain("cloud-browser-openers-ok");
+    expect(read("agent-config.sh")).toContain("export BROWSER=/usr/local/bin/cmux-open-url");
+    expect(read("agent-config.sh")).toContain("export GH_BROWSER=/usr/local/bin/cmux-open-url");
+  });
+
 });

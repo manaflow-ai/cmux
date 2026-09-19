@@ -8,24 +8,11 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? {
-        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
-            return nil
-        }
-        return terminalWorkingDirectory(for: panelId)
+        terminalWorkingDirectory(for: sourcePanelId)
     }
 
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
-        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else {
-            return false
-        }
-        return detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true
-    }
-
-    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
-        guard let resource = SurfaceCatalog.shared.resource(forPanel: sourcePanelId),
-              let address = SurfaceCatalog.shared.machineInfo(for: resource.machine)?.privateAddress,
-              let target = CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(url: url, resource: resource, privateAddress: address) else { return nil }
-        return target
+        detachedSurfaceTransfersByPanelId[sourcePanelId]?.isRemoteTerminal == true
     }
 
     func deferTerminalFileLinkOpen(
@@ -39,8 +26,7 @@ extension DockSplitStore: TerminalLinkOpenContainer {
     }
 
     func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
-        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
-              let sourcePane = paneId(forPanelId: panelId) else { return false }
+        guard let sourcePane = paneId(forPanelId: sourcePanelId) else { return false }
         if let targetPane = BrowserRightSidePaneResolver().preferredPane(
             from: sourcePane,
             in: bonsplitController
@@ -50,12 +36,14 @@ extension DockSplitStore: TerminalLinkOpenContainer {
                 kind: .browser,
                 inPane: targetPane,
                 url: url,
-                focus: false
+                focus: focus
             ) else { return false }
-            if focus { focusPanelFromDockInteraction(
-                panelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
-            ) }
+            if focus {
+                focusPanelFromDockInteraction(
+                    panelId,
+                    window: NSApp.keyWindow ?? NSApp.mainWindow
+                )
+            }
             return true
         }
         if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
@@ -63,14 +51,16 @@ extension DockSplitStore: TerminalLinkOpenContainer {
             kind: .browser,
             orientation: .horizontal,
             insertFirst: false,
-            sourcePanelId: panelId,
+            sourcePanelId: sourcePanelId,
             url: url,
-            focus: false
+            focus: focus
         ) else { return false }
-        if focus { focusPanelFromDockInteraction(
-            panelId,
-            window: NSApp.keyWindow ?? NSApp.mainWindow
-        ) }
+        if focus {
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+        }
         return true
     }
 }
