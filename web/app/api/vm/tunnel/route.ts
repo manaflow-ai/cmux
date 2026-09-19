@@ -49,7 +49,12 @@ export async function POST(request: Request): Promise<Response> {
     { "cmux.vm.operation": "enroll_tunnel" },
     "/api/vm/tunnel failed",
     async ({ user, span }) => {
-      const body = await parseLenientObjectBody(request);
+      const parsedBody = await parseLenientObjectBody(request, {
+        operation: "enroll tunnel",
+        action: "Send a small JSON object with the documented tunnel fields.",
+      });
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       const account = resolveVmRouteAccountScope(user, request);
       if (!account.ok) return account.response;
 
@@ -174,7 +179,12 @@ export async function DELETE(request: Request): Promise<Response> {
       if (!account.ok) return account.response;
 
       const url = new URL(request.url);
-      const body = await parseLenientObjectBody(request);
+      const parsedBody = await parseLenientObjectBody(request, {
+        operation: "revoke tunnel",
+        action: "Send a small JSON object with the documented tunnel fields.",
+      });
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       let deviceId: string | undefined;
       try {
         deviceId = optionalClientIdentifier(

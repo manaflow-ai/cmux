@@ -1,3 +1,4 @@
+import { oversizedBodyResponse, readBoundedBodyText } from "../../../services/vms/routeInput";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
@@ -387,15 +388,17 @@ async function parseCreateRequest(
   span: Span,
   timing: VmTimingRecorder,
 ): Promise<ParsedCreateRequest> {
-  let parsedBody: { readonly bodyWasEmpty: boolean; readonly raw: unknown };
+  let parsedBody: { readonly bodyWasEmpty: boolean; readonly bodyTooLarge: boolean; readonly raw: unknown };
   try {
     parsedBody = await measureVmAsync(timing, "request_parse", async () => {
-      const rawText = await request.text();
+      const bounded = await readBoundedBodyText(request);
+      if (!bounded.ok) return { bodyWasEmpty: false, bodyTooLarge: true, raw: undefined as unknown };
+      const rawText = bounded.text;
       const bodyWasEmpty = rawText.length === 0;
       if (bodyWasEmpty) {
-        return { bodyWasEmpty, raw: undefined as unknown };
+        return { bodyWasEmpty, bodyTooLarge: false, raw: undefined as unknown };
       }
-      return { bodyWasEmpty, raw: JSON.parse(rawText) as unknown };
+      return { bodyWasEmpty, bodyTooLarge: false, raw: JSON.parse(rawText) as unknown };
     });
   } catch (err) {
     if (!(err instanceof SyntaxError)) throw err;
@@ -410,7 +413,13 @@ async function parseCreateRequest(
       }),
     };
   }
-  const { bodyWasEmpty, raw } = parsedBody;
+  const { bodyWasEmpty, bodyTooLarge, raw } = parsedBody;
+  if (bodyTooLarge) {
+    return { ok: false, response: oversizedBodyResponse({
+      operation: "create",
+      action: "Send `{}` for the default VM, or send a smaller JSON object.",
+    }) };
+  }
   if (!bodyWasEmpty && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
     recordSpanError(span, new Error("Cloud VM create body was not a JSON object"));
     return {
@@ -705,12 +714,7 @@ function resolveCreateImage(provider: ProviderId, body: CreateBody, memoryMb: nu
           action: described.action,
           reason: "Cloud VM image configuration is unavailable.",
           details: described.details,
-          diagnostics: {
-            provider,
-            image: err.image,
-            envVar: err.envVar,
-            configReason: err.reason,
-          },
+          diagnostics: described.operator,
         }),
       };
     }

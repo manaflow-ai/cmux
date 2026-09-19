@@ -215,9 +215,9 @@ describe("VM image resolver: request by kind", () => {
       allowedKinds: ["desktop", "base"],
     });
     expect(JSON.stringify(report.details)).not.toMatch(/FREESTYLE_|manifest|sh-[a-z0-9]|MiB/);
-    // The operator log carries what the response may not.
-    expect(report.operator).toMatchObject({ provider: "freestyle", kind: "desktop", reason: err.reason });
-    expect(report.operator.allowedImages).toContain(ladder.sm);
+    // Operator logs retain classification without the raw provider reason.
+    expect(report.operator).toMatchObject({ provider: "freestyle", kind: "desktop", reasonCode: "invalid_image_configuration" });
+    expect(report.operator.allowedImageCount).toBe(err.allowedImages.length);
   });
 
   test("an image listed under two kinds resolves to the entry of the requested kind", () => {
@@ -285,7 +285,7 @@ describe("VM image resolver: request by kind", () => {
     });
     expect(report.message).toBe("The requested Cloud VM image is not available in this environment.");
     expect(report.action).toContain("kind`: desktop, base");
-    expect(report.operator).toMatchObject({ image: "cmuxd-ws:unlisted" });
+    expect(report.operator).toMatchObject({ imageRequested: true, allowedImageCount: err.allowedImages.length });
   });
 
   test("derives a kind for stored images and lists the kinds a provider can serve", () => {
@@ -365,3 +365,26 @@ describe("provider inference from explicit images", () => {
     expect(inferVmProviderForImage("   ")).toBeNull();
   });
 });
+
+  test("operator image diagnostics do not log untrusted image or reason text", () => {
+    const err = new VmImageConfigError({
+      provider: "freestyle",
+      image: "https://attacker.example/image?token=secret",
+      kind: "base",
+      source: "request",
+      allowedImages: ["sh-example"],
+      reason: "provider said \u001b[31msecret\u001b[0m",
+    });
+    const originalError = console.error;
+    const calls: unknown[][] = [];
+    console.error = ((...args: unknown[]) => calls.push(args)) as typeof console.error;
+    try {
+      reportVmImageConfigError(err, { VERCEL: "1", VERCEL_ENV: "production" });
+    } finally {
+      console.error = originalError;
+    }
+    expect(JSON.stringify(calls)).not.toContain("attacker.example");
+    expect(JSON.stringify(calls)).not.toContain("token=secret");
+    expect(JSON.stringify(calls)).not.toContain("provider said");
+    expect(JSON.stringify(calls)).not.toContain("\\u001b");
+  });

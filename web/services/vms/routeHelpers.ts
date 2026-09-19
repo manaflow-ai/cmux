@@ -119,7 +119,7 @@ export async function withAuthedVmApiRoute(
             responseFinalizer(response);
           } catch (err) {
             recordSpanError(span, err);
-            console.error(`${failureLog}: response finalizer failed`, err);
+            console.error(`${failureLog}: response finalizer failed`, { failure: "unexpected" });
           }
         }
         // Every VM response, every route: outcome + latency to the span and
@@ -134,7 +134,7 @@ export async function withAuthedVmApiRoute(
           });
         } catch (err) {
           recordSpanError(span, err);
-          console.error(`${failureLog}: outcome capture failed`, err);
+          console.error(`${failureLog}: outcome capture failed`, { failure: "unexpected" });
         }
         if (response.status >= 400 || !isPolledVmOperation(operation)) {
           scheduleTraceFlush();
@@ -182,7 +182,7 @@ export async function withAuthedVmApiRoute(
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
-        console.error(failureLog, err);
+        console.error(failureLog, { failure: "unexpected" });
         const workflowError = await vmWorkflowErrorResponse(err, { locale: vmRequestLocale(request) });
         if (workflowError) return finalize(workflowError);
         return finalize(vmErrorResponse({
@@ -996,7 +996,7 @@ function vmProviderOperationErrorResponse(error: VmProviderOperationError): Resp
       JSON.stringify({
         provider: error.provider,
         operation: error.operation,
-        cause: providerCause?.message ?? String(error.cause),
+        code: "provider_image_not_found",
       }),
     );
     return vmErrorResponse({
@@ -1077,8 +1077,8 @@ function providerImageNotFound(cause: unknown): boolean {
   let current: unknown = cause;
   for (let depth = 0; depth < 8 && current; depth += 1) {
     const record = current as { body?: { code?: unknown }; cause?: unknown; message?: unknown };
-    const code = typeof record.body?.code === "string" ? record.body.code : "";
-    const message = typeof record.message === "string" ? record.message : "";
+    const code = typeof record.body?.code === "string" ? record.body.code.slice(0, 128) : "";
+    const message = typeof record.message === "string" ? record.message.slice(0, 512) : "";
     // Freestyle resolves an image to a SNAPSHOT id, so its missing-image
     // answer is a snapshot 404, not an IMAGE_NOT_FOUND code.
     if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|SNAPSHOT_NOT_FOUND/i.test(code)) return true;
@@ -1099,9 +1099,9 @@ function providerCauseSummary(cause: unknown): { code?: string; message?: string
       cause?: unknown;
       message?: unknown;
     };
-    const code = typeof record.body?.code === "string" ? record.body.code.trim() : "";
-    const bodyMessage = typeof record.body?.message === "string" ? record.body.message.trim() : "";
-    const message = typeof record.message === "string" ? record.message.trim() : "";
+    const code = typeof record.body?.code === "string" ? record.body.code.slice(0, 128).trim() : "";
+    const bodyMessage = typeof record.body?.message === "string" ? record.body.message.slice(0, 512).trim() : "";
+    const message = typeof record.message === "string" ? record.message.slice(0, 512).trim() : "";
     const summaryMessage = bodyMessage || message;
     if (code) {
       return {
@@ -1235,16 +1235,15 @@ function vmUnavailableDisplayMessage(phase: VmLifecyclePhase, retryAfterSeconds:
   return `${vmUnavailableMessage(phase)}${suffix}`;
 }
 
-function sanitizedProviderMessage(message: string): string {
+function sanitizedProviderMessage(message: string): string | null {
   const normalized = message.trim();
-  if (!normalized) return "";
+  if (!normalized) return null;
   if (/internal/i.test(normalized) && /error/i.test(normalized)) return "internal service error";
   if (/timeout|timed out|aborted/i.test(normalized)) return "request timed out";
   if (/rate[_\s-]*limit|too many requests/i.test(normalized)) return "rate limited";
   if (/not found|deleted/i.test(normalized)) return "VM not found";
-  return normalized
-    .replace(/freestyle/gi, "Cloud VM")
-    .slice(0, 240);
+  // Unknown provider text may contain credentials or private paths.
+  return null;
 }
 
 function sanitizedProviderCode(code: string): string {
@@ -1254,7 +1253,7 @@ function sanitizedProviderCode(code: string): string {
   if (normalized.includes("timeout") || normalized.includes("aborted")) return "provider_timeout";
   if (normalized.includes("rate")) return "provider_rate_limited";
   if (normalized.includes("not_found") || normalized.includes("deleted")) return "provider_not_found";
-  return normalized.slice(0, 80);
+  return "";
 }
 
 function inferredProviderCode(message: string | null): string | null {

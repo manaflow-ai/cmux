@@ -360,7 +360,7 @@ final class MachineCreateCoordinator {
             let token = String(token)
             guard token.hasPrefix("machine=") else { continue }
             let id = String(token.dropFirst("machine=".count))
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
+            if id.count <= 128, !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
                 return id
             }
         }
@@ -372,7 +372,7 @@ final class MachineCreateCoordinator {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard line.hasPrefix(prefix), line.hasSuffix(suffix), line.count > prefix.count + suffix.count else { continue }
             let id = String(line.dropFirst(prefix.count).dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
+            if id.count <= 128, !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
         }
         return nil
     }

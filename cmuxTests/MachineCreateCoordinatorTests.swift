@@ -466,6 +466,13 @@ struct MachineCreateCoordinatorTests {
         #expect(notices.notices.first?.body.contains("abc123") == false)
     }
 
+    @Test func failureOutputStripsControlsAndBoundsVisibleText() {
+        let output = MachineCreateCoordinator.displayableFailureOutput("Error: \u{1B}[31mquota exceeded\u{1B}[0m")
+        #expect(!output.contains("\u{1B}"))
+        #expect(output.contains("quota exceeded"))
+        #expect(CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(repeating: "a", count: 4000)).count == 2000)
+    }
+
     @Test func headlineSkipsTheCreatedLineAndTheErrorPrefix() {
         #expect(MachineCreateOperation.headline(ofOutput: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel.") == "No provider for machine calm-petrel.")
         #expect(MachineCreateOperation.headline(ofOutput: "\n  Error: quota exceeded\nWhat to do:\n") == "quota exceeded")
@@ -490,6 +497,9 @@ struct MachineCreateCoordinatorTests {
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "") == nil)
+        let oversizedID = String(repeating: "a", count: 129)
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "OK machine=\(oversizedID)") == nil)
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM \(oversizedID)") == nil)
     }
 
     // MARK: Sign-out

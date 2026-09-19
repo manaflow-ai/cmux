@@ -27,7 +27,12 @@ export async function PATCH(
     { "cmux.vm.operation": "rename_access_grant" },
     "/api/vm/access-grants/[id] failed",
     async ({ user }) => {
-      const body = await parseLenientObjectBody(request);
+      const parsedBody = await parseLenientObjectBody(request, {
+        operation: "rename access grant",
+        action: "Send a small JSON object containing displayName.",
+      });
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       const raw = optionalString(body.displayName ?? body.display_name);
       if (raw && raw.length > MAX_DISPLAY_NAME_LENGTH) {
         return vmErrorResponse({

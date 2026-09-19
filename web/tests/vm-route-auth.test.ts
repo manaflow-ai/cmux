@@ -644,6 +644,25 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("rejects oversized create, Base, and legacy attach bodies before workflows", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const body = JSON.stringify({ padding: "x".repeat(64 * 1024) });
+    const request = (path: string) => new Request(`https://cmux.test${path}`, {
+      method: "POST", headers: { origin: "https://cmux.test" }, body,
+    });
+    const responses = [
+      await POST(request("/api/vm")),
+      await baseOpenRoute.POST(request("/api/vm/base/open")),
+      await baseResetRoute.POST(request("/api/vm/base/reset")),
+      await attachRoute.POST(request("/api/vm/vm-1/attach-endpoint"), { params: Promise.resolve({ id: "vm-1" }) }),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(413);
+      expect(await response.json()).toMatchObject({ error: "vm_request_body_too_large" });
+    }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("lists the kinds the default provider can serve alongside plan limits", async () => {
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue([
@@ -2125,18 +2144,22 @@ describe("VM REST auth", () => {
       });
       expectNoCloudVmImplementationLeaks(payload);
       const consoleErrorCalls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-      expect(consoleErrorCalls.some((call) => call[0] === "[vm-image-unavailable]")).toBe(true);
+      const imageLog = consoleErrorCalls.find((call) => call[0] === "[vm-image-unavailable]");
+      expect(imageLog).toBeDefined();
+      expect(JSON.stringify(imageLog)).not.toContain("sandbox/cmux-devbox:latest");
+      expect(JSON.stringify(imageLog)).not.toContain("IMAGE_NOT_FOUND");
     } finally {
       console.error = originalError;
     }
   });
 
-  test("maps attach provider internal errors to concise retryable VM state", async () => {
+  test("maps unknown attach provider diagnostics to concise retryable VM state", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const originalError = console.error;
     console.error = mock(() => {}) as unknown as typeof console.error;
     try {
-      const providerCause = new Error("INTERNAL_ERROR: Internal server error");
+      const providerSecret = "https://provider.example/internal?access_token=do-not-log";
+      const providerCause = new Error(providerSecret);
       const response = await withAuthedVmApiRoute(
         new Request("https://cmux.test/api/vm/provider-vm-1/attach-endpoint", {
           method: "POST",
@@ -2174,12 +2197,12 @@ describe("VM REST auth", () => {
         },
         details: {
           operation: "openAttach",
-          providerCode: "provider_internal",
-          providerMessage: "internal service error",
           retryable: true,
         },
       });
-      expect(JSON.stringify(payload)).not.toContain("INTERNAL_ERROR");
+      expect(JSON.stringify(payload)).not.toContain(providerSecret);
+      expect(JSON.stringify(payload)).not.toContain("access_token");
+      expect(JSON.stringify(payload)).not.toContain("providerMessage");
       expect(JSON.stringify(payload)).not.toContain("Freestyle");
     } finally {
       console.error = originalError;

@@ -545,7 +545,9 @@ final class CloudVMActionLauncher {
     nonisolated static func sanitizedCloudVMStartOutput(_ output: String) -> String {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
-        let lowercased = trimmed.lowercased()
+        let controlFree = String(trimmed.unicodeScalars.filter { !isControlCharacterScalar($0) })
+        guard !controlFree.isEmpty else { return "" }
+        let lowercased = controlFree.lowercased()
         let normalized = lowercased
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
@@ -624,7 +626,7 @@ final class CloudVMActionLauncher {
               !containsLikelyFilesystemPath else {
             return hiddenOutputPlaceholder
         }
-        return trimmed
+        return String(controlFree.prefix(2_000))
     }
 }
 
