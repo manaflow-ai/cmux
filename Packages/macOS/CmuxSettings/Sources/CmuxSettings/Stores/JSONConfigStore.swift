@@ -68,22 +68,9 @@ public actor JSONConfigStore {
     ///   - sanitizer: JSONC sanitizer applied to file contents on read.
     ///     Inject a custom one in tests; the default is enough for normal use.
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
-        self.init(
-            fileURL: fileURL,
-            sanitizer: sanitizer,
-            sourceEditor: JSONCPathEditor()
-        )
-    }
-
-    /// Internal injection seam for focused mutation tests and future editor reuse.
-    init(
-        fileURL: URL,
-        sanitizer: JSONCSanitizer,
-        sourceEditor: JSONCPathEditor
-    ) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
-        self.sourceEditor = sourceEditor
+        self.sourceEditor = JSONCPathEditor()
         // The primary watcher observes the configured path, including symlink
         // replacement/retarget events in its parent directory. A secondary
         // target watcher observes edits that land in the resolved target's own
