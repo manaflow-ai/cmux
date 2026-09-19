@@ -19,17 +19,17 @@ impl Hub {
         let requested = agent;
         let (agent, profile, defaults) = {
             let cfg = self.config.read().await;
-            let resolved = self.resolve_agent_in(&cfg, requested).ok_or_else(|| {
+            let resolved = self.resolve_harness_in(&cfg, requested).ok_or_else(|| {
                 let fams: Vec<String> = cfg.families().keys().cloned().collect();
                 let aliases = cfg.aliases();
                 RpcError::invalid_params(format!(
-                    "unknown agent {requested:?}; profiles: {}; families: {}{}",
-                    cfg.agents.keys().cloned().collect::<Vec<_>>().join(", "),
+                    "unknown harness {requested:?}; profiles: {}; families: {}{}",
+                    cfg.harnesses.keys().cloned().collect::<Vec<_>>().join(", "),
                     fams.join(", "),
                     if aliases.is_empty() { String::new() } else { format!("; aliases: {}", aliases.join(", ")) }
                 ))
             })?;
-            let profile = cfg.agents[&resolved].clone();
+            let profile = cfg.harnesses[&resolved].clone();
             let defaults = cfg.defaults_for_request(requested, &resolved);
             (resolved, profile, defaults)
         };
@@ -59,8 +59,8 @@ impl Hub {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
-            agent: agent.into(),
-            agent_argv: profile.argv.clone(),
+            harness: agent.into(),
+            harness_argv: profile.argv.clone(),
             family: Some(family),
             cwd,
             agent_session_id: None,
@@ -94,7 +94,7 @@ impl Hub {
             .lock()
             .unwrap()
             .insert(id.clone(), session.clone());
-        self.append(&session, "mux", "created", json!({"agent": agent}));
+        self.append(&session, "mux", "created", json!({"harness": agent}));
         self.ensure_child(&session, &self.with_default_env(&profile, &defaults.env)).await?;
         // Family or profile defaults, applied once the harness is up. A bad
         // default fails creation loudly rather than starting a session that
@@ -147,7 +147,7 @@ impl Hub {
     pub(super) async fn ensure_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        profile: &AgentProfile,
+        profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         if let Some(child) = session.child.lock().await.as_ref() {
             if child.is_alive().await {
@@ -198,7 +198,7 @@ impl Hub {
             };
             tap_hub.append(&tap_session, d, &kind, msg.to_value());
         });
-        let is_claude = profile.kind == crate::config::AgentKind::ClaudeStdio;
+        let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let existing_sid = session.meta().agent_session_id.clone();
         let fork_from = session.fork_from.lock().unwrap().take();
         let child = if is_claude {
@@ -222,11 +222,11 @@ impl Hub {
                     *tr.session_id.lock().await = Some(sid);
                 }
             }
-            ChildAgent::spawn_with(&meta.agent, profile, &meta.cwd, session.inbound_tx.clone(), tap, Some((plan.program, plan.args)), Some(tr), Some((&session.id, &meta.name)))
+            ChildAgent::spawn_with(&meta.harness, profile, &meta.cwd, session.inbound_tx.clone(), tap, Some((plan.program, plan.args)), Some(tr), Some((&session.id, &meta.name)))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         } else {
-            ChildAgent::spawn_with(&meta.agent, profile, &meta.cwd, session.inbound_tx.clone(), tap, None, None, Some((&session.id, &meta.name)))
+            ChildAgent::spawn_with(&meta.harness, profile, &meta.cwd, session.inbound_tx.clone(), tap, None, None, Some((&session.id, &meta.name)))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))?
         };
@@ -301,7 +301,7 @@ impl Hub {
             self.set_status(session, SessionStatus::Ready);
             self.save_meta(session);
             let meta_now = session.meta();
-            self.remember_models(&meta_now.agent, &meta_now);
+            self.remember_models(&meta_now.harness, &meta_now);
             return Ok(child);
         }
         let existing = session.meta().agent_session_id;
@@ -367,7 +367,7 @@ impl Hub {
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();
-        self.remember_models(&meta_now.agent, &meta_now);
+        self.remember_models(&meta_now.harness, &meta_now);
         Ok(child)
     }
 
@@ -453,12 +453,12 @@ impl Hub {
     /// the background at daemon start so the picker is full before the first
     /// session exists.
     pub async fn probe_models(self: &Arc<Self>) {
-        let agents: Vec<(String, AgentProfile)> = {
+        let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
-            cfg.agents
+            cfg.harnesses
                 .iter()
-                .filter(|(n, p)| p.kind == crate::config::AgentKind::Acp && !known.contains_key(*n))
+                .filter(|(n, p)| p.kind == crate::config::HarnessKind::Acp && !known.contains_key(*n))
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
         };
@@ -474,7 +474,7 @@ impl Hub {
         }
     }
 
-    async fn probe_one(self: &Arc<Self>, name: &str, profile: &AgentProfile) -> anyhow::Result<usize> {
+    async fn probe_one(self: &Arc<Self>, name: &str, profile: &HarnessProfile) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _| {});
         let cwd = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"));
@@ -504,15 +504,15 @@ impl Hub {
         let cfg = self.config.read().await;
         let known = self.known_models.lock().unwrap().clone();
         let mut out = Vec::new();
-        for (name, profile) in &cfg.agents {
+        for (name, profile) in &cfg.harnesses {
             let mut models: Vec<Value> = match profile.kind {
-                crate::config::AgentKind::ClaudeStdio => crate::claude_stdio::models().iter().map(|(v, n)| json!({"id": v, "name": n})).collect(),
-                crate::config::AgentKind::Acp => known.get(name).map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect()).unwrap_or_default(),
+                crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models().iter().map(|(v, n)| json!({"id": v, "name": n})).collect(),
+                crate::config::HarnessKind::Acp => known.get(name).map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect()).unwrap_or_default(),
             };
             if models.is_empty() {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
-            out.push(json!({"agent": name, "kind": profile.kind, "isDefault": cfg.default_agent.as_deref() == Some(name), "models": models}));
+            out.push(json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models}));
         }
         json!({"harnesses": out})
     }
@@ -537,10 +537,10 @@ impl Hub {
     }
 
     pub(super) async fn child_for(self: &Arc<Self>, session: &Arc<Session>) -> Result<Arc<ChildAgent>, RpcError> {
-        let agent = session.meta().agent;
+        let agent = session.meta().harness;
         let (profile, defaults) = {
             let cfg = self.config.read().await;
-            let profile = cfg.agent(&agent).cloned().ok_or_else(|| RpcError::invalid_params(format!("unknown agent {agent:?}")))?;
+            let profile = cfg.profile(&agent).cloned().ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
             (profile, cfg.defaults_for(&agent))
         };
         self.ensure_child(session, &self.with_default_env(&profile, &defaults.env)).await
@@ -559,8 +559,8 @@ impl Hub {
 
     /// The profile for a family, profile or alias name, skipping preferred
     /// profiles whose reported model list lacks the model they would get.
-    pub fn resolve_agent_in(&self, cfg: &crate::config::Config, requested: &str) -> Option<String> {
-        cfg.resolve_agent_where(requested, |p, m| self.knows_model(p, m))
+    pub fn resolve_harness_in(&self, cfg: &crate::config::Config, requested: &str) -> Option<String> {
+        cfg.resolve_harness_where(requested, |p, m| self.knows_model(p, m))
     }
 
     /// The profile to run a model when the request named no agent: the
@@ -571,11 +571,11 @@ impl Hub {
         let known = self.known_models.lock().unwrap();
         let claude_like = model.starts_with("claude") || crate::claude_stdio::models().iter().any(|(id, _)| *id == model);
         let candidates: Vec<String> = cfg
-            .agents
+            .harnesses
             .iter()
             .filter(|(name, p)| match p.kind {
-                crate::config::AgentKind::ClaudeStdio => claude_like,
-                crate::config::AgentKind::Acp => known.get(*name).map(|l| l.iter().any(|(id, _)| id == model)).unwrap_or(false),
+                crate::config::HarnessKind::ClaudeStdio => claude_like,
+                crate::config::HarnessKind::Acp => known.get(*name).map(|l| l.iter().any(|(id, _)| id == model)).unwrap_or(false),
             })
             .map(|(n, _)| n.clone())
             .collect();
@@ -583,7 +583,7 @@ impl Hub {
         if candidates.is_empty() {
             return None;
         }
-        if let Some(d) = &cfg.default_agent {
+        if let Some(d) = &cfg.default_harness {
             if candidates.contains(d) {
                 return Some(d.clone());
             }
@@ -591,7 +591,7 @@ impl Hub {
         // The family's preferred profile when it is a candidate.
         for c in &candidates {
             if let Some(f) = cfg.family(c) {
-                if let Some(p) = cfg.resolve_agent(&f) {
+                if let Some(p) = cfg.resolve_harness(&f) {
                     if candidates.contains(&p) {
                         return Some(p);
                     }
@@ -602,7 +602,7 @@ impl Hub {
     }
 
     /// The profile with the family's default env underneath its own.
-    fn with_default_env(&self, profile: &AgentProfile, env: &std::collections::BTreeMap<String, String>) -> AgentProfile {
+    fn with_default_env(&self, profile: &HarnessProfile, env: &std::collections::BTreeMap<String, String>) -> HarnessProfile {
         let mut p = profile.clone();
         for (k, v) in env {
             p.env.entry(k.clone()).or_insert_with(|| v.clone());

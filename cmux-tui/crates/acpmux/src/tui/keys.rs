@@ -142,9 +142,9 @@ impl App {
                         self.overlay = Overlay::NewSession(f);
                     }
                     KeyCode::Enter => {
-                        if f.field == 0 && !f.agents.is_empty() {
-                            let rows: Vec<PickRow> = f.agents.iter().map(|a| PickRow { value: a.clone(), label: a.clone(), header: false, group: String::new(), note: String::new() }).collect();
-                            let cur = f.agents.get(f.agent).cloned();
+                        if f.field == 0 && !f.harnesses.is_empty() {
+                            let rows: Vec<PickRow> = f.harnesses.iter().map(|a| PickRow { value: a.clone(), label: a.clone(), header: false, group: String::new(), note: String::new() }).collect();
+                            let cur = f.harnesses.get(f.agent).cloned();
                             self.parked_form = Some(Overlay::NewSession(f));
                             self.overlay = Overlay::Picker(Picker::new("Agent", rows, cur.as_deref(), PickTarget::Agent, "↑↓ · Enter or click picks · Esc"));
                         } else {
@@ -152,8 +152,8 @@ impl App {
                         }
                     }
                     KeyCode::Left | KeyCode::Right if f.field == 0 => {
-                        if !f.agents.is_empty() {
-                            f.agent = if key.code == KeyCode::Right { (f.agent + 1) % f.agents.len() } else { (f.agent + f.agents.len() - 1) % f.agents.len() };
+                        if !f.harnesses.is_empty() {
+                            f.agent = if key.code == KeyCode::Right { (f.agent + 1) % f.harnesses.len() } else { (f.agent + f.harnesses.len() - 1) % f.harnesses.len() };
                         }
                         self.overlay = Overlay::NewSession(f);
                     }
@@ -162,7 +162,7 @@ impl App {
                         self.overlay = Overlay::NewSession(f);
                     }
                     KeyCode::Char(c) if f.field == 0 && !ctrl => {
-                        if let Some(i) = f.agents.iter().position(|a| a.starts_with(c)) {
+                        if let Some(i) = f.harnesses.iter().position(|a| a.starts_with(c)) {
                             f.agent = i;
                         }
                         self.overlay = Overlay::NewSession(f);

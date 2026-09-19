@@ -14,7 +14,7 @@ pub fn locate(meta: &SessionMeta) -> Vec<(String, PathBuf)> {
         return vec![];
     };
     let mut out = Vec::new();
-    match meta.agent.as_str() {
+    match meta.harness.as_str() {
         "codex" => {
             // ~/.codex/sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl
             let root = home.join(".codex").join("sessions");

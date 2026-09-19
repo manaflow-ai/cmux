@@ -91,7 +91,7 @@ pub const ACTIONS: &[ActionDef] = &[
     ActionDef { action: Action::Effort, name: "effort", aliases: &["thinking", "reasoning"], label: "pick the thinking effort", keys: "Alt-e", group: "settings", args: "[LEVEL]" },
     ActionDef { action: Action::Policy, name: "policy", aliases: &["perms", "permissions"], label: "permission policy: ask · approve-reads · approve-edits · approve-all · deny-all", keys: "", group: "settings", args: "[POLICY]" },
     ActionDef { action: Action::Directory, name: "cwd", aliases: &["dir", "directory"], label: "working directory (a live session forks into a new tab)", keys: "", group: "settings", args: "[PATH]" },
-    ActionDef { action: Action::Agent, name: "agent", aliases: &[], label: "harness for the current draft", keys: "", group: "settings", args: "NAME" },
+    ActionDef { action: Action::Agent, name: "harness", aliases: &[], label: "harness for the current draft", keys: "", group: "settings", args: "NAME" },
     ActionDef { action: Action::Set, name: "set", aliases: &["config", "option"], label: "any agent option: /set KEY or /set KEY=VALUE", keys: "", group: "settings", args: "KEY[=VALUE]" },
     ActionDef { action: Action::ToggleSystem, name: "system", aliases: &["events", "lifecycle"], label: "show or hide lifecycle events (stopped, resumed, renamed, model set)", keys: "", group: "reading", args: "" },
     ActionDef { action: Action::ToggleThoughts, name: "thoughts", aliases: &["thinking-text"], label: "show or hide the agent's thinking text", keys: "", group: "reading", args: "" },
@@ -269,14 +269,14 @@ impl App {
                 None => self.open_directory_dialog(),
             },
             Action::Agent => {
-                let known = self.agents.clone();
+                let known = self.harnesses.clone();
                 match (self.draft_mut(), args.first()) {
                     (Some(d), Some(a)) => {
                         if known.iter().any(|x| x == a) {
-                            d.agent = a.to_string();
-                            self.status = format!("draft agent: {a}");
+                            d.harness = a.to_string();
+                            self.status = format!("draft harness: {a}");
                         } else {
-                            self.report_error(format!("unknown agent {a}; known: {}", known.join(", ")));
+                            self.report_error(format!("unknown harness {a}; known: {}", known.join(", ")));
                         }
                     }
                     (None, _) => self.report_error("/agent only applies to a new session tab (Ctrl-t); use /model on a live session".into()),

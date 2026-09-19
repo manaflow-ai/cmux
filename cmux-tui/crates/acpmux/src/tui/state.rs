@@ -55,7 +55,7 @@ pub enum ConfirmAction {
 }
 
 pub struct NewForm {
-    pub agents: Vec<String>,
+    pub harnesses: Vec<String>,
     pub agent: usize,
     pub name: Editor,
     pub cwd: Editor,
@@ -71,7 +71,7 @@ pub struct Draft {
     pub id: u64,
     /// Create on this peer daemon instead of the local one.
     pub peer: Option<String>,
-    pub agent: String,
+    pub harness: String,
     pub cwd: String,
     pub policy: String,
     pub model: Option<String>,

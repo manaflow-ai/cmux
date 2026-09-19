@@ -17,9 +17,9 @@ impl App {
         };
         let agent = self
             .selected_session()
-            .and_then(|s| s.get("agent").and_then(Value::as_str).map(str::to_owned))
-            .or_else(|| self.default_agent.clone())
-            .or_else(|| self.agents.first().cloned())
+            .and_then(|s| s.get("harness").and_then(Value::as_str).map(str::to_owned))
+            .or_else(|| self.default_harness.clone())
+            .or_else(|| self.harnesses.first().cloned())
             .unwrap_or_default();
         let cwd = self
             .selected_session()
@@ -33,7 +33,7 @@ impl App {
             .to_owned();
         let id = self.next_draft_id;
         self.next_draft_id += 1;
-        self.drafts.insert(0, Draft { id, peer, agent, cwd, policy, model: None, creating: false, text: Editor::default(), errors: Vec::new(), effort: None });
+        self.drafts.insert(0, Draft { id, peer, harness: agent, cwd, policy, model: None, creating: false, text: Editor::default(), errors: Vec::new(), effort: None });
         self.selected = 0;
         self.selection = None;
         self.focus = Focus::Input;
@@ -62,11 +62,11 @@ impl App {
         }
         d.creating = true;
         let d = d.clone();
-        if d.agent.is_empty() {
-            self.report_error("no agents configured; edit ~/.acpmux/config.json".into());
+        if d.harness.is_empty() {
+            self.report_error("no harnesses configured; edit ~/.acpmux/config.json".into());
             return;
         }
-        let mut params = json!({"cwd": d.cwd, "mcpServers": [], "_meta": {"acpmux": {"agent": d.agent, "policy": d.policy}}});
+        let mut params = json!({"cwd": d.cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": d.harness, "policy": d.policy}}});
         if let Some(p) = &d.peer {
             params["_meta"]["acpmux"]["peer"] = json!(p);
         }
@@ -74,7 +74,7 @@ impl App {
         let tx = self.tx.clone();
         let model = d.model.clone();
         let effort = d.effort.clone();
-        self.status = format!("starting {}…", d.agent);
+        self.status = format!("starting {}…", d.harness);
         tokio::spawn(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
@@ -108,12 +108,12 @@ impl App {
             .map(str::to_owned)
             .unwrap_or_else(|| std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default());
         let agent = self
-            .default_agent
+            .default_harness
             .as_ref()
-            .and_then(|d| self.agents.iter().position(|a| a == d))
+            .and_then(|d| self.harnesses.iter().position(|a| a == d))
             .unwrap_or(0);
         self.overlay = Overlay::NewSession(NewForm {
-            agents: self.agents.clone(),
+            harnesses: self.harnesses.clone(),
             agent,
             name: Editor::default(),
             cwd: { let mut e = Editor::default(); e.set_text(&cwd); e },
@@ -124,8 +124,8 @@ impl App {
     }
 
     pub(super) fn submit_new_session(&mut self, form: &NewForm) {
-        let Some(agent) = form.agents.get(form.agent) else {
-            self.report_error("no agents configured; edit ~/.acpmux/config.json".into());
+        let Some(agent) = form.harnesses.get(form.agent) else {
+            self.report_error("no harnesses configured; edit ~/.acpmux/config.json".into());
             return;
         };
         let form_name = form.name.text();
@@ -135,7 +135,7 @@ impl App {
                 return;
             }
         }
-        let mut meta = json!({"agent": agent, "policy": POLICIES[form.policy]});
+        let mut meta = json!({"harness": agent, "policy": POLICIES[form.policy]});
         if !form_name.is_empty() {
             meta["name"] = json!(form_name);
         }
@@ -143,7 +143,7 @@ impl App {
         let first = form.prompt.text().trim().to_owned();
         let client = self.client.clone();
         let tx = self.tx.clone();
-        self.status = "starting agent…".into();
+        self.status = "starting harness…".into();
         tokio::spawn(async move {
             match client.request(method::SESSION_NEW, params).await {
                 Ok(v) => {
@@ -184,9 +184,9 @@ impl App {
 
     pub(super) fn show_model_picker(&mut self, catalog: Value) {
         let current_agent = if self.on_draft() {
-            self.draft().map(|d| d.agent.clone())
+            self.draft().map(|d| d.harness.clone())
         } else {
-            self.selected_session().and_then(|s| s.get("agent").and_then(Value::as_str).map(str::to_owned))
+            self.selected_session().and_then(|s| s.get("harness").and_then(Value::as_str).map(str::to_owned))
         };
         let current_model = if self.on_draft() {
             None
@@ -212,7 +212,7 @@ impl App {
             (None, Some(a)) => Some(a.clone()),
             _ => None,
         };
-        harnesses.sort_by_key(|h| if h.get("agent").and_then(Value::as_str) == cur_key_for_sort.as_deref() { 0 } else { 1 });
+        harnesses.sort_by_key(|h| if h.get("harness").and_then(Value::as_str) == cur_key_for_sort.as_deref() { 0 } else { 1 });
         let current_peer = if self.on_draft() { self.draft().and_then(|d| d.peer.clone()) } else { self.selected_session().and_then(|s| s.get("peer").and_then(Value::as_str).map(str::to_owned)) };
         let current_key = match (&current_peer, &current_agent) {
             (Some(p), Some(a)) => Some(format!("{p}/{a}")),
@@ -220,7 +220,7 @@ impl App {
             _ => None,
         };
         for h in harnesses {
-            let agent = h.get("agent").and_then(Value::as_str).unwrap_or("").to_owned();
+            let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
             let is_current = Some(&agent) == current_key.as_ref();
             let note = if is_current { "current".to_owned() } else if live_session.is_some() { "forks into a new session".to_owned() } else { String::new() };
             rows.push(PickRow { value: String::new(), label: agent.clone(), header: true, group: agent.clone(), note });
@@ -302,7 +302,7 @@ impl App {
     pub(super) fn open_thinking_picker(&mut self) {
         if let Some(d) = self.draft() {
             let current = d.effort.clone().unwrap_or_else(|| "default".into());
-            let rows = super::actions::draft_effort_levels(&d.agent)
+            let rows = super::actions::draft_effort_levels(&d.harness)
                 .into_iter()
                 .map(|(v, l)| PickRow { value: v.into(), label: l.into(), header: false, group: String::new(), note: String::new() })
                 .collect();
@@ -398,9 +398,9 @@ impl App {
         match target {
             PickTarget::Model(live) => {
                 let current_agent = if self.on_draft() {
-                    self.draft().map(|d| d.agent.clone())
+                    self.draft().map(|d| d.harness.clone())
                 } else {
-                    self.selected_session().and_then(|s| s.get("agent").and_then(Value::as_str).map(str::to_owned))
+                    self.selected_session().and_then(|s| s.get("harness").and_then(Value::as_str).map(str::to_owned))
                 };
                 let current_peer = self.selected_session().and_then(|s| s.get("peer").and_then(Value::as_str).map(str::to_owned));
                 let current_key = match (&current_peer, &current_agent) {
@@ -416,7 +416,7 @@ impl App {
                 if live.is_none() && self.on_draft() {
                     let d = self.draft_mut().unwrap();
                     d.peer = peer;
-                    d.agent = agent;
+                    d.harness = agent;
                     d.model = if value == "default" { None } else { Some(value.clone()) };
                     self.status = format!("draft: {group} · {value}");
                 } else if let Some(id) = live {
@@ -428,7 +428,7 @@ impl App {
                         self.open_draft();
                         if let Some(d) = self.draft_mut() {
                             d.peer = peer;
-                            d.agent = agent;
+                            d.harness = agent;
                             d.model = if value == "default" { None } else { Some(value.clone()) };
                         }
                         self.status = format!("new session tab: {group} · {value}   (a running agent cannot change harness)");
@@ -482,7 +482,7 @@ impl App {
             }
             PickTarget::Agent => {
                 if let Some(Overlay::NewSession(f)) = self.parked_form.as_mut() {
-                    if let Some(i) = f.agents.iter().position(|a| *a == value) {
+                    if let Some(i) = f.harnesses.iter().position(|a| *a == value) {
                         f.agent = i;
                     }
                 }

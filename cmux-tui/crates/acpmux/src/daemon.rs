@@ -23,8 +23,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
     }
-    if config.agents.is_empty() {
-        tracing::warn!("no agents configured; add {{\"agents\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}", Config::path().display());
+    if config.harnesses.is_empty() {
+        tracing::warn!("no harnesses configured; add {{\"harnesses\":{{\"codex\":{{\"argv\":[\"codex-acp\"]}}}}}} to {}", Config::path().display());
     }
     std::fs::create_dir_all(home())?;
     // launchd starts us in /; sessions without a cwd default to home.

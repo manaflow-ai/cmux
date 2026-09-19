@@ -222,7 +222,7 @@ pub(crate) async fn ensure(client: Arc<Client>, name: &str, agent: Option<String
         None => {
             let mut meta = json!({"name": name});
             if let Some(a) = &agent {
-                meta["agent"] = json!(a);
+                meta["harness"] = json!(a);
             }
             if let Some(p) = &policy {
                 meta["policy"] = json!(p);
@@ -336,23 +336,24 @@ pub(crate) async fn rules(client: Arc<Client>, key: &str, rules: Option<String>,
 
 /// `acpmux compare a b "prompt"`: one temporary session per harness, run
 /// one after another in the same directory so writes cannot race.
-pub(crate) async fn compare(client: Arc<Client>, agents: Vec<String>, prompt: String, cwd: Option<std::path::PathBuf>, policy: Option<String>, timeout: Option<u64>, json_out: bool) -> Result<()> {
+pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt: String, cwd: Option<std::path::PathBuf>, policy: Option<String>, timeout: Option<u64>, json_out: bool) -> Result<()> {
+    let agents = harnesses;
     if agents.is_empty() {
-        return Err(AppError::usage("compare needs at least one agent").into());
+        return Err(AppError::usage("compare needs at least one harness").into());
     }
     let cwd = cwd.unwrap_or(std::env::current_dir()?);
     let mut rows = Vec::new();
     let mut worst = 0;
     for agent in &agents {
         let name = format!("compare-{agent}-{}", &uuid::Uuid::now_v7().to_string()[..8]);
-        let mut meta = json!({"name": name, "agent": agent});
+        let mut meta = json!({"name": name, "harness": agent});
         if let Some(p) = &policy {
             meta["policy"] = json!(p);
         }
         let started = std::time::Instant::now();
         let created = client.request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}})).await;
         let row = match created {
-            Err(e) => json!({"agent": agent, "status": "error", "error": e.to_string()}),
+            Err(e) => json!({"harness": agent, "status": "error", "error": e.to_string()}),
             Ok(v) => {
                 let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
                 let outcome = collect_reply(client.clone(), &id, &prompt, CollectOpts { timeout, on_permission: OnPermission::Wait, stall_secs: 0, retries: 0 }).await;
@@ -360,11 +361,11 @@ pub(crate) async fn compare(client: Arc<Client>, agents: Vec<String>, prompt: St
                 let stats = turn_stats(&client, &id).await;
                 let _ = client.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await;
                 match outcome {
-                    Ok(r) => json!({"agent": agent, "status": if r.stop_reason == "cancelled" { "cancelled" } else { "ok" }, "stopReason": r.stop_reason, "wallMs": wall, "tokens": stats.0, "toolCalls": stats.1, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "reply": r.reply.chars().take(200).collect::<String>()}),
+                    Ok(r) => json!({"harness": agent, "status": if r.stop_reason == "cancelled" { "cancelled" } else { "ok" }, "stopReason": r.stop_reason, "wallMs": wall, "tokens": stats.0, "toolCalls": stats.1, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "reply": r.reply.chars().take(200).collect::<String>()}),
                     Err(e) => {
                         let app = crate::cli::errors::classify(&e);
                         worst = worst.max(app.code as i32);
-                        json!({"agent": agent, "status": app.code.name(), "wallMs": wall, "error": app.message})
+                        json!({"harness": agent, "status": app.code.name(), "wallMs": wall, "error": app.message})
                     }
                 }
             }
@@ -380,7 +381,7 @@ pub(crate) async fn compare(client: Arc<Client>, agents: Vec<String>, prompt: St
             let n = |k: &str| r.get(k).and_then(Value::as_u64).map(|v| v.to_string()).unwrap_or_else(|| "-".into());
             let wall = r.get("wallMs").and_then(Value::as_u64).map(|ms| format!("{:.1}s", ms as f64 / 1000.0)).unwrap_or_else(|| "-".into());
             let text = if g("reply").is_empty() { g("error") } else { g("reply") };
-            println!("{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} {}", short(&g("agent"), 10), g("status"), wall, n("tokens"), n("toolCalls"), n("permissions"), short(&text.replace('\n', " "), 60));
+            println!("{:<10} {:<10} {:>8} {:>7} {:>5} {:>5} {}", short(&g("harness"), 10), g("status"), wall, n("tokens"), n("toolCalls"), n("permissions"), short(&text.replace('\n', " "), 60));
         }
     }
     if worst != 0 {

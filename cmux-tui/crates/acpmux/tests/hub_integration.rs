@@ -1,6 +1,6 @@
 //! End-to-end tests through the real protocol handler with a fake agent.
 
-use acpmux::config::{AgentProfile, Config, PermissionPolicy, StoreMode};
+use acpmux::config::{HarnessProfile, Config, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::serve_connection;
@@ -59,9 +59,9 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
     let mut agents = BTreeMap::new();
     agents.insert(
         "fake".to_owned(),
-        AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None },
+        HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None },
     );
-    let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
+    let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -337,8 +337,8 @@ async fn restart_marks_unknown_outcome() {
     let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
-    let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
+    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Local;
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
     let hub = Hub::new(cfg.clone(), store);
@@ -368,9 +368,9 @@ async fn restart_marks_unknown_outcome() {
 async fn limit_error_fails_over_to_the_fallback_profile() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: Some("fake-pool".into()), family: None });
-    agents.insert("fake-pool".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
-    let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
+    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: Some("fake-pool".into()), family: None });
+    agents.insert("fake-pool".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -390,7 +390,7 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     let session = hub.resolve(&id).unwrap();
     let kinds: Vec<String> = hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
     assert!(kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
-    assert_eq!(hub.session_summary(&session)["agent"], "fake-pool");
+    assert_eq!(hub.session_summary(&session)["harness"], "fake-pool");
     // The pool profile is the same fake agent, so it reports the limit too:
     // no second failover, the turn fails once and stays on the pool.
     assert!(r.is_err(), "{r:?}");
@@ -419,9 +419,9 @@ async fn process_death_quotes_the_last_stderr_line() {
 async fn family_defaults_pick_the_profile_model_effort_and_policy() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
-    agents.insert("fake-pool".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
-    let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
+    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    agents.insert("fake-pool".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.defaults.insert("fake".into(), acpmux::config::SessionDefaults { model: Some("m2".into()), models: BTreeMap::new(), effort: None, policy: Some(PermissionPolicy::ApproveAll), prefer: vec!["fake-pool".into()], env: BTreeMap::new() });
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -432,37 +432,37 @@ async fn family_defaults_pick_the_profile_model_effort_and_policy() {
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
     c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}})).await.unwrap();
     // The family name resolves to the preferred profile; defaults apply.
-    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "fake", "name": "fam"}}})).await.unwrap();
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "fam"}}})).await.unwrap();
     let sum = &s["_meta"]["acpmux"];
-    assert_eq!(sum["agent"], "fake-pool", "{sum}");
+    assert_eq!(sum["harness"], "fake-pool", "{sum}");
     assert_eq!(sum["family"], "fake");
     assert_eq!(sum["policy"], "approve-all");
     assert_eq!(sum["model"], "m2");
     // An explicit request wins over the defaults.
-    let s2 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "fake", "name": "fam2", "model": "m1", "policy": "ask"}}})).await.unwrap();
+    let s2 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "fam2", "model": "m1", "policy": "ask"}}})).await.unwrap();
     assert_eq!(s2["_meta"]["acpmux"]["model"], "m1");
     assert_eq!(s2["_meta"]["acpmux"]["policy"], "ask");
     // A profile name still works and lists its family in the agents view.
-    let a = c.request(method::MUX_AGENTS, json!({})).await.unwrap();
-    assert_eq!(a["agents"]["fake-pool"]["family"], "fake");
+    let a = c.request(method::MUX_HARNESSES, json!({})).await.unwrap();
+    assert_eq!(a["harnesses"]["fake-pool"]["family"], "fake");
     assert_eq!(a["families"]["fake"], json!(["fake", "fake-pool"]));
-    assert_eq!(a["agents"]["fake"]["defaults"]["model"], "m2");
+    assert_eq!(a["harnesses"]["fake"]["defaults"]["model"], "m2");
     // The defaults view resolves the family to its profile.
     let d = c.request(method::MUX_DEFAULTS, json!({"family": "fake"})).await.unwrap();
     assert_eq!(d["profile"], "fake-pool");
     assert_eq!(d["model"], "m2");
     // Unknown families name what exists.
-    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "gpt"}}})).await.unwrap_err();
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "gpt"}}})).await.unwrap_err();
     assert!(err.contains("families: fake"), "{err}");
     // An alias routes to its preferred profile with its own model id.
     let set = c.request(method::MUX_DEFAULTS, json!({"family": "fast", "set": {"prefer": ["fake"], "models": {"fake": "m1"}, "policy": "deny-all"}})).await.unwrap();
     assert_eq!(set["kind"], "alias");
     assert_eq!(set["model"], "m1");
-    let s3 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "fast", "name": "al"}}})).await.unwrap();
-    assert_eq!(s3["_meta"]["acpmux"]["agent"], "fake");
+    let s3 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fast", "name": "al"}}})).await.unwrap();
+    assert_eq!(s3["_meta"]["acpmux"]["harness"], "fake");
     assert_eq!(s3["_meta"]["acpmux"]["model"], "m1");
     assert_eq!(s3["_meta"]["acpmux"]["policy"], "deny-all");
-    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"agent": "gpt"}}})).await.unwrap_err();
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "gpt"}}})).await.unwrap_err();
     assert!(err.contains("aliases: fast"), "{err}");
 }
 
@@ -475,7 +475,7 @@ async fn a_model_alone_picks_the_harness_that_reports_it() {
     // A first session teaches the hub the fake agent's models (m1, m2).
     c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "seed"}}})).await.unwrap();
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"model": "m2", "name": "bymodel"}}})).await.unwrap();
-    assert_eq!(s["_meta"]["acpmux"]["agent"], "fake");
+    assert_eq!(s["_meta"]["acpmux"]["harness"], "fake");
     assert_eq!(s["_meta"]["acpmux"]["model"], "m2");
     let cfg = hub.config.read().await;
     assert_eq!(hub.resolve_by_model(&cfg, "m1").as_deref(), Some("fake"));

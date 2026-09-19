@@ -12,7 +12,7 @@
 //!
 //! Nothing outside this file knows the Claude wire format.
 
-use crate::config::AgentProfile;
+use crate::config::HarnessProfile;
 use crate::rpc::{Id, Message, RpcError, method};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -95,7 +95,7 @@ pub struct SpawnPlan {
 /// `mode` is pinned with `--permission-mode` so the user's Claude settings
 /// (often `auto`) cannot silently bypass acpmux's permission policy; the
 /// mode chip then always tells the truth.
-pub fn spawn_plan(profile: &AgentProfile, resume: Option<&str>, fork: bool, fresh_id: Option<&str>, effort: Option<&str>, mode: &str) -> SpawnPlan {
+pub fn spawn_plan(profile: &HarnessProfile, resume: Option<&str>, fork: bool, fresh_id: Option<&str>, effort: Option<&str>, mode: &str) -> SpawnPlan {
     let program = profile.argv.first().cloned().unwrap_or_else(|| "claude".into());
     // Everything after the program in argv comes first: a wrapper such as
     // `sr claude proxy` needs its own words before Claude's flags, and a

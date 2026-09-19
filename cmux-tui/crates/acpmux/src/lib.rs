@@ -1,4 +1,4 @@
-//! acpmux: tmux for ACP agents.
+//! acpmux: tmux for coding-agent harnesses.
 //!
 //! A daemon keeps ACP agent processes alive as named sessions, records every
 //! wire message, and serves the standard ACP protocol plus a small

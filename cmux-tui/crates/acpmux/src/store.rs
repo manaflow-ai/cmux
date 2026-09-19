@@ -66,9 +66,10 @@ pub struct SessionMeta {
     pub schema: String,
     pub id: String,
     pub name: String,
-    pub agent: String,
-    #[serde(default)]
-    pub agent_argv: Vec<String>,
+    #[serde(alias = "harness")]
+    pub harness: String,
+    #[serde(default, alias = "agent_argv")]
+    pub harness_argv: Vec<String>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
@@ -381,8 +382,8 @@ mod tests {
             schema: META_SCHEMA.into(),
             id: id.into(),
             name: id.into(),
-            agent: "codex".into(),
-            agent_argv: vec![],
+            harness: "codex".into(),
+            harness_argv: vec![],
             family: None,
             cwd: PathBuf::from("/tmp"),
             agent_session_id: None,

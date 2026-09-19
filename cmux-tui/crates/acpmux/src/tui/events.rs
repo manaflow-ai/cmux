@@ -115,8 +115,8 @@ impl App {
                 self.transcripts.insert(id, t);
             }
             AppMsg::Agents(list, default) => {
-                self.agents = list;
-                self.default_agent = default;
+                self.harnesses = list;
+                self.default_harness = default;
             }
             AppMsg::Status(v) => {
                 self.web_url = v.get("webUrl").and_then(Value::as_str).map(str::to_owned);

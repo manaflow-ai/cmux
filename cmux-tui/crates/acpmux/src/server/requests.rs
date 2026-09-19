@@ -37,7 +37,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_LIST,
     method::MUX_STATUS,
     method::MUX_SESSIONS,
-    method::MUX_AGENTS,
+    method::MUX_HARNESSES,
     method::MUX_WATCH,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
@@ -104,7 +104,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 },
                 "authMethods": [],
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
-                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_AGENTS, method::MUX_ATTACH,
+                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_ATTACH,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
@@ -135,10 +135,10 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()));
             let meta = mux_meta(&params);
             let agent = meta
-                .and_then(|m| m.get("agent"))
+                .and_then(|m| m.get("harness"))
                 .and_then(Value::as_str)
                 .map(str::to_owned)
-                .or_else(|| params.get("agent").and_then(Value::as_str).map(str::to_owned));
+                .or_else(|| params.get("harness").and_then(Value::as_str).map(str::to_owned));
             let model = meta.and_then(|m| m.get("model")).and_then(Value::as_str).map(str::to_owned);
             let agent = match agent {
                 Some(a) => a,
@@ -150,9 +150,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                             if let Some(m) = &model {
                                 // Nothing reports this model: say so instead of running it elsewhere.
                                 let families: Vec<String> = cfg.families().keys().cloned().collect();
-                                return Err(RpcError::invalid_params(format!("no harness reports model {m:?}; pass -a with one of: {}", families.join(", "))));
+                                return Err(RpcError::invalid_params(format!("no harness reports model {m:?}; pass -u with one of: {}", families.join(", "))));
                             }
-                            cfg.default_agent.clone().ok_or_else(|| RpcError::invalid_params("no agents configured; add one to config.json"))?
+                            cfg.default_harness.clone().ok_or_else(|| RpcError::invalid_params("no harnesses configured; add one to config.json"))?
                         }
                     }
                 }
@@ -286,8 +286,8 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                     if let Some(hs) = remote.get("harnesses").and_then(Value::as_array) {
                         for h in hs {
                             let mut h = h.clone();
-                            let agent = h.get("agent").and_then(Value::as_str).unwrap_or("").to_owned();
-                            h["agent"] = Value::String(format!("{}/{}", peer.name, agent));
+                            let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
+                            h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
                             h["peer"] = Value::String(peer.name.clone());
                             h["isDefault"] = Value::Bool(false);
                             if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
@@ -311,10 +311,10 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             hub.remove_peer(name).await?;
             Ok(json!({"peers": hub.peers()}))
         }
-        method::MUX_AGENTS => {
+        method::MUX_HARNESSES => {
             let cfg = hub.config.read().await;
             let mut agents = serde_json::Map::new();
-            for (name, p) in &cfg.agents {
+            for (name, p) in &cfg.harnesses {
                 let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
                 if let Some(o) = v.as_object_mut() {
                     o.insert("family".into(), json!(crate::config::derive_family(name, p)));
@@ -325,7 +325,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 }
                 agents.insert(name.clone(), v);
             }
-            Ok(json!({"agents": agents, "defaultAgent": cfg.default_agent, "families": cfg.families(), "defaults": cfg.defaults}))
+            Ok(json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults}))
         }
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {
@@ -376,10 +376,10 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let fams = cfg.families();
             for f in fams.keys().chain(cfg.defaults.keys()) {
                 if resolved.contains_key(f) { continue; }
-                let profile = hub.resolve_agent_in(&cfg, f);
+                let profile = hub.resolve_harness_in(&cfg, f);
                 let d = profile.as_deref().map(|p| cfg.defaults_for_request(f, p)).unwrap_or_default();
                 let model = profile.as_deref().and_then(|p| d.model_for(p));
-                let kind = if fams.contains_key(f) { "family" } else if cfg.agents.contains_key(f) { "profile" } else { "alias" };
+                let kind = if fams.contains_key(f) { "family" } else if cfg.harnesses.contains_key(f) { "profile" } else { "alias" };
                 resolved.insert(f.clone(), json!({"kind": kind, "profile": profile, "profiles": fams.get(f).cloned().unwrap_or_default(), "model": model, "models": d.models, "effort": d.effort, "policy": d.policy, "prefer": d.prefer, "env": d.env}));
             }
             match family {

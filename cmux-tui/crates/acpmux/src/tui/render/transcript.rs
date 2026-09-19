@@ -50,7 +50,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     if let Some(d) = app.draft() {
         let lines = [
             String::new(),
-            format!("  {}{}  ·  {}  ·  {}  ·  {}", d.peer.as_deref().map(|p| format!("{p}/")).unwrap_or_default(), d.agent, d.model.as_deref().unwrap_or("default model"), shorten_path(&d.cwd), d.policy),
+            format!("  {}{}  ·  {}  ·  {}  ·  {}", d.peer.as_deref().map(|p| format!("{p}/")).unwrap_or_default(), d.harness, d.model.as_deref().unwrap_or("default model"), shorten_path(&d.cwd), d.policy),
             String::new(),
             "  Type below and press Enter to start. The settings under the box are clickable. Esc discards.".into(),
         ];
@@ -62,7 +62,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         let mut y = inner.y + 6;
         if d.creating {
             let mut spans = vec![Span::raw("  ")];
-            spans.extend(crate::tui::shimmer::spans(&format!("Starting {}…", d.agent), c.shimmer_base, c.shimmer_bright));
+            spans.extend(crate::tui::shimmer::spans(&format!("Starting {}…", d.harness), c.shimmer_base, c.shimmer_bright));
             f_render(buf, Paragraph::new(Line::from(spans)), Rect { x: inner.x, y, width: inner.width, height: 1 });
             y += 1;
         }
@@ -83,7 +83,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             "  Ctrl-t   create a session: pick an agent, name it, choose a directory",
             "  ?        all keys",
             "",
-            "  From a shell:  acpmux new -a claude -n my-task",
+            "  From a shell:  acpmux new -u claude -n my-task",
         ];
         for (i, l) in lines.iter().enumerate() {
             if (i as u16) < inner.height {

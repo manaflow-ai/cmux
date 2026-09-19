@@ -74,10 +74,10 @@ impl Hub {
         if let Err(e) = &result {
             if is_limit_error(&e.message) {
                 if let Some(to) = self.fallback_profile(session).await {
-                    let from = session.meta().agent;
+                    let from = session.meta().harness;
                     self.append(session, "mux", "failover", json!({"from": from, "to": to, "reason": e.message}));
                     self.detach_child(session).await;
-                    session.meta.lock().unwrap().agent = to.clone();
+                    session.meta.lock().unwrap().harness = to.clone();
                     self.save_meta(session);
                     match self.child_for(session).await {
                         Ok(child2) => {
@@ -96,7 +96,7 @@ impl Hub {
             if e.message == "agent process closed" {
                 let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
                 if let Some(last) = tail.iter().rev().find(|l| !l.trim().is_empty()) {
-                    let agent = session.meta().agent;
+                    let agent = session.meta().harness;
                     e.message = format!("agent process closed ({agent}): {}", last.trim());
                 }
             }
@@ -129,9 +129,9 @@ impl Hub {
     /// The profile to fall over to, when the current one names one that exists.
     async fn fallback_profile(&self, session: &Session) -> Option<String> {
         let cfg = self.config.read().await;
-        let agent = session.meta().agent;
-        let to = cfg.agents.get(&agent)?.fallback.clone()?;
-        if to == agent || !cfg.agents.contains_key(&to) {
+        let agent = session.meta().harness;
+        let to = cfg.harnesses.get(&agent)?.fallback.clone()?;
+        if to == agent || !cfg.harnesses.contains_key(&to) {
             return None;
         }
         Some(to)
@@ -298,8 +298,8 @@ impl Hub {
             .config
             .read()
             .await
-            .agent(&parent_meta.agent)
-            .map(|p| p.kind == crate::config::AgentKind::ClaudeStdio)
+            .profile(&parent_meta.harness)
+            .map(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
             .unwrap_or(false);
         let sid = parent_meta
             .agent_session_id
@@ -330,8 +330,8 @@ impl Hub {
             schema: META_SCHEMA.into(),
             id: id.clone(),
             name,
-            agent: parent_meta.agent.clone(),
-            agent_argv: parent_meta.agent_argv.clone(),
+            harness: parent_meta.harness.clone(),
+            harness_argv: parent_meta.harness_argv.clone(),
             family: parent_meta.family.clone(),
             cwd,
             agent_session_id: if is_claude { None } else { Some(new_sid) },

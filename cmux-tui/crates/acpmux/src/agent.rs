@@ -3,7 +3,7 @@
 //! Every line in either direction is reported through the `tap` callback so
 //! the session log holds the raw wire traffic.
 
-use crate::config::AgentProfile;
+use crate::config::HarnessProfile;
 use crate::rpc::{Id, Message, RpcError};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
@@ -66,7 +66,7 @@ impl ChildAgent {
     /// notifications are delivered on `inbound`.
     pub async fn spawn(
         name: &str,
-        profile: &AgentProfile,
+        profile: &HarnessProfile,
         cwd: &std::path::Path,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
@@ -78,7 +78,7 @@ impl ChildAgent {
     /// which builds its own argv) and an optional translator.
     pub async fn spawn_with(
         name: &str,
-        profile: &AgentProfile,
+        profile: &HarnessProfile,
         cwd: &std::path::Path,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,

@@ -1,6 +1,6 @@
 # acpmux
 
-tmux for ACP agents. A Rust daemon keeps [Agent Client Protocol](https://agentclientprotocol.com)
+tmux for coding-agent harnesses. A Rust daemon keeps [Agent Client Protocol](https://agentclientprotocol.com)
 agents (Codex, Claude Code, Gemini, OpenCode, Pi, ...) alive as named sessions, records every
 wire message, and lets any number of clients attach, prompt, steer, cancel, fork, and change
 model or mode. It speaks plain ACP to its clients plus a small `_acpmux/*` extension, so the
@@ -28,14 +28,14 @@ acpmux                               # that is it: starts the daemon if needed, 
 
 `Ctrl-t` opens a new session tab at the top of the sidebar with an empty transcript and the
 cursor in the editor, like opencode's `Ctrl-x n`. It inherits the agent, directory, and policy
-of the session you were on; change them with `/agent NAME`, `/cwd PATH`, `/policy P` before
+of the session you were on; change them with `/harness NAME`, `/cwd PATH`, `/policy P` before
 sending. The first Enter creates the session with that message. Esc on an empty draft discards
 it. `/form` opens the older field-by-field form instead. The bottom line of the TUI shows
 the web dashboard URL.
 
 ```sh
 acpmux web                           # print the dashboard URL and open it in the browser
-acpmux new -a codex -n backend-review   # scripted: create a session and open the TUI on it
+acpmux new -u codex -n backend-review   # scripted: create a session and open the TUI on it
 acpmux send backend-review "inspect the failing tests"
 acpmux ls
 acpmux attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
@@ -59,14 +59,14 @@ Five everyday commands, three groups for the rest:
 | Command | What it does |
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
-| `new [-a agent] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
+| `new [-u harness] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
 | `send NAME "text" [--steer] [--no-wait] [-q]` | Prompt and stream the reply. |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open]` | Print the dashboard URL and open it. |
 | `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
-| `daemon run\|status\|shutdown\|config\|agents` | The daemon itself. |
+| `daemon run\|status\|shutdown\|config\|harnesses\|models\|schema` | The daemon itself. |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
 work but are hidden from help.
@@ -81,10 +81,10 @@ printed on stdout. Exit codes are stable: 0 ok, 1 runtime or agent error, 2 usag
 4 no such session, 5 every permission in the turn was denied, 130 interrupted.
 
 ```
-acpmux run -a codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
-acpmux exec -a claude "one-shot"                              # same, and the session is deleted afterwards
-acpmux --json run -a claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
-acpmux ensure NAME -a codex --cwd DIR                         # the session if it exists, else create it
+acpmux run -u codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
+acpmux exec -u claude "one-shot"                              # same, and the session is deleted afterwards
+acpmux --json run -u claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
+acpmux ensure NAME -u codex --cwd DIR                         # the session if it exists, else create it
 acpmux send NAME --no-wait "..."                              # queue and return; prints "queued behind 1 running turn"
 acpmux send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
 acpmux wait                                                   # until any session on any host resolves (turn ended or needs a permission)
@@ -98,7 +98,7 @@ acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
-acpmux compare -a claude -a codex "prompt"                    # one temporary session per harness, run one after another
+acpmux compare -u claude -u codex "prompt"                    # one temporary session per harness, run one after another
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
 
@@ -192,7 +192,7 @@ arguments opens the command line with `/name ` typed, and typing `rename foo` st
 the palette runs it. The full list is `src/tui/actions.rs`, one table that also drives the
 help dialog and the key chords: `/new`, `/form`, `/rename NAME`, `/fork [NAME]`, `/stop`,
 `/delete`, `/model [ID]`, `/mode [ID]`, `/effort [LEVEL]`, `/policy [P]`, `/cwd [PATH]`,
-`/agent NAME`, `/set KEY[=VALUE]`, `/thoughts`, `/host add NAME URL`, `/export`, `/import`,
+`/harness NAME`, `/set KEY[=VALUE]`, `/thoughts`, `/host add NAME URL`, `/export`, `/import`,
 `/web`, `/quit`.
 
 Thinking effort: Claude Code (`--effort` at spawn, live `apply_flag_settings`), the Zed
@@ -244,7 +244,7 @@ padding are never highlighted or copied. The composer grows to 12 rows before it
 
 An orchestrator asks for "a Claude session" or "a Codex session", not for a profile name, a
 model id, and an effort level every time. `defaults` in `config.json` holds those per family,
-and `-a FAMILY` resolves to a profile:
+and `-u FAMILY` resolves to a profile:
 
 ```sh
 acpmux defaults                                                # one row per family: profile, model, effort, policy
@@ -252,8 +252,8 @@ acpmux defaults claude model=claude-opus-5 effort=high policy=approve-edits pref
 acpmux defaults codex  model=gpt-5-codex effort=high policy=approve-edits
 acpmux defaults claude env.ANTHROPIC_BASE_URL=http://127.0.0.1:4000   # a router for every Claude process
 acpmux defaults claude effort=                                 # clear one key; --clear drops the family
-acpmux run -a claude "…"                                       # goes to claude-sr with those defaults
-acpmux run -a claude -m claude-sonnet-5 "…"                    # flags still win
+acpmux run -u claude "…"                                       # goes to claude-sr with those defaults
+acpmux run -u claude -m claude-sonnet-5 "…"                    # flags still win
 ```
 
 Open models come through OpenCode and pi, which already talk to Ollama, OpenRouter, LM Studio,
@@ -265,8 +265,8 @@ over ACP (`provider/model` ids) and lets you name a model class once, as an **al
 ```sh
 acpmux defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4 effort=low
 acpmux defaults local    prefer=opencode model=ollama/qwen3-coder policy=approve-all
-acpmux run -a deepseek "…"      # OpenCode with its DeepSeek id; pi with pi's id when OpenCode is not installed
-acpmux run -a local "…"
+acpmux run -u deepseek "…"      # OpenCode with its DeepSeek id; pi with pi's id when OpenCode is not installed
+acpmux run -u local "…"
 ```
 
 `prefer` skips a harness whose reported model list does not contain the alias's model for it,
@@ -274,7 +274,7 @@ so the same alias works on a laptop with Ollama and on a server with OpenRouter.
 preferred harness reports the model, the first installed one is used and the model setting
 fails with the ids it does know. Aliases show in `acpmux defaults` with a `*`.
 
-**Convention: harness first, model second.** `-a` says what kind of agent (a family such as
+**Convention: harness first, model second.** `-u` (`--harness`) says which harness (a family such as
 `claude`, an alias such as `deepseek`, or a profile); `-m` refines the model and `-e` the
 effort. `-m` alone also works: acpmux picks the harness whose reported catalog lists the id
 (`-m sonnet` is a Claude, `-m opencode-go/deepseek-v4-flash` is OpenCode) and refuses an id
@@ -282,12 +282,12 @@ nobody reports rather than running it elsewhere. Explicit flags always win over 
 
 Families are derived from the harness (`claude` for the stdio backend and `sr claude proxy`,
 `codex` for `codex-acp`, `opencode`, `pi`, `gemini`) or set with `"family"` on a profile.
-`prefer` lists the profiles to use for a family in order, so `-a claude` can go to the
+`prefer` lists the profiles to use for a family in order, so `-u claude` can go to the
 subrouter pool first and the plain login second. Precedence at creation: the request, then a
 `defaults` entry named after the profile, then the family's entry, then the daemon's
 `permissionPolicy`. A default model or effort the harness rejects fails the creation with the
-reason, so a typo never starts a session on the wrong model. `_acpmux/agents` reports every
-profile's family and resolved defaults, and `session/new` takes a family name as `agent` plus
+reason, so a typo never starts a session on the wrong model. `_acpmux/harnesses` reports every
+profile's family and resolved defaults, and `session/new` takes a family name as `harness` plus
 `model` and `effort` in `_meta.acpmux`.
 
 ## Peers: every session on every machine, from one Mac
@@ -303,7 +303,7 @@ acpmux host setup HOST                 # scp the binary, write config + launchd 
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host update --all               # push the current binary to every ssh peer and restart it
 acpmux ls                              # HOST/session-name next to local sessions
-acpmux new -a claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
+acpmux new -u claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
 acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>
 ```
@@ -323,12 +323,12 @@ acpmux host add sandbox-a wss://sandbox-a.example.com:47811 --token "$TOKEN"
 
 Everything works on a peered session: `send`, `wait`, `history`, tags, rules, the TUI,
 permission prompts, fork, model and mode changes. `Ctrl-t` from a peered session drafts a new
-session on that peer, and the `Ctrl-l` picker lists remote harnesses as `HOST/agent`, so
+session on that peer, and the `Ctrl-l` picker lists remote harnesses as `HOST/harness`, so
 picking one starts the session there. Peers reconnect with backoff, the tunnel included; while
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
-A remote daemon needs a working agent. launchd starts the daemon with a bare environment, so
+A remote daemon needs a working harness. launchd starts the daemon with a bare environment, so
 the daemon reads the login shell's environment once at start (`zsh -lic env`) and fills in
 what launchd left out: PATH, `ANTHROPIC_*` proxies, tool settings. The same `claude` that works
 in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist turns this off,
@@ -356,7 +356,7 @@ process never exits between turns.
 ```
 
 Everything after `claude` in `argv` is passed through, so `--settings`, `--mcp-config`,
-`--allowedTools`, `--append-system-prompt`, and `--permission-mode` all work. `acpmux agents`
+`--allowedTools`, `--append-system-prompt`, and `--permission-mode` all work. `acpmux harnesses`
 picks this backend automatically when `claude` is on PATH. Interrupt uses Claude's
 `control_request` `interrupt`; the interrupted turn ends with `stopReason: cancelled` and the
 process keeps running.
@@ -373,12 +373,12 @@ is installed, acpmux discovers a `claude-sr` profile that launches Claude throug
 (`sr claude proxy`, which accepts acpmux's stream-json flags, `--session-id` and `--resume`),
 and sets it as the `fallback` of the direct `claude` profile.
 
-- `acpmux run -a claude-sr "…"` always uses the pool; the pool picks the account with the
+- `acpmux run -u claude-sr "…"` always uses the pool; the pool picks the account with the
   most quota and keeps the conversation sticky to it.
 - A direct `claude` session whose account reports a usage or rate limit mid-turn is moved
   onto `claude-sr` automatically: the agent process is replaced by a pooled one that resumes
   the same Claude session, the prompt runs once more, and a `failover {from, to, reason}`
-  event is logged. `session info` then shows `agent: claude-sr`.
+  event is logged. `session info` then shows `harness: claude-sr`.
 - Any profile can name a `fallback` in `~/.acpmux/config.json`; the same rule applies to
   every harness, keyed on the error text (`reached your … limit`, `rate limit`, `quota`,
   `429`, `out of credits`).
@@ -392,11 +392,11 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 
 ```json
 {
-  "agents": {
+  "harnesses": {
     "codex":  { "argv": ["codex-acp"] },
     "claude": { "argv": ["claude-agent-acp"], "env": {"ANTHROPIC_API_KEY": "..."} }
   },
-  "defaultAgent": "codex",
+  "defaultHarness": "codex",
   "permissionPolicy": "ask",
   "store": { "mode": "local", "segmentBytes": 8388608 },
   "websocket": { "listen": "127.0.0.1:47811", "token": "change-me" },
@@ -404,7 +404,7 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 }
 ```
 
-When no config exists, agents are imported from `~/.acpx/config.json` and from adapters on PATH.
+When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with
@@ -429,7 +429,7 @@ Extensions:
 
 | Method | Purpose |
 | --- | --- |
-| `_acpmux/status`, `_acpmux/agents`, `_acpmux/sessions` | Daemon and fleet state. |
+| `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state. |
 | `_acpmux/attach {sessionId, afterSeq?, limit?}` | Subscribe and get the session detail plus recent raw events. |
 | `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
 | `_acpmux/events {sessionId, afterSeq, limit}` | Page through the raw log. |

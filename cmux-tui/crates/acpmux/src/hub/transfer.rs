@@ -52,8 +52,8 @@ impl Hub {
         } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
             meta.name = self.unique_name(&meta.name);
         }
-        if !self.config.read().await.agents.contains_key(&meta.agent) {
-            return Err(RpcError::invalid_params(format!("agent {:?} is not configured on this host", meta.agent)));
+        if !self.config.read().await.harnesses.contains_key(&meta.harness) {
+            return Err(RpcError::invalid_params(format!("agent {:?} is not configured on this host", meta.harness)));
         }
         if !meta.cwd.is_dir() {
             return Err(RpcError::invalid_params(format!("cwd {} does not exist here; pass a new cwd via fork or edit session.json", meta.cwd.display())));

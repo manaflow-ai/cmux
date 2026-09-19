@@ -29,8 +29,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         hosts: Vec::new(),
         host_filter: None,
         host_chips: Vec::new(),
-        agents: Vec::new(),
-        default_agent: None,
+        harnesses: Vec::new(),
+        default_harness: None,
         show_thoughts: false,
         show_system: false,
         quit: false,
@@ -70,9 +70,9 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         let c = client.clone();
         let tx = tx.clone();
         tokio::spawn(async move {
-            if let Ok(v) = c.request(method::MUX_AGENTS, json!({})).await {
-                let names: Vec<String> = v.get("agents").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
-                let _ = tx.send(AppMsg::Agents(names, v.get("defaultAgent").and_then(Value::as_str).map(str::to_owned)));
+            if let Ok(v) = c.request(method::MUX_HARNESSES, json!({})).await {
+                let names: Vec<String> = v.get("harnesses").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+                let _ = tx.send(AppMsg::Agents(names, v.get("defaultHarness").and_then(Value::as_str).map(str::to_owned)));
             }
             if let Ok(v) = c.request(method::MUX_STATUS, json!({})).await {
                 let _ = tx.send(AppMsg::Status(v));
@@ -99,7 +99,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(80));
     let result: Result<()> = loop {
         // First paint with no sessions: open the form so the empty screen is not a dead end.
-        if !app.initial_empty_checked && !app.agents.is_empty() {
+        if !app.initial_empty_checked && !app.harnesses.is_empty() {
             app.initial_empty_checked = true;
             if app.sessions.is_empty() && matches!(app.overlay, Overlay::None) {
                 app.open_new_session();

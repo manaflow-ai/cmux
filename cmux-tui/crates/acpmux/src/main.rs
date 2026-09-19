@@ -7,7 +7,7 @@ mod cli;
 use cli::run::run_client;
 
 #[derive(Parser)]
-#[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for ACP agents", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
+#[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 struct Cli {
     /// Print raw JSON instead of text.
     #[arg(long, global = true)]
@@ -59,8 +59,9 @@ enum Command {
     /// Get a session by name, or create it: idempotent for scripts.
     Ensure {
         name: String,
-        #[arg(long, short)]
-        agent: Option<String>,
+        /// Harness: a family (claude, codex), an alias, or a profile name.
+        #[arg(long = "harness", short = 'u')]
+        harness: Option<String>,
         /// Create on this peer when missing.
         #[arg(long)]
         host: Option<String>,
@@ -81,9 +82,9 @@ enum Command {
     },
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
-        /// Agent profile names: -a claude -a codex …
-        #[arg(long = "agent", short = 'a', required = true)]
-        agents: Vec<String>,
+        /// Harness names: -u claude -u codex …
+        #[arg(long = "harness", short = 'u', required = true)]
+        harnesses: Vec<String>,
         /// The prompt.
         prompt: Vec<String>,
         #[arg(long)]
@@ -99,7 +100,7 @@ enum Command {
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
     /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
-    /// A name that is not a family or profile is an alias: `-a deepseek` then works. `key=` clears one key; `--clear` removes the entry.
+    /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
     Defaults {
         family: Option<String>,
         /// key=value pairs: model, models.PROFILE, effort, policy, prefer (comma list), env.KEY
@@ -175,7 +176,7 @@ enum Command {
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
-    /// The daemon: run, status, shutdown, config, agents.
+    /// The daemon: run, status, shutdown, config, harnesses, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
     // Old spellings, kept working but hidden from help.
@@ -210,7 +211,7 @@ enum Command {
     #[command(hide = true)]
     Import { path: PathBuf, #[arg(long, short)] name: Option<String> },
     #[command(hide = true)]
-    Agents,
+    Harnesses,
     #[command(hide = true)]
     Status,
     #[command(hide = true, alias = "kill-server")]
@@ -319,8 +320,8 @@ enum DaemonCmd {
     Shutdown,
     /// Print the config path and contents.
     Config,
-    /// Show configured agents.
-    Agents,
+    /// Show configured harnesses with their family and defaults.
+    Harnesses,
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness reports (`provider/model` for OpenCode and pi).
@@ -363,10 +364,10 @@ enum PeerCmd {
 
 #[derive(Args)]
 struct NewArgs {
-    /// Family (claude, codex, opencode, pi), alias (see `acpmux defaults`), or profile name.
+    /// Harness: a family (claude, codex, opencode, pi), an alias (see `acpmux defaults`), or a profile name.
     /// Omitted: inferred from --model when one harness knows it, else the configured default.
-    #[arg(long, short)]
-    agent: Option<String>,
+    #[arg(long = "harness", short = 'u')]
+    harness: Option<String>,
     /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
     #[arg(long)]
     host: Option<String>,
@@ -489,7 +490,7 @@ fn flatten(c: Command) -> Command {
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Shutdown => Command::Shutdown,
             DaemonCmd::Config => Command::Config,
-            DaemonCmd::Agents => Command::Agents,
+            DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models => Command::Models,
         },

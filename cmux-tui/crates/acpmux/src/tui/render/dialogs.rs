@@ -76,8 +76,8 @@ pub(super) fn draw_new_session(f: &mut ratatui::Frame, area: Rect, form: &NewFor
             (format!("  {name:<14}"), c.prompt().fg(c.status_dim_fg))
         }
     };
-    let agent = form.agents.get(form.agent).cloned().unwrap_or_else(|| "(none configured)".into());
-    let agent_line = if form.agents.len() > 1 { format!("◀ {agent} ▶   {} available, Enter lists them", form.agents.len()) } else { agent };
+    let agent = form.harnesses.get(form.agent).cloned().unwrap_or_else(|| "(none configured)".into());
+    let agent_line = if form.harnesses.len() > 1 { format!("◀ {agent} ▶   {} available, Enter lists them", form.harnesses.len()) } else { agent };
     let policy_hint = match POLICIES[form.policy] {
         "ask" => "you approve each tool call",
         "approve-reads" => "reads auto, writes ask",
@@ -93,7 +93,7 @@ pub(super) fn draw_new_session(f: &mut ratatui::Frame, area: Rect, form: &NewFor
         }
         out
     };
-    let names = ["agent", "name", "directory", "permissions", "first message"];
+    let names = ["harness", "name", "directory", "permissions", "first message"];
     let values: [(String, &str); 5] = [
         (agent_line, ""),
         (form.name.text(), if form.name.is_empty() { "blank = automatic" } else { "" }),

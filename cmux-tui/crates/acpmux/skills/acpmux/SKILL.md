@@ -23,22 +23,22 @@ Sessions you start are siblings, not children: they outlive you.
 
 ## 2. Pick an agent: harness first, model second
 
-`-a` names *what kind of agent*; `-m` refines *which model*. Say the least
+`-u` (`--harness`) names *which harness*; `-m` refines *which model*. Say the least
 you need and let the configured defaults fill the rest.
 
 | You want | Command | What acpmux does |
 | --- | --- | --- |
 | any capable agent | `acpmux run "…"` | the configured default agent and its defaults |
-| a Claude / a Codex | `-a claude`, `-a codex` | family name: the preferred profile (an account pool, a router) plus the family's model, effort, policy |
-| a model class | `-a deepseek`, `-a local` | an alias from `acpmux defaults` (marked `*`): routes to OpenCode or pi with the right `provider/model` id |
-| one exact model | `-m opencode-go/deepseek-v4-flash`, `-m sonnet` | harness inferred from the catalogs; add `-a` when two harnesses know the id |
-| one exact profile | `-a claude-sr`, `-a opencode` | that profile, family defaults still apply |
+| a Claude / a Codex | `-u claude`, `-u codex` | family name: the preferred profile (an account pool, a router) plus the family's model, effort, policy |
+| a model class | `-u deepseek`, `-u local` | an alias from `acpmux defaults` (marked `*`): routes to OpenCode or pi with the right `provider/model` id |
+| one exact model | `-m opencode-go/deepseek-v4-flash`, `-m sonnet` | harness inferred from the catalogs; add `-u` when two harnesses know the id |
+| one exact profile | `-u claude-sr`, `-u opencode` | that profile, family defaults still apply |
 
 Read the table before choosing, never guess names:
 
 ```bash
 acpmux defaults               # families and aliases: profile chosen, model, effort, policy
-acpmux agents                 # profiles with their family and argv
+acpmux harnesses                 # profiles with their family and argv
 acpmux --json daemon models   # every model id each harness reports
 ```
 
@@ -50,10 +50,10 @@ knows; the session is not created.
 ## 3. Core loop
 
 ```bash
-acpmux run -a codex --cwd ~/proj --policy approve-edits "fix the failing test"   # create, send, print only the reply
-acpmux --json run -a claude "…"                    # {"sessionId","name","reply","stopReason"}
-acpmux exec -a claude "…"                          # run, then delete the session
-acpmux ensure NAME -a codex --cwd DIR              # get the session, or create it (idempotent)
+acpmux run -u codex --cwd ~/proj --policy approve-edits "fix the failing test"   # create, send, print only the reply
+acpmux --json run -u claude "…"                    # {"sessionId","name","reply","stopReason"}
+acpmux exec -u claude "…"                          # run, then delete the session
+acpmux ensure NAME -u codex --cwd DIR              # get the session, or create it (idempotent)
 acpmux send NAME "next step"                       # stream the reply; -q for the final text only
 acpmux send NAME --no-wait "…"                     # queue and return; says what it is behind
 acpmux send NAME --steer "stop, do X instead"      # interrupt the running turn (when the harness supports it)
@@ -105,8 +105,8 @@ Sessions on peers show as `host/name` and every command takes that form.
 
 ```bash
 acpmux host ls                                   # peers, connected or offline, remote build
-acpmux run -a claude --host HOST "…"             # start there; --cwd is a remote path
-acpmux ensure NAME -a codex --host HOST
+acpmux run -u claude --host HOST "…"             # start there; --cwd is a remote path
+acpmux ensure NAME -u codex --host HOST
 acpmux wait                                      # covers remote sessions too
 ```
 
@@ -128,7 +128,7 @@ turn was denied · 130 interrupted.
 
 - Read ids and names from `--json` output. Never guess them.
 - `wait` with no flags is enough. Add `--until` only for a state-specific step.
-- Harness first (`-a` family or alias), model second (`-m`). Pass `-m`, `-e`,
+- Harness first (`-u` family or alias), model second (`-m`). Pass `-m`, `-e`,
   `--policy` only when the task needs something other than the defaults.
 - Name sessions for the task (`ensure review-pr-42`) so a later step or another
   agent can find them. Tag them (`session tag NAME task=review`) when many run.

@@ -88,11 +88,11 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
         .map(|t| (t.mode.clone().unwrap_or_default(), t.model.clone().unwrap_or_default()))
         .unwrap_or_default();
     let (agent, cwd, policy, model_shown, thinking) = if let Some(d) = app.draft() {
-        let a = match &d.peer { Some(p) => format!("{p}/{}", d.agent), None => d.agent.clone() };
+        let a = match &d.peer { Some(p) => format!("{p}/{}", d.harness), None => d.harness.clone() };
         (a, d.cwd.clone(), d.policy.clone(), d.model.clone().unwrap_or_else(|| "default".into()), d.effort.clone().unwrap_or_else(|| "default".into()))
     } else {
         let s = app.selected_session();
-        let a = s.and_then(|s| s.get("agent").and_then(Value::as_str)).unwrap_or("").to_owned();
+        let a = s.and_then(|s| s.get("harness").and_then(Value::as_str)).unwrap_or("").to_owned();
         let cwd = s.and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
         let policy = s.and_then(|s| s.get("policy").and_then(Value::as_str)).unwrap_or("ask").to_owned();
         let thinking = app

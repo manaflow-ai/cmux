@@ -2,7 +2,7 @@
   "name": "@acpmux/acpmux",
   "version": "0.0.2",
   "description": "tmux for ACP agents: a session multiplexer daemon with CLI and TUI",
-  "keywords": ["acp", "agent-client-protocol", "agents", "multiplexer", "tmux"],
+  "keywords": ["acp", "agent-client-protocol", "harnesses", "multiplexer", "tmux"],
   "license": "MIT",
   "author": "Manaflow",
   "homepage": "https://github.com/manaflow-ai/acpmux",

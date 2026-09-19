@@ -1,7 +1,7 @@
 //! Two hubs: B serves WebSocket, A mirrors B as a peer. Everything for B's
 //! sessions is driven through A's protocol handler.
 
-use acpmux::config::{AgentProfile, Config, PermissionPolicy, StoreMode};
+use acpmux::config::{HarnessProfile, Config, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::{listen_ws, serve_connection};
@@ -14,8 +14,8 @@ use tokio::sync::mpsc;
 fn config(policy: PermissionPolicy) -> Config {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), AgentProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
-    let mut cfg = Config { agents, default_agent: Some("fake".into()), ..Default::default() };
+    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
     cfg

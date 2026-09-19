@@ -15,7 +15,7 @@ mod views;
 
 
 use crate::agent::{ChildAgent, Direction, Inbound};
-use crate::config::{AgentProfile, Config, PermissionPolicy};
+use crate::config::{HarnessProfile, Config, PermissionPolicy};
 use crate::rpc::{Id, Message, RpcError, method};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;

@@ -79,8 +79,8 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     for d in &app.drafts {
         let preview = d.text.text();
         let sub = if preview.trim().is_empty() { shorten_path(&d.cwd) } else { preview.lines().next().unwrap_or("").to_owned() };
-        let agent_label = match &d.peer { Some(p) => format!("{p}/{}", d.agent), None => d.agent.clone() };
-        rows.push(serde_json::json!({"name": "new session", "status": if d.creating { "running" } else { "draft" }, "agent": agent_label, "lastPrompt": sub, "draft": true}));
+        let agent_label = match &d.peer { Some(p) => format!("{p}/{}", d.harness), None => d.harness.clone() };
+        rows.push(serde_json::json!({"name": "new session", "status": if d.creating { "running" } else { "draft" }, "harness": agent_label, "lastPrompt": sub, "draft": true}));
     }
     rows.extend(app.sessions.iter().cloned());
     // Apply the host filter: keep (absolute index, row) pairs that match.
@@ -95,7 +95,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         let name = s.get("name").and_then(Value::as_str).unwrap_or("?");
         let status = s.get("status").and_then(Value::as_str).unwrap_or("");
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
-        let agent = s.get("agent").and_then(Value::as_str).unwrap_or("");
+        let agent = s.get("harness").and_then(Value::as_str).unwrap_or("");
         let is_sel = idx == selected;
         let row_style = if is_sel { c.selected_row() } else { Style::default() };
         if is_sel {

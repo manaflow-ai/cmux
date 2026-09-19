@@ -81,8 +81,8 @@ pub struct App {
     pub host_filter: Option<String>,
     /// Clickable host chips drawn last frame.
     pub host_chips: Vec<(Rect, Option<String>)>,
-    pub(super) agents: Vec<String>,
-    pub(super) default_agent: Option<String>,
+    pub(super) harnesses: Vec<String>,
+    pub(super) default_harness: Option<String>,
     pub show_thoughts: bool,
     /// Show lifecycle events (stopped, resumed, renamed, model set…).
     pub show_system: bool,
@@ -225,8 +225,8 @@ impl App {
     pub(super) fn selected_name(&self) -> String {
         if let Some(d) = self.draft() {
             return match &d.peer {
-                Some(p) => format!("new session · {p}/{}", d.agent),
-                None => format!("new session · {}", d.agent),
+                Some(p) => format!("new session · {p}/{}", d.harness),
+                None => format!("new session · {}", d.harness),
             };
         }
         self.selected_session()

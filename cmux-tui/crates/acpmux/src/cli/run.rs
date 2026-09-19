@@ -22,11 +22,11 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             };
             orchestrate::wait(client, orchestrate::WaitOpts { sessions, until, all, timeout, print, notify, matcher }, json_out).await
         }
-        Command::Ensure { name, agent, host, cwd, policy, model, effort } => orchestrate::ensure(connect(true).await?, &name, agent, host, cwd, policy, model, effort, json_out).await,
+        Command::Ensure { name, harness, host, cwd, policy, model, effort } => orchestrate::ensure(connect(true).await?, &name, harness, host, cwd, policy, model, effort, json_out).await,
         Command::History { session, limit } => orchestrate::history(connect(true).await?, &session, limit, json_out).await,
         Command::TagCmd { session, assignments, remove, ttl } => orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out).await,
         Command::RulesCmd { session, rules, clear } => orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await,
-        Command::Compare { agents, prompt, cwd, policy, timeout } => {
+        Command::Compare { harnesses: agents, prompt, cwd, policy, timeout } => {
             let prompt = arg_or_stdin(&prompt)?;
             orchestrate::compare(connect(true).await?, agents, prompt, cwd, policy, timeout, json_out).await
         }
@@ -35,7 +35,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let v = client.request("_acpmux/models", json!({})).await?;
             if json_out { print_json(&v); return Ok(()); }
             for h in v.get("harnesses").and_then(Value::as_array).into_iter().flatten() {
-                let agent = h.get("agent").and_then(Value::as_str).unwrap_or("?");
+                let agent = h.get("harness").and_then(Value::as_str).unwrap_or("?");
                 let ids: Vec<&str> = h.get("models").and_then(Value::as_array).map(|a| a.iter().filter_map(|m| m.get("id").and_then(Value::as_str)).collect()).unwrap_or_default();
                 println!("{agent} ({})", ids.len());
                 for id in ids {
@@ -139,7 +139,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
             if sessions.is_empty() {
-                println!("no sessions (create one: acpmux new -a codex -n my-task)");
+                println!("no sessions (create one: acpmux new -u codex -n my-task)");
                 return Ok(());
             }
             println!("{:<24} {:<8} {:<13} {:>5} {:<6} {}", "NAME", "AGENT", "STATUS", "TURNS", "AGE", "LAST");
@@ -152,7 +152,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 println!(
                     "{:<24} {:<8} {:<13} {:>5} {:<6} {}",
                     short(&g("name"), 24),
-                    short(&g("agent"), 8),
+                    short(&g("harness"), 8),
                     status,
                     s.get("turnCount").and_then(Value::as_u64).unwrap_or(0),
                     age(s.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)),
@@ -167,8 +167,8 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 acpmux::session_name::validate(n).map_err(|e| anyhow!(e))?;
             }
             let mut meta = json!({});
-            if let Some(a) = &args.agent {
-                meta["agent"] = json!(a);
+            if let Some(a) = &args.harness {
+                meta["harness"] = json!(a);
             }
             if let Some(h) = &args.host {
                 meta["peer"] = json!(h);
@@ -305,7 +305,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let g = |k: &str| v.get(k).map(|x| match x { Value::String(s) => s.clone(), Value::Null => "-".into(), o => o.to_string() }).unwrap_or_default();
             println!("name:      {}", g("name"));
             println!("id:        {}", g("sessionId"));
-            println!("agent:     {}  (agent session {})", g("agent"), g("agentSessionId"));
+            println!("agent:     {}  (agent session {})", g("harness"), g("agentSessionId"));
             println!("cwd:       {}", g("cwd"));
             println!("status:    {}", g("status"));
             println!("mode:      {}", g("currentModeId"));
@@ -422,14 +422,14 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             if json_out { print_json(&v) } else { println!("imported as {}", v.get("name").and_then(Value::as_str).unwrap_or("?")) }
             Ok(())
         }
-        Command::Agents => {
+        Command::Harnesses => {
             let client = connect(true).await?;
-            let v = client.request(method::MUX_AGENTS, json!({})).await?;
+            let v = client.request(method::MUX_HARNESSES, json!({})).await?;
             if json_out { print_json(&v); return Ok(()); }
-            let default = v.get("defaultAgent").and_then(Value::as_str).unwrap_or("");
-            if let Some(agents) = v.get("agents").and_then(Value::as_object) {
+            let default = v.get("defaultHarness").and_then(Value::as_str).unwrap_or("");
+            if let Some(agents) = v.get("harnesses").and_then(Value::as_object) {
                 if agents.is_empty() {
-                    println!("no agents configured. Edit {}", Config::path().display());
+                    println!("no harnesses configured. Edit {}", Config::path().display());
                 }
                 for (name, prof) in agents {
                     let argv: Vec<String> = prof.get("argv").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect()).unwrap_or_default();

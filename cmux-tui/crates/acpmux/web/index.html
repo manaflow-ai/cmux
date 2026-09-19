@@ -48,7 +48,7 @@
   @keyframes pulse { 50% { opacity: .35; } }
   .sess .name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sess .sub { grid-column: 2 / 4; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sess .agent { font-size: 11px; color: var(--muted); }
+  .sess .harness { font-size: 11px; color: var(--muted); }
   .empty { padding: 24px 16px; color: var(--muted); font-size: 13px; }
   section { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
   .bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--rule); background: var(--panel); flex-wrap: wrap; }
@@ -141,7 +141,7 @@
 <dialog id="dlg-new">
   <form method="dialog" id="form-new">
     <h3>New session</h3>
-    <label>Agent <select id="new-agent"></select></label>
+    <label>Harness <select id="new-agent"></select></label>
     <label>Name <input id="new-name" placeholder="backend-review" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}"></label>
     <label>Directory <input id="new-cwd" placeholder="/path/to/repo"></label>
     <label>Permissions <select id="new-policy"><option value="ask">ask me</option><option value="approve-reads">approve reads, ask for writes</option><option value="approve-edits">approve reads and edits, ask for shell</option><option value="approve-all">approve everything</option><option value="deny-all">deny everything</option></select></label>
@@ -173,8 +173,8 @@
       await call('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'acpmux-web', version: '0.1' } });
       const w = await call('_acpmux/watch', { enabled: true });
       setSessions(w.sessions || []);
-      const a = await call('_acpmux/agents', {});
-      agents = a.agents || {}; defaultAgent = a.defaultAgent;
+      const a = await call('_acpmux/harnesses', {});
+      agents = a.harnesses || {}; defaultHarness = a.defaultHarness;
       if (selected) attach(selected, true);
       else if (state.sessions.length) select(state.sessions[0].sessionId);
       else openNew();
@@ -197,7 +197,7 @@
 
   // ---------- state
   const state = { sessions: [], transcripts: new Map(), details: new Map() };
-  let selected = null, agents = {}, defaultAgent = null, attached = new Set();
+  let selected = null, agents = {}, defaultHarness = null, attached = new Set();
 
   function setSessions(list) { state.sessions = list; sortSessions(); renderList(); }
   function sortSessions() { state.sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
@@ -314,7 +314,7 @@
       const st = (s.pendingPermissions > 0) ? 'waiting' : s.status;
       const peer = s.peer ? '<span class="peerchip">' + esc(s.peer) + '</span>' : '';
       const name = s.peer && s.name.startsWith(s.peer + '/') ? s.name.slice(s.peer.length + 1) : s.name;
-      el.innerHTML = '<span class="dot ' + esc(st) + '"></span><span class="name">' + peer + esc(name) + '</span><span class="agent">' + esc(s.agent) + '</span><span class="sub">' + esc(s.lastPrompt || s.preview || st) + '</span>';
+      el.innerHTML = '<span class="dot ' + esc(st) + '"></span><span class="name">' + peer + esc(name) + '</span><span class="harness">' + esc(s.harness) + '</span><span class="sub">' + esc(s.lastPrompt || s.preview || st) + '</span>';
       el.onclick = () => select(s.sessionId);
       list.appendChild(el);
     }
@@ -411,7 +411,7 @@
   function openNew() {
     const sel = $('#new-agent'); sel.innerHTML = '';
     for (const name of Object.keys(agents)) sel.add(new Option(name, name));
-    if (defaultAgent) sel.value = defaultAgent;
+    if (defaultHarness) sel.value = defaultHarness;
     const cur = state.sessions.find((x) => x.sessionId === selected);
     $('#new-cwd').value = (cur && cur.cwd) || $('#new-cwd').value || '';
     $('#new-name').value = ''; $('#new-prompt').value = '';
@@ -421,7 +421,7 @@
   $('#new-cancel').onclick = () => $('#dlg-new').close();
   $('#form-new').onsubmit = async (e) => {
     e.preventDefault();
-    const meta = { agent: $('#new-agent').value, policy: $('#new-policy').value };
+    const meta = { harness: $('#new-agent').value, policy: $('#new-policy').value };
     if ($('#new-name').value) meta.name = $('#new-name').value;
     const params = { mcpServers: [], _meta: { acpmux: meta } };
     if ($('#new-cwd').value) params.cwd = $('#new-cwd').value;
