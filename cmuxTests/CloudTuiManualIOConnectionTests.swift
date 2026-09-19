@@ -227,8 +227,12 @@ import Testing
     @Test func persistentWirePreservesPayloadAndMutationKey() async throws {
         try await Self.withResourceConnection { channel, peer in
             let bytes = Data("--name secret\n\0payload".utf8)
-            var write = CloudTuiRequests.writeBytes(terminalID: "term_test", data: bytes)
-            write.idempotencyKey = "same-logical-input"
+            // Immutable so the `async let` capture is Sendable-clean under Swift 6 diagnostics.
+            let write: CloudTuiRequest = {
+                var request = CloudTuiRequests.writeBytes(terminalID: "term_test", data: bytes)
+                request.idempotencyKey = "same-logical-input"
+                return request
+            }()
             async let result = channel.request(write)
             let captured = try await Self.blocking { try Self.readLine(peer) }
             let request = try Self.object(captured)

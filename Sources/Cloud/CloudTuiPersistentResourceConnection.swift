@@ -76,7 +76,9 @@ actor CloudTuiPersistentResourceConnection {
     }
 
     func request(_ request: CloudTuiRequest, timeout: Duration = .seconds(30)) async throws -> Data {
-        try await performRequest(request, timeout: timeout, clock: clock)
+        // Explicit `self.` is required: the compiler declines to open the
+        // existential when the argument is an implicit-self stored property.
+        try await performRequest(request, timeout: timeout, clock: self.clock)
     }
 
     private func performRequest<RequestClock: Clock>(
