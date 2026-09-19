@@ -7,6 +7,7 @@ import {
 import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { openVmPort } from "../../../../../services/vms/workflows";
+import { captureVmDesktopOpened } from "../../../../../services/vms/productAnalytics";
 import { desktopWrapperUrl } from "../../../../../services/vms/desktopWrapper";
 
 
@@ -76,6 +77,7 @@ export async function POST(
         token: endpoint.token,
         expiresAtMs: endpoint.expiresAtMs,
       });
+      if (wrapped) captureVmDesktopOpened({ userId: user.id, port, wrapped: true });
       return jsonResponse(wrapped ? { ...endpoint, openUrl: wrapped } : endpoint);
     },
   );

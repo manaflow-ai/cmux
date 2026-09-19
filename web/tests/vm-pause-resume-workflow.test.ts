@@ -149,7 +149,8 @@ describe("resumeVm", () => {
     expect(recorded.reservations).toEqual(["fs-1"]);
     expect(recorded.resumed).toEqual(["fs-1"]);
     expect(recorded.statuses).toEqual([{ id: "row-1", status: "running" }]);
-    expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user" } }]);
+    expect(recorded.events).toEqual([{ eventType: "vm.resumed", metadata: { source: "user", durationMs: expect.any(Number) } }]);
+    expect(recorded.events[0].metadata.durationMs).toBeGreaterThanOrEqual(0);
   });
 
   test("is idempotent: a machine the provider reports running answers running without a resume", async () => {

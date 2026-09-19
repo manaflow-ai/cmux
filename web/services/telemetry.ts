@@ -137,6 +137,9 @@ export function setSpanAttributes(span: Span, attributes: MaybeAttributes): void
 }
 
 export function recordSpanError(span: Span, err: unknown): void {
+  if (typeof err === "object" && err !== null && "_tag" in err && typeof err._tag === "string") {
+    span.setAttribute("cmux.error_tag", scrubText(err._tag).slice(0, 80));
+  }
   if (err instanceof Error) {
     const name = scrubText(err.name).slice(0, 80);
     const message = scrubText(err.message).slice(0, ERROR_CAUSE_MESSAGE_MAX);

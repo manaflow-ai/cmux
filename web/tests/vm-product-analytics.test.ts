@@ -3,6 +3,9 @@ import * as Effect from "effect/Effect";
 
 import {
   captureVmProductEvent,
+  captureVmWakeCompleted,
+  captureVmLimitHit,
+  captureVmDesktopOpened,
   VM_LEDGER_TO_POSTHOG_EVENT,
   VM_PRODUCT_EVENT_NAMES,
   vmProductEventFromLedger,
@@ -317,5 +320,50 @@ describe("cloud_vm_request scope", () => {
     expect(polled).toBeNull();
     const failed = capture(context({ operation: "approve_cmux_remote_enrollment" }), new Response("{}", { status: 500 }));
     expect(failed!.batch[0].event).toBe("cloud_vm_request");
+  });
+});
+
+
+describe("supplemental VM product signals", () => {
+  test("wake, limit and desktop use the shared sender with bounded scalar properties", async () => {
+    const bodies: Array<Record<string, unknown>> = [];
+    const tasks: Array<() => Promise<void>> = [];
+    const options = {
+      env: { CMUX_VM_ANALYTICS_FORCE: "1" },
+      defer: (task: () => Promise<void>) => { tasks.push(task); },
+      fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(null, { status: 200 });
+      }) as typeof fetch,
+    };
+    captureVmWakeCompleted({ userId: "user-1", provider: "freestyle", source: "attach", durationMs: 1234.56, reserved: false }, options);
+    captureVmLimitHit({ userId: "user-1", planId: "free", limit: 0, upgradeShown: true, phase: "create" }, options);
+    captureVmDesktopOpened({ userId: "user-1", port: 6080, wrapped: true }, options);
+    expect(bodies).toHaveLength(0);
+    for (const task of tasks) await task();
+    expect(bodies.map((body) => body.event)).toEqual(["vm.wake.completed", "vm.limit_hit", "vm.desktop.opened"]);
+    expect(bodies[0].properties).toMatchObject({ duration_ms: 1235, reserved: false, $geoip_disable: true });
+    expect(bodies[1].properties).toMatchObject({ limit: 0, upgrade_shown: true });
+    expect(bodies[2].properties).toMatchObject({ port: 6080, wrapped: true });
+  });
+
+  test("the VM kill switch blocks ledger and supplemental delivery", () => {
+    let enqueued = 0;
+    const options = {
+      env: { VERCEL_ENV: "production", CMUX_VM_ANALYTICS_DISABLED: "1" },
+      defer: () => { enqueued += 1; },
+    };
+    captureVmProductEvent(ledgerRow(), options);
+    captureVmWakeCompleted({ userId: "user-1", provider: "freestyle", source: "attach", durationMs: 1, reserved: false }, options);
+    expect(enqueued).toBe(0);
+  });
+
+  test("resume latency and reconnect intent are allowlisted without forwarding session ids", () => {
+    const attach = vmProductEventFromLedger(ledgerRow({ eventType: "vm.attach", metadata: { requestedSessionId: "private-session" } }));
+    expect(attach!.properties).toMatchObject({ reattach: true });
+    expect(attach!.properties).not.toHaveProperty("requestedSessionId");
+    const resumed = vmProductEventFromLedger(ledgerRow({ eventType: "vm.resumed", metadata: { source: "attach", durationMs: 12, credential: "secret" } }));
+    expect(resumed!.properties).toMatchObject({ source: "attach", duration_ms: 12 });
+    expect(resumed!.properties).not.toHaveProperty("credential");
   });
 });
