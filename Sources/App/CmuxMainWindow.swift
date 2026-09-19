@@ -230,7 +230,7 @@ final class CmuxMainWindow: NSWindow {
     static var minimumContentSize: NSSize {
         NSSize(
             width: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            height: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+            height: CGFloat(SessionPersistencePolicy.resolvedMinimumWindowHeight())
         )
     }
 

@@ -95,7 +95,7 @@ extension AppDelegate {
             frame,
             within: targetDisplay.visibleFrame,
             minWidth: CGFloat(SessionPersistencePolicy.minimumWindowWidth),
-            minHeight: CGFloat(SessionPersistencePolicy.minimumWindowHeight)
+            minHeight: CGFloat(SessionPersistencePolicy.resolvedMinimumWindowHeight())
         )
         // Avoid emitting a redundant setFrame.
         return clamped.equalTo(frame.standardized) ? nil : clamped
