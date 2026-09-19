@@ -39,7 +39,7 @@ public protocol SettingsHostActions: AnyObject {
     func customSidebarNames() -> [String]
 
     /// Creates a starter custom sidebar and opens it in the preferred editor.
-    func createCustomSidebar(named name: String) -> CustomSidebarOnboardingResult
+    func createCustomSidebar() -> CustomSidebarOnboardingResult
 
     /// Copies one bundled example into the custom-sidebar directory and opens it.
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
@@ -387,9 +387,8 @@ public extension SettingsHostActions {
 
     /// Custom-sidebar defaults for package previews and tests without a live host.
     func customSidebarNames() -> [String] { [] }
-    func createCustomSidebar(named name: String) -> CustomSidebarOnboardingResult {
-        _ = name
-        return .writeFailed
+    func createCustomSidebar() -> CustomSidebarOnboardingResult {
+        .writeFailed
     }
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
         _ = id
