@@ -1,4 +1,4 @@
-import CMUXAuthCore
+public import CMUXAuthCore
 
 public extension AuthCoordinator {
     /// Persist a team selection on Stack Auth before changing the local
