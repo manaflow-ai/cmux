@@ -351,9 +351,8 @@ def setting(prefix):
 if "archive" in args:
     archive = Path(after("-archivePath"))
     # ios/Config/Release.xcconfig derives the app target's
-    # PRODUCT_BUNDLE_IDENTIFIER from CMUX_APP_BUNDLE_IDENTIFIER; the lanes
-    # override that per-target variable instead of the global setting, which
-    # would also rename the notification extension (#12935).
+    # PRODUCT_BUNDLE_IDENTIFIER from CMUX_APP_BUNDLE_IDENTIFIER; retain the
+    # legacy setting as a fixture fallback for older lane invocations.
     bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=") or setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
@@ -462,6 +461,7 @@ import copy
 import datetime
 import plistlib
 import sys
+from datetime import datetime
 from pathlib import Path
 {common}
 LEGACY_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
@@ -494,6 +494,15 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = EXTENSION_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
+            elif b"extension profile" in body:
+                profile = copy.deepcopy(APPSTORE_PROFILE)
+                profile["Name"] = "cmux Notification Service Distribution Test"
+                profile["UUID"] = "00000000-0000-0000-0000-000000000002"
+                profile["ExpirationDate"] = datetime(2099, 1, 1)
+                profile["DeveloperCertificates"] = [b"fixture certificate"]
+                extension_id = f"{{TEAM_ID}}.{{APPSTORE_BUNDLE_ID}}.NotificationService"
+                profile["Entitlements"]["application-identifier"] = extension_id
+                profile["Entitlements"]["keychain-access-groups"] = [extension_id]
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
@@ -501,6 +510,23 @@ if args and args[0] == "find-certificate":
     print("-----END CERTIFICATE-----")
     sys.exit(0)
 sys.exit(0)
+""",
+    )
+
+    _write_executable(
+        fakebin / "openssl",
+        """#!/usr/bin/env python3
+import hashlib
+import sys
+
+args = sys.argv[1:]
+if args[:1] == ["x509"] and "-outform" in args:
+    sys.stdin.buffer.read()
+    sys.stdout.buffer.write(b"fixture certificate")
+elif args[:1] == ["dgst"] and "-sha256" in args:
+    print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())
+else:
+    raise SystemExit(1)
 """,
     )
 
@@ -556,6 +582,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     # A manual App Store export maps the notification extension to its own
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     # Profile expiry is validated against this fixed instant, not the real clock.
     env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")

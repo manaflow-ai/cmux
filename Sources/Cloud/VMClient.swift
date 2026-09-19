@@ -554,18 +554,6 @@ struct VMPublicationDomain: Equatable, Sendable {
 }
 
 
-/// One reflection read (`GET /api/vm/<id>/reflection[/<path>]`): the HTTP status and the
-/// JSON body as sent. A 404 with `{error: "not_found", paths: […]}` is a normal result
-/// (an unknown reflection path), so the CLI can print the paths that do exist.
-struct VMReflectionResult: Sendable {
-    let statusCode: Int
-    let body: Data
-
-    var object: [String: Any] {
-        ((try? JSONSerialization.jsonObject(with: body, options: [])) as? [String: Any]) ?? [:]
-    }
-}
-
 /// One row of `GET /api/vm/<id>/snapshots`: the provider snapshot id, its display name
 /// when one was given, and the creation time as the ISO-8601 string the server sent.
 struct VMSnapshotSummary: Sendable, Equatable {
@@ -2219,7 +2207,9 @@ actor VMClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
@@ -2739,7 +2729,9 @@ actor MachineUsageClient {
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
-        } catch AuthError.networkError {
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw MachineUsageClientError.sessionRefreshFailed
         } catch {
             throw MachineUsageClientError.notSignedIn
