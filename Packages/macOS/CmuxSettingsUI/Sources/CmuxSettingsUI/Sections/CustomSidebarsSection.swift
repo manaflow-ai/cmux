@@ -11,8 +11,6 @@ public struct CustomSidebarsSection: View {
     @State private var enabled: DefaultsValueModel<Bool>
     @State private var renderer: JSONValueModel<CustomSidebarRendererMode>
     @State private var discoveredSidebars: [String] = []
-    @State private var showingCreateSidebar = false
-    @State private var newSidebarName = "my-sidebar"
     @State private var operationMessage: String?
 
     public init(
@@ -56,25 +54,6 @@ public struct CustomSidebarsSection: View {
         .task {
             startObservingSettings()
             refreshDiscoveredSidebars()
-        }
-        .alert(
-            String(localized: "settings.customSidebars.create", defaultValue: "Create Sidebar", bundle: .module),
-            isPresented: $showingCreateSidebar
-        ) {
-            TextField(
-                String(localized: "settings.networking.custom.name", defaultValue: "Name"),
-                text: $newSidebarName
-            )
-            Button(String(localized: "common.create", defaultValue: "Create")) {
-                applyOnboardingResult(hostActions.createCustomSidebar(named: newSidebarName))
-            }
-            .disabled(newSidebarName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            Button(String(localized: "common.cancel", defaultValue: "Cancel"), role: .cancel) {}
-        } message: {
-            Text(
-                String(localized: "settings.customSidebars.create.dialogMessage", defaultValue: "Choose a file name. cmux saves the starter in ~/.config/cmux/sidebars/ and opens it in your preferred editor.", bundle: .module)
-            )
         }
     }
 
@@ -127,15 +106,10 @@ public struct CustomSidebarsSection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.customSidebars.create", defaultValue: "Create Sidebar", bundle: .module),
-                subtitle: String(localized: "settings.customSidebars.create.subtitle", defaultValue: "Start with a small working sidebar and open it in your preferred editor.", bundle: .module)
+                String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
             ) {
-                Button(String(localized: "settings.customSidebars.create.button", defaultValue: "Create…", bundle: .module)) {
-                    operationMessage = nil
-                    if newSidebarName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        newSidebarName = "my-sidebar"
-                    }
-                    showingCreateSidebar = true
+                Button(String(localized: "common.create", defaultValue: "Create")) {
+                    applyOnboardingResult(hostActions.createCustomSidebar(named: "my-sidebar"))
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -146,8 +120,7 @@ public struct CustomSidebarsSection: View {
 
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.customSidebars.examples", defaultValue: "Examples", bundle: .module),
-                subtitle: String(localized: "settings.customSidebars.examples.subtitle", defaultValue: "Copy a shipped example into your sidebars folder and open it for editing.", bundle: .module)
+                String(localized: "menu.help.gettingStarted", defaultValue: "Getting Started")
             ) {
                 Menu {
                     ForEach(CustomSidebarOnboardingAssets.examples) { example in
@@ -156,9 +129,7 @@ public struct CustomSidebarsSection: View {
                         }
                     }
                 } label: {
-                    Text(
-                        String(localized: "settings.customSidebars.examples.button", defaultValue: "Start From Example…", bundle: .module)
-                    )
+                    Text(String(localized: "agentSession.web.start", defaultValue: "Start"))
                 }
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsCustomSidebarsExamplesMenu")
@@ -168,8 +139,7 @@ public struct CustomSidebarsSection: View {
 
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.customSidebars.folder", defaultValue: "Sidebars Folder", bundle: .module),
-                subtitle: String(localized: "settings.customSidebars.folder.subtitle", defaultValue: "Open ~/.config/cmux/sidebars/ in Finder.", bundle: .module)
+                String(localized: "sessionIndex.group.directory", defaultValue: "Folder")
             ) {
                 Button(String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")) {
                     hostActions.openCustomSidebarsFolder()
@@ -183,8 +153,7 @@ public struct CustomSidebarsSection: View {
 
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"),
-                subtitle: String(localized: "settings.customSidebars.documentation.subtitle", defaultValue: "View the authoring guide, live data bindings, actions, and validation commands.", bundle: .module)
+                String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation")
             ) {
                 Link(
                     String(localized: "settings.settingsJSON.docsButton", defaultValue: "Open Docs"),
@@ -206,8 +175,7 @@ public struct CustomSidebarsSection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.customSidebars.yourSidebars", defaultValue: "Your Sidebars", bundle: .module),
-                subtitle: String(localized: "settings.customSidebars.yourSidebars.subtitle", defaultValue: "Files discovered in ~/.config/cmux/sidebars/.", bundle: .module)
+                String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
             ) {
                 Text("\(discoveredSidebars.count)")
                     .foregroundStyle(.secondary)
@@ -241,14 +209,8 @@ public struct CustomSidebarsSection: View {
             operationMessage = nil
             enabled.set(true)
             refreshDiscoveredSidebars()
-        case .invalidName:
-            operationMessage = String(localized: "settings.customSidebars.error.invalidName", defaultValue: "Use a simple file name without slashes.", bundle: .module)
-        case .alreadyExists:
-            operationMessage = String(localized: "settings.customSidebars.error.alreadyExists", defaultValue: "A sidebar with that name already exists.", bundle: .module)
-        case .templateUnavailable:
-            operationMessage = String(localized: "settings.customSidebars.error.templateUnavailable", defaultValue: "The bundled sidebar template failed to load or validate.", bundle: .module)
-        case .writeFailed:
-            operationMessage = String(localized: "settings.customSidebars.error.writeFailed", defaultValue: "cmux failed to write the sidebar file.", bundle: .module)
+        case .invalidName, .alreadyExists, .templateUnavailable, .writeFailed:
+            operationMessage = String(localized: "settings.networking.check.failed", defaultValue: "Failed")
         }
     }
 }
