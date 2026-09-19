@@ -66,4 +66,55 @@ struct MachineCreateOptimisticProjectionTests {
             Issue.record("expected the pending node to adopt the authoritative machine")
         }
     }
+
+    @Test func fleetArrivalBeforeAttachCompletionKeepsTheSelectedPendingIdentity() throws {
+        let (coordinator, launches) = makeCoordinator()
+        coordinator.start(
+            MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(UUID()),
+            launch: launches.launch
+        )
+        let pending = CloudTreeNodeBuilder.nodes(
+            machines: [], pendingCreates: coordinator.operations, snapshot: .empty, localWorkspaces: []
+        )
+        let selectedID = try #require(pending.first?.id)
+        launches.progressHandlers[0]("OK machine=early\n")
+        let machine = MachineSnapshot(
+            id: "early", provider: "freestyle", image: "image", isDesktop: true,
+            activity: .ready, createdAt: nil, label: nil
+        )
+        let refreshed = CloudTreeNodeBuilder.nodes(
+            machines: [machine], pendingCreates: coordinator.operations, snapshot: .empty, localWorkspaces: []
+        )
+        #expect(refreshed.count == 1)
+        #expect(refreshed.first?.id == selectedID)
+        #expect(coordinator.hasRunningOperations)
+    }
+
+    @Test(arguments: [false, true])
+    func workspaceOwnedCloseDoesNotRequestAnotherPresentationClose(failed: Bool) throws {
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        var presentationCloses = 0
+        var destroyed: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { _ in }, notificationCenter: NotificationCenter(),
+            cancelCreatedMachine: { destroyed.append($0) },
+            cancelOperation: { _ in presentationCloses += 1 }
+        )
+        let workspaceID = UUID()
+        coordinator.start(
+            MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(workspaceID),
+            cancellableLaunch: launches.cancellableLaunch
+        )
+        if failed { launches.complete(status: 1, output: "Error: unavailable") }
+
+        coordinator.cancelOperations(forPresentationWorkspace: workspaceID)
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(presentationCloses == 0, "TabManager already owns this close; reentry double-finalizes the workspace")
+        if !failed {
+            #expect(launches.cancellations == 1)
+            launches.complete(status: 0, output: "OK machine=late\n", machineID: "late")
+            #expect(destroyed == ["late"])
+        }
+    }
 }
