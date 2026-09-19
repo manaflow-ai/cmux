@@ -2158,9 +2158,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
         let hasSudoApprovalRuntime = sudoApprovalCoordinator?.requiresShutdown == true
+        // A mirror that owes tmux a goodbye is owned cleanup too. Without this the app can quit
+        // with the deferred phase never running, and the remote half keeps the tmux client —
+        // along with the per-window size claims that pin those windows for everyone else.
+        let mirrorsOwingDetach = remoteTmuxController.connectionsOwingDeliberateDetach.count
         let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
             || !simulatorCleanupTasks.isEmpty
             || hasSudoApprovalRuntime
+            || mirrorsOwingDetach > 0
         guard hasOwnedRuntimeCleanup || CloudNotificationSyncHub.shared.persistenceStore.hasPendingWrites else {
             return false
         }
@@ -2172,6 +2177,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 fields: [
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
+                    "mirrorsOwingDetach": String(mirrorsOwingDetach),
                     "freshAgentIndex": "1",
                     "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
                     "reason": reason,
@@ -2179,6 +2185,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                // Before anything else: let go of the remote tmux clients, and wait for the
+                // server to say it heard us. Everything after this stops transports, which is
+                // what would otherwise swallow the goodbye.
+                await self.remoteTmuxController.detachAllAwaitingExit()
                 await self.sudoApprovalCoordinator?.stop()
                 guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
@@ -8664,6 +8674,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let context = livePreferredContext
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
+
+        // On a remote-tmux mirror workspace, a new terminal workspace means "create
+        // a new tmux session on that workspace's host" — route it to the remote and
+        // mirror it back instead of creating a local workspace. Inert off a mirror
+        // (handleNewWorkspaceRequested returns false), so local/browser flows below
+        // are unaffected.
+        if initialSurface == .terminal,
+           let context,
+           remoteTmuxController.handleNewWorkspaceRequested(in: context.tabManager) {
+            return true
+        }
 
         let workspaceGroupTarget = context.flatMap { workspaceGroupNewWorkspaceTarget(in: $0) }
         // The configured new-workspace action is the user's override for the
