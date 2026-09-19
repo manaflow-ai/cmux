@@ -76,8 +76,9 @@ examples.
 `TextField(value, opts)` opts: `placeholder`, `onSubmit(text)`, `onCancel()`,
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
 true; pass `false` for persistent fields so mounting never steals focus).
-Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
-(`tabs[i].id` is the panel behind the tab, not interchangeable).
+Each workspace's `tabs[i]` carries `id` for `surface.*` verbs
+(`tabs[i].surfaceId` correlates a tab with `agents[j].surfaceId`; the two
+are not interchangeable).
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
@@ -276,10 +277,12 @@ with:
   (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
   `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
   current working/needs-input state began), `title` (first user prompt),
-  `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
-  tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
+  `panelId` (the hosting terminal's `tabs[k].id`, accepted by `surface.*`
+  verbs), `surfaceId` (the hosting tab's `tabs[k].surfaceId`, for
+  correlating an agent with its tab), `directory`,
   `transcriptPath`, and `pid`.
-- `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
+- `tabs` (per workspace) — array of surfaces. Always: `id` (the value
+  `surface.*` verbs accept as `surface_id`), `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
