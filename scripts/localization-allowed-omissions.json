@@ -2542,6 +2542,10 @@
     "class": "technical",
     "source": "SSH"
   },
+  "sidebar.workspace.titleWithHost": {
+    "class": "format",
+    "source": "%1$@ · %2$@"
+  },
   "simulator.action.siri": {
     "class": "brand",
     "source": "Siri"

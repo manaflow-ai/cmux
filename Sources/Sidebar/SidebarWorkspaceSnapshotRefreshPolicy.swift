@@ -8,6 +8,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let isMuted: Bool
         let cloudWorkspaceLabel: String?
         let customColorHex: String?
+        let hasManualCustomColor: Bool
         let finderDirectoryPath: String?
         let mediaActivity: BrowserMediaActivity
         let taskStatus: WorkspaceTaskStatus?
@@ -19,6 +20,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let checklistFirstUncheckedText: String?
         let activeCodingAgentCount: Int
         let taskStatusInput: SidebarWorkspaceTaskStatusSnapshot
+        let hostTitleSuffix: String?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -29,6 +31,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isMuted: isMuted,
             cloudWorkspaceLabel: cloudWorkspaceLabel,
             customColorHex: customColorHex,
+            hasManualCustomColor: hasManualCustomColor,
             finderDirectoryPath: finderDirectoryPath,
             mediaActivity: mediaActivity,
             taskStatus: taskStatus,
@@ -39,7 +42,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistTotalCount: checklistTotalCount,
             checklistFirstUncheckedText: checklistFirstUncheckedText,
             activeCodingAgentCount: activeCodingAgentCount,
-            taskStatusInput: taskStatusInput
+            taskStatusInput: taskStatusInput,
+            hostTitleSuffix: hostTitleSuffix
         )
     }
 
@@ -52,6 +56,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: snapshot.isPinned,
             isMuted: snapshot.isMuted,
             customColorHex: snapshot.customColorHex,
+            hasManualCustomColor: snapshot.hasManualCustomColor,
             cloudWorkspaceLabel: snapshot.cloudWorkspaceLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
@@ -87,7 +92,9 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             checklistCompletedCount: snapshot.checklistCompletedCount,
             checklistTotalCount: snapshot.checklistTotalCount,
             checklistFirstUncheckedText: snapshot.checklistFirstUncheckedText,
-            taskStatusInput: snapshot.taskStatusInput
+            taskStatusInput: snapshot.taskStatusInput,
+            // The host after a colliding title is part of the title the row shows, so it updates with it.
+            hostTitleSuffix: snapshot.hostTitleSuffix
         )
     }
 }
