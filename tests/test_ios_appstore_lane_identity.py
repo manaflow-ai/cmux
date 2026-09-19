@@ -26,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TEAM_ID = "7WLXT3NR37"
 APPSTORE_BUNDLE_ID = "com.cmux.app"
 APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
+APPSTORE_EXTENSION_BUNDLE_ID = f"{APPSTORE_BUNDLE_ID}.NotificationService"
+APPSTORE_EXTENSION_PROFILE_NAME = "cmux App Store Notification Service Distribution"
 BETA_BUNDLE_ID = "dev.cmux.app.beta"
 BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
 ASC_APP_ID = "6783338052"
@@ -104,6 +106,8 @@ from pathlib import Path
 TEAM_ID = {TEAM_ID!r}
 APPSTORE_BUNDLE_ID = {APPSTORE_BUNDLE_ID!r}
 APPSTORE_APP_ID = {APPSTORE_APP_ID!r}
+APPSTORE_EXTENSION_BUNDLE_ID = {APPSTORE_EXTENSION_BUNDLE_ID!r}
+APPSTORE_EXTENSION_PROFILE_NAME = {APPSTORE_EXTENSION_PROFILE_NAME!r}
 BETA_BUNDLE_ID = {BETA_BUNDLE_ID!r}
 BETA_APP_ID = {BETA_APP_ID!r}
 IDENTITY = {IDENTITY!r}
@@ -117,7 +121,7 @@ def write_plist(path, value):
 
 APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
-EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_BUNDLE_ID + ".NotificationService", "cmux App Store Notification Distribution Test", "00000000-0000-0000-0000-000000000003"))!r})
+EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_EXTENSION_BUNDLE_ID, APPSTORE_EXTENSION_PROFILE_NAME, "00000000-0000-0000-0000-000000000003"))!r})
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
 
 def profile_for_bundle(bundle_id):
@@ -353,6 +357,9 @@ def setting(prefix):
 
 if "archive" in args:
     archive = Path(after("-archivePath"))
+    # Release.xcconfig derives PRODUCT_BUNDLE_IDENTIFIER from the app-target
+    # variable. The lane must override the app target without renaming the
+    # notification extension (#12935).
     bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=") or setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
@@ -541,6 +548,9 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    # Manual App Store export maps the notification extension to its own
+    # profile; the lane refuses to export without this name.
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
@@ -766,6 +776,14 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     _check(
         f"CMUX_APP_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
         "beta archive command stamps the beta bundle id",
+    )
+    _check(
+        f"CMUX_HOST_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
+        "beta archive command stamps the beta host id for the notification extension",
+    )
+    _check(
+        not any(arg.startswith("PRODUCT_BUNDLE_IDENTIFIER=") for arg in archive_call),
+        "beta archive command does not override PRODUCT_BUNDLE_IDENTIFIER for every target",
     )
     _check(
         f"MARKETING_VERSION={BETA_MARKETING_VERSION}" in archive_call,
@@ -1078,7 +1096,6 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     env = _base_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
-    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux App Store Notification Distribution"
     result = _run(
         [
             "bash",
@@ -1103,6 +1120,14 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         f"CMUX_APP_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
         "archive command stamps com.cmux.app",
+    )
+    _check(
+        f"CMUX_HOST_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
+        "archive command stamps the com.cmux.app host id for the notification extension",
+    )
+    _check(
+        not any(arg.startswith("PRODUCT_BUNDLE_IDENTIFIER=") for arg in archive_call),
+        "archive command does not override PRODUCT_BUNDLE_IDENTIFIER for every target",
     )
     _check(
         f"MARKETING_VERSION={APPSTORE_MARKETING_VERSION}" in archive_call,
@@ -1132,6 +1157,10 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         profiles.get(APPSTORE_BUNDLE_ID) == "cmux App Store Distribution",
         "export options map the App Store profile to com.cmux.app",
+    )
+    _check(
+        profiles.get(APPSTORE_EXTENSION_BUNDLE_ID) == APPSTORE_EXTENSION_PROFILE_NAME,
+        "export options map the notification extension to its App Store profile",
     )
     _check("com.cmuxterm.app" not in profiles, "export options do not include the retired app id")
 
@@ -1163,7 +1192,6 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
     env = _asc_upload_env(tmp, fakebin)
     env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
     env["CMUX_BUILD_NUMBER_OUT_FILE"] = str(tmp / "build-number.txt")
-    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux App Store Notification Distribution"
     result = _run(
         [
             "bash",
@@ -1211,7 +1239,7 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
         "profile installer exports the resolved App Store profile name",
     )
     _check(
-        "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=cmux App Store Notification Distribution Test" in github_env,
+        f"IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME={APPSTORE_EXTENSION_PROFILE_NAME}" in github_env,
         "profile installer exports a separate NotificationService profile name",
     )
     _check(
@@ -1242,7 +1270,7 @@ def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path
         "profile installer falls back to a matching production profile",
     )
     _check(
-        "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=cmux App Store Notification Distribution Test" in github_env,
+        f"IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME={APPSTORE_EXTENSION_PROFILE_NAME}" in github_env,
         "profile installer exports the fallback extension profile name",
     )
 
