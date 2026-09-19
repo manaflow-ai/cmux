@@ -53,9 +53,18 @@ on:
         required: false
         default: false
         type: boolean
+# Capture-only needs nothing beyond reading the repository: checkout runs with
+# persist-credentials disabled, and artifact uploads use the runner's artifact
+# token rather than GITHUB_TOKEN. Nothing here dispatches, cancels or deletes
+# runs, so `actions: write` was never exercised, and declaring it broke every
+# caller that grants less: GitHub validates a reusable workflow's permissions
+# against the calling job at parse time, and release.yml failed at startup
+# with "is requesting 'actions: write', but is only allowed 'actions: none'"
+# (https://github.com/manaflow-ai/cmux/issues/12149). Keep this block at the
+# minimum the steps use; tests/test_ci_reusable_workflow_permissions.py checks
+# every local caller against it.
 permissions:
   contents: read
-  actions: write
 
 jobs:
   screenshots:

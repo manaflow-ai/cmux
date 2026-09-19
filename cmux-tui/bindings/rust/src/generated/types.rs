@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8ff10c20fef75f9aaa1498eaf5e1107f084bdcf3febdcf8806fb4e7fc1c90b86.
+// cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -370,6 +370,30 @@ pub struct GetCellPixelsResult {
     pub height_px: u16,
     pub surfaces: Vec<CellPixelSurface>,
     pub width_px: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlAcknowledgeResult {
+    pub accepted: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlClaimResult {
+    pub claimed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlOpenResult {
+    pub opened: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlSubscribeResult {
+    pub url_open_ready: bool,
 }
 
 #[rustfmt::skip]
@@ -1093,6 +1117,14 @@ pub struct Tab {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalColorOverrides {
+    pub bg: Nullable<ColorHex>,
+    pub cursor: Nullable<ColorHex>,
+    pub fg: Nullable<ColorHex>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalColors {
     pub bg: Nullable<ColorHex>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -1102,6 +1134,8 @@ pub struct TerminalColors {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cursor_style: Optional<CursorStyle>,
     pub fg: Nullable<ColorHex>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<TerminalColorOverrides>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, ColorHex>>,
     pub selection_bg: Nullable<ColorHex>,

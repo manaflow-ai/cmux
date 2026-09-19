@@ -112,6 +112,7 @@ describe("CLI config route", () => {
           accountsUrl: "https://cmux.com/api/coderouter/accounts",
           organizationsUrl:
             "https://cmux.com/api/coderouter/organizations",
+          apiKeysSelfUrl: "https://cmux.com/api/coderouter/api-keys/self",
           openaiBaseUrl: "https://cmux.com/v1",
         },
         subrouter: {
