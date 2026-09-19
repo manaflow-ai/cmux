@@ -29,6 +29,7 @@ struct HostSettingsShortcutNotificationTests {
         )
     }
 
+    /// Verifies Settings receives the enabled/disabled split from the authoritative config store.
     @Test
     func automationRulesStatusReportsEnabledAndDisabledCounts() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
@@ -68,9 +69,10 @@ struct HostSettingsShortcutNotificationTests {
         #expect(status.ruleCount == 3)
         #expect(status.enabledCount == 2)
         #expect(status.disabledCount == 1)
-        #expect(status.errorMessage == nil)
+        #expect(!status.hasError)
     }
 
+    /// Verifies malformed configuration is reduced to a product-safe error flag.
     @Test
     func automationRulesStatusSurfacesConfigurationErrors() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
@@ -91,7 +93,7 @@ struct HostSettingsShortcutNotificationTests {
         #expect(status.configExists)
         #expect(status.ruleCount == 0)
         #expect(status.enabledCount == 0)
-        #expect(status.errorMessage != nil)
+        #expect(status.hasError)
     }
 
     private func withSettingsFile(
