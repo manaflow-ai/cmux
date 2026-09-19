@@ -19,6 +19,7 @@ import { personalPortalSession } from "../../../../services/billing/personalPort
 import { checkoutAttributionFromRequest } from "../../../../services/analytics/checkoutAttribution";
 import { resolveBillingTeam } from "../../../../services/billing/teamResolution";
 import { isGoPlanEnabled } from "../../../../services/billing/goPlanFlag";
+import { parseNativeStackTokens } from "../../../../services/vms/auth";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
 
   let stackUserId: string | undefined;
   try {
-    const user = await currentStackUser(getStackServerApp);
+    const user = await currentStackUser(request, getStackServerApp);
     if (!user) {
       return NextResponse.redirect(new URL("/pricing", requestOrigin(request)), 302);
     }
@@ -100,8 +101,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-async function currentStackUser(getStackServerApp: GetStackServerApp) {
+async function currentStackUser(request: NextRequest, getStackServerApp: GetStackServerApp) {
   const stackServerApp = getStackServerApp();
+  const nativeTokens = parseNativeStackTokens(request);
+  if (nativeTokens) {
+    return stackServerApp.getUser({ tokenStore: nativeTokens });
+  }
   return (
     (await stackServerApp.getUser({ or: "return-null" })) ??
     (await stackServerApp.getUser({ or: ANONYMOUS_IF_EXISTS }))

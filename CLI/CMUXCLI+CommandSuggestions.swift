@@ -61,6 +61,7 @@ extension CMUXCLI {
         "automation",
         "auth",
         "bind-key",
+        "billing",
         "break-pane",
         "browser",
         "browser-back",

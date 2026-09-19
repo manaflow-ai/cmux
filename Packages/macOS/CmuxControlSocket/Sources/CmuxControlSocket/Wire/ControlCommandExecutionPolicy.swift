@@ -17,7 +17,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     case socketWorker(mainThreadCallable: Bool)
 
     /// Classifies a method: every `vm.`-, `remotes.`-, `aiAccounts.`-, and
-    /// `coderouter.`-prefixed method and the fixed socket-worker set run on the
+    /// `billing.`- and `coderouter.`-prefixed method and the fixed socket-worker set run on the
     /// worker; everything else runs on the main actor.
     ///
     /// `remotes.*` (the `cmux remotes` device-registry verbs), `aiAccounts.*`
@@ -39,7 +39,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
-            || method.hasPrefix("coderouter.") || Self.socketWorkerMethods.contains(method) {
+            || method.hasPrefix("billing.") || method.hasPrefix("coderouter.") || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
             )

@@ -3254,6 +3254,7 @@ class TerminalController {
             "coderouter.claude_upstream.remove",
             "coderouter.claude_upstream.clear",
             "coderouter.machines",
+            "billing.status", "billing.checkout", "billing.portal",
             "window.list",
             "window.current",
             "window.focus",

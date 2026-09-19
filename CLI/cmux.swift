@@ -5374,27 +5374,7 @@ struct CMUXCLI {
             try runVPNCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "billing":
-            let (planOption, rest) = parseOption(Array(commandArgs.dropFirst()), name: "--plan")
-            guard let plan = planOption, commandArgs.first == "checkout", ["go", "pro", "max"].contains(plan), rest.allSatisfy({ $0 == "--no-open" }) else {
-                throw CLIError(message: "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]")
-            }
-            let response = try client.sendV2(method: "vm.billing_checkout", params: ["plan": plan])
-            guard let url = response["url"] as? String else {
-                throw CLIError(message: "Checkout URL is missing. Open https://cmux.com/pricing.")
-            }
-            if !rest.contains("--no-open") && !jsonOutput {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: openToolPath())
-                process.arguments = [url]
-                try process.run()
-                process.waitUntilExit()
-            }
-            if jsonOutput {
-                print(jsonString(response))
-            } else {
-                print(url)
-                print("Review the plan and price in your browser. After payment, retry your VM command.")
-            }
+            try runBillingCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "auth", "login", "logout":
             let authArgs = command == "auth" ? commandArgs : [command] + commandArgs
@@ -18093,11 +18073,7 @@ struct CMUXCLI {
                 """
             )
         case "capabilities":
-            return """
-            Usage: cmux capabilities
-
-            Print server capabilities as JSON.
-            """
+            return Self.capabilitiesUsage
         case "canvas":
             return """
             Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
@@ -18197,7 +18173,8 @@ struct CMUXCLI {
             Extension is absent. There is no privileged fallback.
             """
         case "billing":
-            return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
+            return Self.billingUsage
+
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -41157,6 +41134,7 @@ export default CMUXSessionRestore;
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           automation <list|show|test|enable|disable|logs|reload> [args]
+          billing <status|checkout|portal> [--json] [--url|--open]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
