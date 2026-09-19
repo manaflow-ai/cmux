@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxIrohTransport
 import Foundation
 
 /// Registers this Mac (and its running cmux app instance's attach routes) in the
@@ -30,6 +31,36 @@ final class DeviceRegistryClient {
     /// account/team switch with unchanged routes still re-registers in the newly
     /// selected team instead of being deduped away.
     private var lastRegistration: Registration?
+
+    /// Consecutive failed registration attempts, reset by the first success.
+    private var consecutiveFailures = 0
+
+    /// The earliest time another registration attempt may be made.
+    private var retryNotBefore: Date?
+
+    /// Registration retries are event-driven, so a failed request does not turn
+    /// every status tick into another request. Retry-After remains an upper
+    /// authority when the server asks for a longer floor.
+    static let retrySchedule = CmxIrohRetrySchedule(initialDelay: 5, maximumDelay: 600)
+
+    /// Parse only bounded delta-seconds; HTTP-date values and absurd floors are
+    /// ignored so malformed headers cannot silence registration indefinitely.
+    nonisolated static func retryAfterSeconds(_ response: HTTPURLResponse) -> Int? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After"),
+              let seconds = Int(raw.trimmingCharacters(in: .whitespaces)),
+              seconds > 0, seconds <= 24 * 60 * 60 else { return nil }
+        return seconds
+    }
+
+    private func holdOffAfterFailure(retryAfterSeconds: Int?) {
+        consecutiveFailures += 1
+        let delay = Self.retrySchedule.delay(
+            failureCount: consecutiveFailures - 1,
+            retryAfterSeconds: retryAfterSeconds,
+            jitterUnitInterval: Double.random(in: 0...1)
+        )
+        retryNotBefore = Date().addingTimeInterval(delay)
+    }
 
     /// The identity of a registration POST, for deduplication.
     struct Registration: Equatable {
@@ -102,6 +133,8 @@ final class DeviceRegistryClient {
             observeTask?.cancel()
             observeTask = nil
             lastRegistration = nil
+            consecutiveFailures = 0
+            retryNotBefore = nil
             return
         }
         startObserving()
@@ -114,6 +147,8 @@ final class DeviceRegistryClient {
             // Forget the last accepted scope while pairing is off. Re-enabling
             // must POST even when the endpoint identity and routes are reused.
             lastRegistration = nil
+            consecutiveFailures = 0
+            retryNotBefore = nil
             return
         }
         guard await retryAfterGate.remainingSeconds() == nil else { return }
@@ -142,6 +177,7 @@ final class DeviceRegistryClient {
         let tag = MobileHostIdentity.instanceTag()
         let registration = Registration(teamID: teamID, tag: tag, routes: routes)
         guard Self.shouldReRegister(previous: lastRegistration, current: registration) else { return }
+        if let retryNotBefore, Date() < retryNotBefore { return }
 
         guard var comps = URLComponents(
             url: AuthEnvironment.deviceRegistryAPIBaseURL, resolvingAgainstBaseURL: false
@@ -183,6 +219,8 @@ final class DeviceRegistryClient {
                     // Only remember the scope once the server accepted it, so a
                     // transient failure retries on the next status tick.
                     lastRegistration = registration
+                    consecutiveFailures = 0
+                    retryNotBefore = nil
                 } else {
                     if http.statusCode == 429 {
                         let seconds = CmxRetryAfterPolicy.seconds(
@@ -192,6 +230,7 @@ final class DeviceRegistryClient {
                         await retryAfterGate.extend(by: seconds)
                     }
                     NSLog("cmux.deviceRegistry register failed status=%d", http.statusCode)
+                    holdOffAfterFailure(retryAfterSeconds: Self.retryAfterSeconds(http))
                 }
             }
         } catch {
@@ -199,6 +238,7 @@ final class DeviceRegistryClient {
             // a silently unreachable registry strands every paired phone on
             // stale routes with nothing to diagnose from.
             NSLog("cmux.deviceRegistry register unreachable: %@", String(describing: error))
+            holdOffAfterFailure(retryAfterSeconds: nil)
         }
     }
 
