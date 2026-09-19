@@ -299,6 +299,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "builtin",
     "mutation",
     "stream",
+    "refresh",
     "ignore-case",
 ];
 
