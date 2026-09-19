@@ -86,7 +86,7 @@ extension CmuxExtensionSidebarSelection {
             // validator cannot render (including dangling symlinks), so a
             // suffix candidate can never replace another process's path.
             let occupiedNames: Set<String> = Set(
-                (try? fileManager.contentsOfDirectory(at: sidebarsDirectory, includingPropertiesForKeys: nil) ?? [])
+                ((try? fileManager.contentsOfDirectory(at: sidebarsDirectory, includingPropertiesForKeys: nil)) ?? [])
                     .compactMap { url in
                         let ext = url.pathExtension.lowercased()
                         guard ["js", "swift", "json"].contains(ext) else { return nil }
