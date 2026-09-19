@@ -86,47 +86,62 @@ extension TerminalSurface {
     /// Sends paste-style text to the surface, queueing on a cold surface.
     ///
     /// - Returns: Whether the text was delivered or queued.
+    ///
+    /// Callers that must tell delivery from queueing — socket/API clients that
+    /// cannot safely treat a queued paste as delivered — should use
+    /// ``sendTextResult(_:)`` instead.
     @MainActor
     @discardableResult
     public func sendText(_ text: String) -> Bool {
-        guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        sendTextResult(text).accepted
+    }
+
+    /// Sends paste-style text to the surface, reporting whether it reached the
+    /// live runtime surface or was queued for ordered delivery.
+    ///
+    /// This is the paste-path counterpart to ``sendInputResult(_:)`` and
+    /// ``sendNamedKey(_:)``: the branch that writes to a live surface and the
+    /// branch that enqueues on a cold one are already distinct here, and this
+    /// entry point reports which one ran instead of flattening both to `true`.
+    @MainActor
+    @discardableResult
+    public func sendTextResult(_ text: String) -> InputSendResult {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return .sent }
         didReceiveExplicitInput()
-        let accepted = sendTextAfterExplicitInput(data)
-        if accepted {
+        let result = sendTextAfterExplicitInput(data)
+        if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
                 panelId: id
             )
         }
-        return accepted
+        return result
     }
 
     @MainActor
-    private func sendTextAfterExplicitInput(_ data: Data) -> Bool {
+    private func sendTextAfterExplicitInput(_ data: Data) -> InputSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: data.count,
             replay: { [weak self] in
                 _ = self?.sendTextAfterExplicitInput(data)
             }
         ) {
-            return true
+            return .queued
         }
         guard surface != nil else {
-            guard allowsRuntimeSurfaceCreation() else { return false }
-            let queued = enqueuePendingSocketInput(.pasteText(data))
-            if queued {
-                requestInputDemandSurfaceStartIfNeeded()
-                didAcceptExplicitInput()
-            }
-            return queued
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
+            guard enqueuePendingSocketInput(.pasteText(data)) else { return .inputQueueFull }
+            requestInputDemandSurfaceStartIfNeeded()
+            didAcceptExplicitInput()
+            return .queued
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
-            return false
+            return .surfaceUnavailable
         }
-        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         writeTextData(data, to: liveSurface)
         didAcceptExplicitInput()
-        return true
+        return .sent
     }
 
     /// Sends raw key text as a single key event.

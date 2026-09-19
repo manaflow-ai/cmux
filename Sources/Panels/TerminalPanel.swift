@@ -715,8 +715,13 @@ final class TerminalPanel: Panel, ObservableObject {
 
     @discardableResult
     func sendText(_ text: String) -> Bool {
+        sendTextResult(text).accepted
+    }
+
+    @discardableResult
+    func sendTextResult(_ text: String) -> TerminalSurface.InputSendResult {
         resumeForExplicitInputIfNeeded()
-        return surface.sendText(text)
+        return surface.sendTextResult(text)
     }
 
     func sendInput(_ text: String) {
