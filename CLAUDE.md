@@ -31,6 +31,8 @@ Compile-only check, no launch. Point it at the derived data `reload.sh` uses for
 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>" build
 ```
 
+`<tag>` here is the slug `reload.sh` makes from your tag: lowercased, with every run of other characters turned into `-` (`Fix/ABC-1` becomes `fix-abc-1`). A raw tag that differs from its slug points at a different, empty directory.
+
 Rebuild GhosttyKit.xcframework with Release optimizations:
 
 ```bash
