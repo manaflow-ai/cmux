@@ -10,6 +10,14 @@ typealias CloudPresenceHighlight = CloudTuiGenerated.PresenceHighlight
 /// Schema-generated terminal presence entries used by the Cloud UI.
 typealias CloudPresenceEntry = CloudTuiGenerated.PresenceEntry
 
+extension CloudTuiGenerated.OptionalField {
+    /// Returns the payload only when an optional field was present with a value.
+    var value: Value? {
+        guard case let .value(value) = self else { return nil }
+        return value
+    }
+}
+
 extension CloudTuiGenerated.PresenceAnchor {
     /// Creates a typed cell anchor from the publisher's terminal grid.
     static func cell(row: Int, col: Int, scrollOffset: UInt64 = 0) -> Self {

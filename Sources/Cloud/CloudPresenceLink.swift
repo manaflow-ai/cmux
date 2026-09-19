@@ -90,15 +90,13 @@ final class CloudPresenceLink {
             self.startEventTask(connection)
             let identify = self.takeRequestID()
             self.identifyRequestID = identify
-            connection.send(.identify(id: identify, request: .init()))
+            connection.send(commandBuilder.typedIdentify(requestID: identify))
             let clientInfoID = self.takeRequestID()
-            connection.send(.setClientInfo(
-                id: clientInfoID,
-                request: .init(
-                    capabilities: .value([self.commandBuilder.presenceCapability]),
-                    kind: .value("mac"),
-                    name: .value(self.clientName)
-                )
+            connection.send(commandBuilder.typedClientInfo(
+                name: clientName,
+                kind: "mac",
+                capabilities: [commandBuilder.presenceCapability],
+                requestID: clientInfoID
             ))
         }
     }
@@ -113,7 +111,7 @@ final class CloudPresenceLink {
         pendingPublishTask = nil
         desiredPresence = nil
         if phase == .ready, let connection, lastSentPresence != nil {
-            connection.send(.presenceClear(id: takeRequestID(), request: .init()))
+            connection.send(commandBuilder.typedPresenceClear(requestID: takeRequestID()))
         }
         lastSentPresence = nil
         connection?.close()
@@ -159,7 +157,7 @@ final class CloudPresenceLink {
         guard phase == .ready, serverSupportsPresence, let connection else { return }
         guard lastSentPresence != nil else { return }
         lastSentPresence = nil
-        connection.send(.presenceClear(id: takeRequestID(), request: .init()))
+        connection.send(commandBuilder.typedPresenceClear(requestID: takeRequestID()))
     }
 
     /// Carrier replacement keeps the desired presence while retiring the
@@ -232,7 +230,7 @@ final class CloudPresenceLink {
                 }
                 let listRequestID = takeRequestID()
                 listClientsRequestID = listRequestID
-                connection.send(.listClients(id: listRequestID, request: .init()))
+                connection.send(commandBuilder.typedPresenceList(requestID: listRequestID))
                 return
             }
             guard requestID == listClientsRequestID else { return }
@@ -243,7 +241,7 @@ final class CloudPresenceLink {
             }
             selfClientID = clientID
             subscribeRequestID = takeRequestID()
-            connection.send(.subscribe(id: subscribeRequestID, request: .init(presenceOnly: .value(true))))
+            connection.send(commandBuilder.typedPresenceSubscribe(requestID: subscribeRequestID))
         case .snapshot, .output, .resized, .colorsChanged, .detached:
             return
         case .message:
@@ -273,12 +271,12 @@ final class CloudPresenceLink {
         }
         lastPublish = now
         lastSentPresence = (surfaceID, pointer, highlight)
-        let request = CloudTuiGenerated.PresenceUpdateRequest(
-            highlight: highlight.map(CloudTuiGenerated.OptionalField.value) ?? .missing,
-            pointer: pointer.map(CloudTuiGenerated.OptionalField.value) ?? .missing,
-            surface: surfaceID
-        )
-        connection.send(.presenceUpdate(id: takeRequestID(), request: request))
+        connection.send(commandBuilder.typedPresenceUpdate(
+            surfaceID: surfaceID,
+            pointer: pointer,
+            highlight: highlight,
+            requestID: takeRequestID()
+        ))
     }
 
     private func transition(to phase: Phase) {

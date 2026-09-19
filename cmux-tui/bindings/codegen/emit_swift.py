@@ -420,7 +420,10 @@ enum CloudTuiGenerated {
             if field["presence"] == "optional":
                 lines.append(f"            switch {swift_name} {{")
                 lines.append("            case .missing: break")
-                lines.append(f"            case .null: try container.encodeNil(forKey: {key})")
+                if field["nullable"]:
+                    lines.append(f"            case .null: try container.encodeNil(forKey: {key})")
+                else:
+                    lines.append(f"            case .null: throw CodecError.invalidLiteral({quote(wire)})")
                 lines.append(f"            case .value(let value): try container.encode(value, forKey: {key})")
                 lines.append("            }")
             else:

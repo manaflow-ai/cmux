@@ -291,23 +291,23 @@ extension CloudTuiGenerated {
             var container = encoder.container(keyedBy: CodingKeys.self)
             switch authentication {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .authentication)
+            case .null: throw CodecError.invalidLiteral("authentication")
             case .value(let value): try container.encode(value, forKey: .authentication)
             }
             try container.encode(available, forKey: .available)
             switch clients {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .clients)
+            case .null: throw CodecError.invalidLiteral("clients")
             case .value(let value): try container.encode(value, forKey: .clients)
             }
             switch endpoint {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .endpoint)
+            case .null: throw CodecError.invalidLiteral("endpoint")
             case .value(let value): try container.encode(value, forKey: .endpoint)
             }
             switch providerId {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .providerId)
+            case .null: throw CodecError.invalidLiteral("provider_id")
             case .value(let value): try container.encode(value, forKey: .providerId)
             }
             try container.encode(revision, forKey: .revision)
@@ -1242,7 +1242,7 @@ extension CloudTuiGenerated {
             try container.encode(projectionRevision, forKey: .projectionRevision)
             switch replayed {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .replayed)
+            case .null: throw CodecError.invalidLiteral("replayed")
             case .value(let value): try container.encode(value, forKey: .replayed)
             }
             try container.encode(schemaVersion, forKey: .schemaVersion)
@@ -1518,7 +1518,7 @@ extension CloudTuiGenerated {
             }
             switch capabilities {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .capabilities)
+            case .null: throw CodecError.invalidLiteral("capabilities")
             case .value(let value): try container.encode(value, forKey: .capabilities)
             }
             try container.encode(daemonHandoff, forKey: .daemonHandoff)
@@ -1530,7 +1530,7 @@ extension CloudTuiGenerated {
             }
             switch lifecycleReady {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .lifecycleReady)
+            case .null: throw CodecError.invalidLiteral("lifecycle_ready")
             case .value(let value): try container.encode(value, forKey: .lifecycleReady)
             }
             try container.encode(pid, forKey: .pid)
@@ -1728,7 +1728,7 @@ extension CloudTuiGenerated {
             try container.encode(ratio, forKey: .ratio)
             switch split {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .split)
+            case .null: throw CodecError.invalidLiteral("split")
             case .value(let value): try container.encode(value, forKey: .split)
             }
         }
@@ -1889,7 +1889,7 @@ extension CloudTuiGenerated {
             var container = encoder.container(keyedBy: CodingKeys.self)
             switch confirmationRequired {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .confirmationRequired)
+            case .null: throw CodecError.invalidLiteral("confirmation_required")
             case .value(let value): try container.encode(value, forKey: .confirmationRequired)
             }
             try container.encode(revision, forKey: .revision)
@@ -2015,14 +2015,14 @@ extension CloudTuiGenerated {
             try container.encode(activeTab, forKey: .activeTab)
             switch focusedAt {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .focusedAt)
+            case .null: throw CodecError.invalidLiteral("focused_at")
             case .value(let value): try container.encode(value, forKey: .focusedAt)
             }
             try container.encode(id, forKey: .id)
             try container.encode(name, forKey: .name)
             switch shortId {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .shortId)
+            case .null: throw CodecError.invalidLiteral("short_id")
             case .value(let value): try container.encode(value, forKey: .shortId)
             }
             try container.encode(tabs, forKey: .tabs)
@@ -2465,7 +2465,7 @@ extension CloudTuiGenerated {
             try container.encode(row, forKey: .row)
             switch scrollOffset {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .scrollOffset)
+            case .null: throw CodecError.invalidLiteral("scroll_offset")
             case .value(let value): try container.encode(value, forKey: .scrollOffset)
             }
         }
@@ -3003,12 +3003,12 @@ extension CloudTuiGenerated {
             var container = encoder.container(keyedBy: CodingKeys.self)
             switch anchorCol {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .anchorCol)
+            case .null: throw CodecError.invalidLiteral("anchor_col")
             case .value(let value): try container.encode(value, forKey: .anchorCol)
             }
             switch anchorRow {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .anchorRow)
+            case .null: throw CodecError.invalidLiteral("anchor_row")
             case .value(let value): try container.encode(value, forKey: .anchorRow)
             }
             try container.encode(columns, forKey: .columns)
@@ -3078,13 +3078,13 @@ extension CloudTuiGenerated {
             try container.encode(generation, forKey: .generation)
             switch images {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .images)
+            case .null: throw CodecError.invalidLiteral("images")
             case .value(let value): try container.encode(value, forKey: .images)
             }
             try container.encode(placements, forKey: .placements)
             switch removedImageIds {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .removedImageIds)
+            case .null: throw CodecError.invalidLiteral("removed_image_ids")
             case .value(let value): try container.encode(value, forKey: .removedImageIds)
             }
         }
@@ -3147,17 +3147,17 @@ extension CloudTuiGenerated {
             try container.encode(generation, forKey: .generation)
             switch images {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .images)
+            case .null: throw CodecError.invalidLiteral("images")
             case .value(let value): try container.encode(value, forKey: .images)
             }
             switch placements {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .placements)
+            case .null: throw CodecError.invalidLiteral("placements")
             case .value(let value): try container.encode(value, forKey: .placements)
             }
             switch removedImageIds {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .removedImageIds)
+            case .null: throw CodecError.invalidLiteral("removed_image_ids")
             case .value(let value): try container.encode(value, forKey: .removedImageIds)
             }
         }
@@ -3256,12 +3256,12 @@ extension CloudTuiGenerated {
             try container.encode(text, forKey: .text)
             switch underline {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .underline)
+            case .null: throw CodecError.invalidLiteral("underline")
             case .value(let value): try container.encode(value, forKey: .underline)
             }
             switch widthHint {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .widthHint)
+            case .null: throw CodecError.invalidLiteral("width_hint")
             case .value(let value): try container.encode(value, forKey: .widthHint)
             }
         }
@@ -3803,7 +3803,7 @@ extension CloudTuiGenerated {
             try container.encode(panes, forKey: .panes)
             switch shortId {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .shortId)
+            case .null: throw CodecError.invalidLiteral("short_id")
             case .value(let value): try container.encode(value, forKey: .shortId)
             }
             try container.encode(zoomedPane, forKey: .zoomedPane)
@@ -4529,13 +4529,13 @@ extension CloudTuiGenerated {
             }
             switch shortId {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .shortId)
+            case .null: throw CodecError.invalidLiteral("short_id")
             case .value(let value): try container.encode(value, forKey: .shortId)
             }
             try container.encode(size, forKey: .size)
             switch supportsClearHistoryKeyFallback {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .supportsClearHistoryKeyFallback)
+            case .null: throw CodecError.invalidLiteral("supports_clear_history_key_fallback")
             case .value(let value): try container.encode(value, forKey: .supportsClearHistoryKeyFallback)
             }
             try container.encode(surface, forKey: .surface)
@@ -4712,12 +4712,12 @@ extension CloudTuiGenerated {
             try container.encode(fg, forKey: .fg)
             switch overrides {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .overrides)
+            case .null: throw CodecError.invalidLiteral("overrides")
             case .value(let value): try container.encode(value, forKey: .overrides)
             }
             switch palette {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .palette)
+            case .null: throw CodecError.invalidLiteral("palette")
             case .value(let value): try container.encode(value, forKey: .palette)
             }
             try container.encode(selectionBg, forKey: .selectionBg)
@@ -5107,7 +5107,7 @@ extension CloudTuiGenerated {
             }
             switch composing {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .composing)
+            case .null: throw CodecError.invalidLiteral("composing")
             case .value(let value): try container.encode(value, forKey: .composing)
             }
             try container.encode(consumedMods, forKey: .consumedMods)
@@ -5447,27 +5447,27 @@ extension CloudTuiGenerated {
             var container = encoder.container(keyedBy: CodingKeys.self)
             switch generation {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .generation)
+            case .null: throw CodecError.invalidLiteral("generation")
             case .value(let value): try container.encode(value, forKey: .generation)
             }
             switch paneRevision {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .paneRevision)
+            case .null: throw CodecError.invalidLiteral("pane_revision")
             case .value(let value): try container.encode(value, forKey: .paneRevision)
             }
             switch registryId {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .registryId)
+            case .null: throw CodecError.invalidLiteral("registry_id")
             case .value(let value): try container.encode(value, forKey: .registryId)
             }
             switch terminalRevision {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .terminalRevision)
+            case .null: throw CodecError.invalidLiteral("terminal_revision")
             case .value(let value): try container.encode(value, forKey: .terminalRevision)
             }
             switch workspaceRevision {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .workspaceRevision)
+            case .null: throw CodecError.invalidLiteral("workspace_revision")
             case .value(let value): try container.encode(value, forKey: .workspaceRevision)
             }
             try container.encode(workspaces, forKey: .workspaces)
@@ -5532,12 +5532,12 @@ extension CloudTuiGenerated {
             try container.encode(data, forKey: .data)
             switch kittyGraphicsState {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .kittyGraphicsState)
+            case .null: throw CodecError.invalidLiteral("kitty_graphics_state")
             case .value(let value): try container.encode(value, forKey: .kittyGraphicsState)
             }
             switch kittyImageAliases {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .kittyImageAliases)
+            case .null: throw CodecError.invalidLiteral("kitty_image_aliases")
             case .value(let value): try container.encode(value, forKey: .kittyImageAliases)
             }
             try container.encode(rows, forKey: .rows)
@@ -5633,14 +5633,14 @@ extension CloudTuiGenerated {
             try container.encode(id, forKey: .id)
             switch key {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .key)
+            case .null: throw CodecError.invalidLiteral("key")
             case .value(let value): try container.encode(value, forKey: .key)
             }
             try container.encode(name, forKey: .name)
             try container.encode(screens, forKey: .screens)
             switch shortId {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .shortId)
+            case .null: throw CodecError.invalidLiteral("short_id")
             case .value(let value): try container.encode(value, forKey: .shortId)
             }
         }
@@ -5702,7 +5702,7 @@ extension CloudTuiGenerated {
             var container = encoder.container(keyedBy: CodingKeys.self)
             switch changed {
             case .missing: break
-            case .null: try container.encodeNil(forKey: .changed)
+            case .null: throw CodecError.invalidLiteral("changed")
             case .value(let value): try container.encode(value, forKey: .changed)
             }
             try container.encode(generation, forKey: .generation)
