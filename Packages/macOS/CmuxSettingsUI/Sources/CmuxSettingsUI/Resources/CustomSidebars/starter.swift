@@ -3,7 +3,7 @@ VStack(alignment: .leading, spacing: 8) {
     .font(.system(size: 13))
     .fontWeight(.semibold)
   Divider()
-  ForEach(workspaces.prefix(12)) { workspace in
+  ForEach(workspaces) { workspace in
     Button(action: { cmux("workspace.select", workspace_id: workspace.id) }) {
       Text(workspace.title)
         .lineLimit(1)
