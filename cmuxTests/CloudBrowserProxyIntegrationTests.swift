@@ -79,6 +79,7 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(panel.webView.url == remote)
         #expect(try await panel.webView.evaluateJavaScript("document.body.dataset.machine") as? String == "cold")
         #expect(try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeInstalled === true") as? Bool == true, "Cloud WebSocket bridge script must run before page JavaScript")
+        #expect(try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeConstructor === window.WebSocket") as? Bool == true, "Cloud WebSocket bridge must remain the active constructor")
         #expect((try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeRewrite('ws://10.16.0.10:8000/_next/hmr?id=fixture')") as? String)?.contains("/__cmux_ws__/") == true, "Cloud WebSocket URLs must be rewritten to the authenticated bridge")
         let websocketDeadline = ContinuousClock.now.advanced(by: .seconds(5))
         while (try await panel.webView.evaluateJavaScript("window.cloudWebSocketState") as? String) != "open",
@@ -86,7 +87,8 @@ struct CloudBrowserProxyIntegrationTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(!server.bridgeRequests.isEmpty, "The Cloud WebSocket bridge must receive the page upgrade")
-        #expect(try await panel.webView.evaluateJavaScript("window.cloudWebSocketState") as? String == "open", "WebSocket traffic must use the same Cloud browser route")
+        let websocketState = try await panel.webView.evaluateJavaScript("JSON.stringify({state:window.cloudWebSocketState,error:window.cloudWebSocketError || null})") as? String
+        #expect(websocketState == "{\"state\":\"open\",\"error\":null}", "WebSocket traffic must use the same Cloud browser route: \(websocketState ?? \"missing\")")
         await model.retire()
     }
 
@@ -514,7 +516,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 data = try JSONSerialization.data(withJSONObject: ["machine": marker, "host": record.host, "body": record.body])
             } else {
                 contentType = "text/html; charset=utf-8"
-                data = Data("<!doctype html><html><head><script src='/asset.js'></script><script>window.cloudWebSocketState='connecting';window.cloudWebSocket=new WebSocket('ws://'+location.host+'/_next/hmr?id=fixture');window.cloudWebSocket.onopen=()=>window.cloudWebSocketState='open';window.cloudWebSocket.onerror=()=>window.cloudWebSocketState='error';</script></head><body data-machine='\(marker)'>\(marker)</body></html>".utf8)
+                data = Data("<!doctype html><html><head><script src='/asset.js'></script><script>window.cloudWebSocketState='connecting';window.cloudWebSocket=new WebSocket('ws://'+location.host+'/_next/hmr?id=fixture');window.cloudWebSocket.onopen=()=>window.cloudWebSocketState='open';window.cloudWebSocket.onerror=(e)=>{window.cloudWebSocketState='error';window.cloudWebSocketError=String(e)};</script></head><body data-machine='\(marker)'>\(marker)</body></html>".utf8)
             }
             try await connection.sendAll(Data("HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Length: \(data.count)\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".utf8) + data)
             try await connection.finishSending()

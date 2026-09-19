@@ -57,6 +57,7 @@ struct CloudBrowserRouting {
             super(rewritten, values);
             }
           };
+          window.__cmuxCloudWebSocketBridgeConstructor = CmuxWebSocket;
           window.WebSocket = CmuxWebSocket;
         })();
         """
