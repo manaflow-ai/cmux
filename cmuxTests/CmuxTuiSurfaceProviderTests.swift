@@ -39,6 +39,18 @@ import Testing
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
+    @Test func creationAttachmentUsesOnlyTheCommittedTerminalAndGeneration() {
+        var result: [String: Any] = [
+            "value": ["terminal_id": "term_test", "tab_id": "tab_test"],
+            "generation": "g1", "revision": "2"
+        ]
+        let identity = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result)?.attachment
+        #expect(identity?.terminalID == "term_test")
+        #expect(identity?.generation == "g1")
+        result.removeValue(forKey: "generation")
+        #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result)?.attachment == nil)
+    }
+
     @Test func legacyScreensKeepArrivalOrderAndExplicitPositions() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["screens"] = [
@@ -1022,16 +1034,16 @@ import Testing
     @Test func clientArgvIsExact() {
         // A machine's trusted listener is dialed with --carrier: no invite file, no enrollment.
         #expect(CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", carrier: true) ==
-            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--carrier"])
+            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single", "--carrier"])
         // A machine this Mac enrolled with before trusted listeners presents its stored key.
         #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s") ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single"])
         // A private-network machine dials through the app's WireGuard hub. Both long-lived
         // helper processes must also stop if their app parent exits without cleanup.
         #expect(CloudTuiCommandLine.linkArguments(route: "ws://[fd00::10]:1337/v1/link", deviceName: "d", stateDir: "/s", carrier: true, wireguardHubSocket: "/h.sock") ==
-            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--carrier", "--wireguard-hub", "/h.sock"])
+            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single", "--carrier", "--wireguard-hub", "/h.sock"])
         #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", wireguardHubSocket: "") ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single"])
         #expect(CloudTuiCommandLine.wireGuardHubArguments(configPath: "/w/cmux-app.conf", socketPath: "/w/hub-1.sock") ==
             ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock", "--exit-with-parent"])
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
@@ -1287,7 +1299,7 @@ import Testing
         }
     }
 
-    @Test func disconnectStopsLinkAndEventChildrenBeforeReturning() async throws {
+    @Test func disconnectStopsTheOnlyLinkChildBeforeReturning() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cloud-disconnect-\(UUID().uuidString.lowercased())", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1312,22 +1324,14 @@ import Testing
             paths: CloudTuiClientPaths(home: root)
         )
         _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: eventPIDFile.path) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
         let linkPID = try #require(Int32(try String(contentsOf: linkPIDFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)))
-        let eventPID = try #require(Int32(try String(contentsOf: eventPIDFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)))
-        defer {
-            _ = Darwin.kill(linkPID, SIGKILL)
-            _ = Darwin.kill(eventPID, SIGKILL)
-        }
+        defer { _ = Darwin.kill(linkPID, SIGKILL) }
 
         await link.disconnect()
 
         #expect(Darwin.kill(linkPID, 0) == -1 && errno == ESRCH, "disconnect must reap the link child")
-        #expect(Darwin.kill(eventPID, 0) == -1 && errno == ESRCH, "disconnect must reap the event child")
+        #expect(!FileManager.default.fileExists(atPath: eventPIDFile.path), "event subscription must not spawn a CLI child")
     }
 
     @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {

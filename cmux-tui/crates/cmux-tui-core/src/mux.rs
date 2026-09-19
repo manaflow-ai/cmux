@@ -4,6 +4,7 @@
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod terminal_directory;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 
@@ -16590,7 +16591,7 @@ fn terminal_exit_snapshot_in_state(
         "rows": rows.max(1),
         "running": false,
     });
-    if let Some(cwd) = surface.and_then(|surface| surface.spawn_cwd()) {
+    if let Some(cwd) = surface.and_then(|surface| surface.published_directory()) {
         snapshot["cwd"] = serde_json::json!(cwd);
     }
     Ok(snapshot)
@@ -18219,6 +18220,78 @@ mod tests {
     use crate::workspace_registry::{
         RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceChange, ResourcePatch,
     };
+
+    #[test]
+    fn tab_workspace_move_preserves_surface_and_commits_one_revision() {
+        let mux = test_mux();
+        let first = mux.new_workspace(Some("source".into()), Some((80, 24))).unwrap();
+        let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let before = mux.with_state(|state| state.resource_revision);
+        mux.move_tab_to_workspace(second.id, None).unwrap();
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 2);
+            assert_eq!(state.resource_revision, before + 1);
+            assert_eq!(
+                state.active_pane().and_then(|id| state.panes[&id].active_surface()),
+                Some(second.id)
+            );
+            assert!(state.pane_of(first.id).is_some());
+        });
+        assert!(Arc::ptr_eq(&second, &mux.surface(second.id).unwrap()));
+        let empty = mux.create_empty_workspace(Some("empty".into()), None, None).unwrap();
+        mux.move_tab_to_workspace(second.id, Some(empty.workspace)).unwrap();
+        assert_eq!(
+            mux.with_state(|state| state.workspaces[state.active_workspace].id),
+            empty.workspace
+        );
+        assert!(Arc::ptr_eq(&second, &mux.surface(second.id).unwrap()));
+        let before = mux.with_state(|state| (state.workspaces.len(), state.resource_revision));
+        assert!(mux.move_tab_to_workspace(second.id, Some(u64::MAX)).is_err());
+        assert_eq!(
+            mux.with_state(|state| (state.workspaces.len(), state.resource_revision)),
+            before
+        );
+        let third = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let source = mux.with_state(|state| state.workspaces[0].id);
+        mux.move_tab_to_workspace(second.id, Some(source)).unwrap();
+        let key = mux.with_state(|state| state.workspaces[0].key.clone());
+        {
+            let registry = mux.workspace_registry.lock().unwrap();
+            let topology = registry.resource_topology_snapshot().unwrap();
+            let tab_id = &second.resource_identity().unwrap().tab_id;
+            let tab = topology.tabs.iter().find(|tab| &tab.public_id == tab_id).unwrap();
+            assert_eq!(
+                registry
+                    .terminal_record(tab.terminal_id.as_deref().unwrap())
+                    .unwrap()
+                    .unwrap()
+                    .workspace_key,
+                key
+            );
+            restore_resource_state(registry.snapshot().unwrap(), topology).unwrap();
+        }
+        mux.close_surface(third.id).unwrap();
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn tab_workspace_failed_commit_keeps_both_memory_and_durable_topology() {
+        let mux = test_mux();
+        let tab = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let before = mux.with_state(state_topology_fingerprint);
+        let durable = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        assert!(mux.move_tab_to_workspace(tab.id, None).is_err());
+        assert_eq!(mux.with_state(state_topology_fingerprint), before);
+        {
+            let registry = mux.workspace_registry.lock().unwrap();
+            assert_eq!(registry.resource_topology_snapshot().unwrap(), durable);
+            registry.set_resource_patch_failure(false).unwrap();
+        }
+        assert!(Arc::ptr_eq(&tab, &mux.surface(tab.id).unwrap()));
+        mux.close_surface(tab.id).unwrap();
+    }
 
     #[test]
     fn signaled_mutex_records_holder_site_wait_and_hold() {
@@ -29835,6 +29908,54 @@ mod tests {
         assert_eq!(first_surface.spawn_cwd().as_deref(), Some("/tmp"));
         assert_eq!(second_surface.spawn_cwd().as_deref(), Some("/tmp"));
         mux.set_resource_terminal_reservation_hook_for_test(None);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn new_terminal_inherits_the_selected_hosted_terminals_reported_cwd() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(Some("cwd".into()), None, None).unwrap();
+        let (first, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                Some("/tmp".into()),
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert!(first.terminal_runtime_id().is_some(), "the selected terminal is hosted");
+
+        // The shell reported a `cd` on this host with OSC 7. A terminal created
+        // from the selected pane starts there, not in the launch directory.
+        first.set_test_pwd(Some("file://localhost/usr".into()));
+        let (second, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(second.spawn_cwd().as_deref(), Some("/usr"));
+
+        // A report naming another host cannot choose a spawn directory here;
+        // the selected terminal's authenticated launch directory stays the fallback.
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.focus_pane(pane);
+        mux.select_tab(Some(pane), Some(0), None);
+        first.set_test_pwd(Some("file://other-host/etc".into()));
+        let (third, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(third.spawn_cwd().as_deref(), Some("/tmp"));
         mux.shutdown();
     }
 

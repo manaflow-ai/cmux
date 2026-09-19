@@ -852,6 +852,51 @@ describe("VM REST auth", () => {
     expect(createVm).not.toHaveBeenCalled();
   });
 
+  test("create carries the chosen display name into provisioning without a rename", async () => {
+    process.env.CMUX_VM_CREATE_ENABLED = "1";
+    process.env.CMUX_VM_FREESTYLE_ENABLED = "1";
+    process.env.CMUX_VM_ALLOW_UNMANIFESTED_IMAGES = "1";
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "named-machine", provider: "freestyle", image: "snapshot-test",
+      imageVersion: null, createdAt: 1_777_000_000_000, displayName: "Build box",
+    });
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST", headers: { origin: "https://cmux.test" },
+      body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", displayName: "  Build box  " }),
+    }));
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ displayName: "Build box" }));
+    expect((await response.json() as { displayName: string }).displayName).toBe("Build box");
+  });
+
+  test.each([42, "x".repeat(65), "bad\nname"])("rejects invalid create display names before allocation: %p", async (displayName) => {
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST", headers: { origin: "https://cmux.test" }, body: JSON.stringify({ displayName }),
+    }));
+    expect(response.status).toBe(400);
+    expect(createVm).not.toHaveBeenCalled();
+    const payload = await response.json() as { error: string; message: string; details: { field: string; maxLength: number } };
+    expect(payload.error).toBe("vm_invalid_request");
+    expect(payload.details).toEqual({ field: "displayName", maxLength: 64 });
+    expect(payload.message).toBe("Machine names must be printable text of at most 64 characters.");
+  });
+
+  test("an invalid create display name is rejected in the client's locale", async () => {
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers: { origin: "https://cmux.test", "x-next-intl-locale": "ja" },
+      body: JSON.stringify({ displayName: "x".repeat(65) }),
+    }));
+    expect(response.status).toBe(400);
+    const payload = await response.json() as { error: string; message: string; ui: { title: string } };
+    expect(payload.error).toBe("vm_invalid_request");
+    expect(payload.message).toBe("マシン名は 64 文字以内の表示可能なテキストにしてください。");
+    expect(payload.ui.title).toBe("マシン名が無効です");
+  });
+
   test("the paid-plan gate answers in the client's locale", async () => {
     getUser.mockResolvedValue(freePlanStackUser());
 

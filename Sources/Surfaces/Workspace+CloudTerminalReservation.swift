@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxRemoteSession
 import CmuxTerminal
 import Foundation
@@ -12,6 +13,39 @@ import Foundation
 /// is shown inside the pane with Retry, never as a separate "starting" surface.
 @MainActor
 extension Workspace {
+    func reserveRestoredCloudTerminalPane(
+        snapshot: SessionPanelSnapshot,
+        projection: SurfaceProjectionRecord,
+        inPane pane: PaneID
+    ) -> UUID? {
+        guard projection.resource.kind == .terminal,
+              !projection.resource.machine.isLocal else { return nil }
+        let relay = CloudOptimisticInputRelay()
+        guard let panel = makeRemoteTmuxPanePanel(
+            onInput: { input in relay.send(input) },
+            keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+        ) else { return nil }
+        panel.surface.setManualIONoReflow(false)
+        do {
+            let panelID = try insertCloudManualMirrorPanel(
+                panel,
+                at: .tab(workspaceID: id, paneID: pane.id.uuidString, index: nil),
+                focus: false,
+                isLoading: false
+            )
+            applySessionPanelMetadata(snapshot, toPanelId: panelID)
+            cloudPendingCreations[panelID] = CloudTerminalPaneReservation(
+                workspaceID: id,
+                panelID: panelID,
+                machine: projection.resource.machine,
+                inputRelay: relay
+            )
+            return panelID
+        } catch {
+            return nil
+        }
+    }
+
     /// Inserts the pane a Cloud terminal will occupy before the machine has created it.
     /// Returns nil when the destination no longer exists.
     func reserveCloudTerminalPane(
@@ -39,6 +73,10 @@ extension Workspace {
             #endif
             return nil
         }
+        // A focused creation is user input demand. Start its local manual
+        // renderer before remote creation; keep hidden/restored reservations
+        // on normal admission so a restore cannot eagerly allocate every pane.
+        if focus { panel.surface.requestInputDemandSurfaceStartIfNeeded() }
         let reservation = CloudTerminalPaneReservation(workspaceID: id, panelID: panelID, machine: machine, inputRelay: relay)
         cloudPendingCreations[panelID] = reservation
         return reservation
@@ -97,11 +135,11 @@ extension Workspace {
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         setCloudManualMirrorTabLoading(panelID: reservation.panelID, false)
-        let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error)
+        let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
-            detail: "\(failure.errorText) \(failure.recoveryText)",
-            reference: nil
+            detail: failure.errorText,
+            reference: failure.copyableText
         )
     }
 

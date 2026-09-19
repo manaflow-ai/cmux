@@ -884,4 +884,22 @@ import os
         await waitForProcessed(log, 3)
         #expect(received.withLock { $0 } == [live])
     }
+
+    @Test func terminalTraceAdmissionIsRateLimitedAndCarriesOpaqueID() async {
+        let log = DiagnosticLog(capacity: 256)
+        let traceID = DiagnosticTerminalTraceID(rawValue: 0x1234)!
+        for _ in 0..<121 {
+            log.recordTerminalTrace(
+                operation: .replay,
+                phase: .requestSent,
+                traceID: traceID
+            )
+        }
+        await waitForProcessed(log, 120)
+        let report = await log.snapshot()
+        #expect(report.events.count == 120)
+        #expect(report.events.allSatisfy { $0.code == .terminalTrace })
+        #expect(report.events.allSatisfy { $0.traceID == traceID.rawValue })
+        #expect(DiagnosticEventPresentation(locale: englishLocale).summary(report.events[0]).contains("0000000000001234"))
+    }
 }

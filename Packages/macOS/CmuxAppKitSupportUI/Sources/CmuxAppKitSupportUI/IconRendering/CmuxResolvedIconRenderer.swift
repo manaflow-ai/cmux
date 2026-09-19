@@ -51,7 +51,9 @@ public final class CmuxResolvedIconRenderer {
         }
         appearance.performAsCurrentDrawingAppearance {
             for candidate in sources {
-                guard let sourceImage = resolvedSourceImage(for: candidate.source, request: request),
+                guard let sourceImage = resolvedSourceImage(
+                    for: candidate.source, request: request, isTinted: candidate.tintColor != nil
+                ),
                       let bitmap = bitmapRepresentation(size: imageSize) else {
                     continue
                 }
@@ -121,7 +123,8 @@ public final class CmuxResolvedIconRenderer {
 
     private func resolvedSourceImage(
         for source: CmuxResolvedIconSource,
-        request: CmuxResolvedIconRequest
+        request: CmuxResolvedIconRequest,
+        isTinted: Bool
     ) -> NSImage? {
         switch source {
         case .systemSymbol(let name, let accessibilityDescription):
@@ -132,10 +135,16 @@ public final class CmuxResolvedIconRenderer {
                 return nil
             }
             let pointSize = max(1, request.symbolPointSize ?? min(request.size.width, request.size.height))
-            let configuration = NSImage.SymbolConfiguration(
+            var configuration = NSImage.SymbolConfiguration(
                 pointSize: pointSize,
                 weight: request.symbolWeight
             )
+            if isTinted {
+                // Tinting consumes alpha only. Multicolor symbols may paint
+                // an opaque interior glyph, which would become a solid shape.
+                // Monochrome preserves that glyph as a transparent cutout.
+                configuration = configuration.applying(.preferringMonochrome())
+            }
             let configured = baseImage.withSymbolConfiguration(configuration) ?? baseImage
             let image = copiedImage(configured)
             return image
