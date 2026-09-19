@@ -30,7 +30,7 @@ struct CloudNotificationSyncStoreTests {
             CloudNotificationSync(
                 machineID: "machine", clientID: "mac", store: store,
                 resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) },
-                deliver: { _, _ in deliveries += 1; return true }, send: { _ in }
+                deliver: { _, _ in deliveries += 1; return .delivered }, send: { _ in }
             )
         }
         let row = CloudVMNotificationRow(
@@ -81,7 +81,7 @@ struct CloudNotificationSyncStoreTests {
         var sent = 0
         let sync = CloudNotificationSync(
             machineID: "machine", clientID: "mac", store: store,
-            newKey: { "ack-key" }, resolveTarget: { _ in nil }, deliver: { _, _ in true },
+            newKey: { "ack-key" }, resolveTarget: { _ in nil }, deliver: { _, _ in .delivered },
             send: { batch in
                 let data = try #require(defaults.data(forKey: CloudNotificationSyncStore.key(machineID: "machine")))
                 let saved = try JSONDecoder().decode(CloudNotificationSyncState.self, from: data)
@@ -107,7 +107,7 @@ struct CloudNotificationSyncStoreTests {
         let sync = CloudNotificationSync(
             machineID: "machine", clientID: "mac", store: store,
             resolveTarget: { _ in .init(workspaceID: UUID(), panelID: nil) },
-            deliver: { _, _ in true }, send: { _ in }, unreadChanged: { unreadChanges.append($0) }
+            deliver: { _, _ in .delivered }, send: { _ in }, unreadChanged: { unreadChanges.append($0) }
         )
         defer { sync.retire() }
         var row = CloudVMNotificationRow(

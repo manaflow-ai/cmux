@@ -6,8 +6,16 @@ struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {
+        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
+            MachineCreateLoadingContent(operation: operation, actions: .bound(coordinator: .shared))
+        } else {
+            baseContent
+        }
+    }
+
+    private var baseContent: some View {
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
-        TimelineView(schedule) { context in
+        return TimelineView(schedule) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
             VStack(spacing: 14) {
                 switch panel.phase {

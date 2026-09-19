@@ -23,6 +23,11 @@
       "message": "Cloud-VMs erfordern einen cmux Pro-Plan.",
       "action": "Führen Sie unter {upgradeUrl} ein Upgrade auf cmux Pro durch, um Cloud-VMs zu erstellen."
     },
+    "displayName": {
+      "title": "Ungültiger Maschinenname",
+      "message": "Maschinennamen müssen aus druckbarem Text mit höchstens {maxLength} Zeichen bestehen.",
+      "action": "Verwenden Sie einen kürzeren Namen ohne Steuerzeichen, oder lassen Sie ihn leer, um ihn zu löschen."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maschinen mit {memory} GiB benötigen cmux {plan}. Ihr Tarif unterstützt bis zu {max} GiB.",

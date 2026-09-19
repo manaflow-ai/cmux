@@ -47,7 +47,7 @@ struct CloudTreePendingMachineRowContent: View {
 
     @ViewBuilder
     private var leadingGlyph: some View {
-        if operation.isRunning {
+        if operation.isRunning || operation.isReconciling {
             ProgressView()
                 .controlSize(.mini)
         } else {
@@ -60,7 +60,7 @@ struct CloudTreePendingMachineRowContent: View {
     private var name: some View {
         Text(operation.request.displayName)
             .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
-            .foregroundStyle(operation.isRunning ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .foregroundStyle(operation.isRunning || operation.isReconciling ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
             .lineLimit(1)
             .truncationMode(.tail)
     }
@@ -68,7 +68,7 @@ struct CloudTreePendingMachineRowContent: View {
     private var status: some View {
         Text(operation.statusLabel)
             .cmuxFont(size: style.detailSize, design: style.fontDesign)
-            .foregroundStyle(operation.isRunning ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange.opacity(0.9)))
+            .foregroundStyle(operation.isRunning || operation.isReconciling ? AnyShapeStyle(.tertiary) : AnyShapeStyle(Color.orange.opacity(0.9)))
             .lineLimit(1)
             .truncationMode(.tail)
     }

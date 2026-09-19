@@ -79,7 +79,9 @@ struct SidebarWorkspaceSnapshotBuilder {
                 localized: "accessibility.workspacePosition",
                 defaultValue: "\(title), workspace \(index + 1) of \(workspaceCount)"
             )
-            return [position, cloudWorkspaceLabel].compactMap { $0 }.joined(separator: ", ")
+            let cloudDirectory = cloudWorkspaceLabel == nil ? nil
+                : (compactDirectoryCandidates.first ?? branchDirectoryLines.first?.directory)
+            return [position, cloudWorkspaceLabel, cloudDirectory].compactMap { $0 }.joined(separator: ", ")
         }
     }
 }
