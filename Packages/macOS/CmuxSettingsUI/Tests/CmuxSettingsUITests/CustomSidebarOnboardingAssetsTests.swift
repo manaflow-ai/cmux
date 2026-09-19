@@ -19,5 +19,6 @@ struct CustomSidebarOnboardingAssetsTests {
         #expect(template.suggestedName == id)
         #expect(template.fileExtension == "js")
         #expect(!template.source.isEmpty)
+        #expect(!template.source.contains("cp Examples/CustomSidebars/"))
     }
 }
