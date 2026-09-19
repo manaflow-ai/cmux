@@ -609,8 +609,7 @@ enum BrowserAvailabilitySettings {
     /// (issue #10866). Affordances resolve visibility here, against the same
     /// value the action consults, so the two gates cannot drift apart.
     static func offersBrowserAffordance(isEnabled: Bool) -> Bool {
-        // Affordances are currently shown unconditionally.
-        true
+        isEnabled
     }
 }
 

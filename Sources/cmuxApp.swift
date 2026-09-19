@@ -43,6 +43,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
+    @State private var browserAvailabilityMenuRevision = 0
     @State var historyMenuCoordinator: HistoryMenuCoordinator
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private var browserToolbarAccessorySpacing: Int {
@@ -494,6 +495,14 @@ struct cmuxApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
                     browserFocusModeMenuRevision &+= 1
                 }
+                // The Settings toggle writes the gate straight to defaults, so
+                // the defaults notification is needed as well as the gate's own.
+                .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.didChangeNotification)) { _ in
+                    browserAvailabilityMenuRevision &+= 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                    browserAvailabilityMenuRevision &+= 1
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -862,17 +871,19 @@ struct cmuxApp: App {
                     }
                 }
 
-                splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
-                    if let appDelegate = AppDelegate.shared {
-                        appDelegate.performNewBrowserWorkspaceAction(
-                            tabManager: activeTabManager,
-                            debugSource: "menu.newBrowserWorkspace"
-                        )
-                    } else if BrowserAvailabilitySettings.isEnabled() {
-                        // Last-resort fallback for a missing AppDelegate; keep
-                        // the browser-availability gate identical to the
-                        // shared action path.
-                        activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                if offersBrowserWorkspaceMenuItem {
+                    splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
+                        if let appDelegate = AppDelegate.shared {
+                            appDelegate.performNewBrowserWorkspaceAction(
+                                tabManager: activeTabManager,
+                                debugSource: "menu.newBrowserWorkspace"
+                            )
+                        } else if BrowserAvailabilitySettings.isEnabled() {
+                            // Last-resort fallback for a missing AppDelegate; keep
+                            // the browser-availability gate identical to the
+                            // shared action path.
+                            activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
+                        }
                     }
                 }
 
@@ -1299,6 +1310,15 @@ struct cmuxApp: App {
 
     private var notificationMenuSnapshot: NotificationMenuSnapshot {
         notificationStore.notificationMenuSnapshot
+    }
+
+    /// Whether the File menu offers its browser entry. Reads the revision so
+    /// the menu re-evaluates when the availability gate changes.
+    private var offersBrowserWorkspaceMenuItem: Bool {
+        let _ = browserAvailabilityMenuRevision
+        return BrowserAvailabilitySettings.offersBrowserAffordance(
+            isEnabled: BrowserAvailabilitySettings.isEnabled()
+        )
     }
 
     private var browserFocusModeMenuSnapshot: (title: String, canToggle: Bool) {
