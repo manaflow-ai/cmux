@@ -15,9 +15,12 @@ Always build with a tag. **Never run bare `xcodebuild` or `open` an untagged `cm
 ```bash
 ./scripts/reload.sh --tag <branch-slug>            # build Debug, kill same-tag app, do not launch
 ./scripts/reload.sh --tag <branch-slug> --launch   # also open it
+./scripts/reload.sh --tag <branch-slug> --build-only # validate without replacing the running app
 ```
 
 A tag gives the app its own name, bundle ID, socket, and derived data path, so it runs side-by-side with the user's main app. Report the build to the user as a markdown link to `http://127.0.0.1:17320/<tag>`. Never put a `file://` URL, a raw `.app` path, or `/tmp/cmux-<tag>/...` in chat output.
+
+Use `--build-only` only when the task explicitly asks for compile/validation without a reload. It leaves the active tagged app, `cmuxd`, and tag state untouched and keeps the newly built bundle staged separately; it does not make the running app current.
 
 Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
 
