@@ -251,6 +251,9 @@ struct SurfaceCatalogTests {
 
         func projectionDidEnd(_ projection: SurfaceProjection) { ended.append(projection) }
 
+        var projectionsRestoredCalls = 0
+        func projectionsRestored() { projectionsRestoredCalls += 1 }
+
         @discardableResult
         func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
             discardInvocations.append(projection)
@@ -386,6 +389,37 @@ struct SurfaceCatalogTests {
         #expect(catalog.machines[machine]?.remoteWorkspaces == [
             SurfaceRemoteWorkspace(id: "ws", name: "canonical", index: 0, focused: true),
         ])
+    }
+
+    @Test func `Restoring a projection of a published resource wakes its provider`() async throws {
+        // A restored device pane is a blank placeholder until its provider
+        // materializes the mirror. When the provider published the resource
+        // before the workspace restored (the link was already up, or a closed
+        // tab is reopened), nothing else republishes, so the catalog must ask
+        // the provider itself; a record whose resource is still unpublished
+        // stays staged until that provider's next publish resolves it.
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID(rawValue: "device:6f0d1c5e-2b5a-4d6e-9c1a-1c2d3e4f5a6b@nightly")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let published = terminal(machine, "6C272F23-5E1F-45DB-A7DB-874F94C34E86")
+        catalog.replaceResources([published], on: machine)
+        let workspaceID = UUID()
+        let restoredPanelID = UUID()
+        catalog.restore(
+            [SurfaceProjectionRecord(panelID: restoredPanelID, resource: published.id, remoteWorkspaceID: nil, remoteTabID: nil)],
+            workspaceID: workspaceID
+        )
+        #expect(catalog.projections(of: published.id).map(\.panelID) == [restoredPanelID])
+        #expect(provider.projectionsRestoredCalls == 1)
+
+        let unpublished = terminal(machine, "1EDA3953-15EC-43B6-9E9C-500454782170")
+        catalog.restore(
+            [SurfaceProjectionRecord(panelID: UUID(), resource: unpublished.id, remoteWorkspaceID: nil, remoteTabID: nil)],
+            workspaceID: workspaceID
+        )
+        #expect(catalog.projections(of: unpublished.id).isEmpty)
+        #expect(provider.projectionsRestoredCalls == 1)
     }
 
     @Test func `Resource ID round trips through the wire form`() {
