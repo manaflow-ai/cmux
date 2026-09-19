@@ -84,7 +84,7 @@ enum Command {
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
         /// HARNESS[/MODEL] per run: -m claude -m codex/gpt-5.5 …
-        #[arg(long, short, required = true)]
+        #[arg(long = "model", short = 'm', required = true)]
         harnesses: Vec<String>,
         /// The prompt.
         prompt: Vec<String>,
