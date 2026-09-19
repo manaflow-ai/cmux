@@ -17,7 +17,8 @@ import Testing
 @MainActor
 @Suite("Title update amplification", .serialized)
 struct TitleUpdateAmplificationRegressionTests {
-    private static let automaticTitleScalarBound = 256
+    private static let automaticTitleScalarBound =
+        TerminalTitleChurnFilter.maximumAutomaticTitleScalars
 
     @Test
     func multilineAutomaticTitleIsBoundedBeforeManyWorkspaceSnapshotEncoding() async throws {
@@ -149,6 +150,13 @@ struct TitleUpdateAmplificationRegressionTests {
             #expect(!(panel.title ?? "").contains("\n"))
         }
         #expect(restoredSnapshot.processTitle.unicodeScalars.count <= Self.automaticTitleScalarBound)
+
+        var customPersisted = persisted
+        customPersisted.customTitle = "Authored custom title"
+        let customRestored = Workspace()
+        _ = customRestored.restoreSessionSnapshot(customPersisted)
+        #expect(customRestored.customTitle == "Authored custom title")
+        #expect(customRestored.title == "Authored custom title")
     }
 
     @Test

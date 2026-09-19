@@ -53,4 +53,13 @@ struct TerminalTitleChurnFilterTests {
         #expect(filter.stableTitle(for: "safe\u{001B}[2J") == nil)
         #expect(filter.stableTitle(for: "safe\u{009B}") == nil)
     }
+
+    @Test func truncatesAtScalarBoundaryForMultibyteTitles() throws {
+        let rawTitle = String(repeating: "🙂", count: 300)
+        let boundedTitle = try #require(filter.stableTitle(for: rawTitle))
+
+        #expect(boundedTitle.unicodeScalars.count == 256)
+        #expect(boundedTitle.last == "…")
+        #expect(boundedTitle.utf8.count < 1_024)
+    }
 }

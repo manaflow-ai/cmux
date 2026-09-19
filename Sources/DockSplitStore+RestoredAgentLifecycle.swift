@@ -1,10 +1,10 @@
+import CmuxTerminalCore
 import CmuxNotifications
 import CmuxSidebar
 import CmuxWorkspaces
 import Darwin
 import AppKit
 import Foundation
-
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
         discardPendingTerminalTitleUpdate(panelId: panelId)
@@ -76,7 +76,7 @@ extension DockSplitStore {
         internallySeededInput: String?
     ) {
         let boundary = RestoredPanelTitleBoundary(
-            internallySeededInput: internallySeededInput,
+            internallySeededInput: internallySeededInput.flatMap { AutomaticTerminalTitle($0)?.value },
             shellState: (panels[panelId] as? TerminalPanel)?.shellActivity.state
                 ?? .unknown
         )

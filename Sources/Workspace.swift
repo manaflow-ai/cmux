@@ -2347,7 +2347,7 @@ extension Workspace {
     func applySessionPanelMetadata(_ snapshot: SessionPanelSnapshot, toPanelId panelId: UUID) {
         adoptPersistedStableSurfaceId(from: snapshot, panelId: panelId)
 
-        if let title = snapshot.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+        if let title = snapshot.automaticTitleForRestore?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             panelTitles[panelId] = title
         }
 
@@ -4019,8 +4019,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
-        self.processTitle = title
-        self.title = title
+        self.processTitle = AutomaticTerminalTitle(title)?.value ?? "Terminal"
+        self.title = self.processTitle
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
