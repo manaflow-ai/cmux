@@ -39,6 +39,46 @@ update_commit() {
   fi
 }
 
+fingerprint_tool() {
+  local label="$1"
+  shift
+  local version
+  version="$("$@" 2>/dev/null || true)"
+  printf '%s=%s\n' "$label" "$version"
+}
+
+fingerprint_toolchain() {
+  local zig_path
+  if [ -n "${CMUX_ZIG:-}" ]; then
+    zig_path="$CMUX_ZIG"
+    printf 'zig-path=%s\n' "$zig_path"
+    if [ -x "$zig_path" ]; then
+      fingerprint_tool zig-version "$zig_path" version
+    else
+      printf 'zig-version=missing\n'
+    fi
+  else
+    for zig_path in /opt/homebrew/bin/zig /usr/local/bin/zig "$(command -v zig 2>/dev/null || true)"; do
+      [ -n "$zig_path" ] || continue
+      if [ -x "$zig_path" ]; then
+        printf 'zig-path=%s\n' "$zig_path"
+        fingerprint_tool zig-version "$zig_path" version
+      fi
+    done
+  fi
+  fingerprint_tool rustc-version rustc --version
+  fingerprint_tool cargo-version cargo --version
+  for variable in \
+    RUSTFLAGS CARGO_BUILD_RUSTFLAGS CARGO_ENCODED_RUSTFLAGS \
+    RUSTUP_TOOLCHAIN RUSTC RUSTC_WRAPPER \
+    CARGO_PROFILE_RELEASE_OPT_LEVEL CARGO_PROFILE_RELEASE_LTO \
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS \
+    CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS \
+    CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS; do
+    printf 'env-%s=%s\n' "$variable" "${!variable-}"
+  done
+}
+
 STAMP="${DERIVED_FILE_DIR}/cmux-bundled-resources.stamp"
 OUTPUT_MANIFEST="${DERIVED_FILE_DIR}/cmux-bundled-resources.outputs"
 
@@ -109,6 +149,7 @@ fingerprint="$({
   printf 'skip-zig=%s\n' "${CMUX_SKIP_ZIG_BUILD:-}"
   printf 'cmux-zig=%s\n' "${CMUX_ZIG:-}"
   printf 'zig-required=%s\n' "${ZIG_REQUIRED:-}"
+  fingerprint_toolchain
   printf 'helper-display=%s\n' "${CMUX_CUA_HELPER_DISPLAY_NAME:-}"
   printf 'bundle-id=%s\n' "${PRODUCT_BUNDLE_IDENTIFIER:-}"
   hash_git_worktree "${SRCROOT}/ghostty"

@@ -184,3 +184,21 @@ expect_rebuild_then_skip 'a new Ghostty commit'
 printf 'helper-source-v3\n' > "$SRCROOT/ghostty/src/main.zig"
 git -C "$SRCROOT/ghostty" commit -q -am 'fixture v3'
 expect_rebuild_then_skip 'a Ghostty revision change on a clean tree'
+
+cat > "$SRCROOT/fake-zig" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "${FAKE_ZIG_VERSION:-test-zig-v1}"
+EOF
+chmod +x "$SRCROOT/fake-zig"
+CMUX_ZIG="$SRCROOT/fake-zig" run_phase > "$TMP_DIR/toolchain.log"
+if grep -q 'skipping helper rebuilds' "$TMP_DIR/toolchain.log"; then
+  echo 'FAIL: changed Zig toolchain did not invalidate the stamp' >&2
+  exit 1
+fi
+CMUX_ZIG="$SRCROOT/fake-zig" run_phase > "$TMP_DIR/toolchain-settled.log"
+grep -q 'skipping helper rebuilds' "$TMP_DIR/toolchain-settled.log"
+FAKE_ZIG_VERSION=test-zig-v2 CMUX_ZIG="$SRCROOT/fake-zig" run_phase > "$TMP_DIR/toolchain-version.log"
+if grep -q 'skipping helper rebuilds' "$TMP_DIR/toolchain-version.log"; then
+  echo 'FAIL: changed Zig version did not invalidate the stamp' >&2
+  exit 1
+fi
