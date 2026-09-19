@@ -445,7 +445,15 @@ jobs:
             fi
           fi
 
-          if [ "$TEST_TARGET" = "cmuxTests" ]; then
+          if [ "$NORMALIZED_FILTER" = "ProjectWorktreeSidebarTests" ]; then
+            # This package-level provider regression needs a real app snapshot
+            # created through the CLI before it evaluates the render model.
+            XCODEBUILD_CMD=(
+              scripts/ci/run-project-worktree-sidebar-description-e2e.sh
+              "$CMUX_DERIVED_DATA_PATH"
+              "$SOURCE_PACKAGES_DIR"
+            )
+          elif [ "$TEST_TARGET" = "cmuxTests" ]; then
             XCODEBUILD_CMD=(
               scripts/ci/run-in-console-session.sh
               scripts/ci/run-app-host-xcodebuild.sh
