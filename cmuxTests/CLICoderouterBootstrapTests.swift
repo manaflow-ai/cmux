@@ -212,13 +212,20 @@ struct CLICoderouterBootstrapTests {
         let socketPath: String
 
         init() throws {
-            cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
             root = fileManager.temporaryDirectory
                 .appendingPathComponent("cmux-coderouter-bootstrap-\(UUID().uuidString)", isDirectory: true)
             home = root.appendingPathComponent("home", isDirectory: true)
             emptyPathDirectory = root.appendingPathComponent("empty-path", isDirectory: true)
             try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: emptyPathDirectory, withIntermediateDirectories: true)
+            // Exercise the missing-binary path even when the real app bundles CodeRouter.
+            let bin = root.appendingPathComponent("Bare.app/Contents/Resources/bin", isDirectory: true)
+            try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+            cliPath = bin.appendingPathComponent("cmux").path
+            try fileManager.copyItem(
+                atPath: BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self),
+                toPath: cliPath
+            )
             let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
             socketPath = "/tmp/cli-crb-\(shortID).sock"
         }

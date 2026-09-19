@@ -1833,6 +1833,15 @@ else
   fi
   "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
+# CodeRouter ships inside the bundle too, so `cmux coderouter ...` and `cmux cr ...`
+# work on a fresh Mac with nothing on PATH. The version is pinned in
+# scripts/coderouter-cli-version; CMUX_SKIP_CODEROUTER_CLI=1 keeps an existing copy
+# for offline reloads.
+if [[ "${CMUX_SKIP_CODEROUTER_CLI:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/coderouter" ]]; then
+  echo "Preserving bundled coderouter CLI (CMUX_SKIP_CODEROUTER_CLI=1)"
+else
+  "$PWD/scripts/install-coderouter-cli.sh" "$APP_PATH"
+fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi

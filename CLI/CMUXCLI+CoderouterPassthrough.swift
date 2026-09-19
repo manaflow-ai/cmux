@@ -57,17 +57,24 @@ extension CMUXCLI {
 
     /// PATH first (`coderouter`, then `cr`), exactly as before, then the
     /// installer's bin directory, so an install whose shell-profile line has
-    /// not reached this process still runs. No hit involves the network.
+    /// not reached this process still runs, then the copy bundled beside cmux.
+    /// No hit involves the network.
     func resolveCoderouterExecutable(environment: [String: String]) -> String? {
         for name in Self.coderouterExecutableNames {
             if let path = resolveExecutableInPath(name, searchPath: environment["PATH"]) {
                 return path
             }
         }
-        return resolveExecutableInPath(
+        if let installed = resolveExecutableInPath(
             "coderouter",
             searchPath: Self.coderouterInstallBinDirectory(environment: environment).path
-        )
+        ) {
+            return installed
+        }
+        guard let bundledDirectory = resolvedExecutableURL()?.deletingLastPathComponent().path else {
+            return nil
+        }
+        return resolveExecutableInPath("coderouter", searchPath: bundledDirectory)
     }
 
     // MARK: - Bootstrap
