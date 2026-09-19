@@ -8859,7 +8859,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard let self else { return }
                 let page = await Self.cloudVMFleetPage()
                 if page?.vms.contains(where: { $0.base != nil }) != false {
-                    _ = self.launchCloudVMBaseOpen(
+                    _ = self.launchCloudVMIntoLoadingWorkspace(
                         workspace: workspace,
                         socketPath: socketPath,
                         preferredWindow: launchWindow,
@@ -8883,7 +8883,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in
                             guard let self else { return nil }
                             var cancellation: CloudVMActionLauncher.CancellationHandle?
-                            let didStart = self.launchCloudVMBaseOpen(
+                            let didStart = self.launchCloudVMIntoLoadingWorkspace(
                                 workspace: workspace,
                                 socketPath: socketPath,
                                 preferredWindow: launchWindow,
@@ -8909,7 +8909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return true
         }
-        return launchCloudVMBaseOpen(
+        return launchCloudVMIntoLoadingWorkspace(
             workspace: workspace,
             socketPath: socketPath,
             preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
@@ -8918,17 +8918,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// The workspace every cloud create shows at once: a loading pane the CLI
+    /// replaces with the machine's terminal (`--workspace <id>` →
+    /// `workspace.cloud_vm_terminal_ready`). Base pins to the top; other
+    /// machines are ordinary workspaces.
+    @discardableResult
+    func makeCloudVMPlaceholderWorkspace(
+        in tabManager: TabManager,
+        title: String,
+        flow: CloudVMLoadingPanel.Flow,
+        pinned: Bool
+    ) -> Workspace? {
+        guard let workspace = tabManager.addWorkspaceIfActive(
+            title: title,
+            titleSource: .auto,
+            initialSurface: .cloudVMLoading,
+            inheritWorkingDirectory: false,
+            select: true,
+            autoWelcomeIfNeeded: false
+        ) else { return nil }
+        if pinned {
+            tabManager.setPinned(workspace, pinned: true)
+        }
+        cloudVMLoadingPanel(in: workspace)?.flow = flow
+        return workspace
+    }
+
+    func cloudVMLoadingPanel(in workspace: Workspace) -> CloudVMLoadingPanel? {
+        workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel
+    }
+
     /// The fleet as `GET /api/vm` reports it; nil when signed out or unreachable.
     private static func cloudVMFleetPage() async -> VMListPage? {
         guard let client = VMClient.shared else { return nil }
         return try? await client.listPage()
     }
 
-    /// Runs `cmux vm base open …` against `workspace`'s loading panel: the one
-    /// place the Base open CLI is launched, whether the sheet or a plain open
-    /// triggered it. Failures land in the loading panel and in `onCompletion`.
+    /// Runs Base, new-machine, and fork creates against the loading panel.
+    /// Failures land in the panel and in `onCompletion`.
     @discardableResult
-    private func launchCloudVMBaseOpen(
+    func launchCloudVMIntoLoadingWorkspace(
         workspace: Workspace,
         socketPath: String,
         preferredWindow: NSWindow?,
@@ -8971,7 +9000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func existingCloudVMWorkspace(in tabManager: TabManager) -> Workspace? {
         tabManager.tabs.first { workspace in
-            if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+            if let loadingPanel = cloudVMLoadingPanel(in: workspace), loadingPanel.flow.isBase {
                 return true
             }
             // Base opened through the cmux-tui daemon: the pane owns the session, so the
@@ -9018,6 +9047,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preferredWindow: resolvedWindow(for: context) ?? preferredWindow
             )
             return false
+        }
+        if command == .fork {
+            // A fork is a create: it gets a workspace with a loading pane at
+            // once and lands in it, like the New Machine sheet's Fork.
+            let sourceName = context.tabManager.selectedWorkspace?.title ?? vmId
+            let request = MachineCreateRequest(
+                mode: .newMachine,
+                kind: .base,
+                name: nil,
+                arguments: ["vm", "fork", vmId, "--focus", "false"],
+                source: .fork(vmID: vmId, name: sourceName)
+            )
+            return startCloudMachineCreate(request, tabManager: context.tabManager, preferredWindow: resolvedWindow(for: context) ?? preferredWindow)
         }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()

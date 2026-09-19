@@ -442,6 +442,7 @@ struct MachinesPanelView: View {
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
+            sourceMachines: viewModel.machines.filter { $0.activity == .ready }.map { NewMachineModel.SourceMachine(id: $0.id, name: $0.displayName) },
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )

@@ -121,15 +121,20 @@ final class CmuxConfigContextMenuTests: XCTestCase {
     }
 
     @MainActor
-    func testDefaultNewWorkspaceContextMenuCustomSectionIsNewWorkspaceOnly() throws {
+    func testDefaultNewWorkspaceContextMenuCustomSectionIsStandardCreateRows() throws {
         let store = try loadStore()
 
-        XCTAssertEqual(store.newWorkspaceContextMenuItems.count, 1)
-        guard store.newWorkspaceContextMenuItems.count == 1 else { return }
-        guard case .action(let first) = store.newWorkspaceContextMenuItems[0] else {
-            return XCTFail("Expected default context menu actions.")
+        let ids = store.newWorkspaceContextMenuItems.map { item -> String? in
+            guard case .action(let action) = item else { return nil }
+            return action.action.id
         }
-        XCTAssertEqual(first.action.id, CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)
+        XCTAssertEqual(ids, [
+            CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID,
+            CmuxSurfaceTabBarBuiltInAction.newCloudWorkspace.configID,
+            CmuxSurfaceTabBarBuiltInAction.newCloudMachine.configID,
+            CmuxSurfaceTabBarBuiltInAction.newTerminal.configID,
+            CmuxSurfaceTabBarBuiltInAction.newBrowser.configID,
+        ])
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 

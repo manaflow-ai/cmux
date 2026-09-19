@@ -76,6 +76,16 @@ final class NewMachineModel {
         case base(workspaceID: UUID)
     }
 
+    struct SourceMachine: Equatable, Identifiable, Sendable {
+        let id: String
+        let name: String
+    }
+
+    enum Source: Equatable {
+        case image
+        case fork(SourceMachine)
+    }
+
     /// How the sheet ended.
     enum Outcome: Equatable {
         /// The create was launched and now runs in the background.
@@ -157,6 +167,8 @@ final class NewMachineModel {
     var selectedUpgradePlanId = "max"
     var showsMaxUpgrade = false
     private var storedMemoryMb: Int
+    let sourceOptions: [SourceMachine]
+    var source: Source = .image
     /// The selected size. A locked size never sticks: setting one snaps to
     /// the largest allowed size below it (or the smallest allowed size), so
     /// the create request can only carry a size the plan may start.
@@ -210,6 +222,7 @@ final class NewMachineModel {
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
             memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
             selectionWindowID: selectionWindowID,
+            sourceOptions: sourceOptions,
             submit: submit
         )
         plan = updated.plan
@@ -234,11 +247,13 @@ final class NewMachineModel {
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
         selectionWindowID: UUID? = nil,
+        sourceOptions: [SourceMachine] = [],
         submit: @escaping Submit
     ) {
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.mode = mode
         self.plan = plan
+        self.sourceOptions = mode == .newMachine ? sourceOptions : []
         let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         let locked: [Int]
         if serverOptions.isEmpty {
@@ -304,7 +319,12 @@ final class NewMachineModel {
     }
 
     /// Base is sized by the backend; only `vm new` takes `--size`.
-    var supportsSize: Bool { mode == .newMachine && !availableMemoryOptionsMb.isEmpty }
+    var supportsSize: Bool { mode == .newMachine && source == .image && !availableMemoryOptionsMb.isEmpty }
+    var supportsSource: Bool { mode == .newMachine && !sourceOptions.isEmpty }
+    var sourceSelectionID: String {
+        get { if case .fork(let machine) = source { return machine.id }; return "" }
+        set { source = sourceOptions.first(where: { $0.id == newValue }).map(Source.fork) ?? .image }
+    }
     /// Sizes the plan may start, ascending.
     var memoryOptions: [Int] { availableMemoryOptionsMb }
     /// Sizes the plan cannot start, ascending; the sheet lists them disabled.
@@ -407,6 +427,11 @@ final class NewMachineModel {
         var arguments: [String]
         switch mode {
         case .newMachine:
+            if case .fork(let machine) = source {
+                arguments = ["vm", "fork", machine.id, "--focus", "false"]
+                if let selectionWindowID { arguments += ["--window", selectionWindowID.uuidString] }
+                return arguments
+            }
             arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
@@ -426,11 +451,18 @@ final class NewMachineModel {
 
     /// The request the coordinator tracks for this sheet's choices.
     var createRequest: MachineCreateRequest {
-        MachineCreateRequest(
+        let requestSource: MachineCreateRequest.Source
+        if mode == .newMachine, case .fork(let machine) = source {
+            requestSource = .fork(vmID: machine.id, name: machine.name)
+        } else {
+            requestSource = .image
+        }
+        return MachineCreateRequest(
             mode: mode,
             kind: Self.machineKind,
             name: nil,
             arguments: cliArguments,
+            source: requestSource,
             selectionWindowID: selectionWindowID
         )
     }

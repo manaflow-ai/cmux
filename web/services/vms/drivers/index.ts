@@ -70,7 +70,7 @@ export function vmCapabilitiesOf(provider: VMProvider): VmCapabilities {
   return {
     snapshot: declared.snapshot ?? true,
     restore: declared.restore ?? true,
-    fork: declared.fork ?? typeof provider.fork === "function",
+    fork: declared.fork ?? (typeof provider.fork === "function" || ((declared.snapshot ?? true) && (declared.restore ?? true))),
     exec: declared.exec ?? true,
     stats: declared.stats ?? typeof provider.getStats === "function",
     ports: declared.ports ?? typeof provider.openPort === "function",

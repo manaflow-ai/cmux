@@ -56,7 +56,7 @@ struct MachineCreateNotice: Equatable {
                 lead: String(localized: "machines.notification.failed.body", defaultValue: "Retry or dismiss it from the Machines list."),
                 output: output
             )
-            workspaceID = request.baseWorkspaceID
+            workspaceID = request.placeholderWorkspaceID
             isFailure = true
         }
     }

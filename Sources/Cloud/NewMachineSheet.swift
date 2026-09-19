@@ -12,6 +12,9 @@ struct NewMachineSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
+            if model.supportsSource {
+                sourceSection
+            }
             if model.supportsSize {
                 sizeSection
             }
@@ -65,6 +68,50 @@ struct NewMachineSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var sourceSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(String(localized: "machines.new.source.label", defaultValue: "Start from"))
+                    .cmuxFont(size: 13, weight: .semibold)
+                Text(String(
+                    localized: "machines.new.source.help",
+                    defaultValue: "The default image, or a snapshot of one of your machines. A fork keeps that machine's files, running processes, and size."
+                ))
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Picker(selection: $model.sourceSelectionID) {
+                Text(String(localized: "machines.new.source.defaultImage", defaultValue: "Default image")).tag("")
+                ForEach(model.sourceOptions) { machine in
+                    Text(String(
+                        format: String(localized: "machines.new.source.forkOf", defaultValue: "Fork of %@"),
+                        machine.name
+                    )).tag(machine.id)
+                }
+            } label: {
+                Text(sourceTitle)
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .accessibilityIdentifier("NewMachineSheet.source")
+            .accessibilityLabel(String(localized: "machines.new.source.accessibilityLabel", defaultValue: "Start from"))
+            .accessibilityValue(sourceTitle)
+        }
+        .accessibilityIdentifier("NewMachineSheet.sourceSection")
+    }
+
+    private var sourceTitle: String {
+        if case .fork(let machine) = model.source {
+            return String(
+                format: String(localized: "machines.new.source.forkOf", defaultValue: "Fork of %@"),
+                machine.name
+            )
+        }
+        return String(localized: "machines.new.source.defaultImage", defaultValue: "Default image")
     }
 
     private var sizeSection: some View {
@@ -202,9 +249,13 @@ struct NewMachineSheet: View {
         if model.errorText != nil {
             return String(localized: "machines.new.retry", defaultValue: "Retry")
         }
-        return model.isBaseSetup
-            ? String(localized: "machines.new.create.base", defaultValue: "Set Up Base")
-            : String(localized: "machines.new.create", defaultValue: "Create")
+        if model.isBaseSetup {
+            return String(localized: "machines.new.create.base", defaultValue: "Set Up Base")
+        }
+        if case .fork = model.source {
+            return String(localized: "machines.new.create.fork", defaultValue: "Fork")
+        }
+        return String(localized: "machines.new.create", defaultValue: "Create")
     }
 
 }

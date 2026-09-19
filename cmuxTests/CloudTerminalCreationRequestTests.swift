@@ -162,7 +162,7 @@ private actor CreationReceiptRunner: CloudTuiCommandRunning {
 
     func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         commands.append(arguments)
-        guard !responses.isEmpty else { throw CloudMachineLink.LinkError.timedOut }
+        guard !responses.isEmpty else { throw CloudMachineLink.LinkError.timedOut(after: .seconds(25), output: "") }
         return try responses.removeFirst().get()
     }
 }

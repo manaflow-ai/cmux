@@ -134,12 +134,16 @@ describe("unsupported provider operations", () => {
     expect(payload.retryable).toBe(true);
   });
 
-  test("a driver without fork reports the capability as false, so clients hide the verb", () => {
-    // vmCapabilitiesFor derives `fork` from the method's existence; the gateway
-    // raises VmOperationUnsupportedError when a caller asks anyway.
+  test("a driver without a native fork still reports fork when it can snapshot and restore", () => {
+    // vmCapabilitiesFor derives `fork` from a native clone OR snapshot+restore;
+    // forkVm takes the snapshot-then-create path when the driver has no fork.
     for (const provider of ["freestyle"] as const) {
       const capabilities = vmCapabilitiesFor(provider);
-      expect(capabilities.fork).toBe(typeof getProvider(provider).fork === "function");
+      const driver = getProvider(provider);
+      expect(capabilities.fork).toBe(
+        typeof driver.fork === "function"
+          || ((driver.capabilities?.snapshot ?? true) && (driver.capabilities?.restore ?? true)),
+      );
       expect(capabilities.snapshot).toBe(true);
       expect(capabilities.restore).toBe(true);
       expect(capabilities.ports).toBe(typeof getProvider(provider).openPort === "function");
