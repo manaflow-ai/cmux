@@ -41,14 +41,13 @@ on:
         type: boolean
 
 concurrency:
-  # A fast branch dogfood run must not wait behind a queued full matrix run on
-  # the same branch. Full runs remain serialized with other full runs. A
-  # build-only measurement run publishes nothing, so it gets a group of its own:
-  # GitHub cancels the pending run of a group when a newer run queues, and a
-  # measurement run must never cancel a pending publish.
-  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full') }}
-  # Queue concurrent runs instead of canceling them so no build is lost.
-  cancel-in-progress: false
+  # A scheduled cache warmup must not hold a main push or manual build behind
+  # a saturated Blacksmith macOS pool. Scheduled runs get their own group, and
+  # only the newest scheduled warmup matters, so a newer tick may cancel an
+  # older queued or in-progress warmup. Full runs remain serialized with other
+  # full runs, while build-only measurements keep their own group.
+  group: nightly-build-${{ github.ref_name }}-${{ github.event_name == 'schedule' && 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_only == 'true' && format('nightly-measure-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && github.event.inputs.fast == 'true' && 'fast' || 'full')) }}
+  cancel-in-progress: ${{ github.event_name == 'schedule' }}
 
 permissions:
   contents: write
