@@ -144,11 +144,11 @@ public struct AutomationSection: View {
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .action,
-                String(localized: "settings.automation.rules", defaultValue: "Automation Rules"),
+                String(localized: "settings.automation.rules", defaultValue: "Automation Rules", bundle: .module),
                 subtitle: automationRulesSubtitle
             ) {
                 HStack(spacing: 8) {
-                    Button(String(localized: "settings.automation.rules.edit", defaultValue: "Edit Rules")) {
+                    Button(String(localized: "settings.automation.rules.edit", defaultValue: "Edit Rules", bundle: .module)) {
                         automationRulesActionMessage = nil
                         hostActions.openAutomationRulesInExternalEditor()
                         automationRulesRefreshID += 1
@@ -157,12 +157,12 @@ public struct AutomationSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsAutomationRulesEditButton")
 
-                    Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload")) {
+                    Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload", bundle: .module)) {
                         let didRequestReload = hostActions.reloadAutomationRules()
                         automationRulesActionIsError = !didRequestReload
                         automationRulesActionMessage = didRequestReload
-                            ? String(localized: "settings.automation.rules.reload.requested", defaultValue: "Reload requested.")
-                            : String(localized: "settings.automation.rules.reload.unavailable", defaultValue: "Automation engine unavailable.")
+                            ? String(localized: "settings.automation.rules.reload.requested", defaultValue: "Reload requested.", bundle: .module)
+                            : String(localized: "settings.automation.rules.reload.unavailable", defaultValue: "Automation engine unavailable.", bundle: .module)
                         automationRulesRefreshID += 1
                     }
                     .buttonStyle(.bordered)
@@ -175,7 +175,8 @@ public struct AutomationSection: View {
             SettingsCardDivider()
             SettingsCardNote(String(
                 localized: "settings.automation.rules.note",
-                defaultValue: "Rules live in ~/.cmuxterm/automations.json. Edit the JSON directly, then reload the running engine. The cmux automation CLI remains available for test and log diagnostics."
+                defaultValue: "Rules live in ~/.cmuxterm/automations.json. Edit the JSON directly, then reload the running engine. The cmux automation CLI remains available for test and log diagnostics.",
+                bundle: .module
             ))
 
             if let automationRulesActionMessage {
@@ -193,22 +194,24 @@ public struct AutomationSection: View {
     /// Current rule-count or configuration-state summary shown under the card title.
     private var automationRulesSubtitle: String {
         guard let status = automationRulesStatus else {
-            return String(localized: "settings.automation.rules.loading", defaultValue: "Loading rules…")
+            return String(localized: "settings.automation.rules.loading", defaultValue: "Loading rules…", bundle: .module)
         }
         if status.hasError {
             return String(
                 localized: "settings.automation.rules.error",
-                defaultValue: "The automation rules file could not be loaded. Edit the JSON file and reload."
+                defaultValue: "The automation rules file could not be loaded. Edit the JSON file and reload.",
+                bundle: .module
             )
         }
         if status.ruleCount == 0 {
             return status.configExists
-                ? String(localized: "settings.automation.rules.empty", defaultValue: "No rules configured yet.")
-                : String(localized: "settings.automation.rules.missing", defaultValue: "No rules file yet.")
+                ? String(localized: "settings.automation.rules.empty", defaultValue: "No rules configured yet.", bundle: .module)
+                : String(localized: "settings.automation.rules.missing", defaultValue: "No rules file yet.", bundle: .module)
         }
         let format = String(
             localized: "settings.automation.rules.counts",
-            defaultValue: "%1$lld total • %2$lld enabled • %3$lld disabled"
+            defaultValue: "%1$lld total • %2$lld enabled • %3$lld disabled",
+            bundle: .module
         )
         return String.localizedStringWithFormat(
             format,
