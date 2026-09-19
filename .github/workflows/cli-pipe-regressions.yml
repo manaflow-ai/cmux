@@ -39,8 +39,10 @@ jobs:
         run: |
           if [ -n "${CMUX_CI_XCODE_APP:-}" ]; then
             sudo xcode-select --switch "$CMUX_CI_XCODE_APP/Contents/Developer"
+            xcodebuild -version
+          else
+            ./scripts/select-ci-xcode.sh
           fi
-          xcodebuild -version
 
       - name: Initialize Ghostty and download its binary framework
         run: |
