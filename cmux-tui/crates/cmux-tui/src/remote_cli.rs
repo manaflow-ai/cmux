@@ -1973,7 +1973,8 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy", "cloud-vm-cli"];
+pub const PROBE_CAPABILITIES: &[&str] =
+    &["direct-ws-user-agent", "wireguard-hub", "browser-proxy", "cloud-vm-cli"];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
