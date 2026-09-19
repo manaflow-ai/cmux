@@ -1294,25 +1294,33 @@ check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
 check_agent_notification_paths_cover_its_suites() {
   # The workflow reruns suites that ci.yml's shards already run, so it should
-  # start only for changes that can affect them. Each suite it names needs its
-  # own path trigger; a blanket cmuxTests/** trigger starts it for every test.
-  local file="$ROOT_DIR/.github/workflows/agent-notification-tests.yml" suite failed=0
-  if grep -qE "^[[:space:]]+- cmuxTests/\*\*[[:space:]]*$" "$file"; then
-    echo "FAIL: agent-notification-tests.yml must not trigger on all of cmuxTests/**"
-    failed=1
-  fi
-  for suite in $(sed -n 's/^[[:space:]]*unit_test_suites:[[:space:]]*//p' "$file" | tr ',' ' '); do
-    # AgentNotificationRegressionTests -> cmuxTests/AgentNotification*.swift
-    if ! grep -E "^[[:space:]]+- cmuxTests/" "$file" | sed -E 's/^[[:space:]]+- cmuxTests\///; s/\*.*$//' | while read -r prefix; do
-      case "$suite" in "$prefix"*) exit 1 ;; esac
-    done; then
-      continue
-    fi
-    echo "FAIL: agent-notification-tests.yml runs $suite but no cmuxTests/ path trigger matches it"
-    failed=1
-  done
-  [ "$failed" -eq 0 ] || exit 1
-  echo "PASS: agent notification paths cover exactly the suites the workflow runs"
+  # start only for changes that can affect them: every file that defines one of
+  # its suites must match a path trigger, and cmuxTests/** must not be one.
+  ROOT_DIR="$ROOT_DIR" python3 - <<'PY'
+import fnmatch, os, re, sys
+from pathlib import Path
+
+root = Path(os.environ["ROOT_DIR"])
+text = (root / ".github/workflows/agent-notification-tests.yml").read_text(encoding="utf-8")
+paths = re.findall(r"^\s+- (cmuxTests/\S+)\s*$", text, flags=re.M)
+suites = re.search(r"^\s*unit_test_suites:\s*(\S+)", text, flags=re.M).group(1).split(",")
+errors = []
+if "cmuxTests/**" in paths:
+    errors.append("must not trigger on all of cmuxTests/**")
+for suite in suites:
+    decl = re.compile(rf"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:\w+\s+)*(?:class|struct|actor|extension)\s+{re.escape(suite)}\b", re.M)
+    files = [f for f in sorted((root / "cmuxTests").glob("*.swift")) if decl.search(f.read_text(encoding="utf-8", errors="ignore"))]
+    if not files:
+        errors.append(f"runs {suite}, which no file in cmuxTests defines")
+    for f in files:
+        rel = f"cmuxTests/{f.name}"
+        if not any(fnmatch.fnmatchcase(rel, p) for p in paths):
+            errors.append(f"runs {suite} but {rel} matches no path trigger")
+for e in errors:
+    print(f"FAIL: agent-notification-tests.yml {e}")
+sys.exit(1 if errors else 0)
+PY
+  echo "PASS: agent notification paths cover every file of the suites the workflow runs"
 }
 
 check_dmg_signing_uses_build_keychain

@@ -12,7 +12,15 @@ on:
       - Sources/TerminalNotification*.swift
       - Sources/AgentFeedSemanticInput.swift
       - Sources/Feed/**
-      - cmuxTests/**
+      # Every file that defines a suite in unit_test_suites below. ci.yml's shards
+      # run all of cmuxTests, so a blanket cmuxTests/** only adds a second run.
+      - cmuxTests/*Notification*.swift
+      - cmuxTests/AgentRelayTTYOwnership*.swift
+      - cmuxTests/AgentDeliveryTTYBinding*.swift
+      - cmuxTests/AgentJournalLifecycleCenter*.swift
+      - cmuxTests/FeedWaiterRegistry*.swift
+      - cmuxTests/ClaudeBackgroundWorkNotify*.swift
+      - cmuxTests/OpenCodeHookRegression*.swift
       - Packages/macOS/CMUXAgentLaunch/**
       - .github/workflows/test-depot.yml
       - scripts/ci/classify-app-host-test-output.py
