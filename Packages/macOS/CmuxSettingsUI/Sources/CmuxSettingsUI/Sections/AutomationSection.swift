@@ -33,6 +33,7 @@ public struct AutomationSection: View {
     @State private var automationRulesStatus: AutomationRulesStatus?
     @State private var automationRulesActionMessage: String?
     @State private var automationRulesActionIsError = false
+    @State private var automationRulesRefreshID = 0
 
     private struct SocketPasswordStatus: Equatable {
         let message: String
@@ -128,12 +129,16 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task {
+        }
+        .task {
             startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+        }
+        .task(id: automationRulesRefreshID) {
             await refreshAutomationRulesStatus()
         }
     }
 
+    /// Thin native exposure of the existing JSON-backed automation engine.
     @ViewBuilder
     private var automationRulesCard: some View {
         SettingsCard {
@@ -146,7 +151,7 @@ public struct AutomationSection: View {
                     Button(String(localized: "settings.automation.rules.edit", defaultValue: "Edit Rules")) {
                         automationRulesActionMessage = nil
                         hostActions.openAutomationRulesInExternalEditor()
-                        Task { await refreshAutomationRulesStatus() }
+                        automationRulesRefreshID += 1
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -158,7 +163,7 @@ public struct AutomationSection: View {
                         automationRulesActionMessage = didRequestReload
                             ? String(localized: "settings.automation.rules.reload.requested", defaultValue: "Reload requested.")
                             : String(localized: "settings.automation.rules.reload.unavailable", defaultValue: "Automation engine unavailable.")
-                        Task { await refreshAutomationRulesStatus() }
+                        automationRulesRefreshID += 1
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -185,16 +190,16 @@ public struct AutomationSection: View {
         }
     }
 
+    /// Current rule-count or configuration-state summary shown under the card title.
     private var automationRulesSubtitle: String {
         guard let status = automationRulesStatus else {
             return String(localized: "settings.automation.rules.loading", defaultValue: "Loading rules…")
         }
-        if let errorMessage = status.errorMessage {
-            let format = String(
+        if status.hasError {
+            return String(
                 localized: "settings.automation.rules.error",
-                defaultValue: "Configuration error: %@"
+                defaultValue: "The automation rules file could not be loaded. Edit the JSON file and reload."
             )
-            return String.localizedStringWithFormat(format, errorMessage)
         }
         if status.ruleCount == 0 {
             return status.configExists
@@ -213,6 +218,7 @@ public struct AutomationSection: View {
         )
     }
 
+    /// Refreshes the card from the authoritative config store through the host bridge.
     private func refreshAutomationRulesStatus() async {
         automationRulesStatus = await hostActions.automationRulesStatus()
     }
