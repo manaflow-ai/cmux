@@ -23,8 +23,9 @@ struct MachineRowActions {
     let promptUpgrade: @MainActor () -> Void
     /// Persist the machine used by Cmd+Y.
     var setDefault: @MainActor (String) -> Void = { _ in }
-    /// Toggles the explicit pin state for a machine.
-    var setPinned: @MainActor (String, Bool) -> Void = { _, _ in }
+    /// Persists a pin and returns the authoritative fleet order/render state.
+    /// Nil means the action was not accepted (for example, after sign-out).
+    var setPinned: @MainActor (String, Bool) -> [MachineSnapshot]? = { _, _ in nil }
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 

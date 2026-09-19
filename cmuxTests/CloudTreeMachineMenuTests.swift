@@ -430,7 +430,7 @@ struct CloudTreeMachineMenuTests {
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
             promptUpgrade: {},
-            setPinned: { id, pinned in recorder.pinChanges.append((id, pinned)) }
+            setPinned: { id, pinned in recorder.pinChanges.append((id, pinned)); return nil }
         )
     }
 

@@ -16,11 +16,14 @@ extension MachinesPanelViewModel {
         return orderedMachines(snapshots)
     }
 
-    func setMachinePinned(_ pinned: Bool, id: String) {
-        guard let machinePinStore, sidebarMachines.contains(where: { $0.id == id }) else { return }
+    @discardableResult
+    func setMachinePinned(_ pinned: Bool, id: String) -> [MachineSnapshot]? {
+        guard let machinePinStore, machinePinStore.scopeIdentifier != nil,
+              sidebarMachines.contains(where: { $0.id == id }) else { return nil }
         machinePinStore.remember(machineIDs: sidebarMachines.map(\.id))
         machinePinStore.setPinned(pinned, machineID: id)
         objectWillChange.send()
+        return sidebarMachines
     }
 
     private func orderedMachines(_ snapshots: [MachineSnapshot]) -> [MachineSnapshot] {
