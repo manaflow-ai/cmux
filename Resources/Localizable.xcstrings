@@ -123390,51 +123390,251 @@
     "cloudTree.group.resources": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressources"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموارد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resursi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risorse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធនធាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressurser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zasoby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรัพยากร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynaklar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурси"
+          }
+        }
       }
     },
     "cloudTree.resources.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
-        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання"
+          }
+        }
       }
     },
     "cloudTree.group.terminals": {
@@ -396441,60 +396641,60 @@
         }
       }
     },
-    "sidebar.cloudWorkspace.directoryUnavailable" : {
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الدليل غير متاح"
+    "sidebar.cloudWorkspace.directoryUnavailable": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدليل غير متاح"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verzeichnis nicht verfügbar"
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verzeichnis nicht verfügbar"
           }
         },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Directory unavailable"
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directory unavailable"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Directorio no disponible"
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio no disponible"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Répertoire indisponible"
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertoire indisponible"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ディレクトリを取得できません"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリを取得できません"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "디렉터리를 사용할 수 없음"
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디렉터리를 사용할 수 없음"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目录不可用"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目录不可用"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目錄無法使用"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目錄無法使用"
           }
         }
       }
@@ -528632,6 +528832,832 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cloud 接続が終了しました。再読み込みして接続し直してください。"
+          }
+        }
+      }
+    },
+    "cli.workflow.worktree-agents.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree Agents"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree-Agenten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents de worktree"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكلاء شجرة العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes de worktree"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree 代理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree 代理"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree 에이전트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree エージェント"
+          }
+        }
+      }
+    },
+    "cli.workflow.worktree-agents.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start a worktree with two coding-agent terminals and optional context-menu actions."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starte einen Worktree mit zwei Coding-Agent-Terminals und optionalen Kontextmenüaktionen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrez un worktree avec deux terminaux d’agents de code et des actions facultatives dans le menu contextuel."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابدأ شجرة عمل بطرفيتي وكيل برمجي وخيارات سياق اختيارية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia un worktree con dos terminales de agentes de código y acciones opcionales del menú contextual."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 worktree 中開啟兩個程式代理終端機，並可加入內容選單動作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 worktree 中打开两个编码代理终端，并可添加上下文菜单操作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 개의 코딩 에이전트 터미널과 선택적 컨텍스트 메뉴 동작으로 worktree를 시작합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2つのコーディングエージェント端末と任意のコンテキストメニュー操作でworktreeを開始します。"
+          }
+        }
+      }
+    },
+    "cli.workflow.full-stack-dev.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-Stack Dev"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-Stack-Entwicklung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développement full-stack"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تطوير متكامل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desarrollo full-stack"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全端開發"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全栈开发"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풀스택 개발"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスタック開発"
+          }
+        }
+      }
+    },
+    "cli.workflow.full-stack-dev.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a dev server, test watcher, and browser preview, with optional Git and Feed Dock controls."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne einen Dev-Server, Test-Watcher und eine Browservorschau mit optionalen Git- und Feed-Dock-Steuerelementen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez un serveur de développement, un observateur de tests et un aperçu navigateur, avec des contrôles Git et Feed facultatifs dans le Dock."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح خادم التطوير ومراقب الاختبارات ومعاينة المتصفح، مع عناصر Git وFeed اختيارية في Dock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre un servidor de desarrollo, un observador de pruebas y una vista previa del navegador, con controles opcionales de Git y Feed en el Dock."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟開發伺服器、測試監看器與瀏覽器預覽，並可加入 Git 和 Feed Dock 控制項。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开开发服务器、测试监视器和浏览器预览，并可添加 Git 和 Feed Dock 控件。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "개발 서버, 테스트 감시기, 브라우저 미리보기를 열고 Git 및 Feed Dock 제어기를 선택적으로 추가합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発サーバー、テスト監視、ブラウザプレビューを開き、Git と Feed Dock 操作を追加できます。"
+          }
+        }
+      }
+    },
+    "cli.workflow.ssh-devbox.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH Devbox"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Devbox"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devbox SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بيئة تطوير SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devbox SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 開發主機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 开发主机"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 개발 상자"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 開発ボックス"
+          }
+        }
+      }
+    },
+    "cli.workflow.ssh-devbox.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair a remote shell with a browser preview in one workspace."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kombiniere eine entfernte Shell mit einer Browservorschau in einem Workspace."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associez un shell distant et un aperçu navigateur dans un même espace de travail."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اجمع بين shell بعيد ومعاينة متصفح في مساحة عمل واحدة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Combina un shell remoto con una vista previa del navegador en un mismo espacio de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在同一個工作區中搭配遠端 shell 與瀏覽器預覽。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在同一个工作区中搭配远程 shell 和浏览器预览。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나의 작업 공간에서 원격 셸과 브라우저 미리보기를 함께 엽니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1つのワークスペースでリモートシェルとブラウザプレビューを組み合わせます。"
+          }
+        }
+      }
+    },
+    "cli.workflow.review-pr.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review PR"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR prüfen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoir une PR"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراجعة PR"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revisar PR"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢閱 PR"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审查 PR"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR 검토"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR をレビュー"
+          }
+        }
+      }
+    },
+    "cli.workflow.review-pr.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep pull-request commands beside the browser review page."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halte Pull-Request-Befehle neben der Browser-Review-Seite."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gardez les commandes de pull request à côté de la page de revue dans le navigateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض أوامر طلب السحب بجانب صفحة المراجعة في المتصفح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén los comandos de pull request junto a la página de revisión del navegador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓 pull request 指令與瀏覽器檢閱頁面並列。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 pull request 命令与浏览器审查页面并列。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풀 리퀘스트 명령을 브라우저 검토 페이지 옆에 둡니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエストのコマンドをブラウザのレビュー画面の隣に置きます。"
+          }
+        }
+      }
+    },
+    "cli.workflow.docs-workspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docs Workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dokumentations-Workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de documentation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل التوثيق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de documentación"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文档工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "문서 작업 공간"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドキュメントワークスペース"
+          }
+        }
+      }
+    },
+    "cli.workflow.docs-workspace.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run documentation tools beside a Markdown view and browser preview."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führe Dokumentationstools neben einer Markdown-Ansicht und Browservorschau aus."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exécutez les outils de documentation à côté d’une vue Markdown et d’un aperçu navigateur."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شغّل أدوات التوثيق بجانب عرض Markdown ومعاينة المتصفح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejecuta herramientas de documentación junto a una vista Markdown y una vista previa del navegador."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Markdown 檢視與瀏覽器預覽旁執行文件工具。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Markdown 视图和浏览器预览旁运行文档工具。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown 보기와 브라우저 미리보기 옆에서 문서 도구를 실행합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown ビューとブラウザプレビューの横でドキュメントツールを実行します。"
+          }
+        }
+      }
+    },
+    "cli.workflow.quick-agent-buttons.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick Agent Buttons"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnelle Agent-Schaltflächen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boutons d’agents rapides"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرار الوكلاء السريعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botones rápidos de agentes"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速代理按鈕"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速代理按钮"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 에이전트 버튼"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックエージェントボタン"
+          }
+        }
+      }
+    },
+    "cli.workflow.quick-agent-buttons.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put Codex and Claude launch actions on the tab bar and in Command Palette."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Platziere Codex- und Claude-Startaktionen in der Tab-Leiste und der Befehlspalette."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placez les actions de lancement Codex et Claude dans la barre d’onglets et la palette de commandes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضع إجراءات تشغيل Codex وClaude في شريط علامات التبويب ولوحة الأوامر."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coloca acciones de lanzamiento de Codex y Claude en la barra de pestañas y la paleta de comandos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將 Codex 與 Claude 啟動動作放在分頁列和指令面板中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Codex 和 Claude 启动操作放在标签栏和命令面板中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex와 Claude 실행 동작을 탭 막대와 명령 팔레트에 추가합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex と Claude の起動操作をタブバーとコマンドパレットに配置します。"
+          }
+        }
+      }
+    },
+    "cli.workflow.ci-watch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI Watch"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI-Überwachung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surveillance CI"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراقبة CI"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vigilar CI"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 監看"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 监视"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 감시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI 監視"
+          }
+        }
+      }
+    },
+    "cli.workflow.ci-watch.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep long-running CI and Feed monitors in Dock instead of workspace panes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halte lang laufende CI- und Feed-Monitore im Dock statt in Workspace-Panes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gardez les moniteurs CI et Feed de longue durée dans le Dock plutôt que dans des volets."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبقِ مراقبات CI وFeed طويلة التشغيل في Dock بدلاً من ألواح مساحة العمل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén los monitores de CI y Feed de larga duración en el Dock en lugar de paneles del espacio de trabajo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將長時間執行的 CI 與 Feed 監看器放在 Dock，而非工作區窗格。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将长时间运行的 CI 和 Feed 监视器放在 Dock，而不是工作区窗格。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오래 실행되는 CI 및 Feed 모니터를 작업 공간 창 대신 Dock에 둡니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "長時間実行する CI と Feed の監視をワークスペースのペインではなく Dock に置きます。"
           }
         }
       }

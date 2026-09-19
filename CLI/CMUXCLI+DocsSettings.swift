@@ -34,6 +34,32 @@ extension CMUXCLI {
         let instantiate: [String]
         let adapt: [String]
         let source: String
+
+        init(
+            id: String,
+            title: String,
+            summary: String,
+            fit: [String],
+            creates: [String],
+            configFiles: [String],
+            primitives: [String],
+            requires: [String],
+            instantiate: [String],
+            adapt: [String],
+            source: String
+        ) {
+            self.id = id
+            self.title = String(localized: "cli.workflow.\(id).title", defaultValue: title)
+            self.summary = String(localized: "cli.workflow.\(id).summary", defaultValue: summary)
+            self.fit = fit
+            self.creates = creates
+            self.configFiles = configFiles
+            self.primitives = primitives
+            self.requires = requires
+            self.instantiate = instantiate
+            self.adapt = adapt
+            self.source = source
+        }
     }
 
     private static let workflowExamplesURL = "https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-customization/references/examples.md"
