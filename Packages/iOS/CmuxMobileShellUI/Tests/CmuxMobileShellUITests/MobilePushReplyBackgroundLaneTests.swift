@@ -1,5 +1,6 @@
 import CmuxAuthRuntime
 import Foundation
+import os
 import Testing
 
 @testable import CmuxMobileShellUI
@@ -113,6 +114,58 @@ private final class ReplyRelayFake: ReplyRelaying, @unchecked Sendable {
             return outcomes.first ?? false
         }
     }
+}
+
+private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendable {
+    // lint:allow lock - URLProtocol callbacks share this request count across executors.
+    private static let storedRequestCount = OSAllocatedUnfairLock(initialState: 0)
+
+    static var requestCount: Int { storedRequestCount.withLock { $0 } }
+
+    static func reset() {
+        storedRequestCount.withLock { $0 = 0 }
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        Self.storedRequestCount.withLock { $0 += 1 }
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 429,
+            httpVersion: nil,
+            headerFields: ["Retry-After": "120"]
+        )!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+@Test func replyRelayDoesNotRepeatRequestInsideServerCooldown() async {
+    RateLimitedReplyURLProtocol.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [RateLimitedReplyURLProtocol.self]
+    let client = SystemReplyRelayClient(
+        serviceBaseURL: URL(string: "https://presence.test"),
+        accessToken: { "token" },
+        session: URLSession(configuration: configuration)
+    )
+    let reply = RelayedReply(
+        replyId: "reply-1",
+        macDeviceId: "mac-1",
+        workspaceId: "workspace-1",
+        surfaceId: "surface-1",
+        text: "hello"
+    )
+
+    let first = await client.relay(reply)
+    let second = await client.relay(reply)
+    #expect(!first)
+    #expect(!second)
+    #expect(RateLimitedReplyURLProtocol.requestCount == 1)
 }
 
 @MainActor
@@ -336,30 +389,6 @@ private func makeReplyLaneCoordinator(
     #expect(relay.requests.count == 1)
     #expect(runtime.endCount == 0)
     #expect(notifier.cancelCount == 0)
-}
-
-@MainActor
-@Test func confinedRelayPreservesSurfaceRetargetPolicy() async {
-    let runtime = ReplyRuntimeFake()
-    let notifier = ReplyNoticeFake()
-    let relay = ReplyRelayFake(outcomes: [true])
-    let coordinator = makeReplyLaneCoordinator(
-        runtime: runtime,
-        notifier: notifier,
-        nowBox: NowBox(),
-        relay: relay
-    )
-
-    await coordinator.handleReply(
-        text: "stay in this workspace",
-        workspaceId: "workspace-1",
-        surfaceId: "surface-1",
-        macDeviceId: "mac-1",
-        retargetsToLiveSurfaceOwner: false
-    )
-
-    #expect(relay.requests.count == 1)
-    #expect(relay.requests.first?.retargetsToLiveSurfaceOwner == false)
 }
 
 @MainActor

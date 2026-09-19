@@ -123,22 +123,22 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private let runtimeService: ComputerUseRuntimeService
     private let userDefaults: UserDefaults
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
-    private var systemSettingsActivationTask: Task<Void, Never>?
-    private var systemSettingsPlacementRetryTask: Task<Void, Never>?
-    private var systemSettingsTrackingTask: Task<Void, Never>?
-    private var pendingPlacementRequestID: UUID?
-    private var systemSettingsActivatedForPendingRequest = false
-    private var pendingPermissionCompanionFrame: NSRect?
+    private let externalWindowCompanionPresenter: ExternalWindowCompanionPresenter
+    private var systemSettingsWindowTracker: ExternalApplicationWindowTracker?
+    private var permissionCompanionRequested = false
     private var pendingPermissionStep: ComputerUseOnboardingStep?
     private var presentationState: ComputerUseOnboardingPresentationState?
     private var completionDismissTask: Task<Void, Never>?
 
     init(
         runtimeService: ComputerUseRuntimeService,
-        userDefaults: UserDefaults = .standard
+        userDefaults: UserDefaults = .standard,
+        externalWindowCompanionPresenter: ExternalWindowCompanionPresenter? = nil
     ) {
         self.runtimeService = runtimeService
         self.userDefaults = userDefaults
+        self.externalWindowCompanionPresenter = externalWindowCompanionPresenter
+            ?? ExternalWindowCompanionPresenter()
         super.init()
     }
 
@@ -175,9 +175,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         let window = makeWindow(startingAt: startingPoint)
         self.window = window
         window.delegate = self
-        observeSystemSettingsActivation()
-        window.level = .floating
-        window.collectionBehavior = [.canJoinAllSpaces]
+        window.level = .normal
+        window.collectionBehavior = [.managed]
         window.hidesOnDeactivate = false
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -196,9 +195,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             ),
             onPermissionSetupStarted: { [weak self] permissionStep in
                 self?.permissionSetupStarted(for: permissionStep)
-            },
-            onPermissionCompanionLayoutReady: { [weak self] in
-                self?.permissionCompanionLayoutReady()
             },
             onExpandedRequested: { [weak self] in
                 self?.showExpandedOnboarding(resetStep: false)
@@ -231,6 +227,10 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     private func permissionSetupStarted(for permissionStep: ComputerUseOnboardingStep) {
         guard let window else { return }
+        // The retained overview can start a different permission while a
+        // companion is already visible. Replace that step's content and tracker.
+        stopSystemSettingsObservation()
+        dismissPermissionCompanion()
         pendingPermissionStep = permissionStep
         permissionSettingsWillOpen()
         window.orderFrontRegardless()
@@ -256,146 +256,95 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     private func stopSystemSettingsObservation() {
-        systemSettingsActivationTask?.cancel()
-        systemSettingsActivationTask = nil
-        systemSettingsPlacementRetryTask?.cancel()
-        systemSettingsPlacementRetryTask = nil
-        systemSettingsTrackingTask?.cancel()
-        systemSettingsTrackingTask = nil
-        pendingPlacementRequestID = nil
-        systemSettingsActivatedForPendingRequest = false
-        pendingPermissionCompanionFrame = nil
+        systemSettingsWindowTracker?.stop()
+        systemSettingsWindowTracker = nil
+        permissionCompanionRequested = false
         pendingPermissionStep = nil
     }
 
-    private func observeSystemSettingsActivation() {
-        systemSettingsActivationTask = Task { @MainActor [weak self] in
-            for await _ in NSWorkspace.shared.notificationCenter.notifications(
-                named: NSWorkspace.didActivateApplicationNotification
-            ) {
-                guard !Task.isCancelled else { return }
-                self?.systemSettingsDidActivate()
-            }
+    private func observeSystemSettingsWindow() {
+        let tracker = ExternalApplicationWindowTracker(
+            bundleIdentifier: Self.systemSettingsBundleIdentifier
+        )
+        systemSettingsWindowTracker = tracker
+        tracker.start { [weak self] event in
+            self?.handleSystemSettingsWindowEvent(event)
         }
     }
 
     private func permissionSettingsWillOpen() {
-        systemSettingsPlacementRetryTask?.cancel()
-        systemSettingsPlacementRetryTask = nil
-        systemSettingsTrackingTask?.cancel()
-        systemSettingsTrackingTask = nil
-        let requestID = UUID()
-        pendingPlacementRequestID = requestID
-        systemSettingsActivatedForPendingRequest = false
-        if NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            == Self.systemSettingsBundleIdentifier
-        {
-            systemSettingsActivatedForPendingRequest = true
-            beginSystemSettingsPlacementRetry(requestID: requestID)
+        permissionCompanionRequested = true
+        if systemSettingsWindowTracker == nil {
+            observeSystemSettingsWindow()
+        } else {
+            systemSettingsWindowTracker?.refreshFrontmostApplication()
         }
     }
 
-    private func systemSettingsDidActivate() {
-        guard let requestID = pendingPlacementRequestID else { return }
-        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-            == Self.systemSettingsBundleIdentifier
-        else { return }
-        systemSettingsActivatedForPendingRequest = true
-        beginSystemSettingsPlacementRetry(requestID: requestID)
+    func handleSystemSettingsWindowEvent(
+        _ event: ExternalApplicationWindowTracker.Event
+    ) {
+        switch event {
+        case .hidden:
+            // Keep both onboarding windows visible when another app activates.
+            // The companion keeps its floating level until this flow ends.
+            break
+        case .offscreen:
+            // Preserve the permission request and target identity across Spaces
+            // and minimization. Recreate on the target's Space when it returns.
+            if permissionCompanionWindow != nil {
+                permissionCompanionRequested = true
+                dismissPermissionCompanion()
+            }
+        case .unavailable:
+            guard permissionCompanionRequested
+                    || permissionCompanionWindow != nil
+            else {
+                return
+            }
+            // Window disappearance is not a request to activate cmux. The
+            // overview is already visible at its original position.
+            stopSystemSettingsObservation()
+            dismissPermissionCompanion()
+            presentationState?.requestExpandedPresentation(resetToOverview: false)
+        case .visible(let snapshot):
+            showPermissionCompanion(for: snapshot)
+        }
     }
 
-    private func beginSystemSettingsPlacementRetry(requestID: UUID) {
-        guard
-            systemSettingsActivatedForPendingRequest,
-            systemSettingsPlacementRetryTask == nil
+    private func showPermissionCompanion(
+        for systemSettingsWindow: ExternalApplicationWindowTracker.Snapshot
+    ) {
+        guard permissionCompanionRequested
+                || permissionCompanionWindow != nil,
+              let destinationFrame = permissionCompanionFrame(
+                beside: systemSettingsWindow.frame
+              )
         else {
             return
         }
-        systemSettingsPlacementRetryTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let clock = ContinuousClock()
-            let deadline = clock.now.advanced(by: .seconds(5))
-            while !Task.isCancelled,
-                  pendingPlacementRequestID == requestID,
-                  clock.now < deadline
-            {
-                if let frame = permissionCompanionFrameInSystemSettings(),
-                   let window,
-                   let pendingPermissionStep
-                {
-                    pendingPermissionCompanionFrame = frame
-                    let startingFrame = Self.permissionCompanionStartingFrame(
-                        centeredOver: window.frame
-                    )
-                    configureForPermissionCompanion(
-                        window,
-                        permissionStep: pendingPermissionStep,
-                        frame: startingFrame
-                    )
-                    systemSettingsPlacementRetryTask = nil
-                    // The borderless companion's onAppear is the deterministic
-                    // layout handshake. Only that compact window moves; the
-                    // expanded onboarding window has already been ordered out.
-                    if presentationState?.permissionCompanionLayoutReady == true {
-                        permissionCompanionLayoutReady()
-                    }
-                    return
-                }
-                do {
-                    // CGWindowList has no window-created signal. Once the
-                    // matching app activates, wait until its real window is
-                    // available rather than performing a provisional jump.
-                    try await clock.sleep(for: .milliseconds(100))
-                } catch {
-                    return
-                }
-            }
-            if pendingPlacementRequestID == requestID {
-                pendingPlacementRequestID = nil
-                systemSettingsActivatedForPendingRequest = false
-                systemSettingsPlacementRetryTask = nil
-            }
-        }
-    }
 
-    private func permissionCompanionLayoutReady() {
-        guard
-            let requestID = pendingPlacementRequestID,
-            let frame = pendingPermissionCompanionFrame,
-            presentationState?.permissionCompanionLayoutReady == true,
-            let companionWindow = permissionCompanionWindow
-        else {
+        if permissionCompanionWindow != nil {
+            permissionCompanionRequested = false
+            positionPermissionCompanion(
+                at: destinationFrame,
+                animate: false
+            )
             return
         }
-        companionWindow.contentView?.layoutSubtreeIfNeeded()
-        companionWindow.displayIfNeeded()
-        guard pendingPlacementRequestID == requestID else { return }
-        pendingPlacementRequestID = nil
-        pendingPermissionCompanionFrame = nil
-        systemSettingsActivatedForPendingRequest = false
-        positionPermissionCompanion(at: frame, animate: true) { [weak self, weak companionWindow] in
-            guard
-                let self,
-                let companionWindow,
-                self.permissionCompanionWindow === companionWindow
-            else { return }
-            self.beginSystemSettingsTracking()
-        }
+
+        guard let window, let pendingPermissionStep else { return }
+        permissionCompanionRequested = false
+        configureForPermissionCompanion(
+            window,
+            permissionStep: pendingPermissionStep,
+            frame: destinationFrame
+        )
     }
 
-    @discardableResult
-    private func positionInsideSystemSettingsIfNeeded(animate: Bool) -> Bool {
-        guard let frame = permissionCompanionFrameInSystemSettings() else {
-            return false
-        }
-        positionPermissionCompanion(at: frame, animate: animate)
-        return true
-    }
-
-    private func permissionCompanionFrameInSystemSettings() -> NSRect? {
-        guard let systemSettingsFrame = systemSettingsWindowFrame() else {
-            return nil
-        }
+    private func permissionCompanionFrame(
+        beside systemSettingsFrame: NSRect
+    ) -> NSRect? {
         let visibleFrames = NSScreen.screens.map(\.visibleFrame)
         guard let permissionDisplay = permissionWindowPlacement.visibleFrame(
             containing: systemSettingsFrame,
@@ -426,82 +375,11 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         }
         permissionCompanionWindow.setAppKitOwnedFrame(
             frame,
-            display: permissionCompanionWindow.isVisible,
+            display: animate && permissionCompanionWindow.isVisible,
             animate: animate && shouldAnimate(permissionCompanionWindow),
             duration: Self.permissionCompanionGlideDuration,
             completion: completion
         )
-    }
-
-    private func beginSystemSettingsTracking() {
-        systemSettingsTrackingTask?.cancel()
-        systemSettingsTrackingTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let clock = ContinuousClock()
-            var consecutiveMissingWindowChecks = 0
-            while !Task.isCancelled {
-                // The initial move is the only animated transition. Repeated
-                // `setFrame(..., animate: true)` calls while System Settings is
-                // being dragged queue competing AppKit interpolations and make
-                // the companion visibly lag or snap backward.
-                if positionInsideSystemSettingsIfNeeded(animate: false) {
-                    consecutiveMissingWindowChecks = 0
-                } else {
-                    consecutiveMissingWindowChecks += 1
-                    if consecutiveMissingWindowChecks >= 3 {
-                        showExpandedOnboarding()
-                        return
-                    }
-                }
-                do {
-                    // Track at roughly 30fps. Each move is origin-only and
-                    // nonanimated, so it follows System Settings continuously
-                    // without queuing competing AppKit frame animations.
-                    try await clock.sleep(for: .milliseconds(33))
-                } catch {
-                    return
-                }
-            }
-        }
-    }
-
-    private func systemSettingsWindowFrame() -> CGRect? {
-        let processIdentifiers = Set(
-            NSRunningApplication.runningApplications(
-                withBundleIdentifier: Self.systemSettingsBundleIdentifier
-            ).map(\.processIdentifier)
-        )
-        guard !processIdentifiers.isEmpty else { return nil }
-        guard let windowInfo = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] else { return nil }
-
-        let primaryScreenMaxY = primaryScreenFrame()?.maxY ?? 0
-        return windowInfo.compactMap { entry -> CGRect? in
-            guard let ownerPID = entry[kCGWindowOwnerPID as String] as? NSNumber,
-                  processIdentifiers.contains(pid_t(ownerPID.int32Value)),
-                  let layer = entry[kCGWindowLayer as String] as? NSNumber,
-                  layer.intValue == 0,
-                  let bounds = entry[kCGWindowBounds as String] as? NSDictionary,
-                  let quartzFrame = CGRect(dictionaryRepresentation: bounds)
-            else { return nil }
-            return permissionWindowPlacement.appKitFrame(
-                fromQuartz: quartzFrame,
-                primaryScreenMaxY: primaryScreenMaxY
-            )
-        }.max { lhs, rhs in
-            lhs.width * lhs.height < rhs.width * rhs.height
-        }
-    }
-
-    private func primaryScreenFrame() -> CGRect? {
-        let primaryDisplayID = CGMainDisplayID()
-        return NSScreen.screens.first { screen in
-            let screenNumberKey = NSDeviceDescriptionKey("NSScreenNumber")
-            let screenNumber = screen.deviceDescription[screenNumberKey] as? NSNumber
-            return screenNumber?.uint32Value == primaryDisplayID
-        }?.frame ?? NSScreen.screens.first?.frame
     }
 
     private func showExpandedOnboarding(
@@ -509,14 +387,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         completion: (@MainActor () -> Void)? = nil
     ) {
         guard let window else { return }
-        systemSettingsPlacementRetryTask?.cancel()
-        systemSettingsPlacementRetryTask = nil
-        systemSettingsTrackingTask?.cancel()
-        systemSettingsTrackingTask = nil
-        pendingPlacementRequestID = nil
-        systemSettingsActivatedForPendingRequest = false
-        pendingPermissionCompanionFrame = nil
-        pendingPermissionStep = nil
+        stopSystemSettingsObservation()
         revealExpandedOnboarding(
             window,
             resetStep: resetStep,
@@ -525,8 +396,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         completion?()
     }
 
-    /// Replaces the compact companion with the centered main onboarding window.
-    /// The companion closes immediately; there is deliberately no return glide.
+    /// Closes the compact companion and brings the retained main onboarding
+    /// window forward. There is deliberately no return glide.
     func revealExpandedOnboarding(
         _ window: ComputerUseOnboardingWindow,
         resetStep: Bool,
@@ -559,14 +430,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         guard presentationState?.screenCaptureConsentPending != true else { return }
         completionDismissTask?.cancel()
         completionDismissTask = nil
-        systemSettingsPlacementRetryTask?.cancel()
-        systemSettingsPlacementRetryTask = nil
-        systemSettingsTrackingTask?.cancel()
-        systemSettingsTrackingTask = nil
-        pendingPlacementRequestID = nil
-        systemSettingsActivatedForPendingRequest = false
-        pendingPermissionCompanionFrame = nil
-        pendingPermissionStep = nil
+        stopSystemSettingsObservation()
         userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
         runtimeService.onboardingWasCompleted()
         guard let window else { return }
@@ -592,8 +456,8 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Orders out the expanded onboarding window and presents an independent,
-    /// borderless permission companion at its fixed compact frame.
+    /// Keeps the expanded onboarding window in place and presents an
+    /// independent borderless permission companion at its fixed compact frame.
     func configureForPermissionCompanion(
         _ mainWindow: ComputerUseOnboardingWindow,
         permissionStep: ComputerUseOnboardingStep = .accessibility,
@@ -601,7 +465,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         animate: Bool = false,
         completion: (() -> Void)? = nil
     ) {
-        prepareForPermissionCompanion(mainWindow)
+        pendingPermissionStep = permissionStep
         if presentationState?.permissionCompanionVisible != true {
             presentationState?.showPermissionCompanion()
         }
@@ -612,7 +476,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             mainWindow: mainWindow
         )
         permissionCompanionWindow = companionWindow
-        companionWindow.orderFrontRegardless()
+        externalWindowCompanionPresenter.present(companionWindow)
         if animate && shouldAnimate(companionWindow) {
             companionWindow.setAppKitOwnedFrame(
                 frame,
@@ -625,14 +489,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             companionWindow.displayIfNeeded()
             completion?()
         }
-    }
-
-    /// Hides the main window before the companion appears. Its frame and chrome
-    /// remain untouched so revealing it later cannot expose a ghost titlebar.
-    func prepareForPermissionCompanion(
-        _ window: ComputerUseOnboardingWindow
-    ) {
-        window.orderOut(nil)
     }
 
     private func makePermissionCompanionWindow(
@@ -669,10 +525,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
                 }
             },
             onLayoutReady: { [weak self] in
-                guard let self else { return }
-                if self.presentationState?.markPermissionCompanionLayoutReady() == true {
-                    self.permissionCompanionLayoutReady()
-                }
+                _ = self?.presentationState?.markPermissionCompanionLayoutReady()
             }
         )
         // Nonactivating: interacting with the companion (dragging the helper
@@ -689,9 +542,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         )
         companionWindow.isReleasedWhenClosed = false
         companionWindow.becomesKeyOnlyIfNeeded = true
-        companionWindow.level = .floating
-        companionWindow.collectionBehavior = [.canJoinAllSpaces]
-        companionWindow.hidesOnDeactivate = false
         companionWindow.hasShadow = false
         companionWindow.isOpaque = false
         companionWindow.backgroundColor = .clear

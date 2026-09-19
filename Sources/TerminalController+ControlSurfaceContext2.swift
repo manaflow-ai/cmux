@@ -117,12 +117,20 @@ extension TerminalController {
         guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
             return .noFocusedSurface
         }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: targetSurfaceId
+        ) else {
+            return .requestedSurfaceNotFound(targetSurfaceId)
+        }
 
         if ws.isRemoteTmuxMirror, panelType == .terminal {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 insertFirst: direction.insertFirst,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: inputs.initialDividerPosition,
@@ -170,6 +178,7 @@ extension TerminalController {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: dividerPosition,
@@ -253,6 +262,13 @@ extension TerminalController {
         }
         guard ws.terminalPanel(for: surfaceId) != nil else {
             return .surfaceNotTerminal(surfaceId)
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFoundForID(surfaceId)
         }
 
         let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
@@ -393,6 +409,7 @@ extension TerminalController {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID
@@ -433,6 +450,7 @@ extension TerminalController {
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
                 tmuxStartCommand: inputs.tmuxStartCommand,
+                initialInput: inputs.initialInput,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
@@ -495,6 +513,13 @@ extension TerminalController {
             fallbackWorkspace: ws
         ) else {
             return .noFocusedSurface
+        }
+        guard remoteRelayTargetIsCurrent(
+            routing: routing,
+            workspace: ws,
+            surfaceID: surfaceId
+        ) else {
+            return .surfaceNotFound(surfaceId)
         }
         if let remote = controlRemoteTmuxSurfaceClose(
             workspace: ws,

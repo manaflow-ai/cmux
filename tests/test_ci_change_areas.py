@@ -7,6 +7,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
@@ -124,6 +126,14 @@ def test_ios_only_skips_main_macos_ci() -> None:
     assert_areas(["ios/cmux/ContentView.swift"], macos=False, web=False)
 
 
+def test_ios_packages_keep_macos_dependency_coverage() -> None:
+    assert_areas(
+        ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileTerminalLaneConnection.swift"],
+        macos=True,
+        web=False,
+    )
+
+
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
 
@@ -135,6 +145,16 @@ def test_workflow_changes_run_everything() -> None:
         web=True,
         agent_session_web=True,
     )
+
+
+def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "  pull_request:\n  merge_group:" in workflow
+    assert "    paths:" not in workflow
+
+    fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_dispatch: {}" in fallback
+    assert "  pull_request:" not in fallback
 
 
 def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
@@ -226,6 +246,10 @@ def run_app_host_unit_test_step(
         runner_temp.mkdir()
         fake_bin.mkdir()
         ci_scripts.mkdir(parents=True)
+        shutil.copy2(
+            ROOT / "scripts/ci/classify-app-host-test-output.py",
+            ci_scripts / "classify-app-host-test-output.py",
+        )
 
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
         shard_helper.write_text(
@@ -260,7 +284,7 @@ iteration=$((iteration + 1))
 printf '%s\n' "$iteration" > "$counter"
 if [ "$iteration" -eq 1 ]; then
   echo "Executed 2 tests, with 2 failures (0 unexpected)"
-  exit 1
+  exit 65
 fi
 echo "simulated app-host crash before test summary" >&2
 exit 9
@@ -281,6 +305,8 @@ exit 9
                 **os.environ,
                 "PATH": f"{fake_bin}:{os.environ['PATH']}",
                 "RUNNER_TEMP": str(runner_temp),
+                "CMUX_APP_HOST_XCTESTRUN": str(root / "cmux-unit.xctestrun"),
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN": str(root / "numeric.xctestrun"),
                 "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
@@ -666,6 +692,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "diff-sidecar-check",
         "web-db-migrations",
         "linux-preflight",
+        "macos-compile-admission",
         "app-host-unit-tests",
         "tests",
         "tests-build-and-lag",
@@ -683,6 +710,7 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert "name: tests" in block
     assert "      - changes" in block
     assert "      - linux-preflight" in block
+    assert "      - macos-compile-admission" in block
     assert "      - app-host-unit-tests" in block
     assert "if: ${{ always() }}" in block
     assert 'preflight["result"] != "success"' in block
@@ -698,6 +726,7 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
     # then mark every macOS job skipped even though linux-preflight succeeded.
     for job_name in [
         "app-host-unit-tests",
+        "macos-compile-admission",
         "swift-package-tests",
         "tests-build-and-lag",
         "release-build",
@@ -709,12 +738,49 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         expected_needs = ["changes", "linux-preflight"]
         if job_name == "release-build":
             expected_needs.append("swift-package-tests")
+        if job_name in {"app-host-unit-tests", "tests-build-and-lag", "release-build"}:
+            expected_needs.append("macos-compile-admission")
         expected_if = (
             "if: ${{ !cancelled() && "
             + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
             + " && needs.changes.outputs.macos == 'true' }}"
         )
         assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
+
+
+def test_macos_compile_admission_precedes_expensive_shards() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    admission = workflow_job_block("macos-compile-admission")
+
+    assert "name: macOS compile admission" in admission
+    assert "      - changes" in admission
+    assert "      - linux-preflight" in admission
+    assert "build-for-testing" in admission
+    assert "cmux-unit" in admission
+    assert "cmux-numeric-locale" in admission
+    assert "actions/cache@27d5ce7" in admission
+    assert "steps.upload-products.outputs.artifact-id" in admission
+    assert "app_host_test_products.py stamp" in admission
+    assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
+    assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
+
+    app_host = workflow_job_block("app-host-unit-tests")
+    assert "      - macos-compile-admission" in app_host
+    assert "test-without-building" in app_host
+    assert "needs.macos-compile-admission.outputs.artifact_id" in app_host
+    assert "app_host_test_products.py restore" in app_host
+    assert "EXPECTED_SHA256" in app_host
+    assert "-xctestrun" in app_host
+
+    # The focused shard and the logical unit-test batches must both reuse the
+    # admission-produced product. A later test invocation that silently changes
+    # back to `test` would reintroduce six redundant compiles.
+    app_host_commands = [line.strip() for line in app_host.splitlines()]
+    assert all(
+        command != "test"
+        for command in app_host_commands
+        if command in {"test", "test-without-building"}
+    )
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
@@ -760,6 +826,7 @@ def test_linux_preflight_allows_unrouted_job_skip() -> None:
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     for job_name in [
         "app-host-unit-tests",
+        "macos-compile-admission",
         "swift-package-tests",
         "tests-build-and-lag",
     ]:
@@ -841,6 +908,138 @@ def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> N
     assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+
+
+def run_focused_app_host_step(
+    outcomes: list[str],
+    step_name: str = "Run remote tmux mirror detach and placement regressions",
+) -> tuple[subprocess.CompletedProcess[str], int]:
+    """Run a focused app-host gate against a fake console runner.
+
+    ``outcomes`` lists what each xcodebuild invocation reports, in order:
+    ``pass``; ``crash`` (xcodebuild restarted the app host, exit 65); or
+    ``fail`` (an assertion failure with the host alive, exit 65). Returns the
+    step result and how many times the runner was invoked.
+    """
+    script = workflow_job_step_script(
+        "app-host-unit-tests", step_name
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        runner_temp = root / "runner"
+        ci_scripts = root / "scripts" / "ci"
+        runner_temp.mkdir()
+        ci_scripts.mkdir(parents=True)
+        shutil.copy2(
+            ROOT / "scripts/ci/require_selected_test_execution.sh",
+            ci_scripts / "require_selected_test_execution.sh",
+        )
+        outcomes_file = root / "outcomes"
+        outcomes_file.write_text("\n".join(outcomes) + "\n", encoding="utf-8")
+        counter = root / "invocations"
+
+        console_runner = ci_scripts / "run-in-console-session.sh"
+        console_runner.write_text(
+            """
+#!/bin/bash
+set -euo pipefail
+counter="${CMUX_TEST_INVOCATION_COUNTER:?}"
+iteration=0
+if [ -f "$counter" ]; then
+  iteration="$(cat "$counter")"
+fi
+iteration=$((iteration + 1))
+printf '%s\\n' "$iteration" > "$counter"
+outcome="$(sed -n "${iteration}p" "${CMUX_TEST_OUTCOMES:?}")"
+printf 'invocation %s: %s\\n' "$iteration" "$*"
+case "$outcome" in
+  empty)
+    echo "Executed 0 tests, with 0 failures (0 unexpected)"
+    exit 0
+    ;;
+  pass)
+    echo "Executed 7 tests, with 0 failures (0 unexpected)"
+    exit 0
+    ;;
+  crash)
+    echo "Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches."
+    echo "Executed 7 tests, with 1 failure (1 unexpected)"
+    exit 65
+    ;;
+  fail)
+    echo "Executed 7 tests, with 1 failure (0 unexpected)"
+    exit 65
+    ;;
+  *)
+    echo "unexpected extra invocation ${iteration}" >&2
+    exit 97
+    ;;
+esac
+""".lstrip(),
+            encoding="utf-8",
+        )
+        console_runner.chmod(0o755)
+
+        result = subprocess.run(
+            ["bash", "-c", script],
+            cwd=root,
+            env={
+                **os.environ,
+                "RUNNER_TEMP": str(runner_temp),
+                "CMUX_APP_HOST_XCTESTRUN": str(root / "cmux-unit.xctestrun"),
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN": str(root / "numeric.xctestrun"),
+                "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
+                "CMUX_TEST_INVOCATION_COUNTER": str(counter),
+                "CMUX_TEST_OUTCOMES": str(outcomes_file),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        invocations = int(counter.read_text(encoding="utf-8").strip()) if counter.exists() else 0
+        return result, invocations
+
+
+def test_remote_tmux_mirror_gate_reruns_a_suite_once_after_an_app_host_crash() -> None:
+    # The close suite crashes once and passes on its rerun; the isolated focus
+    # and placement suites then pass, for four invocations in total.
+    result, invocations = run_focused_app_host_step(["crash", "pass", "pass", "pass"])
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert invocations == 4, result.stdout
+    assert "rerunning the suite once" in result.stdout
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorCloseDetachTests") == 2
+    assert result.stdout.count("-only-testing:cmuxTests/RemoteTmuxMirrorFocusPolicyTests") == 1
+    assert "cmuxTests/RemoteTmuxMirrorDedicatedPlacementTests" in result.stdout
+
+
+def test_remote_tmux_mirror_gate_never_reruns_an_assertion_failure() -> None:
+    result, invocations = run_focused_app_host_step(["fail", "pass", "pass"])
+
+    assert result.returncode == 65, result.stdout + result.stderr
+    assert invocations == 1, result.stdout
+    assert "rerunning the suite once" not in result.stdout
+
+
+def test_remote_tmux_mirror_gate_fails_after_a_second_crash() -> None:
+    result, invocations = run_focused_app_host_step(["crash", "crash", "pass"])
+
+    assert result.returncode == 65, result.stdout + result.stderr
+    assert invocations == 2, result.stdout
+
+
+def test_global_search_gate_requires_nonempty_successful_execution() -> None:
+    for outcome, expected_status in (("pass", 0), ("fail", 65), ("empty", 1)):
+        result, invocations = run_focused_app_host_step(
+            [outcome], step_name="Run global search shortcut regressions"
+        )
+        assert result.returncode == expected_status, result.stdout + result.stderr
+        assert invocations == 1, result.stdout
+        assert "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests" in result.stdout
+        # The compile admission job supplies the build products, so focused
+        # gates must use test-without-building just like the sharded batches.
+        assert "test-without-building" in result.stdout
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:

@@ -69,7 +69,6 @@ struct ClaudeHookLifecycleCleanupTests {
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         assertSuccessfulHook(result)
-
         let commands = context.state.snapshot()
         #expect(
             commands.contains {
@@ -194,7 +193,6 @@ struct ClaudeHookLifecycleCleanupTests {
         #expect(commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"))
         #expect(!commands.contains("clear_notifications --tab=\(Self.liveWorkspaceId)"))
     }
-
     /// Since #11976, the CLI records the new turn in the journal for the resolved pane
     /// instead of sending `clear_notifications`; the app reconciles attention from that event.
     @Test func promptSubmitTurnStartFollowsMovedPaneWithoutTouchingSiblings() throws {
@@ -453,7 +451,6 @@ struct ClaudeHookLifecycleCleanupTests {
         let commands = context.state.snapshot()
         #expect(!commands.contains { $0.hasPrefix("set_status ") || $0.hasPrefix("clear_notifications ") })
     }
-
     private func assertSuccessfulHook(_ result: ClaudeHookLiveDeliveryHarness.ProcessRunResult) {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))

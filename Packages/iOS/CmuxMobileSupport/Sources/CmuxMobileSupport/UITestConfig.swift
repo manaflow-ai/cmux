@@ -144,6 +144,18 @@ public struct UITestConfig {
         #endif
     }
 
+    /// When `CMUX_UITEST_WHATS_NEW_PREVIEW=1`, the root view renders the
+    /// native What's New sheet content directly, without sign-in or pairing.
+    /// DEBUG-only.
+    public static var whatsNewPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WHATS_NEW_PREVIEW"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("CMUX_UITEST_WHATS_NEW_PREVIEW=1")
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the full-app UI-test harness should treat the account-owned
     /// revoke step of Forget Computer as successful. The remaining operation,
     /// including durable paired-Mac deletion, store refresh, shell routing, and

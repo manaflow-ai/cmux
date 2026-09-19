@@ -47,11 +47,11 @@ extension MobileHostService {
         "mobile.rpc.methods",
         "mobile.simulator.device.select",
         "mobile.simulator.devices.list",
-        "mobile.simulator.recover",
         "mobile.simulator.input.button",
         "mobile.simulator.input.pointer",
         "mobile.simulator.input.text",
         "mobile.simulator.list",
+        "mobile.simulator.recover",
         "mobile.simulator.stream.start",
         "mobile.simulator.stream.stop",
         "mobile.sync.fetch",
@@ -104,6 +104,22 @@ extension MobileHostService {
         "workspace.move",
     ]
 #endif
+    /// Mobile RPC methods that move file bytes between the phone and this
+    /// Mac (attachment upload, artifact and changed-file fetch, image paste).
+    /// `DisableFileTransfer` refuses them before dispatch on every lane.
+    nonisolated static func methodTransfersFiles(_ method: String) -> Bool {
+        switch method {
+        case "mobile.task.attachment.upload",
+             "mobile.workspace.changes.file_fetch",
+             "mobile.terminal.paste_image",
+             "terminal.paste_image":
+            return true
+        default:
+            return method.hasPrefix("mobile.terminal.artifact.")
+                || method.hasPrefix("mobile.panel.artifact.")
+        }
+    }
+
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
@@ -189,6 +205,7 @@ extension MobileHostService {
             "notification.dismiss.v1",
             "notification.feed.v1",
             "notification.reconcile.v1",
+            "phone_push.keys.exchange.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.verified_replay.v1",
@@ -199,6 +216,7 @@ extension MobileHostService {
             "terminal.render_grid.screen_anchor.v1",
             "terminal.replay.v1",
             Self.terminalInputOrderedCapability,
+            MobileTerminalInputFrame.capability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",

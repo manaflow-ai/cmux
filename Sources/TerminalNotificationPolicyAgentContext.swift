@@ -32,4 +32,3 @@ struct TerminalNotificationPolicyAgentContext: Codable, Sendable, Equatable {
         self.sessionId = sessionId
     }
 }
-

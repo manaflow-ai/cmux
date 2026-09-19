@@ -16,8 +16,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Chrome
     private let backgroundView = NSView()
     private let railView = NSView()
-    private let topDropIndicator = NSView()
-    private let bottomDropIndicator = NSView()
+    private let topDropIndicator = SidebarReorderIndicatorView()
+    private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
     /// Hosts every content subview so the Done-status dim composites like the
     /// legacy row's `.opacity(0.6)` on the content VStack — the selection
@@ -33,6 +33,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let mediaCameraView = NSImageView()
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     private let titleView = SidebarRowTextView(lines: 1)
+    private let cloudImageView = NSImageView()
     private let trailingBadge = SidebarRowUnreadBadgeView()
     private var trailingSpinner: GPUSpinnerNSView?
     private let closeButton = SidebarHeaderGlyphButton()
@@ -199,11 +200,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         addSubview(railView)
         addSubview(contentContainer)
 
-        pinImageView.imageScaling = .scaleProportionallyDown
-        contentContainer.addSubview(pinImageView)
-        muteImageView.imageScaling = .scaleProportionallyDown
-        contentContainer.addSubview(muteImageView)
-        for view in [mediaAudioView, mediaMicView, mediaCameraView] {
+        for view in [pinImageView, muteImageView, cloudImageView, mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
         }
@@ -212,6 +209,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.addSubview(statusGlyphButton)
         contentContainer.addSubview(leadingBadge)
         contentContainer.addSubview(titleView)
+        cloudImageView.setAccessibilityIdentifier("sidebarCloudBadge")
+        cloudImageView.setAccessibilityElement(false)
         contentContainer.addSubview(trailingBadge)
         closeButton.onClick = { [weak self] in self?.actions?.commands.closeWorkspace() }
         contentContainer.addSubview(closeButton)
@@ -413,25 +412,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 
         // Title line
-        pinImageView.isHidden = !snapshot.isPinned
-        if snapshot.isPinned {
-            pinImageView.image = RenderableSystemSymbol.configuredAppKitImage(
-                systemName: "pin.fill", pointSize: model.scaled(9), weight: .semibold
-            )
-            pinImageView.contentTintColor = palette.secondary(0.8)
-            pinImageView.toolTip = String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
-        }
-        muteImageView.isHidden = !snapshot.isMuted
-        if snapshot.isMuted {
-            muteImageView.image = RenderableSystemSymbol.configuredAppKitImage(
-                systemName: "bell.slash.fill", pointSize: model.scaled(9), weight: .semibold
-            )
-            muteImageView.contentTintColor = palette.secondary(0.8)
-            muteImageView.toolTip = String(
-                localized: "sidebar.mutedWorkspace.tooltip",
-                defaultValue: "Notifications muted for this workspace"
-            )
-        }
+        cloudImageView.configureSidebarWorkspaceAccessory(
+            symbol: "cloud", label: snapshot.cloudWorkspaceLabel,
+            pointSize: model.scaled(10), tint: palette.secondary(0.7), weight: .regular
+        )
+        pinImageView.configureSidebarWorkspaceAccessory(
+            symbol: "pin.fill", label: snapshot.isPinned
+                ? String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close") : nil,
+            pointSize: model.scaled(9), tint: palette.secondary(0.8)
+        )
+        muteImageView.configureSidebarWorkspaceAccessory(
+            symbol: "bell.slash.fill", label: snapshot.isMuted
+                ? String(localized: "sidebar.mutedWorkspace.tooltip", defaultValue: "Notifications muted for this workspace") : nil,
+            pointSize: model.scaled(9), tint: palette.secondary(0.8)
+        )
         let media = snapshot.mediaActivity
         mediaAudioView.isHidden = !media.isPlayingAudio
         if media.isPlayingAudio {
@@ -606,9 +600,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.alphaValue = snapshot.taskStatus == .done ? 0.6 : 1
 
         setAccessibilityIdentifier("sidebarWorkspace.\(model.workspaceId.uuidString)")
-        setAccessibilityLabel(String(
-            localized: "accessibility.workspacePosition",
-            defaultValue: "\(snapshot.title), workspace \(model.index + 1) of \(model.accessibilityWorkspaceCount)"
+        setAccessibilityLabel(snapshot.accessibilityLabel(
+            index: model.index, workspaceCount: model.accessibilityWorkspaceCount
         ))
     }
 
@@ -1153,6 +1146,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             x += glyphSize.width + titleRowSpacing
         }
 
+        x = cloudImageView.layoutLeadingSidebarWorkspaceAccessory(
+            minX: x, centerY: firstLineCenter, side: model.scaled(10) + 4, spacing: titleRowSpacing, apply: apply
+        )
         // Trailing slot
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
@@ -1356,17 +1352,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
-            let indicatorLeading: CGFloat = 8 + (model.isGrouped ? 0 : 0)
-            topDropIndicator.frame = NSRect(
-                x: indicatorLeading,
-                y: model.isFirstRow ? 0 : -(model.rowSpacing / 2),
-                width: max(0, width - indicatorLeading - 8), height: 2
-            )
-            bottomDropIndicator.frame = NSRect(
-                x: indicatorLeading,
-                y: y - 2 + model.rowSpacing / 2,
-                width: max(0, width - indicatorLeading - 8), height: 2
-            )
+            let indicatorBounds = NSRect(x: 0, y: 0, width: width, height: y)
+            topDropIndicator.position(in: indicatorBounds, at: model.isFirstRow ? 0 : -(model.rowSpacing / 2))
+            bottomDropIndicator.position(in: indicatorBounds, at: y - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2)
             let pillSize = hintPill.fittingPillSize()
             hintPill.frame = NSRect(
                 x: width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.settings.sidebarShortcutHintXOffset),

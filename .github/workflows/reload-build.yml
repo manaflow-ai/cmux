@@ -43,6 +43,11 @@ on:
         required: false
         default: ""
         type: string
+      backend_url:
+        description: Registered private Tailscale backend origin for this tag
+        required: false
+        default: ""
+        type: string
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -63,6 +68,7 @@ jobs:
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_DEV_BACKEND_URL: ${{ inputs.backend_url }}
       # A degraded cache must lose to a cold build instead of stalling this
       # latency-sensitive lane for actions/cache's ten-minute default.
       SEGMENT_DOWNLOAD_TIMEOUT_MINS: "2"
@@ -73,6 +79,13 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+
+      # Self-hosted runners reuse their workspaces. The checkout action's
+      # cleanup is not sufficient when a previous job leaves generated source
+      # files behind, so make the ref boundary explicit before building.
+      - name: Remove stale checkout files
+        shell: bash
+        run: git clean -ffdx
 
       - name: Start timer
         id: t0
@@ -619,7 +632,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$archive" \
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
-            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
+            CMUX_HOST_BUNDLE_IDENTIFIER="$bundle_id" \
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
             CMUX_DEV_TAG="$BUILD_TAG" \
@@ -647,7 +661,8 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
-            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
+            CMUX_HOST_BUNDLE_IDENTIFIER="$bundle_id" \
             PRODUCT_DISPLAY_NAME="$display_name" \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
             CMUX_DEV_TAG="$BUILD_TAG" \
