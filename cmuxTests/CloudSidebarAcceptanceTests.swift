@@ -16,7 +16,6 @@ struct CloudSidebarAcceptanceTests {
         for width in [220.0, 360.0] {
             for percent in [100, 150] { try geometry.compactRows(width: width, percent: percent) }
         }
-        try geometry.disclosureArtwork()
         let layout = CloudTreeWorkspaceTitleLayoutTests()
         try layout.disclosureSpacing(style: .compact)
         layout.displayHostUsesVisibleCellWidth()

@@ -4,6 +4,11 @@ import Testing
 
 @MainActor
 struct CloudMachinePinStoreTests {
+    @MainActor
+    private final class Scope {
+        var value: String? = "user:a|team:one"
+    }
+
     private func makeDefaults() -> (UserDefaults, String) {
         let suite = "cloud-machine-pins-\(UUID().uuidString)"
         return (UserDefaults(suiteName: suite)!, suite)
@@ -12,21 +17,21 @@ struct CloudMachinePinStoreTests {
     @Test func pinsPersistPerAccountAndTeamAndKeepStableOrder() {
         let (defaults, suite) = makeDefaults()
         defer { defaults.removePersistentDomain(forName: suite) }
-        var scope: String? = "user:a|team:one"
-        let first = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope })
+        let scope = Scope()
+        let first = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope.value })
         first.reconcile(machineIDs: ["b", "a", "c"])
         first.setPinned(true, machineID: "c")
         first.setPinned(true, machineID: "a")
         #expect(first.orderedMachineIDs(["b", "a", "c"]) == ["c", "a", "b"])
         #expect(first.pinnedMachineIDs == ["a", "c"])
 
-        let restored = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope })
+        let restored = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope.value })
         #expect(restored.orderedMachineIDs(["a", "b", "c"]) == ["c", "a", "b"])
-        scope = "user:a|team:two"
+        scope.value = "user:a|team:two"
         restored.refreshScope()
         #expect(restored.pinnedMachineIDs.isEmpty)
         #expect(restored.orderedMachineIDs(["a", "b", "c"]) == ["a", "b", "c"])
-        scope = "user:a|team:one"
+        scope.value = "user:a|team:one"
         restored.refreshScope()
         #expect(restored.isPinned("c"))
         restored.reconcile(machineIDs: ["a", "c"])
