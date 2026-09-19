@@ -179,7 +179,7 @@ final class CloudTreeNode: NSObject {
 
     /// What dragging this row into the main view projects: a single resource wrapped as a
     /// one-element group, or a workspace's whole collection (terminals, then browsers).
-    /// Machine rows and group headers only organize and are not draggable.
+    /// Machine rows reorder only inside the sidebar and never project panes.
     var dragGroup: SurfaceResourceGroup? {
         if let explicitDragGroup { return explicitDragGroup.isEmpty ? nil : explicitDragGroup }
         if case .terminal(let row) = kind,
@@ -212,7 +212,7 @@ final class CloudTreeNode: NSObject {
     }
 
     /// Whether a native drag may export a pane projection. Only terminals and
-    /// displays leave the tree; `canOrganize` also admits internal-only row
+    /// displays leave the tree; machine and descendant ordering admit internal-only row
     /// drags without granting an external projection capability.
     var isDragSource: Bool {
         switch kind {

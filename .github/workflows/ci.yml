@@ -1348,6 +1348,21 @@ jobs:
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
+      - name: Run Cloud machine ordering acceptance
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Pin/order and native-drop assertions must fail CI directly, without
+          # the crash tolerance of the full app-host suite.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CloudMachineDragSourceTests \
+            -only-testing:cmuxTests/CloudMachineOrderingTests \
+            test-without-building
+
       - name: Run unit tests
         run: |
           set -euo pipefail
