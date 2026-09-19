@@ -8,6 +8,11 @@ import Foundation
 /// in a `Workspace`.
 @MainActor
 protocol PaneDropContainer: AnyObject {
+    var surfaceOwnershipPolicy: SurfaceOwnershipPolicy { get }
+    func surfaceDropRejection(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source
+    ) -> SurfaceTransferRejection?
     /// Returns the selected panel owned by `paneId`.
     func selectedPanelForPaneDrop(
         in paneId: PaneID
@@ -76,6 +81,12 @@ protocol PaneDropContainer: AnyObject {
 }
 
 extension PaneDropContainer {
+    var surfaceOwnershipPolicy: SurfaceOwnershipPolicy { .init(cloudMachine: nil) }
+    func surfaceDropRejection(
+        _ transfer: PaneDragTransfer,
+        source: PaneTransferSourceResolver.Source
+    ) -> SurfaceTransferRejection? { nil }
+
     func canPerformRightSidebarToolDrop(_ mode: RightSidebarMode) -> Bool { false }
     func performRightSidebarToolDrop(
         _ mode: RightSidebarMode,
@@ -95,6 +106,12 @@ extension PaneDropContainer {
         guard let source = sourceResolver.registeredSource(id: id) else {
             return nil
         }
+
+        let transfer = PaneDragTransfer(
+            tabId: id, sourcePaneId: request.sourcePaneId.id,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        guard surfaceDropRejection(transfer, source: source) == nil else { return false }
 
         let handled: Bool
         switch source {
@@ -128,6 +145,7 @@ extension PaneDropContainer {
         _ transfer: PaneDragTransfer,
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
+        guard surfaceDropRejection(transfer, source: source) == nil else { return false }
         switch source {
         case .vaultSession, .filePreview, .surfaceResources:
             return true
@@ -146,6 +164,11 @@ extension PaneDropContainer {
         zone: DropZone,
         source: PaneTransferSourceResolver.Source
     ) -> Bool {
+        let transfer = PaneDragTransfer(
+            tabId: tabId, sourcePaneId: sourcePaneId,
+            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
+        )
+        guard canPerformPortalPaneDrop(transfer, source: source) else { return false }
         let destination = PaneDropRouting.destination(
             targetPane: paneId,
             zone: zone
@@ -237,7 +260,7 @@ extension PaneDropContainer {
             return .editor
         case .browser, .markdown, .rightSidebarTool, .customSidebar, .simulator,
              .agentSession, .project, .extensionBrowser, .workspaceTodo,
-             .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
+             .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return nil
         }
     }
@@ -247,7 +270,8 @@ extension PaneDropContainer {
         _ urls: [URL],
         context: PaneDropContext,
         hostedView: GhosttySurfaceScrollView?,
-        window: NSWindow?
+        window: NSWindow?,
+        pasteboard: NSPasteboard? = nil
     ) -> Bool {
         if let hostedView {
             return performPanelTextDrop(
@@ -255,7 +279,7 @@ extension PaneDropContainer {
                 focusIntent: .terminal(.surface),
                 window: window,
                 insert: {
-                    hostedView.handleDroppedURLs(urls)
+                    hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
                 }
             )
         }
@@ -269,7 +293,7 @@ extension PaneDropContainer {
                 focusIntent: .terminal(.surface),
                 window: window ?? terminalPanel.surface.uiWindow,
                 insert: {
-                    terminalPanel.hostedView.handleDroppedURLs(urls)
+                    terminalPanel.hostedView.handleDroppedURLs(urls, pasteboard: pasteboard)
                 }
             )
         }
@@ -298,9 +322,8 @@ extension Workspace: PaneDropContainer {
         handleRightSidebarToolDrop(mode: mode, destination: destination)
     }
 
-    /// A live surface can always ask the workspace dispatcher to move it.
-    func canPerformPortalSurfaceDrop(_: PaneDragTransfer) -> Bool {
-        true
+    func canPerformPortalSurfaceDrop(_ transfer: PaneDragTransfer) -> Bool {
+        surfaceDropRejection(transfer, source: .surface) == nil
     }
 
     /// Uses the same restore-aware launch as every existing workspace Vault drop.

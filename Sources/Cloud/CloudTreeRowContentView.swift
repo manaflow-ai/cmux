@@ -1,10 +1,12 @@
 import CmuxFoundation
 import SwiftUI
-
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
     static let disclosureSlot: CGFloat = 16
-    static let disclosureGap: CGFloat = 10
+    /// Small separation between a disclosure control and its row content.
+    /// Keeping this below the tree indent makes group headers read as one
+    /// shared outline rather than disconnected columns.
+    static let disclosureGap: CGFloat = 4
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
     static let dotGap: CGFloat = 8
@@ -24,7 +26,6 @@ enum CloudTreeIconPalette {
     static let browser = Color.orange
     static let machine = Color.accentColor
 }
-
 struct CloudTreeRowContentView: View {
     let kind: CloudTreeNode.Kind
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -34,7 +35,6 @@ struct CloudTreeRowContentView: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
-
     var body: some View {
         row
             .overlay(alignment: .bottom) {
@@ -53,7 +53,6 @@ struct CloudTreeRowContentView: View {
         default: return true
         }
     }
-
     @MainActor @ViewBuilder
     private var row: some View {
         switch kind {
@@ -110,6 +109,10 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"), count: nil, style: style)
+        case .resourcesPool(_, let count):
+            CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"), count: count, style: style)
+        case .resource(_, let row):
+            CloudTreeMachineResourceRowContent(row: row, style: style)
         case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
@@ -125,6 +128,7 @@ struct CloudTreeRowContentView: View {
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
     }
+
     /// Formats terminal totals for group and machine summaries.
     static func count(_ terminals: Int) -> String {
         terminals == 1
@@ -152,42 +156,6 @@ struct CloudTreeRowContentView: View {
         guard key.hasPrefix(prefix) else { return nil }
         let number = key.dropFirst(prefix.count)
         return number.isEmpty ? nil : ":\(number)"
-    }
-}
-
-/// A row glyph in the shared icon slot, drawn per the style's icon treatment:
-/// monochrome label color, semantic tint, or a Settings-style filled squircle
-/// with a white glyph.
-struct CloudTreeRowIcon: View {
-    let style: CloudTreeStyle
-    let systemName: String
-    let tint: Color
-    var dimmed: Bool = false
-
-    var body: some View {
-        switch style.iconTreatment {
-        case .monochrome:
-            Image(systemName: systemName)
-                .font(.system(size: style.iconSize, weight: .regular))
-                .foregroundStyle(dimmed ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
-                .frame(width: style.iconSlot, alignment: .center)
-        case .tinted:
-            Image(systemName: systemName)
-                .font(.system(size: style.iconSize, weight: .regular))
-                .foregroundStyle(tint.opacity(dimmed ? 0.45 : 0.85))
-                .frame(width: style.iconSlot, alignment: .center)
-        case .chips:
-            let side = style.iconSlot - 4
-            RoundedRectangle(cornerRadius: side * 0.28, style: .continuous)
-                .fill(tint.opacity(dimmed ? 0.4 : 0.9))
-                .frame(width: side, height: side)
-                .overlay {
-                    Image(systemName: systemName)
-                        .font(.system(size: style.iconSize, weight: .medium))
-                        .foregroundStyle(.white)
-                }
-                .frame(width: style.iconSlot, alignment: .center)
-        }
     }
 }
 
@@ -503,29 +471,6 @@ struct CloudTreeLocalMachineRowContent: View {
             )
         }
         return parts.joined(separator: " · ")
-    }
-}
-
-/// The full-width tinted band `sections`-family machine rows sit in; a plain
-/// pass-through elsewhere.
-struct CloudTreeMachineBand<Content: View>: View {
-    let style: CloudTreeStyle
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        if style.machineBand {
-            content()
-                .padding(.leading, 6)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                )
-                .padding(.trailing, CloudTreeRowGrid.trailingPadding - 2)
-        } else {
-            content()
-                .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-        }
     }
 }
 

@@ -23,10 +23,8 @@ extension TerminalController {
         if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
             return tunnelResponse
         }
-        // `DisableCloud`: every remaining `vm.*` verb fails closed here, before
-        // any control-plane call, with a stable error code. `VMClient` refuses
-        // as well, so this gate is the CLI's error surface, not the only line
-        // of defense.
+        // Refuse disabled Cloud before any control-plane call. VMClient also
+        // enforces this policy for non-socket callers.
         if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
             return v2Error(
                 id: id,
@@ -35,6 +33,13 @@ extension TerminalController {
             )
         }
         switch method {
+        case "vm.file_transfer_failure":
+            return socketWorkerFileTransferFailureResponse(id: id, params: params)
+        case "vm.billing_checkout":
+            guard let plan = params["plan"] as? String, plan == "go" || plan == "max" || plan == "pro" else {
+                return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudVM.billingCheckout.invalidPlan", defaultValue: "Choose Go, Pro, or Max: cmux billing checkout --plan <go|pro|max>"))
+            }
+            return v2VmCall(id: id) { try await VMClient.shared.billingCheckout(plan: plan) }
         case "vm.list":
             return v2CloudCall(id: id, method: method, params: params) {
                 let page = try await VMClient.shared.listPage()
@@ -49,6 +54,9 @@ extension TerminalController {
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                         "memoryOptionsMb": limits.memoryOptionsMb,
+                        "lockedMemoryOptionsMb": limits.lockedMemoryOptionsMb.map { $0 as Any } ?? NSNull(),
+                        "memoryUpgradePlanId": limits.memoryUpgradePlanId.map { $0 as Any } ?? NSNull(),
+                        "memoryUpgradePlansByMb": limits.memoryUpgradePlansByMb.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload
@@ -509,6 +517,23 @@ extension TerminalController {
             return v2CloudCall(id: id, method: method, params: params) {
                 let endpoint = try await VMClient.shared.openSSH(id: vmId)
                 return Self.socketWorkerSSHInfoPayload(endpoint)
+            }
+        case "vm.scp_info":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty,
+                  let publicKey = Self.socketWorkerString(params["public_key"]), publicKey.utf8.count <= 512 else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.scp_info requires id and public_key.")
+            }
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 90) {
+                let endpoint = try await VMClient.shared.prepareSCP(id: vmId, publicKey: publicKey)
+                let forwards = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.portForwards }
+                guard let forwards else { throw CloudMachineLinkManager.ManagerError.wireGuardHubMissing }
+                let forward = try await forwards.forward(machineID: vmId, to: CloudPortForwardTarget(host: endpoint.host, port: endpoint.port))
+                try await forward.warmUpHub()
+                return [
+                    "host": "127.0.0.1", "port": Int(await forward.localPort),
+                    "username": endpoint.username, "host_public_key": endpoint.hostPublicKey,
+                    "expires_at_unix": endpoint.expiresAtUnix,
+                ]
             }
         case "vm.attach_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {

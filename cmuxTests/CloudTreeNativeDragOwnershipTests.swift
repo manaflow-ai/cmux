@@ -313,7 +313,8 @@ struct CloudTreeNativeDragOwnershipTests {
         let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
         let buttons = try #require(cell.subviews.last)
         let rowPoint = NSPoint(x: outline.rect(ofRow: 0).midX, y: outline.rect(ofRow: 0).midY)
-        window.pointerOnScreen = window.convertPoint(toScreen: outline.convert(rowPoint, to: nil))
+        let rowRect = NSRect(origin: outline.convert(rowPoint, to: nil), size: .zero)
+        window.pointerOnScreen = window.convertToScreen(rowRect).origin
 
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(buttons.alphaValue == 0)
@@ -346,7 +347,6 @@ struct CloudTreeNativeDragOwnershipTests {
     }
 
     private static let machineActions = MachineRowActions(
-        setupVPN: { _ in },
         openShell: { _ in },
         openDesktop: { _ in },
         runCommand: { _, _ in },

@@ -9,6 +9,32 @@ import Testing
 
 @Suite("External application window lifecycle")
 struct ExternalApplicationWindowTrackerTests {
+    @Test @MainActor func missingVisibilityMetadataSuppressesCompanionPresentation() throws {
+        let entry: [String: Any] = [
+            kCGWindowOwnerPID as String: NSNumber(value: 42),
+            kCGWindowLayer as String: NSNumber(value: 0),
+            kCGWindowNumber as String: NSNumber(value: 17),
+            kCGWindowBounds as String: CGRect(x: 80, y: 100, width: 600, height: 440).dictionaryRepresentation,
+        ]
+        let snapshot = try #require(ExternalApplicationWindowTracker.snapshot(
+            from: entry, expectedWindowID: 17, processIdentifier: 42, primaryScreenMaxY: 1_200
+        ))
+        #expect(!snapshot.isOnScreen)
+        let tracker = ExternalApplicationWindowTracker(
+            bundleIdentifier: "com.example.Target",
+            dependencies: .init(frontWindow: { _, _ in snapshot }, window: { _, _, _ in snapshot }),
+            automaticUpdatesEnabled: false
+        )
+        var events: [ExternalApplicationWindowEvent] = []
+        tracker.start { events.append($0) }
+        defer { tracker.stop() }
+
+        tracker.handleApplicationActivation(bundleIdentifier: "com.example.Target", processIdentifier: 42)
+
+        #expect(events.last == .offscreen)
+        #expect(!events.contains(.visible(snapshot)))
+    }
+
     @MainActor
     private final class DeliveryState {
         var refreshCallIsActive = false
