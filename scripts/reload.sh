@@ -54,6 +54,10 @@ CAN_PUBLISH_RELOAD_STATE=1
 RELOAD_PUBLICATION_SKIP_REASON=""
 KEEP_RUNNING_TAG_APP=0
 
+reload_should_keep_running_tag_app() {
+  [[ -n "${TAG:-}" && "${LAUNCH:-0}" -ne 1 && "${CMUX_RELOAD_KEEP_RUNNING:-0}" == "1" ]]
+}
+
 reload_socket_is_live() {
   local socket_path="$1"
   [[ -S "$socket_path" ]] || return 1
@@ -1704,7 +1708,7 @@ fi
 # CMUX_RELOAD_KEEP_RUNNING=1 opts a build-only tagged run out of tearing down the
 # running same-tag instance (its cmuxd below, then the app itself). --launch needs
 # the new binary, so it ignores the variable.
-if [[ -n "$TAG" && "$LAUNCH" -ne 1 && "${CMUX_RELOAD_KEEP_RUNNING:-0}" == "1" ]]; then
+if reload_should_keep_running_tag_app; then
   KEEP_RUNNING_TAG_APP=1
 fi
 
@@ -1887,7 +1891,7 @@ if [[ "$KEEP_RUNNING_TAG_APP" -eq 1 ]] && reload_socket_is_live "/tmp/cmux-debug
   # The kept instance still owns this tag's socket lock, marker and CLI pointer.
   # Waiting for a release that will not come would only time out.
   CAN_PUBLISH_RELOAD_STATE=0
-  RELOAD_PUBLICATION_SKIP_REASON="CMUX_RELOAD_KEEP_RUNNING=1 left the running tagged app in place"
+  RELOAD_PUBLICATION_SKIP_REASON="the running tagged app was kept in place"
 elif [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
   CAN_PUBLISH_RELOAD_STATE=0
 fi

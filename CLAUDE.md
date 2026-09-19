@@ -13,11 +13,13 @@ cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod
 Always build with a tag. **Never run bare `xcodebuild` or `open` an untagged `cmux DEV.app`**: untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
 
 ```bash
-./scripts/reload.sh --tag <branch-slug>            # build Debug, kill same-tag app, do not launch
+./scripts/reload.sh --tag <branch-slug>            # build Debug, terminate same-tag app, do not launch
 ./scripts/reload.sh --tag <branch-slug> --launch   # also open it
 ```
 
 A tag gives the app its own name, bundle ID, socket, and derived data path, so it runs side-by-side with the user's main app. Report the build to the user as a markdown link to `http://127.0.0.1:17320/<tag>`. Never put a `file://` URL, a raw `.app` path, or `/tmp/cmux-<tag>/...` in chat output.
+
+Successful tagged builds terminate the existing same-tag app and `cmuxd` by default so the next launch uses the new binary. For a build-only run that should leave the live tagged session in place, set `CMUX_RELOAD_KEEP_RUNNING=1`; `--launch` ignores that setting and performs the normal replacement flow.
 
 Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
 

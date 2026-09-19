@@ -7,7 +7,7 @@ Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so
 ./scripts/reload.sh --tag <tag> --launch   # build, then open
 ```
 
-After a successful build `reload.sh` terminates any running app with the same tag, so opening the printed app path launches the fresh binary.
+After a successful build `reload.sh` terminates the same-tag app and its `cmuxd` by default, so opening the printed app path launches the fresh binary. For a build-only run that should leave the live tagged session in place, set `CMUX_RELOAD_KEEP_RUNNING=1`; `--launch` ignores that setting and performs the normal replacement flow.
 
 ## App path links
 

@@ -58,6 +58,15 @@ function socketProbeSource() {
   return source.slice(start, end + 2);
 }
 
+function keepRunningDecisionSource() {
+  const source = fs.readFileSync(reloadScript, "utf8");
+  const start = source.indexOf("reload_should_keep_running_tag_app() {");
+  const end = source.indexOf("\n}\n", start);
+  assert.notEqual(start, -1, "reload.sh must define the keep-running decision");
+  assert.notEqual(end, -1, "reload.sh keep-running decision must be a complete function");
+  return source.slice(start, end + 2);
+}
+
 function markerDerivationSource() {
   const source = fs.readFileSync(reloadScript, "utf8");
   const start = source.indexOf("derive_socket_marker_names() {");
@@ -131,6 +140,27 @@ printf '%s\\n%s\\n' "$CMUX_RELOAD_MARKER_NAME" "$CMUX_RELOAD_TMP_MARKER"
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.equal(result.stdout, "last-socket-path\n/tmp/cmux-last-socket-path\n");
+});
+
+test("keep-running applies only to tagged build-only reloads", () => {
+  const script = `${keepRunningDecisionSource()}
+if reload_should_keep_running_tag_app; then printf 'keep\\n'; else printf 'replace\\n'; fi
+`;
+  const cases = [
+    [{ TAG: "feature", LAUNCH: "0", CMUX_RELOAD_KEEP_RUNNING: "1" }, "keep"],
+    [{ TAG: "feature", LAUNCH: "0", CMUX_RELOAD_KEEP_RUNNING: "0" }, "replace"],
+    [{ TAG: "feature", LAUNCH: "1", CMUX_RELOAD_KEEP_RUNNING: "1" }, "replace"],
+    [{ TAG: "", LAUNCH: "0", CMUX_RELOAD_KEEP_RUNNING: "1" }, "replace"],
+  ];
+  for (const [values, expected] of cases) {
+    const result = spawnSync("bash", ["-c", script], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      env: { PATH: "/usr/bin:/bin", ...values },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.stdout.trim(), expected);
+  }
 });
 
 test("reload pointer publication waits for the shared ownership lock", async () => {
