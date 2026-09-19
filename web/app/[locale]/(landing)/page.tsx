@@ -15,9 +15,30 @@ import {
 } from "@/app/[locale]/testimonials";
 import { Link } from "@/i18n/navigation";
 import NextLink from "next/link";
+import { redirect } from "next/navigation";
+import { optionalDashboardUser } from "@/app/lib/dashboard-auth";
+import { Suspense } from "react";
 
-export default function Home() {
-  return <HomeContent />;
+export const instant = true;
+
+export default function Home({ params }: { params: Promise<{ locale: string }> }) {
+  return (
+    <>
+      <Suspense fallback={null}>
+        <SignedInHomeRedirect params={params} />
+      </Suspense>
+      <HomeContent />
+    </>
+  );
+}
+
+async function SignedInHomeRedirect({ params }: { params: Promise<{ locale: string }> }) {
+  const user = await optionalDashboardUser();
+  if (user) {
+    const { locale } = await params;
+    redirect(locale === "en" ? "/home" : `/${locale}/home`);
+  }
+  return null;
 }
 
 function HomeContent() {

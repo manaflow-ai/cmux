@@ -7,6 +7,7 @@
 export const DASHBOARD_RETURN_PATH_HEADER = "x-cmux-dashboard-return-path";
 
 const DASHBOARD_PREFIX = "/dashboard";
+const AUTHENTICATED_PREFIXES = [DASHBOARD_PREFIX, "/home"] as const;
 const MAX_RETURN_PATH_LENGTH = 2_048;
 
 export function dashboardReturnPathForRequest(
@@ -19,7 +20,7 @@ export function dashboardReturnPathForRequest(
 
   const first = segments[0];
   const dashboardIndex = locales.includes(first) ? 1 : 0;
-  if (segments[dashboardIndex] !== "dashboard") return null;
+  if (!AUTHENTICATED_PREFIXES.some((prefix) => prefix === `/${segments[dashboardIndex]}`)) return null;
 
   const path = `/${segments.slice(dashboardIndex).join("/")}`;
   if (!isDashboardReturnPath(path)) return null;
@@ -51,6 +52,8 @@ export function normalizeDashboardReturnPath(
 }
 
 function isDashboardReturnPath(value: string): boolean {
-  return value === DASHBOARD_PREFIX ||
-    value.startsWith(`${DASHBOARD_PREFIX}/`);
+  const pathname = value.split(/[?#]/, 1)[0];
+  return AUTHENTICATED_PREFIXES.some((prefix) =>
+    pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 }
