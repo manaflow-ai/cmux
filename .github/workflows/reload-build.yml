@@ -115,8 +115,14 @@ jobs:
 
       # Reuse an immutable client built from the exact cmux-tui/Ghostty inputs.
       # App-only changes do not require recompiling cmux-tui on a Mac.
+      # The artifact host is not trusted: the manifest must carry the Sigstore
+      # build-provenance attestation that cmux-tui-artifacts.yml signs for this
+      # exact source commit before the installer reads a hash from it or the
+      # client runs (`remote-probe` inside the installer, then below).
       - name: Install and validate matching published cmux-tui client (macOS)
         if: ${{ inputs.platform == 'macos' && hashFiles('cmux-tui/Cargo.toml') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
@@ -125,7 +131,8 @@ jobs:
           mkdir -p "$client_bundle/Contents"
           env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
             --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
-            --expected-commit "$client_commit" --require-capability wireguard-hub
+            --expected-commit "$client_commit" --require-capability wireguard-hub \
+            --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
           client="$client_bundle/Contents/Resources/bin/cmux-tui"
           probe="$($client remote-probe --json)"
           version="$($client --version)"
