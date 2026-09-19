@@ -72,6 +72,140 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
     }
 
+    func testTerminalContextMenuSetStatusAndClearResumeCommand() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let surfaceView = panel.hostedView.surfaceView
+
+        XCTAssertEqual(surfaceView.currentSurfaceResumeContextMenuState(), .unbound)
+
+        let unboundMenu = NSMenu()
+        XCTAssertTrue(surfaceView.appendCurrentSurfaceResumeMenuItems(to: unboundMenu))
+        XCTAssertEqual(unboundMenu.items.map(\.title), ["Make Restorable…"])
+
+        let command = "tmux attach -t work"
+        guard case .result(let setSnapshot) =
+            surfaceView.setCurrentSurfaceResumeBindingFromContextMenu(command: command) else {
+            return XCTFail("Expected native resume binding set to succeed")
+        }
+        XCTAssertEqual(setSnapshot.binding?.command, command)
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panel.id)?.source, "manual")
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panel.id)?.autoResume, false)
+        XCTAssertEqual(
+            surfaceView.currentSurfaceResumeContextMenuState(),
+            .ordinary(command: command)
+        )
+
+        let boundMenu = NSMenu()
+        XCTAssertTrue(surfaceView.appendCurrentSurfaceResumeMenuItems(to: boundMenu))
+        let restorableItem = try XCTUnwrap(boundMenu.items.first)
+        XCTAssertEqual(restorableItem.title, "Restorable Terminal")
+        let submenu = try XCTUnwrap(restorableItem.submenu)
+        XCTAssertEqual(
+            submenu.items.filter { !$0.isSeparatorItem }.map(\.title),
+            [
+                "Resume Command: tmux attach -t work",
+                "Set Resume Command…",
+                "Clear Resume Command",
+            ]
+        )
+        XCTAssertFalse(submenu.items[0].isEnabled)
+        XCTAssertEqual(submenu.items[0].toolTip, command)
+
+        guard case .result(let clearSnapshot) =
+            surfaceView.clearCurrentSurfaceResumeBindingFromContextMenu() else {
+            return XCTFail("Expected native resume binding clear to succeed")
+        }
+        XCTAssertTrue(clearSnapshot.cleared)
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: panel.id))
+        XCTAssertEqual(surfaceView.currentSurfaceResumeContextMenuState(), .unbound)
+    }
+
+    func testTerminalContextMenuKeepsAgentResumeManagedSeparately() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let surfaceView = panel.hostedView.surfaceView
+        let command = "codex resume managed-session"
+
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    kind: "codex",
+                    command: command,
+                    checkpointId: "managed-session",
+                    source: "agent-hook",
+                    autoResume: true
+                ),
+                panelId: panel.id
+            )
+        )
+
+        XCTAssertEqual(surfaceView.currentSurfaceResumeContextMenuState(), .agentManaged)
+        let menu = NSMenu()
+        XCTAssertTrue(surfaceView.appendCurrentSurfaceResumeMenuItems(to: menu))
+        let managedItem = try XCTUnwrap(menu.items.first)
+        XCTAssertEqual(managedItem.title, "Agent Session Resume: Managed")
+        XCTAssertFalse(managedItem.isEnabled)
+
+        if case .result =
+            surfaceView.setCurrentSurfaceResumeBindingFromContextMenu(command: "echo replacement") {
+            XCTFail("Native ordinary-terminal action replaced an agent resume binding")
+        }
+        if case .result = surfaceView.clearCurrentSurfaceResumeBindingFromContextMenu() {
+            XCTFail("Native ordinary-terminal action cleared an agent resume binding")
+        }
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panel.id)?.command, command)
+        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panel.id)?.source, "agent-hook")
+    }
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
