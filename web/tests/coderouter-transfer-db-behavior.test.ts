@@ -34,7 +34,7 @@ afterAll(async () => {
 async function fixture() {
   const accountId = randomUUID();
   const envelope = await encryptCredential({ accountId, teamId: source, provider: credential.provider, credentialRevision: 1, credential, keys, keyId: "test-key" });
-  await db`insert into coderouter_accounts (id, team_id, provider, provider_account_id, label) values (${accountId}, ${source}, ${credential.provider}, 'transfer-provider', 'test')`;
+  await db`insert into coderouter_accounts (id, team_id, provider, provider_account_id, label, created_by) values (${accountId}, ${source}, ${credential.provider}, 'transfer-provider', 'test', 'transfer-test-user')`;
   await db`insert into coderouter_credentials (account_id, team_id, provider, credential_revision, algorithm, ciphertext, nonce, auth_tag, encrypted_data_key, kms_key_id) values (${accountId}, ${source}, ${credential.provider}, 1, ${envelope.algorithm}, ${envelope.ciphertext}, ${envelope.nonce}, ${envelope.authTag}, ${envelope.encryptedDataKey}, ${envelope.kmsKeyId})`;
   const moved = await encryptCredential({ accountId, teamId: destination, provider: credential.provider, credentialRevision: 2, credential, keys, keyId: "test-key" });
   return { accountId, sourceTeamId: source, destinationTeamId: destination, stackUserId: "transfer-test-user", credential: moved };

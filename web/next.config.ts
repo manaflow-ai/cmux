@@ -106,6 +106,12 @@ const nextConfig: NextConfig = {
     if (isDocsZone) {
       return {
         beforeFiles: [
+          // Direct docs previews use the same search URLs as the main site.
+          // Serve their own index instead of requiring the outer site router.
+          {
+            source: `/_docs-search/${docsChannel}/:path*`,
+            destination: "/pagefind/:path*",
+          },
           {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",
@@ -224,6 +230,8 @@ const nextConfig: NextConfig = {
     "**/docs/changelog": ["./CHANGELOG.md"],
     "**/docs/changelog/**": ["./CHANGELOG.md"],
     "**/sitemap.xml": ["./CHANGELOG.md"],
+    // IndexNow also reads the sitemap when its deployed function starts.
+    "/api/cron/indexnow": ["./CHANGELOG.md"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

@@ -11,18 +11,12 @@ public enum IrxProtocol {
     /// Control frames are small (hello/admit/keepalive/descriptors); anything
     /// larger is a protocol error, never buffered.
     public static let maximumControlFrameByteCount = 256 * 1024
-    /// Keepalive cadence: one tiny ping per interval, pong deadline after
-    /// which the connection is declared dead. Hard closes (the realistic
-    /// relay-expiry case) are detected instantly by the termination watcher;
-    /// the ping loop bounds SILENT path blackholes to interval + deadline,
-    /// keeping worst-case detection-plus-redial inside single-digit seconds.
+    /// Application latency sampling cadence. Connection lifetime is owned by
+    /// Iroh's native keepalives and negotiated connection idle timeout.
     public static let keepaliveInterval: Duration = .seconds(5)
+    /// A missed application pong retires only the diagnostic stream.
     public static let keepaliveDeadline: Duration = .seconds(2)
-    /// Consecutive pong misses before the connection is declared dead. One
-    /// transient stall (relay hiccup, brief peer pause) must never sever a
-    /// healthy session; a re-ping fires immediately after a miss, so real
-    /// death still detects in ~strikeLimit x deadline.
-    public static let keepaliveStrikeLimit = 2
+
 }
 
 /// Machine-readable close/denial codes. The code travels in the QUIC

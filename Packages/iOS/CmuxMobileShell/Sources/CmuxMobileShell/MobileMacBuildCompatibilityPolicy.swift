@@ -4,7 +4,7 @@ internal import Foundation
 
 /// Defines which authenticated Mac app instances one iOS app build may use.
 ///
-/// Mac app identity remains exact (`default`, `nightly`, or a development tag),
+/// Mac app identity remains exact (`default`, `nightly`, `rc`, or a development tag),
 /// while this policy supplies the compatibility boundary used by persistence,
 /// registry projection, and live connection validation.
 public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
@@ -25,7 +25,7 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
         expectedInstanceTag: String,
         additionalInstanceTags: MobileMacTagAllowlist
     )
-    /// A distributed iOS build may use Stable and Nightly Mac releases.
+    /// A distributed iOS build may use Stable, Nightly, and RC Mac releases.
     case official
 
     public static func development(
@@ -115,7 +115,7 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
                !Self.isOfficialMacNamespace(clientNamespace) {
                 return false
             }
-            return normalizedTag == "default" || normalizedTag == "nightly"
+            return normalizedTag == "default" || normalizedTag == "nightly" || normalizedTag == "rc"
         }
     }
 
@@ -128,6 +128,8 @@ public enum MobileMacBuildCompatibilityPolicy: Equatable, Sendable {
         value == "mac:com.cmuxterm.app"
             || value == "mac:com.cmuxterm.app.nightly"
             || value.hasPrefix("mac:com.cmuxterm.app.nightly.")
+            || value == "mac:com.cmuxterm.app.rc"
+            || value.hasPrefix("mac:com.cmuxterm.app.rc.")
     }
 
     /// Returns whether authenticated host status is compatible with this build.

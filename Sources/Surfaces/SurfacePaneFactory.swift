@@ -66,6 +66,21 @@ enum SurfacePaneFactory {
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
+        // AppKit focus-intent bookkeeping is optional. Socket/headless and
+        // windowless workspaces still need the shared control-socket focus
+        // operation below.
+        if let appDelegate = AppDelegate.shared,
+           let manager = appDelegate.tabManagerFor(tabId: workspaceID),
+           let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+           workspace.controlSurfaceTarget(for: panelID) != nil,
+           let windowID = appDelegate.windowId(for: manager),
+           let targetWindow = appDelegate.mainWindow(for: windowID) {
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspaceID,
+                panelId: panelID,
+                in: targetWindow
+            )
+        }
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
@@ -108,9 +123,9 @@ enum SurfacePaneFactory {
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
-            title: title,
+            title: title, titleSource: titleSource,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {

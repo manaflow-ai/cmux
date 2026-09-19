@@ -18,3 +18,4 @@ node_modules/
 *.xcframework/
 scripts/
 tests/
+captures/
