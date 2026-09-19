@@ -121,6 +121,21 @@ mock.module("../app/[locale]/dashboard/dashboard-shell", () => ({
   },
 }));
 
+mock.module("../app/[locale]/dashboard/dashboard-router", () => ({
+  DashboardRouterProvider: ({
+    children,
+    account,
+  }: React.PropsWithChildren<{ account: React.ReactNode }>) => {
+    dashboardShellRenderCount += 1;
+    return (
+      <div data-testid="dashboard-shell">
+        <header>{account}</header>
+        <main>{children}</main>
+      </div>
+    );
+  },
+}));
+
 const { default: DashboardLayout } = await import(
   "../app/[locale]/dashboard/layout"
 );
