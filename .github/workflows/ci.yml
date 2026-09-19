@@ -156,7 +156,9 @@ jobs:
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
       - name: Test macOS localization catalog tooling
-        run: python3 tests/test_localization_catalog.py
+        run: |
+          python3 tests/test_localization_catalog.py
+          python3 tests/test_localize_changes.py
 
       - name: Validate macOS localization parity
         run: python3 scripts/localization_catalog.py check
