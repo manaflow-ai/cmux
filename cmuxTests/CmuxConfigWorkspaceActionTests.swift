@@ -245,17 +245,11 @@ struct CmuxConfigWorkspaceActionTests {
             ),
             sourcePath: configPath
         ))
-        let surfaceButton = CmuxSurfaceTabBarButton(
-            id: "review-button",
-            action: agent.action,
-            actionSourcePath: configPath
-        )
-
         let model = ActionsAndLaunchersDiscoveryModel.build(
             actions: [CmuxResolvedConfigAction.builtIn(.newTerminal), layout, agent],
             resolvedNewWorkspaceActionID: layout.id,
             newWorkspaceMenuActionIDs: [layout.id],
-            surfaceTabBarButtons: [surfaceButton]
+            surfaceTabBarActionIDs: [agent.id]
         )
 
         #expect(model.entries.map(\.id) == [agent.id, layout.id])
@@ -277,6 +271,36 @@ struct CmuxConfigWorkspaceActionTests {
         #expect(layoutEntry.shortcutDisplay == nil)
 
         #expect(!model.entries.contains { $0.id == CmuxSurfaceTabBarBuiltInAction.newTerminal.configID })
+    }
+
+    @Test func actionsDiscoveryDoesNotInferSurfacePlacementFromEqualPayloads() throws {
+        let configPath = "/Users/test/.config/cmux/cmux.json"
+        let first = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "first",
+            definition: CmuxConfigActionDefinition(
+                action: .command("echo same"),
+                title: "First"
+            ),
+            sourcePath: configPath
+        ))
+        let second = try #require(CmuxResolvedConfigAction.fromDefinition(
+            id: "second",
+            definition: CmuxConfigActionDefinition(
+                action: .command("echo same"),
+                title: "Second"
+            ),
+            sourcePath: configPath
+        ))
+
+        let model = ActionsAndLaunchersDiscoveryModel.build(
+            actions: [first, second],
+            resolvedNewWorkspaceActionID: nil,
+            newWorkspaceMenuActionIDs: [],
+            surfaceTabBarActionIDs: [first.id]
+        )
+
+        #expect(model.entries.first { $0.id == first.id }?.appearsInSurfaceTabBar == true)
+        #expect(model.entries.first { $0.id == second.id }?.appearsInSurfaceTabBar == false)
     }
 
     // MARK: - Executor
