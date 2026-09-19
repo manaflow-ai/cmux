@@ -39,12 +39,12 @@ public enum CustomSidebarOnboardingAssets {
         [
             CustomSidebarExampleOption(
                 id: "focus",
-                title: String(localized: "settings.customSidebars.example.focus", defaultValue: "Focus"),
+                title: String(localized: "settings.customSidebars.example.focus", defaultValue: "Focus", bundle: .module),
                 suggestedName: "focus"
             ),
             CustomSidebarExampleOption(
                 id: "activity",
-                title: String(localized: "settings.customSidebars.example.activity", defaultValue: "Activity"),
+                title: String(localized: "settings.customSidebars.example.activity", defaultValue: "Activity", bundle: .module),
                 suggestedName: "activity"
             ),
         ]
