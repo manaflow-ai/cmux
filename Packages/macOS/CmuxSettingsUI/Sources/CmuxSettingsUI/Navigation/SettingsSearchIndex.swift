@@ -99,15 +99,17 @@ public struct SettingsSearchIndex: Sendable {
     ///     by every persisted catalog key, because some catalog keys are
     ///     hidden/internal state with no visible row to scroll to.
     ///   - curatedEntries: One entry per searchable setting row, with a
-    ///     localized title + synonyms. Defaults to
-    ///     ``Swift/Array/cmuxDefault`` — the table the cmux app ships
-    ///     with. Tests pass an empty array or a focused subset; hosts
-    ///     can append their own entries to expose additional rows.
+    ///     localized title + synonyms. Tests can pass an empty array or a
+    ///     focused subset; hosts can append their own entries to expose
+    ///     additional rows.
+    public init(catalog: SettingCatalog) {
+        self.init(catalog: catalog, curatedEntries: .cmuxDefault(catalog: catalog))
+    }
+
     public init(
         catalog: SettingCatalog,
-        curatedEntries: [CuratedSettingEntry] = .cmuxDefault
+        curatedEntries: [CuratedSettingEntry]
     ) {
-        _ = catalog
         let matcher = SettingsSearchMatcher()
         var built: [Entry] = []
 

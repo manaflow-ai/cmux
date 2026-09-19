@@ -55,6 +55,26 @@ struct SettingsSearchIndexTests {
         UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
     }
 
+    @Test func canonicalUserFacingAppTogglesDriveSearchMetadata() throws {
+        let catalog = SettingCatalog()
+        let index = SettingsSearchIndex(catalog: catalog)
+        let keys = [
+            catalog.app.warnBeforeClosingTab,
+            catalog.app.hideTabCloseButton,
+            catalog.app.renameSelectsExistingName,
+        ]
+
+        for key in keys {
+            let descriptor = try #require(key.userFacing)
+            let expectedID = "setting:\(descriptor.sectionID):\(descriptor.searchID)"
+            let entry = try #require(index.entries.first { $0.id == expectedID })
+
+            #expect(entry.title == descriptor.title)
+            #expect(index.anchorID(forSettingsPath: key.id) == expectedID)
+            #expect(index.match(descriptor.searchKeywords[0]).contains { $0.id == expectedID })
+        }
+    }
+
     @Test func emptyQueryReturnsAllSectionEntries() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("")

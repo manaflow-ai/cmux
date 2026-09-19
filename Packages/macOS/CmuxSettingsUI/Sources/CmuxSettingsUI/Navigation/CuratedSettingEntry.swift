@@ -11,8 +11,8 @@ import Foundation
 /// Hosts that want to expose extra settings in search can build
 /// additional ``CuratedSettingEntry`` values and pass them to
 /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``; the
-/// package-shipped default table is the value of the
-/// `[CuratedSettingEntry].cmuxDefault` constant.
+/// package-shipped default table is built by
+/// `[CuratedSettingEntry].cmuxDefault(catalog:)`.
 public struct CuratedSettingEntry: Sendable, Hashable {
     /// Section that will be selected in the sidebar when the user
     /// clicks this search hit.
@@ -64,5 +64,23 @@ public struct CuratedSettingEntry: Sendable, Hashable {
         self.paths = paths
         self.synonyms = synonyms
         self.anchorPath = anchorPath
+    }
+
+    init<Value>(userFacing key: DefaultsKey<Value>) {
+        guard let descriptor = key.userFacing else {
+            preconditionFailure("Missing user-facing descriptor for \(key.id)")
+        }
+        guard let section = SettingsSectionID(rawValue: descriptor.sectionID) else {
+            preconditionFailure("Unknown Settings section '\(descriptor.sectionID)' for \(key.id)")
+        }
+
+        self.init(
+            section: section,
+            id: descriptor.searchID,
+            title: descriptor.title,
+            paths: [key.id],
+            synonyms: ([descriptor.title, key.id] + descriptor.searchKeywords).joined(separator: " "),
+            anchorPath: key.id
+        )
     }
 }

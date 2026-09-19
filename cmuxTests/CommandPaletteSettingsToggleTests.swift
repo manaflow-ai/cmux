@@ -297,6 +297,37 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testCanonicalUserFacingAppTogglesDrivePaletteMetadataAndStorage() throws {
+        try withTemporaryDefaults { defaults in
+            let catalog = SettingCatalog()
+            let keys = [
+                catalog.app.warnBeforeClosingTab,
+                catalog.app.hideTabCloseButton,
+                catalog.app.renameSelectsExistingName,
+            ]
+
+            for key in keys {
+                let metadata = try XCTUnwrap(key.userFacing)
+                let paletteToggle = try XCTUnwrap(metadata.commandPaletteToggle)
+                let descriptor = try XCTUnwrap(
+                    CommandPaletteSettingsToggleCommands.descriptor(
+                        commandId: "palette.toggleSetting.\(paletteToggle.id)"
+                    )
+                )
+
+                XCTAssertEqual(descriptor.settingsKey, key.id)
+                XCTAssertEqual(descriptor.title(), metadata.title)
+                XCTAssertEqual(descriptor.keywords, [key.id] + paletteToggle.keywords)
+                XCTAssertEqual(descriptor.isOn(defaults), key.defaultValue)
+
+                descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+                XCTAssertEqual(defaults.object(forKey: key.userDefaultsKey) as? Bool, !key.defaultValue)
+                XCTAssertEqual(descriptor.isOn(defaults), !key.defaultValue)
+            }
+        }
+    }
+
     func testSettingsToggleContributionsIncludeEveryDescriptor() {
         let descriptorIds = Set(CommandPaletteSettingsToggleCommands.descriptors.map(\.commandId))
         let contributionIds = Set(ContentView.commandPaletteSettingsToggleCommandContributions().map(\.commandId))

@@ -147,7 +147,21 @@ public struct AppCatalogSection: SettingCatalogSection {
     public let warnBeforeClosingTab = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTab",
         defaultValue: true,
-        userDefaultsKey: "warnBeforeClosingTabShortcut"
+        userDefaultsKey: "warnBeforeClosingTabShortcut",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingTab",
+                defaultValue: "Warn Before Closing Tab"
+            ),
+            sectionID: "app",
+            searchID: "warn-before-closing-tab",
+            searchKeywords: ["close", "tab", "confirmation", "command-w", "cmd-w", "terminal", "surface"],
+            controlKind: .toggle,
+            commandPaletteToggle: .init(
+                id: "warnBeforeClosingTab",
+                keywords: ["warn", "close", "tab", "confirmation", "cmd-w"]
+            )
+        )
     )
 
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
@@ -159,13 +173,41 @@ public struct AppCatalogSection: SettingCatalogSection {
     public let hideTabCloseButton = DefaultsKey<Bool>(
         id: "app.hideTabCloseButton",
         defaultValue: false,
-        userDefaultsKey: "hideTabCloseButton"
+        userDefaultsKey: "hideTabCloseButton",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.hideTabCloseButton",
+                defaultValue: "Hide Tab Close Button"
+            ),
+            sectionID: "app",
+            searchID: "hide-tab-close-button",
+            searchKeywords: ["hide", "x", "button", "close", "tab", "terminal", "surface"],
+            controlKind: .toggle,
+            commandPaletteToggle: .init(
+                id: "hideTabCloseButton",
+                keywords: ["hide", "close", "tab", "x", "button"]
+            )
+        )
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(
         id: "app.renameSelectsExistingName",
         defaultValue: true,
-        userDefaultsKey: "commandPalette.renameSelectAllOnFocus"
+        userDefaultsKey: "commandPalette.renameSelectAllOnFocus",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.renameSelectsName",
+                defaultValue: "Rename Selects Existing Name"
+            ),
+            sectionID: "app",
+            searchID: "rename-selects-name",
+            searchKeywords: ["rename", "select", "all", "existing", "title", "command", "palette", "workspace", "name"],
+            controlKind: .toggle,
+            commandPaletteToggle: .init(
+                id: "renameSelectsExistingName",
+                keywords: ["rename", "select", "name", "title", "command", "palette"]
+            )
+        )
     )
 
     public let commandPaletteSearchesAllSurfaces = DefaultsKey<Bool>(
