@@ -28,6 +28,8 @@ pub enum Action {
     Stop,
     Delete,
     Rename,
+    /// Switch to a session by name or title prefix (`/go NAME`).
+    Goto,
     Fork,
     Model,
     Mode,
@@ -75,6 +77,7 @@ pub const ACTIONS: &[ActionDef] = &[
     ActionDef { action: Action::NewForm, name: "form", aliases: &[], label: "new session form (agent, name, directory, permissions)", keys: "", group: "sessions", args: "" },
     ActionDef { action: Action::NextSession, name: "next", aliases: &[], label: "next session", keys: "Ctrl-n (sidebar)", group: "sessions", args: "" },
     ActionDef { action: Action::PrevSession, name: "prev", aliases: &["previous"], label: "previous session", keys: "Ctrl-p (sidebar)", group: "sessions", args: "" },
+    ActionDef { action: Action::Goto, name: "go", aliases: &["goto", "switch", "open"], label: "switch to a session by name or title", keys: "", group: "sessions", args: "NAME" },
     ActionDef { action: Action::Rename, name: "rename", aliases: &[], label: "rename the session", keys: "r (sidebar)", group: "sessions", args: "NAME" },
     ActionDef { action: Action::Fork, name: "fork", aliases: &[], label: "fork the session with its history", keys: "f (sidebar)", group: "sessions", args: "" },
     ActionDef { action: Action::Stop, name: "stop", aliases: &["kill"], label: "stop the agent process (session stays resumable)", keys: "x (sidebar)", group: "sessions", args: "" },
@@ -158,6 +161,19 @@ impl App {
 
     pub(super) fn open_palette(&mut self) {
         let mut rows = Vec::new();
+        // Codex app: the palette also switches sessions; they come first.
+        if !self.sessions.is_empty() {
+            rows.push(PickRow { value: String::new(), label: "go to".to_owned(), header: true, group: String::new(), note: String::new() });
+            for s in &self.sessions {
+                let id = s.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+                let title = render::session_title(s);
+                let cwd = s.get("cwd").and_then(Value::as_str).unwrap_or("");
+                let project = match s.get("peer").and_then(Value::as_str) { Some(p) => format!("{p} · {}", render::project_label(cwd)), None => render::project_label(cwd) };
+                let status = s.get("status").and_then(Value::as_str).unwrap_or("");
+                let mark = match status { "running" => " ●", "waiting" => " ?", _ => "" };
+                rows.push(PickRow { value: format!("goto:{id}"), label: format!("{title}{mark}   {project}"), header: false, group: String::new(), note: String::new() });
+            }
+        }
         let mut group = "";
         for d in ACTIONS {
             if d.group != group {
@@ -209,6 +225,23 @@ impl App {
                         title: format!("{} {}?", if purge { "Delete" } else { "Stop" }, self.selected_name()),
                         action: ConfirmAction::Kill { id, purge },
                     };
+                }
+            }
+            Action::Goto => {
+                let want = args.join(" ").to_lowercase();
+                let ndrafts = self.drafts.len();
+                let hit = self.sessions.iter().position(|s| {
+                    let name = s.get("name").and_then(Value::as_str).unwrap_or("").to_lowercase();
+                    let title = render::session_title(s).to_lowercase();
+                    let sid = s.get("sessionId").and_then(Value::as_str).unwrap_or("");
+                    !want.is_empty() && (name == want || sid == want || name.starts_with(&want) || title.starts_with(&want))
+                });
+                match hit {
+                    Some(i) => {
+                        self.select(i + ndrafts);
+                        self.focus = Focus::Input;
+                    }
+                    None => self.report_error(format!("no session matches {want:?}")),
                 }
             }
             Action::Rename => match (sid, args.first()) {

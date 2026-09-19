@@ -483,6 +483,14 @@ impl App {
             }
             PickTarget::DraftEffort => self.set_effort(value),
             PickTarget::Action => {
+                if let Some(id) = value.strip_prefix("goto:") {
+                    let ndrafts = self.drafts.len();
+                    if let Some(i) = self.sessions.iter().position(|s| s.get("sessionId").and_then(Value::as_str) == Some(id)) {
+                        self.select(i + ndrafts);
+                        self.focus = Focus::Input;
+                    }
+                    return;
+                }
                 if let Some(d) = super::actions::find(&value) {
                     // Optional arguments (shown in brackets) mean the action
                     // has its own picker: /model opens the model list.
