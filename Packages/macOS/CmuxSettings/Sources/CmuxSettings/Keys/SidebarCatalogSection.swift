@@ -176,9 +176,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: RightSidebarWidthSettings.rememberedMaxWidthKey
     )
 
-    public let activeTabIndicatorStyle = DefaultsKey<String>(
+    /// Legacy sidebar alias for the active-workspace indicator style.
+    ///
+    /// Shares the storage key, value type, and default with
+    /// ``WorkspaceColorsCatalogSection/indicatorStyle`` so either catalog ID
+    /// reads and writes the same `UserDefaults` value.
+    public let activeTabIndicatorStyle = DefaultsKey<WorkspaceIndicatorStyle>(
         id: "sidebar.activeTabIndicatorStyle",
-        defaultValue: "leftRail",
+        defaultValue: .leftRail,
         userDefaultsKey: "sidebarActiveTabIndicatorStyle"
     )
 
