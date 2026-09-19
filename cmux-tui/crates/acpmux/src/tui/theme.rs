@@ -52,6 +52,15 @@ pub struct Chrome {
     pub heading_fg: Color,
     pub link_fg: Color,
     /// syntect theme name for fenced code blocks.
+    /// Sidebar ground, a shade off the main ground (Codex's rail).
+    pub sidebar_bg: Color,
+    /// Warm accent for "full access" style chips.
+    pub accent_warm_fg: Color,
+    /// Composer box border, idle and focused.
+    pub composer_border_fg: Color,
+    pub composer_border_focus_fg: Color,
+    /// Secondary text in the transcript (tool lines, timestamps, handles).
+    pub muted_fg: Color,
     pub code_theme: &'static str,
     pub shimmer_base: (u8, u8, u8),
     pub shimmer_bright: (u8, u8, u8),
@@ -102,6 +111,11 @@ impl Chrome {
             code_fg: Color::Indexed(252),
             heading_fg: Color::Indexed(255),
             link_fg: Color::Indexed(110),
+            sidebar_bg: Color::Indexed(233),
+            accent_warm_fg: Color::Indexed(215),
+            composer_border_fg: Color::Indexed(238),
+            composer_border_focus_fg: Color::Indexed(243),
+            muted_fg: Color::Indexed(245),
             code_theme: "base16-ocean.dark",
             shimmer_base: (128, 128, 128),
             shimmer_bright: (238, 238, 238),
@@ -152,6 +166,11 @@ impl Chrome {
             code_fg: Color::Indexed(236),
             heading_fg: Color::Indexed(232),
             link_fg: Color::Indexed(25),
+            sidebar_bg: Color::Indexed(255),
+            accent_warm_fg: Color::Indexed(166),
+            composer_border_fg: Color::Indexed(250),
+            composer_border_focus_fg: Color::Indexed(244),
+            muted_fg: Color::Indexed(243),
             code_theme: "base16-ocean.light",
             shimmer_base: (128, 128, 128),
             shimmer_bright: (30, 30, 30),
@@ -183,6 +202,10 @@ impl Chrome {
     }
     pub fn dim(&self) -> Style {
         Style::default().fg(self.sidebar_dim_fg)
+    }
+    /// Secondary transcript text: tool activity, handles, timestamps.
+    pub fn muted(&self) -> Style {
+        Style::default().fg(self.muted_fg)
     }
     pub fn status(&self) -> Style {
         Style::default().bg(self.status_bg).fg(self.status_fg)

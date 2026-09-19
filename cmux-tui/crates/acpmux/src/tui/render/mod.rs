@@ -209,33 +209,40 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
         let iw = width.saturating_sub(indent.len());
         match &t.items[i] {
             Item::Tool { title, kind, status, detail, .. } => {
-                // Codex: a green or red bullet for the outcome.
-                let (glyph, color) = match status.as_str() {
-                    "completed" => ("•", ratatui::style::Color::Green),
-                    "failed" => ("•", ratatui::style::Color::Red),
-                    "in_progress" => ("•", c.warn_fg),
-                    _ => ("•", c.status_dim_fg),
+                // Codex app: one muted line per activity, an icon for the
+                // kind, paths shortened, red only when it failed. Details
+                // open on click.
+                let glyph = match kind.as_str() {
+                    "read" => "≡",
+                    "edit" => "✎",
+                    "execute" => "$",
+                    "search" => "⌕",
+                    "fetch" => "↓",
+                    "think" => "…",
+                    "delete" | "move" => "⇄",
+                    _ => "•",
+                };
+                let (gstyle, tstyle) = match status.as_str() {
+                    "failed" => (Style::default().fg(c.error_fg), Style::default().fg(c.error_fg)),
+                    "in_progress" | "pending" => (c.muted(), c.muted()),
+                    _ => (c.dim(), c.muted()),
                 };
                 let open = !detail.is_empty() && is_open(Toggle::Item(i), false);
-                let arrow = if detail.is_empty() { " " } else if open { "▾" } else { "▸" };
-                let title_shown = truncate(title, iw.saturating_sub(kind.len() + 8));
-                let snippet = if !open && !detail.is_empty() { format!("  {}", truncate(detail.lines().next().unwrap_or("").trim(), iw.saturating_sub(title_shown.width() + kind.len() + 12))) } else { String::new() };
-                let text = format!("{}{arrow} {glyph} {title_shown}  {kind}{snippet}", &indent[GUTTER.len().min(indent.len())..]);
+                let shown = shorten_tool_title(title);
+                let title_shown = truncate(&shown, iw.saturating_sub(4));
+                let text = format!("{indent}{glyph} {title_shown}");
+                let mut spans = vec![Span::raw(indent.to_owned()), Span::styled(format!("{glyph} "), gstyle), Span::styled(title_shown, tstyle)];
+                if !detail.is_empty() {
+                    spans.push(Span::styled(if open { "  ▾" } else { "  ›" }, c.dim()));
+                }
                 rows.push(Row {
-                    line: Line::from(vec![
-                        Span::raw(indent[GUTTER.len().min(indent.len())..].to_owned()),
-                        Span::styled(format!("{arrow} "), c.dim()),
-                        Span::styled(format!("{glyph} "), Style::default().fg(color).add_modifier(Modifier::BOLD)),
-                        Span::styled(title_shown, Style::default().fg(c.tool_fg)),
-                        Span::styled(format!("  {kind}"), c.dim()),
-                        Span::styled(snippet, c.dim()),
-                    ]),
+                    line: Line::from(spans),
                     text,
                     item: i,
                     toggle: if detail.is_empty() { None } else { Some(Toggle::Item(i)) },
                 });
                 if open {
-                    wrap(detail, iw, c.dim(), indent, i, rows);
+                    wrap(detail, iw.saturating_sub(2), c.dim(), &format!("{indent}  "), i, rows);
                 }
             }
             Item::Permission { title, decided, .. } => {
@@ -267,6 +274,14 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 turn_open = true;
                 reopen_at = None;
                 spacer(&mut rows, i, false);
+                // Codex app: a centered muted timestamp before each message.
+                if let Some(at) = t.user_at.get(&i) {
+                    let label = when_label(*at);
+                    let pad = width.saturating_sub(label.width()) / 2;
+                    let text = format!("{}{label}", " ".repeat(pad));
+                    rows.push(Row { line: Line::from(Span::styled(text.clone(), c.dim())), text, item: i, toggle: None });
+                    plain("", Style::default(), i, &mut rows);
+                }
                 // Codex's user block: a tinted band with a blank row above and
                 // below and `› ` before the text.
                 let bg = Style::default().bg(c.user_bg);
@@ -316,13 +331,17 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 }
                 if blocks >= 2 {
                     let open = is_open(Toggle::Turn(i), true);
-                    let mut parts = Vec::new();
-                    if tools > 0 { parts.push(format!("{tools} tool call{}", if tools == 1 { "" } else { "s" })); }
-                    if thoughts > 0 { parts.push(format!("{thoughts} thought{}", if thoughts == 1 { "" } else { "s" })); }
-                    if replies > 0 { parts.push(format!("{replies} interim repl{}", if replies == 1 { "y" } else { "ies" })); }
+                    let _ = (tools, thoughts, replies);
+                    // Codex app: "Worked for 1m 7s ›" (collapsed) or "Worked for 1m 7s ▾".
+                    let span = t.turn_span(i);
+                    let label = match span {
+                        Some((start, Some(end))) => format!("Worked for {}", duration_label(end.saturating_sub(start))),
+                        Some((start, None)) if running && t.turn_times.last().map(|x| x.0 == i).unwrap_or(false) => format!("Working for {}", duration_label(now_ms().saturating_sub(start))),
+                        _ => "Worked".to_owned(),
+                    };
                     spacer(&mut rows, i, false);
-                    let text = format!("{} worked · {}", if open { "▾" } else { "▸" }, parts.join(" · "));
-                    rows.push(Row { line: Line::from(Span::styled(text.clone(), c.dim())), text, item: i, toggle: Some(Toggle::Turn(i)) });
+                    let text = format!("{label}  {}", if open { "▾" } else { "›" });
+                    rows.push(Row { line: Line::from(vec![Span::styled(label, c.muted()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]), text, item: i, toggle: Some(Toggle::Turn(i)) });
                     if !open {
                         turn_open = false;
                         reopen_at = Some(work_end);
@@ -348,9 +367,9 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     let done = tools.iter().filter(|&&m| matches!(&t.items[m], Item::Tool { status, .. } if status == "completed")).count();
                     let failed = tools.iter().filter(|&&m| matches!(&t.items[m], Item::Tool { status, .. } if status == "failed")).count();
                     let state = if failed > 0 { format!(" · {failed} failed") } else if done < tools.len() { format!(" · {done}/{} done", tools.len()) } else { String::new() };
-                    let text = format!("{} {} tool calls · {}{state}", if open { "▾" } else { "▸" }, tools.len(), names.join(", "));
+                    let text = format!("{} steps · {}{state}  {}", tools.len(), names.join(", "), if open { "▾" } else { "›" });
                     rows.push(Row {
-                        line: Line::from(vec![Span::styled(format!("{} ", if open { "▾" } else { "▸" }), c.dim()), Span::styled(format!("{} tool calls", tools.len()), Style::default().fg(c.tool_fg)), Span::styled(format!(" · {}{state}", names.join(", ")), c.dim())]),
+                        line: Line::from(vec![Span::styled(format!("{} steps", tools.len()), c.muted()), Span::styled(format!(" · {}{state}", names.join(", ")), c.dim()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]),
                         text,
                         item: tools[0],
                         toggle: Some(g),
@@ -374,30 +393,35 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 spacer(&mut rows, i, after_user_block);
                 match item {
                     Item::Assistant { text } => {
-                        let start = rows.len();
                         super::markdown::render(text, width, GUTTER, Style::default(), c, i, &mut rows);
-                        // Codex's `• ` bullet on the first line of an agent message.
-                        if let Some(first) = rows.get_mut(start) {
-                            let mut spans: Vec<Span<'static>> = first.line.spans.clone();
-                            if spans.first().map(|s| s.content.as_ref() == GUTTER).unwrap_or(false) {
-                                spans[0] = Span::styled("• ".to_owned(), c.dim());
-                                first.line = Line::from(spans);
-                                first.text = format!("• {}", &first.text[GUTTER.len().min(first.text.len())..]);
-                            }
-                        }
                     }
                     Item::Thought { text } => {
                         let live = running && i == last;
                         let open = live || is_open(Toggle::Item(i), show_thoughts);
                         let n = text.chars().count();
                         let first_line = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
-                        if open {
-                            header_row(&format!("▾ thinking · {n} chars"), c.thought_fg, i, Toggle::Item(i), &mut rows);
-                            // Codex: reasoning is dim italic.
+                        let _ = n;
+                        let summary = first_line.trim_matches('*').trim();
+                        if live {
+                            let mut spans = vec![Span::raw(GUTTER)];
+                            spans.extend(super::shimmer::spans("Thinking", c.shimmer_base, c.shimmer_bright));
+                            if !summary.is_empty() {
+                                spans.push(Span::styled(format!("  {}", truncate(summary, w.saturating_sub(12))), c.dim().add_modifier(Modifier::ITALIC)));
+                            }
+                            rows.push(Row { line: Line::from(spans), text: format!("{GUTTER}Thinking  {summary}"), item: i, toggle: Some(Toggle::Item(i)) });
+                            wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
+                        } else if open {
+                            header_row(&format!("{GUTTER}Thought  ▾"), c.muted_fg, i, Toggle::Item(i), &mut rows);
                             wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
                         } else {
-                            let summary = truncate(first_line, w.saturating_sub(24));
-                            header_row(&format!("▸ thinking · {n} chars  {summary}"), c.thought_fg, i, Toggle::Item(i), &mut rows);
+                            let shown = truncate(summary, w.saturating_sub(14));
+                            let text_row = format!("{GUTTER}Thought  {shown}  ›");
+                            rows.push(Row {
+                                line: Line::from(vec![Span::raw(GUTTER), Span::styled("Thought  ", c.muted()), Span::styled(shown, c.dim().add_modifier(Modifier::ITALIC)), Span::styled("  ›", c.dim())]),
+                                text: text_row,
+                                item: i,
+                                toggle: Some(Toggle::Item(i)),
+                            });
                         }
                     }
                     Item::Plan { entries } => {
@@ -434,6 +458,73 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
         }
     }
     rows
+}
+
+/// Tool titles as the Codex app shows them: verbs kept, absolute paths cut
+/// to their last two segments, shell commands left alone.
+pub fn shorten_tool_title(title: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for word in title.split(' ') {
+        let w = word.trim_matches(|ch: char| ch == '\'' || ch == '"' || ch == '`' || ch == ',');
+        let is_path = w.starts_with('/') || w.starts_with("~/") || w.starts_with("./");
+        if is_path && w.matches('/').count() >= 2 {
+            let base = w.rsplit('/').next().unwrap_or(w);
+            out.push(if base.is_empty() { w.to_owned() } else { base.to_owned() });
+        } else {
+            out.push(w.to_owned());
+        }
+    }
+    let joined = out.join(" ");
+    // "Read file X" reads better as "Read X".
+    joined.replacen("Read file ", "Read ", 1).replacen("Write file ", "Write ", 1).replacen("Edit file ", "Edit ", 1)
+}
+
+/// "1m 7s", "12s", "1h 2m".
+pub fn duration_label(ms: u64) -> String {
+    let s = ms / 1000;
+    if s < 60 {
+        format!("{s}s")
+    } else if s < 3600 {
+        format!("{}m {}s", s / 60, s % 60)
+    } else {
+        format!("{}h {}m", s / 3600, (s % 3600) / 60)
+    }
+}
+
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// "Today 10:13 PM", "Yesterday 9:02 AM", or "Sep 12, 9:02 AM", in local time.
+pub fn when_label(ms: u64) -> String {
+    #[cfg(unix)]
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        let mut now_tm: libc::tm = std::mem::zeroed();
+        let t = (ms / 1000) as libc::time_t;
+        let n = (now_ms() / 1000) as libc::time_t;
+        libc::localtime_r(&t, &mut tm);
+        libc::localtime_r(&n, &mut now_tm);
+        let (h24, m) = (tm.tm_hour, tm.tm_min);
+        let ampm = if h24 >= 12 { "PM" } else { "AM" };
+        let h12 = match h24 % 12 { 0 => 12, h => h };
+        let clock = format!("{h12}:{m:02} {ampm}");
+        let same_year = tm.tm_year == now_tm.tm_year;
+        if same_year && tm.tm_yday == now_tm.tm_yday {
+            return format!("Today {clock}");
+        }
+        if same_year && tm.tm_yday + 1 == now_tm.tm_yday {
+            return format!("Yesterday {clock}");
+        }
+        let months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let mon = months.get(tm.tm_mon as usize).copied().unwrap_or("?");
+        return format!("{mon} {}, {clock}", tm.tm_mday);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = ms;
+        String::new()
+    }
 }
 
 /// Give rows a full-width background and a shared toggle (the user block).
@@ -485,7 +576,8 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let sidebar_w = if app.sidebar_hidden { 0 } else { app.sidebar_width.unwrap_or(SIDEBAR_WIDTH).min(body.width.saturating_sub(MIN_MAIN_WIDTH)).max(16) };
     let sidebar = Rect { x: body.x, y: body.y, width: sidebar_w, height: body.height };
     let main = Rect { x: body.x + sidebar_w, y: body.y, width: body.width - sidebar_w, height: body.height };
-    let editor_w = main.width.saturating_sub(COMPOSER_INDENT + 1) as usize;
+    // The composer box: one column of margin, a border and a space each side.
+    let editor_w = main.width.saturating_sub(6) as usize;
     // Top rule, the text (1-6 rows), bottom rule, controls row.
     let max_rows = app.composer_max_rows.min(main.height / 2).max(1);
     // Top rule, the text, bottom rule, controls row.
@@ -741,26 +833,26 @@ mod hierarchy_tests {
         let rows = transcript_rows(&t, 80, false, false, &none, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash")), "{text:?}");
-        assert!(text.iter().any(|l| l.starts_with("▾ 2 tool calls")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("2 steps") && l.ends_with("▾")), "{text:?}");
         assert!(text.iter().any(|l| l.contains("permission: date")), "{text:?}");
         // Collapse the group and the first turn.
         let mut flipped = std::collections::HashSet::new();
         flipped.insert(Toggle::Group(2));
         let rows = transcript_rows(&t, 80, false, false, &flipped, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("▸ 2 tool calls")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("2 steps") && l.ends_with("›")), "{text:?}");
         assert!(!text.iter().any(|l| l.contains("permission: date")), "{text:?}");
         // The first turn's work (a thought and a tool group) has a handle.
         let rows = transcript_rows(&t, 80, false, false, &none, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("▾ worked · 2 tool calls · 1 thought")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("Worked") && l.ends_with("▾")), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash")), "{text:?}");
         assert!(!rows.iter().any(|r| r.text.starts_with("❯") && r.toggle.is_some()), "user rows never toggle");
         // Collapsing the work keeps the message and the final reply.
         flipped.insert(Toggle::Turn(0));
         let rows = transcript_rows(&t, 80, false, false, &flipped, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("▸ worked · 2 tool calls · 1 thought")), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("Worked") && l.ends_with("›")), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash tool twice")), "{text:?}");
         assert!(text.iter().any(|l| l == &"• done"), "{text:?}");
         assert!(!text.iter().any(|l| l.contains("thinking") || l.contains("hostname")), "{text:?}");

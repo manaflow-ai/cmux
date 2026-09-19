@@ -123,7 +123,8 @@ fn code_rows(code: &str, lang: &str, width: usize, indent: &str, c: &Chrome, ite
     let mut hl = syntax.map(|s| syntect::easy::HighlightLines::new(s, theme(c.code_theme)));
     if !lang.is_empty() {
         let label = format!("{indent} {lang}");
-        out.push(Row { line: Line::from(Span::styled(label.clone(), bg.fg(c.status_dim_fg))), text: label, item, toggle: None });
+        let pad = width.saturating_sub(label.width());
+        out.push(Row { line: Line::from(vec![Span::styled(label.clone(), bg.fg(c.status_dim_fg)), Span::styled(" ".repeat(pad), bg)]), text: label, item, toggle: None });
     }
     for raw in code.lines() {
         let line_nl = format!("{raw}\n");

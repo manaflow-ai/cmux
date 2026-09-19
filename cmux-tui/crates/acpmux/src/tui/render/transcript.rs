@@ -19,28 +19,46 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         .selected_id()
         .and_then(|id| app.transcripts.get(&id))
         .and_then(|t| t.usage)
-        .map(|(u, s)| if s > 0 { format!("ctx {}k/{}k", u / 1000, s / 1000) } else { format!("{}k tokens", u / 1000) })
+        .map(|(u, s)| if s > 0 { format!("{}k / {}k", u / 1000, s / 1000) } else { format!("{}k tokens", u / 1000) })
         .unwrap_or_default();
     {
+        // Codex app header: "▢ project  ›  title", status only when it
+        // needs attention, token use at the right edge.
         let buf = f.buffer_mut();
-        let mut x = area.x + 1;
-        let w = (name.width() as u16).min((area.x + area.width).saturating_sub(x));
+        let project = app
+            .selected_session()
+            .and_then(|s| s.get("cwd").and_then(Value::as_str))
+            .map(|cwd| std::path::Path::new(cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(cwd)))
+            .or_else(|| app.draft().map(|d| std::path::Path::new(&d.cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()))
+            .unwrap_or_default();
+        let mut x = area.x + 2;
+        let right = area.x + area.width;
+        let put = |buf: &mut Buffer, x: &mut u16, text: &str, style: Style| {
+            let w = (text.width() as u16).min(right.saturating_sub(*x));
+            if w > 0 {
+                buf.set_stringn(*x, title_y, text, w as usize, style);
+                *x += w;
+            }
+        };
+        if !project.is_empty() {
+            put(buf, &mut x, "▢ ", c.dim());
+            put(buf, &mut x, &project, c.muted());
+            put(buf, &mut x, "  ›  ", c.dim());
+        }
         let name_style = if app.focus == Focus::Transcript && matches!(app.overlay, Overlay::None) {
             Style::default().fg(c.border_active_fg).add_modifier(Modifier::BOLD)
         } else {
             Style::default().add_modifier(Modifier::BOLD)
         };
-        buf.set_stringn(x, title_y, &name, w as usize, name_style);
-        x += w;
-        if !status.is_empty() {
-            let t = format!("  {status}");
-            let w = (t.width() as u16).min((area.x + area.width).saturating_sub(x));
-            buf.set_stringn(x, title_y, &t, w as usize, status_fg(&c, &status));
-            x += w;
+        put(buf, &mut x, &name, name_style);
+        let attention = matches!(status.as_str(), "waiting" | "disconnected" | "unreachable" | "closed");
+        if attention {
+            let word = match status.as_str() { "waiting" => "needs permission", other => other };
+            put(buf, &mut x, &format!("   {word}"), status_fg(&c, &status));
         }
         let uw = usage.width() as u16;
-        if !usage.is_empty() && x + uw + 2 < area.x + area.width {
-            buf.set_stringn(area.x + area.width - uw - 1, title_y, &usage, uw as usize, c.dim());
+        if !usage.is_empty() && x + uw + 2 < right {
+            buf.set_stringn(right - uw - 2, title_y, &usage, uw as usize, c.dim());
         }
         let _ = (&mode, &model);
     }

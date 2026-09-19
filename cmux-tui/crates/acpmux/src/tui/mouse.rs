@@ -32,12 +32,15 @@ pub enum ButtonAction {
     PermissionOption(usize),
     PermissionAllow,
     PermissionDeny,
+    /// The composer's send glyph.
+    Send,
 }
 
 impl App {
     pub(super) fn on_button(&mut self, action: &ButtonAction) {
         match action {
             ButtonAction::NewDraft => self.open_draft(),
+            ButtonAction::Send => self.run_action(super::actions::Action::Send, &[]),
             ButtonAction::PickModel => self.open_model_picker(),
             ButtonAction::PickMode => self.open_mode_picker(),
             ButtonAction::PickPolicy => self.open_policy_picker(),

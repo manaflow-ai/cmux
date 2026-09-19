@@ -42,6 +42,10 @@ pub struct Transcript {
     pending_user_chunk: bool,
     /// Texts shown before the daemon echoed them; matched on arrival.
     pub optimistic: Vec<String>,
+    /// Unix ms the daemon recorded each user item at (by item index).
+    pub user_at: std::collections::HashMap<usize, u64>,
+    /// (user item index, turn start ms, turn end ms) per turn seen.
+    pub turn_times: Vec<(usize, u64, Option<u64>)>,
 }
 
 fn text_of(content: &Value) -> String {
@@ -211,6 +215,11 @@ impl Transcript {
     }
 
     /// Apply one `_acpmux/event` record (mux-internal or raw wire).
+    /// Wall time of the turn that started at user item `idx`: (start, end).
+    pub fn turn_span(&self, idx: usize) -> Option<(u64, Option<u64>)> {
+        self.turn_times.iter().rev().find(|(u, _, _)| *u == idx).map(|(_, s, e)| (*s, *e))
+    }
+
     pub fn apply_event(&mut self, ev: &Value) {
         if let Some(seq) = ev.get("seq").and_then(Value::as_u64) {
             if seq <= self.last_seq {
@@ -221,6 +230,7 @@ impl Transcript {
         let dir = ev.get("dir").and_then(Value::as_str).unwrap_or("");
         let kind = ev.get("kind").and_then(Value::as_str).unwrap_or("");
         let msg = ev.get("msg").unwrap_or(&Value::Null);
+        let at = ev.get("at").and_then(Value::as_u64).unwrap_or(0);
         if dir == "in" {
             if kind.ends_with(".replay") {
                 return;
@@ -261,6 +271,23 @@ impl Transcript {
                         }
                     }
                 }
+                if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. })) {
+                    if at > 0 {
+                        self.user_at.entry(idx).or_insert(at);
+                    }
+                }
+            }
+            "turn_started" => {
+                if let Some(idx) = self.items.iter().rposition(|i| matches!(i, Item::User { .. })) {
+                    self.turn_times.push((idx, at, None));
+                }
+            }
+            "turn_result" => {
+                if let Some(last) = self.turn_times.last_mut() {
+                    if last.2.is_none() {
+                        last.2 = Some(at);
+                    }
+                }
             }
             "status" => {
                 self.status = msg.get("status").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -271,9 +298,14 @@ impl Transcript {
                 let err = msg.get("error").and_then(Value::as_str).filter(|e| *e != "unknown").map(|e| format!(" ({e})")).unwrap_or_default();
                 self.note = Some(format!("API retry {attempt}/{max}{err}"));
             }
-            "turn_end" if { self.note = None; true } => self.items.push(Item::TurnEnd {
-                stop: msg.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned(),
-            }),
+            "turn_end" if { self.note = None; true } => {
+                if let Some(last) = self.turn_times.last_mut() {
+                    if last.2.is_none() {
+                        last.2 = Some(at);
+                    }
+                }
+                self.items.push(Item::TurnEnd { stop: msg.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned() })
+            }
             "turn_error" => self.items.push(Item::Error {
                 text: msg.get("error").and_then(Value::as_str).unwrap_or("turn failed").to_owned(),
             }),

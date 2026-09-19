@@ -1,4 +1,9 @@
 //! Part of the TUI renderer; see `render/mod.rs`.
+//!
+//! The composer is a rounded box like the Codex app's: the text inside,
+//! and one controls row along the bottom edge of the box. Left: the
+//! permission chip (warm when it grants full access) and the harness mode.
+//! Right: model and effort, and the send glyph. Every chip is clickable.
 
 use super::*;
 
@@ -7,26 +12,23 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let focused = matches!(app.focus, Focus::Input | Focus::Command) && matches!(app.overlay, Overlay::None);
     let hover = app.hover;
     let buf = f.buffer_mut();
-    // A rule, `❯ text`, a rule, then the controls row. Grey throughout;
-    // focus only brightens the grey.
-    let rule_style = if focused { Style::default().fg(c.status_dim_fg) } else { Style::default().fg(c.border_fg) };
-    let bottom_rule_y = area.y + area.height - 2;
-    for y in [area.y, bottom_rule_y] {
-        for x in area.x..area.x + area.width {
-            if let Some(cell) = buf.cell_mut((x, y)) {
-                cell.set_symbol("─").set_style(rule_style);
-            }
-        }
+    if area.height < 3 || area.width < 8 {
+        return;
     }
-    let text_area = Rect { x: area.x + COMPOSER_INDENT, y: area.y + 1, width: area.width.saturating_sub(COMPOSER_INDENT + 1), height: area.height.saturating_sub(3) };
-    let prompt_style = if focused { Style::default().add_modifier(Modifier::BOLD) } else { c.dim() };
-    buf.set_stringn(area.x, text_area.y, "❯", 1, prompt_style);
+    // The box sits one column in from the transcript edge so its corners
+    // do not touch the sidebar rule.
+    let bx = Rect { x: area.x + 1, y: area.y, width: area.width.saturating_sub(2), height: area.height };
+    let border = Style::default().fg(if focused { c.composer_border_focus_fg } else { c.composer_border_fg });
+    rounded_border(buf, bx, border);
+    let text_area = Rect { x: bx.x + 2, y: bx.y + 1, width: bx.width.saturating_sub(4), height: bx.height.saturating_sub(3) };
     if app.focus == Focus::Command {
         let content = format!("/{}", app.command.text());
         buf.set_stringn(text_area.x, text_area.y, &content, text_area.width as usize, Style::default().fg(c.warn_fg));
         if focused {
             let col = 1 + app.command.text().chars().take(app.command.cursor()).collect::<String>().width() as u16;
-            { let p: (u16, u16) = (text_area.x + col.min(text_area.width), text_area.y); app.cursor_pos = Some(p); f.set_cursor_position(p); }
+            let p: (u16, u16) = (text_area.x + col.min(text_area.width), text_area.y);
+            app.cursor_pos = Some(p);
+            f.set_cursor_position(p);
         }
     } else {
         let width = text_area.width.max(1) as usize;
@@ -41,7 +43,13 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         }
         app.editor_mut().scroll = scroll;
         if app.editor().is_empty() {
-            let hint = if app.on_draft() { "Ask anything… Enter starts the session" } else if app.selected_supports_steer() { "Ask anything… Ctrl-s steers a running turn" } else { "Ask anything…" };
+            let hint = if app.on_draft() {
+                "Ask anything. Enter starts the session"
+            } else if app.selected_supports_steer() {
+                "Ask anything. Ctrl-s steers a running turn"
+            } else {
+                "Ask anything"
+            };
             buf.set_stringn(text_area.x, text_area.y, hint, width, c.dim());
         }
         let sel = app.composer_sel.map(|(a, b)| (a.min(b), a.max(b))).filter(|(a, b)| a != b);
@@ -49,7 +57,6 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             let y = text_area.y + (i - scroll) as u16;
             buf.set_stringn(text_area.x, y, &app.editor().row_text(*row), width, Style::default());
             if let Some((a, b)) = sel {
-                // Paint the selected chars of this row.
                 let (rs, re) = *row;
                 let from = a.max(rs);
                 let to = b.min(re);
@@ -66,19 +73,48 @@ pub(super) fn draw_composer(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             }
         }
         if rows.len() > visible {
-            let track = Rect { x: area.x + area.width - 1, y: text_area.y, width: 1, height: text_area.height };
+            let track = Rect { x: bx.x + bx.width - 2, y: text_area.y, width: 1, height: text_area.height };
             let thumb = crate::tui::scroll::thumb_geometry(rows.len(), visible, scroll, track.height);
             draw_thumb(buf, track, thumb, c.scrollbar_thumb_fg, c.scrollbar_thumb_active_fg, crate::tui::scroll::ThumbState::Idle);
         }
         if focused {
-            { let p: (u16, u16) = (text_area.x + (cur_col as u16).min(text_area.width), text_area.y + (cur_row - scroll) as u16); app.cursor_pos = Some(p); f.set_cursor_position(p); }
+            let p: (u16, u16) = (text_area.x + (cur_col as u16).min(text_area.width), text_area.y + (cur_row - scroll) as u16);
+            app.cursor_pos = Some(p);
+            f.set_cursor_position(p);
         }
     }
-    draw_controls(f, Rect { x: area.x, y: area.y + area.height - 1, width: area.width, height: 1 }, app, hover);
+    draw_controls(f, Rect { x: bx.x + 2, y: bx.y + bx.height - 2, width: bx.width.saturating_sub(4), height: 1 }, app, hover);
 }
 
-/// The row under the composer: every session setting as a clickable chip,
-/// like Claude Code's `⏵⏵ accept edits on` line. Each chip opens its picker.
+/// A box with rounded corners.
+pub fn rounded_border(buf: &mut Buffer, r: Rect, style: Style) {
+    if r.width < 2 || r.height < 2 {
+        return;
+    }
+    let (x0, y0, x1, y1) = (r.x, r.y, r.x + r.width - 1, r.y + r.height - 1);
+    for x in x0 + 1..x1 {
+        for y in [y0, y1] {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.set_symbol("─").set_style(style);
+            }
+        }
+    }
+    for y in y0 + 1..y1 {
+        for x in [x0, x1] {
+            if let Some(cell) = buf.cell_mut((x, y)) {
+                cell.set_symbol("│").set_style(style);
+            }
+        }
+    }
+    for (x, y, sym) in [(x0, y0, "╭"), (x1, y0, "╮"), (x0, y1, "╰"), (x1, y1, "╯")] {
+        if let Some(cell) = buf.cell_mut((x, y)) {
+            cell.set_symbol(sym).set_style(style);
+        }
+    }
+}
+
+/// The controls row inside the box: permission and mode on the left,
+/// model and effort and the send glyph on the right.
 fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Option<(u16, u16)>) {
     let c = app.chrome;
     let on_draft = app.on_draft();
@@ -87,13 +123,12 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
         .and_then(|id| app.transcripts.get(&id))
         .map(|t| (t.mode.clone().unwrap_or_default(), t.model.clone().unwrap_or_default()))
         .unwrap_or_default();
-    let (agent, cwd, policy, model_shown, thinking) = if let Some(d) = app.draft() {
+    let (agent, policy, model_shown, thinking) = if let Some(d) = app.draft() {
         let a = match &d.peer { Some(p) => format!("{p}/{}", d.harness), None => d.harness.clone() };
-        (a, d.cwd.clone(), d.policy.clone(), d.model.clone().unwrap_or_else(|| "default".into()), d.effort.clone().unwrap_or_else(|| "default".into()))
+        (a, d.policy.clone(), d.model.clone().unwrap_or_default(), d.effort.clone().unwrap_or_default())
     } else {
         let s = app.selected_session();
         let a = s.and_then(|s| s.get("harness").and_then(Value::as_str)).unwrap_or("").to_owned();
-        let cwd = s.and_then(|s| s.get("cwd").and_then(Value::as_str)).unwrap_or("").to_owned();
         let policy = s.and_then(|s| s.get("policy").and_then(Value::as_str)).unwrap_or("ask").to_owned();
         let thinking = app
             .selected_id()
@@ -105,62 +140,81 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
                 })
             })
             .unwrap_or_default();
-        (a, cwd, policy, model, thinking)
+        (a, policy, model, thinking)
     };
     let buf = f.buffer_mut();
-    let mut x = area.x + COMPOSER_INDENT;
-    let mut first = true;
     let mut chips: Vec<(Rect, ButtonAction)> = Vec::new();
-    let mut chip = |buf: &mut Buffer, text: String, action: Option<ButtonAction>, accent: bool| {
-        if text.is_empty() {
-            return;
-        }
-        if !first {
-            let sep = " · ";
-            let w = (sep.width() as u16).min((area.x + area.width).saturating_sub(x));
-            buf.set_stringn(x, area.y, sep, w as usize, c.dim());
-            x += w;
-        }
-        first = false;
-        let w = (text.width() as u16).min((area.x + area.width).saturating_sub(x));
+    let hovered_at = |r: Rect| hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
+    // Left side.
+    let mut x = area.x;
+    let put = |buf: &mut Buffer, x: &mut u16, text: &str, style: Style, action: Option<ButtonAction>, chips: &mut Vec<(Rect, ButtonAction)>| {
+        let w = (text.width() as u16).min((area.x + area.width).saturating_sub(*x));
         if w == 0 {
             return;
         }
-        let r = Rect { x, y: area.y, width: w, height: 1 };
-        let hovered = action.is_some() && hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
-        let style = if hovered {
-            Style::default().bg(c.status_active_bg).fg(c.status_active_fg)
-        } else if accent {
-            Style::default().fg(c.prompt_button_accent_fg)
-        } else {
-            c.dim()
-        };
-        buf.set_stringn(x, area.y, &text, w as usize, style);
+        let r = Rect { x: *x, y: area.y, width: w, height: 1 };
+        let style = if action.is_some() && hovered_at(r) { Style::default().bg(c.status_active_bg).fg(c.status_active_fg) } else { style };
+        buf.set_stringn(*x, area.y, text, w as usize, style);
         if let Some(a) = action {
             chips.push((r, a));
         }
-        x += w;
+        *x += w;
     };
-    if !on_draft && !mode.is_empty() {
-        chip(buf, format!("⏵⏵ {}", mode_label(&mode)), Some(ButtonAction::PickMode), true);
+    let (policy_label, warm) = policy_label(&policy);
+    let policy_style = if warm { Style::default().fg(c.accent_warm_fg) } else { c.muted() };
+    put(buf, &mut x, &policy_label, policy_style, Some(ButtonAction::PickPolicy), &mut chips);
+    // Harness modes that are the plain default carry no information.
+    if !on_draft && !mode.is_empty() && !matches!(mode.as_str(), "default" | "normal" | "agent" | "build") {
+        put(buf, &mut x, "   ", Style::default(), None, &mut chips);
+        put(buf, &mut x, &mode_label(&mode), c.muted(), Some(ButtonAction::PickMode), &mut chips);
     }
-    let model_value = if on_draft { format!("{agent} · {}", if model_shown.is_empty() { "default" } else { &model_shown }) } else if model_shown.is_empty() { "default model".into() } else { model_shown.clone() };
-    chip(buf, model_value, Some(ButtonAction::PickModel), false);
-    if !thinking.is_empty() {
-        chip(buf, format!("◉ {thinking}"), Some(ButtonAction::PickThinking), false);
+    // Right side, laid out from the edge: send glyph, then model · effort.
+    let send = if app.editor().is_empty() && app.focus != Focus::Command { "↑" } else { "↑" };
+    let send_style = if app.editor().is_empty() { c.dim() } else { Style::default().fg(c.status_active_fg).add_modifier(Modifier::BOLD) };
+    let right_edge = area.x + area.width;
+    let mut rx = right_edge.saturating_sub(1);
+    {
+        let r = Rect { x: rx, y: area.y, width: 1, height: 1 };
+        let style = if hovered_at(r) { Style::default().bg(c.status_active_bg).fg(c.status_active_fg) } else { send_style };
+        buf.set_stringn(rx, area.y, send, 1, style);
+        chips.push((r, ButtonAction::Send));
     }
-    chip(buf, format!("perms {policy}"), Some(ButtonAction::PickPolicy), false);
-    chip(buf, shorten_path(&cwd), Some(ButtonAction::EditDirectory), false);
-    // Right side: the help hint.
-    let help = "? keys · / commands";
-    let hw = help.width() as u16;
-    if x + hw + 2 < area.x + area.width {
-        let r = Rect { x: area.x + area.width - hw - 1, y: area.y, width: hw, height: 1 };
-        let hovered = hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
-        buf.set_stringn(r.x, r.y, help, hw as usize, if hovered { Style::default().bg(c.status_active_bg).fg(c.status_active_fg) } else { c.dim() });
-        chips.push((r, ButtonAction::Help));
+    let model_text = if on_draft {
+        format!("{agent}{}", if model_shown.is_empty() { String::new() } else { format!(" · {model_shown}") })
+    } else if model_shown.is_empty() {
+        agent.clone()
+    } else {
+        model_shown.clone()
+    };
+    let effort_text = if thinking.is_empty() || thinking == "default" { String::new() } else { thinking.clone() };
+    let mut pieces: Vec<(String, ButtonAction)> = vec![(model_text, ButtonAction::PickModel)];
+    if !effort_text.is_empty() {
+        pieces.push((effort_text, ButtonAction::PickThinking));
+    }
+    let total: u16 = pieces.iter().map(|(t, _)| t.width() as u16).sum::<u16>() + (pieces.len() as u16 - 1) * 3 + 3;
+    if rx > x + total {
+        rx = rx.saturating_sub(total);
+        let mut cx = rx;
+        for (i, (text, action)) in pieces.iter().enumerate() {
+            if i > 0 {
+                put(buf, &mut cx, " · ", c.dim(), None, &mut chips);
+            }
+            put(buf, &mut cx, text, c.muted(), Some(action.clone()), &mut chips);
+        }
     }
     app.buttons.extend(chips);
+}
+
+/// Codex's wording for the permission policy, and whether it is the warm
+/// "full access" chip.
+fn policy_label(policy: &str) -> (String, bool) {
+    match policy {
+        "approve-all" => ("Full access".into(), true),
+        "approve-edits" => ("Edits allowed".into(), false),
+        "approve-reads" => ("Reads allowed".into(), false),
+        "deny-all" => ("Read-only".into(), false),
+        _ => ("Ask before acting".into(), false),
+    }
 }
 
 /// Claude Code's wording for its permission modes; other harnesses show
@@ -175,4 +229,3 @@ fn mode_label(mode: &str) -> String {
         other => other.to_owned(),
     }
 }
-
