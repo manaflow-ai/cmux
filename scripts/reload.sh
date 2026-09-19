@@ -1303,6 +1303,26 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi
 
+RELOAD_SOURCE_CHANGE_DIGEST="$(git diff --binary -- Sources cmuxd scripts/reload.sh 2>/dev/null | shasum -a 256 | awk '{print $1}')"
+GHOSTTY_SOURCE_DIGEST=""
+if [[ -d "$PWD/ghostty/.git" || -f "$PWD/ghostty/HEAD" ]]; then
+  GHOSTTY_SOURCE_DIGEST="$(git -C "$PWD/ghostty" rev-parse HEAD 2>/dev/null || true):$(git -C "$PWD/ghostty" status --porcelain 2>/dev/null || true)"
+fi
+RELOAD_INPUT_MANIFEST="$(printf '%s\n' \
+  "tag=$TAG_SLUG" "app=$APP_NAME" "bundle=$BUNDLE_ID" \
+  "cloud=${CMUX_DEV_CLOUD_ENABLED:-1}" "port=$CMUX_DEV_PORT" "port_end=$CMUX_DEV_PORT_END" \
+  "port_range=$CMUX_DEV_PORT_RANGE" "origin=$CMUX_DEV_ORIGIN" \
+  "api=$CMUX_DEV_API_BASE_URL_VALUE" "broker=$CMUX_IROH_BROKER_BASE_URL_VALUE" \
+  "iroh_env=$CMUX_IROH_V2_ENVIRONMENT_VALUE" "iroh_base=$CMUX_IROH_V2_BASE_URL_VALUE" \
+  "iroh_relay=$CMUX_IROH_V2_FORCE_RELAY_VALUE" "auth_origin=$CMUX_AUTH_WWW_ORIGIN_VALUE" \
+  "www_origin=$CMUX_WWW_ORIGIN_VALUE" "prod_auth=$PROD_AUTH" \
+  "auth_file=$AUTH_CREDENTIALS_FILE" "auth_profile=$AUTH_PROFILE" \
+  "tui_manifest=$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
+  "tui_local=${CMUX_TUI_CLIENT_LOCAL:-}" "tui_skip=${CMUX_SKIP_CMUX_TUI_CLIENT:-0}" \
+  "cloud_origin=${CMUX_DEV_BACKEND_URL:-}" "source=$RELOAD_SOURCE_CHANGE_DIGEST" \
+  "ghostty=$GHOSTTY_SOURCE_DIGEST" "script=$SCRIPT_DIR/reload.sh")"
+RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "$RELOAD_INPUT_MANIFEST")"
+
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
 # summary plus the App/CLI paths. On failure we dump the log.
@@ -1430,7 +1450,7 @@ fi
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
-reload_phase_finished preparation
+reload_phase_finished input_fingerprint
 
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
@@ -1701,8 +1721,7 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
 fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
-RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload"
-RELOAD_INPUT_DIGEST="$(reload_incremental_digest "$APP_PATH" "$SCRIPT_DIR/reload.sh" "$PWD/cmuxd" "$PWD/ghostty")"
+RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload/${TAG_SLUG:-untagged}"
 RELOAD_POSTBUILD_NOOP=0
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
