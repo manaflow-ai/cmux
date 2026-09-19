@@ -69,7 +69,14 @@ extension CMUXCLI {
                 commandName: subcommand
             )
             if report.errorCount > 0 {
-                throw CLIError(message: "cmux config \(subcommand) found \(report.errorCount) error(s)")
+                throw CLIError(
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.cli.errorCount",
+                        defaultValue: "cmux config %@ found %lld error(s)",
+                        subcommand,
+                        Int64(report.errorCount)
+                    )
+                )
             }
         case "reload":
             guard args.count == 1 else {
@@ -109,6 +116,10 @@ extension CMUXCLI {
     }
 
     func configUsage() -> String {
+        let validationHelp = CmuxConfigValidationLocalization.string(
+            "config.validation.cli.help",
+            defaultValue: "Validate JSONC syntax and cmux config semantics."
+        )
         return """
         Usage: cmux config <doctor|check|validate|path|paths|docs|documentation|reload|get|set|sidebar-font-size|surface-tab-bar-font-size>
 
@@ -116,7 +127,7 @@ extension CMUXCLI {
 
         Subcommands:
           doctor|check|validate [--path <path>] [--scope <global|project>]
-                                                   Validate JSONC syntax and cmux config semantics.
+                                                   \(validationHelp)
           path|paths                              Print cmux.json paths, docs URL, and schema URL.
           docs|documentation                      Print the same output as `cmux docs settings`.
           reload                                  Reload Ghostty config + cmux.json and refresh terminals (alias for `cmux reload-config`).
