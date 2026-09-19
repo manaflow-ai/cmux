@@ -77,6 +77,39 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         _ = coordinator.captureCoordinatedFresh(includeProcessDetails: false, includeCMUXScope: false)
         #expect(fixture.counts.withLock { $0.enumerations } == 2)
     }
+
+    @Test("A cached request does not join an in-flight generation past its age bound")
+    func inFlightFreshnessBound() async throws {
+        let fixture = SyntheticProcessSnapshotFixture(processCount: 1_024)
+        let clock = SyntheticSnapshotClock()
+        let coordinator = CmuxTopProcessSnapshotCaptureCoordinator(
+            captureProvider: { details, scope in
+                fixture.capture(includeDetails: details, includeScope: scope)
+            },
+            nowProvider: { clock.read() }
+        )
+        let first = Task {
+            coordinator.captureCached(
+                includeProcessDetails: true,
+                includeCMUXScope: true,
+                maximumAge: 2
+            )
+        }
+        fixture.waitForFirstCapture()
+        clock.advance(by: 3)
+        let second = Task {
+            coordinator.captureCached(
+                includeProcessDetails: true,
+                includeCMUXScope: true,
+                maximumAge: 2
+            )
+        }
+        await Task.yield()
+        fixture.release()
+        _ = await first.value
+        _ = await second.value
+        #expect(fixture.counts.withLock { $0.enumerations } == 2)
+    }
 }
 
 private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
@@ -92,6 +125,7 @@ private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
     private let condition = NSCondition()
     private var released = false
     private var shouldBlockFirstCapture = true
+    private var firstCaptureStarted = false
 
     init(processCount: Int) {
         self.processCount = processCount
@@ -104,10 +138,18 @@ private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
         condition.unlock()
     }
 
+    func waitForFirstCapture() {
+        condition.lock()
+        while !firstCaptureStarted { condition.wait() }
+        condition.unlock()
+    }
+
     func capture(includeDetails: Bool, includeScope: Bool) -> CmuxTopProcessSnapshot {
         condition.lock()
         if shouldBlockFirstCapture {
             shouldBlockFirstCapture = false
+            firstCaptureStarted = true
+            condition.broadcast()
             while !released { condition.wait() }
         }
         condition.unlock()
@@ -136,6 +178,23 @@ private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
             includesProcessDetails: includeDetails,
             includesCMUXScope: includeScope
         )
+    }
+}
+
+private final class SyntheticSnapshotClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = Date(timeIntervalSince1970: 100)
+
+    func read() -> Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func advance(by seconds: TimeInterval) {
+        lock.lock()
+        value.addTimeInterval(seconds)
+        lock.unlock()
     }
 }
 

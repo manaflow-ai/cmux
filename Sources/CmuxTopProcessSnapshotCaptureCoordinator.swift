@@ -85,7 +85,10 @@ final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
                     // strict `>` boundary below and therefore starts fresh.
                     inFlightCapture.sequence >= $0
                 } ?? true
-                if isNewEnough && inFlightCapture.requirements.satisfies(requirements) {
+                let isFreshEnough = maximumAge.map {
+                    nowProvider().timeIntervalSince(inFlightCapture.startedAt) <= max(0, $0)
+                } ?? true
+                if isNewEnough && isFreshEnough && inFlightCapture.requirements.satisfies(requirements) {
                     while inFlightCapture.snapshot == nil {
                         condition.wait()
                     }
@@ -102,7 +105,8 @@ final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
             nextCaptureSequence &+= 1
             let capture = CmuxTopProcessSnapshotInFlightCapture(
                 sequence: nextCaptureSequence,
-                requirements: requirements
+                requirements: requirements,
+                startedAt: nowProvider()
             )
             inFlightCapture = capture
             condition.unlock()
