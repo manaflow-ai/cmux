@@ -5,6 +5,7 @@ import CmuxSettings
 /// Owns the app-level computer-use menu-bar and onboarding controllers.
 @MainActor
 final class ComputerUseUXCoordinator {
+    private let liveAgentIndex: SharedLiveAgentIndex
     private let stateRepository: ComputerUseStateRepository
     private let stateDirectoryURL: URL
     private let configStore: JSONConfigStore
@@ -50,6 +51,7 @@ final class ComputerUseUXCoordinator {
         featureEnabled: @escaping @MainActor () -> Bool,
         onboardingCoordinator: ComputerUseOnboardingCoordinator? = nil
     ) {
+        self.liveAgentIndex = liveAgentIndex
         self.stateRepository = stateRepository
         self.stateDirectoryURL = stateDirectoryURL
         self.configStore = configStore
@@ -119,7 +121,7 @@ final class ComputerUseUXCoordinator {
             ) {
                 guard !Task.isCancelled else { return }
                 guard let event = notification.object as? WorkstreamEvent else { continue }
-                self?.handleWorkstreamEvent(event)
+                await self?.handleWorkstreamEvent(event)
             }
         }
 
@@ -320,12 +322,20 @@ final class ComputerUseUXCoordinator {
         return coordinator
     }
 
-    func handleWorkstreamEvent(_ event: WorkstreamEvent) {
+    func handleWorkstreamEvent(_ event: WorkstreamEvent) async {
         let isComputerUseInvocation = Self.isComputerUseToolInvocation(event)
         let isCompletion =
             event.hookEventName == .stop
                 || event.hookEventName == .sessionEnd
         guard isComputerUseInvocation || isCompletion else { return }
+        if isComputerUseInvocation, Self.computerUseToolName(event) != "check_permissions",
+           featureEnabled(), runtimeService.desiredEnabled,
+           runtimeService.permissionPhase == .onboardingRequired {
+            // The first hook may precede the initial agent-index scan. Await its
+            // authoritative refresh rather than dropping that setup request.
+            guard await liveAgentIndex.indexRefreshingNow() != nil,
+                  !Task.isCancelled else { return }
+        }
         let resolvedDriverSessionID = liveSessionProjection.driverSessionID(
                 surfaceID: event.surfaceId,
                 agentSessionID: event.sessionId,

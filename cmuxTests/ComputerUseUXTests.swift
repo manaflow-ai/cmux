@@ -256,7 +256,7 @@ struct ComputerUseUXTests {
         #expect(phase == .onboardingRequired)
     }
 
-    @Test @MainActor func unownedWorkstreamEventsNeverPresentOnboarding() throws {
+    @Test @MainActor func unownedWorkstreamEventsNeverPresentOnboarding() async throws {
         let invocation = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .preToolUse,
@@ -409,7 +409,7 @@ struct ComputerUseUXTests {
             failedUnrelatedTool,
         ]
         for event in events {
-            appCoordinator.handleWorkstreamEvent(event)
+            await appCoordinator.handleWorkstreamEvent(event)
         }
         #expect(
             presentations.isEmpty,
@@ -425,7 +425,7 @@ struct ComputerUseUXTests {
         )
 
         for event in events {
-            appCoordinator.handleWorkstreamEvent(event)
+            await appCoordinator.handleWorkstreamEvent(event)
         }
         #expect(
             presentations == [.screenRecording, .accessibility],

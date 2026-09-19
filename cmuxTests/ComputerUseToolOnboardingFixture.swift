@@ -93,7 +93,7 @@ final class ComputerUseToolOnboardingFixture {
     }
 
     func enable() async throws {
-        _ = try #require(await liveIndex.indexRefreshingNow())
+        #expect(liveIndex.index == nil)
         await runtime.setEnabled(true)
         #expect(runtime.permissionPhase == .onboardingRequired)
     }
@@ -103,8 +103,8 @@ final class ComputerUseToolOnboardingFixture {
         hook: WorkstreamEvent.HookEventName = .preToolUse,
         surface: UUID? = nil,
         session: String? = nil
-    ) {
-        coordinator.handleWorkstreamEvent(WorkstreamEvent(
+    ) async {
+        await coordinator.handleWorkstreamEvent(WorkstreamEvent(
             sessionId: session ?? sessionID,
             hookEventName: hook,
             source: "codex",

@@ -23,7 +23,7 @@ struct ComputerUseToolOnboardingTests {
         try await fixture.enable()
         #expect(fixture.presentations.isEmpty)
 
-        fixture.send(tool)
+        await fixture.send(tool)
 
         #expect(fixture.presentations == [.overview])
         #expect(fixture.runtime.permissionPhase == .onboarding)
@@ -34,10 +34,10 @@ struct ComputerUseToolOnboardingTests {
         let fixture = try ComputerUseToolOnboardingFixture()
         defer { fixture.remove() }
         try await fixture.enable()
-        fixture.send("cmux-cua.get_app_state")
-        fixture.send("cmux-cua.get_app_state")
-        fixture.send(nil, hook: .stop)
-        fixture.send("cmux-cua.click")
+        await fixture.send("cmux-cua.get_app_state")
+        await fixture.send("cmux-cua.get_app_state")
+        await fixture.send(nil, hook: .stop)
+        await fixture.send("cmux-cua.click")
         #expect(fixture.presentations == [.overview])
 
         #expect(fixture.coordinator.presentOnboardingFromSettings(startingAt: .screenRecording))
@@ -49,14 +49,14 @@ struct ComputerUseToolOnboardingTests {
         let fixture = try ComputerUseToolOnboardingFixture()
         defer { fixture.remove() }
         try await fixture.enable()
-        fixture.send(nil, hook: .sessionStart)
-        fixture.send(nil, hook: .userPromptSubmit)
-        fixture.send("Skill")
-        fixture.send("Bash")
-        fixture.send("cmux-cua.get_app_state", hook: .postToolUseFailure)
+        await fixture.send(nil, hook: .sessionStart)
+        await fixture.send(nil, hook: .userPromptSubmit)
+        await fixture.send("Skill")
+        await fixture.send("Bash")
+        await fixture.send("cmux-cua.get_app_state", hook: .postToolUseFailure)
         for prefix in ["mcp__cmux-cua__", "mcp__cmux_cua__", "cmux-cua.", "cmux_cua."] {
-            fixture.send(prefix + "check_permissions")
-            fixture.send(prefix)
+            await fixture.send(prefix + "check_permissions")
+            await fixture.send(prefix)
         }
         #expect(fixture.presentations.isEmpty)
         #expect(fixture.runtime.permissionPhase == .onboardingRequired)
@@ -66,8 +66,8 @@ struct ComputerUseToolOnboardingTests {
         let fixture = try ComputerUseToolOnboardingFixture()
         defer { fixture.remove() }
         try await fixture.enable()
-        fixture.send("cmux-cua.get_app_state", surface: UUID())
-        fixture.send("cmux-cua.get_app_state", session: "replaced-agent-session")
+        await fixture.send("cmux-cua.get_app_state", surface: UUID())
+        await fixture.send("cmux-cua.get_app_state", session: "replaced-agent-session")
         #expect(fixture.presentations.isEmpty)
         #expect(fixture.runtime.permissionPhase == .onboardingRequired)
     }
@@ -77,11 +77,11 @@ struct ComputerUseToolOnboardingTests {
         defer { fixture.remove() }
         try await fixture.enable()
         fixture.featureEnabled = false
-        fixture.send("cmux-cua.get_app_state")
+        await fixture.send("cmux-cua.get_app_state")
         #expect(fixture.presentations.isEmpty)
         fixture.featureEnabled = true
         await fixture.runtime.setEnabled(false)
-        fixture.send("cmux-cua.get_app_state")
+        await fixture.send("cmux-cua.get_app_state")
         #expect(fixture.presentations.isEmpty)
         #expect(!fixture.runtime.desiredEnabled)
     }
@@ -93,11 +93,11 @@ struct ComputerUseToolOnboardingTests {
         let store = fixture.runtime.onboarding
         store.restore(for: "synthetic-helper-signature")
         _ = store.finishVerification(.ready, attempt: try #require(store.beginVerification()))
-        fixture.send("cmux-cua.get_app_state")
+        await fixture.send("cmux-cua.get_app_state")
         #expect(fixture.presentations.isEmpty)
 
         store.invalidateHelper()
-        fixture.send("cmux-cua.get_app_state")
+        await fixture.send("cmux-cua.get_app_state")
         #expect(fixture.presentations == [.overview])
         #expect(!fixture.runtime.onboardingIsComplete)
     }
