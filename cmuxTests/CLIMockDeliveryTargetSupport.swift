@@ -1,16 +1,6 @@
 import Foundation
 
-/// Mock answers for the agent-hook delivery-target protocol.
-///
-/// Since #11976 every agent hook resolves where it delivers through
-/// `surface.list` and `agent.resolve_delivery_target` before it publishes a
-/// notification or status. A mock that answers those probes with an empty
-/// `ok` result makes the CLI treat the target as failed and refuse the
-/// ambient claim, so the hook exits 0 without publishing anything; that is
-/// what turned every Codex Stop hook test red (run 34416451322 shard 6/6).
-/// This answers the probes the way the app does for a hook that runs in the
-/// given workspace and surface, and returns nil for every other request so
-/// the caller's own handler stays in charge of them.
+/// Answers the delivery-target discovery requests made by agent hooks.
 func cliMockAgentHookDeliveryTargetResponse(
     line: String,
     workspaceId: String,
@@ -44,8 +34,7 @@ func cliMockAgentHookDeliveryTargetResponse(
     return String(data: encoded ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
 }
 
-/// The "accept everything" reply many hook tests use for requests they do not
-/// care about: `ok` with an empty result for any v2 request, `OK` otherwise.
+/// Answers unrelated v2 requests so the hook can reach its observable command.
 func cliMockAcceptAnyResponse(line: String) -> String {
     guard let data = line.data(using: .utf8),
           let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],

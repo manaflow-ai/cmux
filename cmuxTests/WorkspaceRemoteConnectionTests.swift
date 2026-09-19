@@ -3853,11 +3853,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            return self.v2Response(
-                id: line,
-                ok: false,
-                error: ["code": "unexpected", "message": "Unexpected command \(line)"]
-            )
+            cliMockAgentHookDeliveryTargetResponse(line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -4147,16 +4144,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         startMockServerAccepting(listenerFD: listenerFD, state: state) { line in
-            guard let data = line.data(using: .utf8),
-                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let id = payload["id"] as? String else {
-                return "OK"
-            }
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
-            )
+            cliMockAgentHookDeliveryTargetResponse(line, workspaceId: workspaceId, surfaceId: surfaceId)
+                ?? cliMockAcceptAnyResponse(line: line)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -6161,6 +6150,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                             ]
                         ]
                     )
+                case "surface.list":
+                    return self.v2Response(id: id, ok: true, result: [
+                        "surfaces": [["id": staleSurface, "ref": "surface:1"]]
+                    ])
+                case "notification.create_for_target":
+                    return self.v2Response(id: id, ok: false, error: [
+                        "code": "not_found", "message": "Panel not found"
+                    ])
                 default:
                     return self.v2Response(
                         id: id,
@@ -6194,11 +6191,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("ERROR: Panel not found"), result.stderr)
-        XCTAssertTrue(
-            state.commands.contains { $0.hasPrefix("notify_target \(workspaceId) \(staleSurface) ") },
-            "Expected notify to use synchronous target validation, saw \(state.commands)"
-        )
+        XCTAssertTrue(result.stderr.contains("Panel not found"), result.stderr)
+        let methods = state.snapshot().compactMap { command -> String? in
+            guard let data = command.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+            return payload["method"] as? String
+        }
+        XCTAssertEqual(methods, ["workspace.list", "surface.list", "notification.create_for_target"],
+            "Expected notify to use synchronous target validation, saw \(state.commands)")
         XCTAssertFalse(
             state.commands.contains { $0.hasPrefix("notify_target_async ") },
             "Expected no async target dispatch for mixed handles, saw \(state.commands)"
@@ -6206,7 +6206,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
-    func testTriggerFlashFallsBackFromStaleCallerWorkspaceAndSurfaceIDs() throws {
+    func testTriggerFlashDoesNotRetargetStaleCallerIDsToFocusedWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("flash")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -6299,10 +6299,10 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
-        XCTAssertTrue(
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.contains("Workspace not found"), result.stderr)
+        XCTAssertFalse(
             state.commands.contains { command in
                 guard let data = command.data(using: .utf8),
                       let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
@@ -6310,11 +6310,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                       method == "surface.trigger_flash" else {
                     return false
                 }
-                let params = payload["params"] as? [String: Any] ?? [:]
-                return (params["workspace_id"] as? String) == currentWorkspace
-                    && (params["surface_id"] as? String) == currentSurface
+                return method == "workspace.current" || method == "surface.trigger_flash"
             },
-            "Expected surface.trigger_flash to use current workspace and surface, saw \(state.commands)"
+            "A stale caller must not flash the user's foreground workspace, saw \(state.commands)"
         )
     }
 
@@ -6327,6 +6325,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:7"
         let windowID = "22222222-2222-2222-2222-222222222222"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
 
         defer {
             Darwin.close(listenerFD)
@@ -6353,6 +6352,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
+                        "surface_id": surfaceID,
                     ]
                 )
             case "workspace.rename":
