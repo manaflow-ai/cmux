@@ -10,6 +10,12 @@ import SwiftUI
 
 private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
+private struct LocalTmuxSettingsCLIError: LocalizedError, Sendable {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
 /// services (`BrowserHistoryStore`, `BrowserDataImportCoordinator`,
@@ -235,6 +241,123 @@ final class HostSettingsActions: SettingsHostActions {
 
     func refreshDesktopNotificationAuthorizationStatus() {
         TerminalNotificationStore.shared.refreshAuthorizationStatus()
+    }
+
+    // MARK: - Local session persistence
+
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] {
+        let data = try await runLocalTmuxCLI(arguments: ["local-tmux", "list", "--json"])
+        return try Self.decodeLocalTmuxSessions(data)
+    }
+
+    func startLocalTmuxSession(name: String) async throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cwd = AppDelegate.shared?.tabManager?.selectedWorkspace?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        _ = try await runLocalTmuxCLI(arguments: [
+            "--socket", socketPath,
+            "local-tmux", "start", trimmedName,
+            "--cwd", cwd,
+            "--json",
+        ])
+    }
+
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        var arguments = ["--socket", socketPath, "local-tmux", "attach"]
+        if let logicalID = session.logicalID {
+            arguments.append(contentsOf: ["--id", logicalID.uuidString])
+        } else {
+            arguments.append(session.name)
+        }
+        arguments.append("--json")
+        _ = try await runLocalTmuxCLI(arguments: arguments)
+    }
+
+    static func decodeLocalTmuxSessions(_ data: Data) throws -> [LocalTmuxSessionSummary] {
+        guard
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let rows = object["sessions"] as? [[String: Any]]
+        else {
+            throw LocalTmuxSettingsCLIError(
+                message: String(
+                    localized: "settings.terminal.localTmux.invalidResponse",
+                    defaultValue: "cmux local-tmux returned an invalid session list."
+                )
+            )
+        }
+
+        return rows.compactMap { row in
+            guard let name = row["session_name"] as? String, !name.isEmpty else { return nil }
+            let logicalID = (row["id"] as? String).flatMap(UUID.init(uuidString:))
+            let clientCount: Int
+            if let clients = row["clients"] as? Int {
+                clientCount = clients
+            } else if let clients = row["clients"] as? NSNumber {
+                clientCount = clients.intValue
+            } else {
+                clientCount = 0
+            }
+            return LocalTmuxSessionSummary(
+                id: logicalID?.uuidString ?? "tmux:\(name)",
+                logicalID: logicalID,
+                name: name,
+                cwd: row["cwd"] as? String,
+                clientCount: clientCount,
+                isLive: row["live"] as? Bool ?? false,
+                isManaged: row["managed"] as? Bool ?? false
+            )
+        }
+        .sorted {
+            if $0.isLive != $1.isLive { return $0.isLive && !$1.isLive }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {
+        guard let cliURL = CLIForwardingLaunchRouter.bundledCLIURL() else {
+            throw LocalTmuxSettingsCLIError(
+                message: String(
+                    localized: "settings.terminal.localTmux.cliMissing",
+                    defaultValue: "The bundled cmux command-line tool could not be found."
+                )
+            )
+        }
+
+        return try await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.executableURL = cliURL
+            process.arguments = arguments
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = stdout
+            process.standardError = stderr
+            try process.run()
+
+            let output = stdout.fileHandleForReading.readDataToEndOfFile()
+            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+
+            guard process.terminationStatus == 0 else {
+                let message = String(data: errorData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                throw LocalTmuxSettingsCLIError(
+                    message: (message?.isEmpty == false)
+                        ? message!
+                        : String(
+                            localized: "settings.terminal.localTmux.commandFailed",
+                            defaultValue: "cmux local-tmux could not complete the requested action."
+                        )
+                )
+            }
+            return output
+        }.value
     }
 
     // MARK: - Right sidebar tabs
