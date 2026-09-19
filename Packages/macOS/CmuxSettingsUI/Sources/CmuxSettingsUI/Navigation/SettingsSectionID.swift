@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Top-level navigation targets for the settings window.
