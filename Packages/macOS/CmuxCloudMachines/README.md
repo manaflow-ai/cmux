@@ -40,6 +40,7 @@ let owner = CloudMachineCreateCoordinator(
     output: CloudMachineCreateOutput(legacyCreatedFormat: "Created Cloud VM %@"),
     now: { Date(timeIntervalSince1970: 123) }
 )
+let workspaceID = UUID()
 let request = CloudMachineCreateRequest(
     arguments: ["vm", "new", "--workspace", workspaceID.uuidString],
     isBaseSetup: false, presentationWorkspaceID: workspaceID,

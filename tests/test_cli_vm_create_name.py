@@ -21,8 +21,10 @@ class VMCreateNameTests(unittest.TestCase):
         arguments = [self.cli, "--socket", server.path, "vm", "new", "--detach"]
         if name is not None:
             arguments += ["--name", name]
+        # The CLI exits once the socket fixture answers; the job-level timeout
+        # bounds a hang instead of a wall-clock ceiling on shared CI.
         result = subprocess.run(arguments, env=environment, stdin=subprocess.DEVNULL,
-                                capture_output=True, text=True, timeout=10, check=False)
+                                capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_named_create_uses_one_request_when_backend_accepts_name(self) -> None:
