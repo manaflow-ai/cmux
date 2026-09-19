@@ -1,6 +1,6 @@
 import Foundation
 
-/// Immutable preferences rendered by the always-available My Devices menu.
+/// Immutable preferences shared by the My Devices section menu and empty state.
 struct CloudTreeDevicesSection: Equatable, Sendable {
     var count: Int = 0
     var discoveryEnabled: Bool = true

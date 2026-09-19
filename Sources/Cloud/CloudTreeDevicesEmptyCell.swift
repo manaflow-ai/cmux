@@ -24,8 +24,8 @@ final class CloudTreeDevicesEmptyCell: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(section: CloudTreeDevicesSection, actions: CloudTreeNodeActions) {
-        host.rootView = AnyView(CloudTreeDevicesEmptyView(section: section, actions: actions))
+    func configure(section: CloudTreeDevicesSection, actions: CloudTreeNodeActions, style: CloudTreeStyle) {
+        host.rootView = AnyView(CloudTreeDevicesEmptyView(section: section, actions: actions, style: style))
         host.invalidateIntrinsicContentSize()
     }
 }

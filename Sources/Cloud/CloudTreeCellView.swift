@@ -14,10 +14,8 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
-    /// The My Devices header keeps its gear visible instead of revealing it on hover.
-    private var alwaysShowsButtons = false
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = alwaysShowsButtons || hovered ? 1 : 0 }
+        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
     }
 
     override init(frame frameRect: NSRect) {
@@ -74,13 +72,11 @@ final class CloudTreeCellView: NSTableCellView {
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
-        if case .devicesSection = node.kind { alwaysShowsButtons = true }
-        else { alwaysShowsButtons = false }
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost()
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
-            buttons.alphaValue = alwaysShowsButtons || hovered ? 1 : 0
+            buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
             // Keep hover buttons on the name line above the resource summary.
             // Local and pending rows retain their preset alignment.
