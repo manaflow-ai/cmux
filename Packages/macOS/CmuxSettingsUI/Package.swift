@@ -25,7 +25,8 @@ let package = Package(
                 "CMUXMobileCore",
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "CmuxSettingsUITests",

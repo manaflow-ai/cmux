@@ -71,6 +71,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            LocalTmuxSettingsCard(hostActions: hostActions)
             resumeCommandsCard
         }
         .task { startObservingSettings() }
