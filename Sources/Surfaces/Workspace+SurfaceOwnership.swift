@@ -9,7 +9,8 @@ extension Workspace {
 
     /// A pane's projection or remote transport owns its machine, never its title
     /// or merely the workspace it happens to be displayed in.
-    func machineOwningSurface(_ panelID: UUID, catalog: SurfaceCatalog = .shared) -> SurfaceMachineID? {
+    func machineOwningSurface(_ panelID: UUID, catalog: SurfaceCatalog? = nil) -> SurfaceMachineID? {
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard panels[panelID] != nil else { return nil }
         if let machine = catalog.machineOwningPanel(panelID), !machine.isLocal { return machine }
         if let reservation = cloudPendingCreations[panelID] { return reservation.machine }
