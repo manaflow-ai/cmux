@@ -194,7 +194,8 @@ async fn serve_browser_connection(
     let mut first = [0_u8; 1];
     socket.peek(&mut first).await?;
     if first[0] == b'G' {
-        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token).await;
+        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token)
+            .await;
     }
     serve_socks5_connection(socket, client, workspace, allowed_hosts, credentials).await
 }
@@ -407,16 +408,21 @@ async fn serve_websocket_bridge(
     let target = request_parts.next().ok_or_else(|| anyhow!("missing WebSocket target"))?;
     let version = request_parts.next().unwrap_or("HTTP/1.1");
     let prefix = "/__cmux_ws__/";
-    let encoded = target.strip_prefix(prefix).ok_or_else(|| anyhow!("invalid WebSocket bridge path"))?;
+    let encoded =
+        target.strip_prefix(prefix).ok_or_else(|| anyhow!("invalid WebSocket bridge path"))?;
     let (authority, path) = encoded.split_once('/').unwrap_or((encoded, ""));
     let (host, port) = parse_connect_authority(authority)?;
     if !allowed_hosts.iter().any(|allowed| allowed == &host) || port == 0 || port == 1337 {
         return Err(anyhow!("WebSocket bridge target is not allowed"));
     }
-    let protocol_header = lines.clone().find_map(|line| {
-        line.split_once(':').filter(|(name, _)| name.eq_ignore_ascii_case("sec-websocket-protocol"))
-            .map(|(_, value)| value.trim())
-    }).unwrap_or("");
+    let protocol_header = lines
+        .clone()
+        .find_map(|line| {
+            line.split_once(':')
+                .filter(|(name, _)| name.eq_ignore_ascii_case("sec-websocket-protocol"))
+                .map(|(_, value)| value.trim())
+        })
+        .unwrap_or("");
     let auth_protocol = format!("cmux-proxy-{websocket_token}");
     if !protocol_header.split(',').any(|value| value.trim() == auth_protocol) {
         return Err(anyhow!("WebSocket bridge authentication failed"));
@@ -425,33 +431,62 @@ async fn serve_websocket_bridge(
     let route = match tokio::time::timeout_at(
         deadline,
         client.request(WorkspaceRequest::CreateRoute {
-            workspace: workspace.clone(), host: "127.0.0.1".into(), port, policy: RoutePolicy::LoopbackOnly,
+            workspace: workspace.clone(),
+            host: "127.0.0.1".into(),
+            port,
+            policy: RoutePolicy::LoopbackOnly,
         }),
-    ).await.map_err(|_| anyhow!("WebSocket route creation timed out"))?? {
+    )
+    .await
+    .map_err(|_| anyhow!("WebSocket route creation timed out"))??
+    {
         WorkspaceResponse::RouteCreated { route, .. } => route,
         _ => return Err(anyhow!("unexpected WebSocket route response")),
     };
     let mut metadata = BTreeMap::new();
     metadata.insert("route".into(), route.0.to_string());
-    let stream = match tokio::time::timeout_at(deadline, client.multiplexer().open(Service::TcpTunnel, metadata)).await {
+    let stream = match tokio::time::timeout_at(
+        deadline,
+        client.multiplexer().open(Service::TcpTunnel, metadata),
+    )
+    .await
+    {
         Ok(Ok(stream)) => stream,
-        Ok(Err(error)) => { let _ = client.request(WorkspaceRequest::CloseRoute { route }).await; return Err(error.into()); }
-        Err(_) => { let _ = client.request(WorkspaceRequest::CloseRoute { route }).await; return Err(anyhow!("WebSocket tunnel open timed out")); }
+        Ok(Err(error)) => {
+            let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+            return Err(error.into());
+        }
+        Err(_) => {
+            let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+            return Err(anyhow!("WebSocket tunnel open timed out"));
+        }
     };
     let opened = match tokio::time::timeout_at(deadline, stream.receive()).await {
         Ok(Ok(Some(opened))) => opened,
-        _ => { let _ = stream.close().await; let _ = client.request(WorkspaceRequest::CloseRoute { route }).await; return Err(anyhow!("WebSocket tunnel did not open")); }
+        _ => {
+            let _ = stream.close().await;
+            let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+            return Err(anyhow!("WebSocket tunnel did not open"));
+        }
     };
     let opened_ok = serde_json::from_slice::<ServiceControl>(&opened.payload)
         .map(|control| control == (ServiceControl::Opened { service: Service::TcpTunnel }))
         .unwrap_or(false);
-    if !opened_ok { let _ = stream.close().await; let _ = client.request(WorkspaceRequest::CloseRoute { route }).await; return Err(anyhow!("WebSocket tunnel control was invalid")); }
+    if !opened_ok {
+        let _ = stream.close().await;
+        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        return Err(anyhow!("WebSocket tunnel control was invalid"));
+    }
 
     let mut upstream_request = format!("GET /{path} {version}\r\n");
     for line in lines {
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let lower = line.to_ascii_lowercase();
-        if lower.starts_with("host:") || lower.starts_with("sec-websocket-protocol:") { continue; }
+        if lower.starts_with("host:") || lower.starts_with("sec-websocket-protocol:") {
+            continue;
+        }
         upstream_request.push_str(line);
         upstream_request.push_str("\r\n");
     }
@@ -460,48 +495,69 @@ async fn serve_websocket_bridge(
     stream.send(Bytes::from(upstream_request)).await?;
     let mut response_data = Vec::with_capacity(2048);
     while !response_data.windows(4).any(|window| window == b"\r\n\r\n") {
-        let chunk = tokio::time::timeout_at(deadline, stream.receive()).await??
+        let chunk = tokio::time::timeout_at(deadline, stream.receive())
+            .await??
             .ok_or_else(|| anyhow!("WebSocket response closed"))?;
         response_data.extend_from_slice(&chunk.payload);
-        if response_data.len() > 32 * 1024 { return Err(anyhow!("WebSocket response headers too large")); }
+        if response_data.len() > 32 * 1024 {
+            return Err(anyhow!("WebSocket response headers too large"));
+        }
     }
-    let response = String::from_utf8(response_data).map_err(|_| anyhow!("WebSocket response was not UTF-8"))?;
+    let response = String::from_utf8(response_data)
+        .map_err(|_| anyhow!("WebSocket response was not UTF-8"))?;
     if !response.starts_with("HTTP/1.1 101") && !response.starts_with("HTTP/1.0 101") {
-        let _ = stream.close().await; let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        let _ = stream.close().await;
+        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
         return Err(anyhow!("remote WebSocket did not switch protocols"));
     }
-    let response = response.replacen(
-        "\r\n",
-        &format!("\r\nSec-WebSocket-Protocol: {auth_protocol}\r\n"),
-        1,
-    );
+    let response =
+        response.replacen("\r\n", &format!("\r\nSec-WebSocket-Protocol: {auth_protocol}\r\n"), 1);
     socket.write_all(response.as_bytes()).await?;
     let (mut reader, mut writer) = socket.into_split();
     let upload = async {
         let mut buffer = [0_u8; 16 * 1024];
-        loop { let read = reader.read(&mut buffer).await?; if read == 0 { stream.close().await?; return Ok::<(), anyhow::Error>(()); } stream.send(Bytes::copy_from_slice(&buffer[..read])).await?; }
+        loop {
+            let read = reader.read(&mut buffer).await?;
+            if read == 0 {
+                stream.close().await?;
+                return Ok::<(), anyhow::Error>(());
+            }
+            stream.send(Bytes::copy_from_slice(&buffer[..read])).await?;
+        }
     };
     let download = async {
-        while let Some(chunk) = stream.receive().await? { writer.write_all(&chunk.payload).await?; if chunk.finished { break; } }
-        writer.shutdown().await?; Ok::<(), anyhow::Error>(())
+        while let Some(chunk) = stream.receive().await? {
+            writer.write_all(&chunk.payload).await?;
+            if chunk.finished {
+                break;
+            }
+        }
+        writer.shutdown().await?;
+        Ok::<(), anyhow::Error>(())
     };
-    tokio::pin!(upload); tokio::pin!(download);
+    tokio::pin!(upload);
+    tokio::pin!(download);
     let result = tokio::select! { result = &mut upload => { match result { Ok(()) => (&mut download).await, Err(error) => Err(error) } }, result = &mut download => result };
-    let _ = stream.close().await; let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+    let _ = stream.close().await;
+    let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
     result
 }
 
-async fn read_http_headers(socket: &mut TcpStream, deadline: tokio::time::Instant) -> anyhow::Result<String> {
+async fn read_http_headers(
+    socket: &mut TcpStream,
+    deadline: tokio::time::Instant,
+) -> anyhow::Result<String> {
     let mut data = Vec::with_capacity(2048);
     let mut buffer = [0_u8; 2048];
     while !data.windows(4).any(|window| window == b"\r\n\r\n") {
         let read = tokio::time::timeout_at(deadline, socket.read(&mut buffer)).await??;
-        if read == 0 || data.len() + read > 32 * 1024 { return Err(anyhow!("invalid WebSocket headers")); }
+        if read == 0 || data.len() + read > 32 * 1024 {
+            return Err(anyhow!("invalid WebSocket headers"));
+        }
         data.extend_from_slice(&buffer[..read]);
     }
     Ok(String::from_utf8(data).map_err(|_| anyhow!("WebSocket headers were not UTF-8"))?)
 }
-
 
 async fn send_socks_failure(socket: &mut TcpStream, code: u8) -> anyhow::Result<()> {
     socket.write_all(&[0x05, code, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
