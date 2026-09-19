@@ -109,7 +109,10 @@ struct CloudSidebarSurfaceRegressionTests {
             title: "terminal", detail: "/home/cloud/project", lifecycle: .running,
             agent: nil, remoteWorkspace: nil, port: nil, url: nil
         )
-        let catalog = SurfaceCatalog()
+        let service = CloudWorkspaceRenameService(environment: CloudWorkspaceRenameEnvironment(
+            workspace: { $0 == workspace.id ? workspace : nil }, workspaces: { [workspace] }
+        ))
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: service)
         catalog.upsert(resource)
         catalog.record(SurfaceProjection(resource: resource.id, workspaceID: workspace.id, panelID: panelID))
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
@@ -133,9 +136,6 @@ struct CloudSidebarSurfaceRegressionTests {
             diskUsedMb: nil
         )
         catalog.replaceCloudState(state, resources: [resource], info: info)
-        let service = CloudWorkspaceRenameService(
-            environment: CloudWorkspaceRenameEnvironment(workspaces: { [workspace] })
-        )
         service.reconcileRemoteState(machine: machine, state: state, catalog: catalog, observation: .current)
         #expect(workspace.reportedPanelDirectory(panelId: panelID) == "/home/cloud/project")
         #expect(workspace.presentedCurrentDirectory == "/home/cloud/project")
