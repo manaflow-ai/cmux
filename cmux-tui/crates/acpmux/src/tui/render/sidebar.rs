@@ -112,7 +112,15 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
                 let s = &rows[idx];
                 let is_sel = idx == selected;
                 let is_draft = s.get("draft").and_then(Value::as_bool).unwrap_or(false);
-                let name_owned = if is_draft { s.get("name").and_then(Value::as_str).unwrap_or("Draft").to_owned() } else { session_title(s) };
+                let name_owned = if is_draft {
+                    s.get("name").and_then(Value::as_str).unwrap_or("Draft").to_owned()
+                } else {
+                    let t = session_title(s);
+                    match s.get("peer").and_then(Value::as_str) {
+                        Some(p) => t.strip_prefix(&format!("{p}/")).map(str::to_owned).unwrap_or(t),
+                        None => t,
+                    }
+                };
                 let name = name_owned.as_str();
                 let status = s.get("status").and_then(Value::as_str).unwrap_or("");
                 let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;

@@ -61,6 +61,9 @@ pub struct Chrome {
     pub composer_border_focus_fg: Color,
     /// Secondary text in the transcript (tool lines, timestamps, handles).
     pub muted_fg: Color,
+    /// Diff additions and deletions (counts and lines), as in the Codex app.
+    pub diff_add_fg: Color,
+    pub diff_del_fg: Color,
     pub code_theme: &'static str,
     pub shimmer_base: (u8, u8, u8),
     pub shimmer_bright: (u8, u8, u8),
@@ -116,6 +119,8 @@ impl Chrome {
             composer_border_fg: Color::Indexed(238),
             composer_border_focus_fg: Color::Indexed(243),
             muted_fg: Color::Indexed(245),
+            diff_add_fg: Color::Indexed(114),
+            diff_del_fg: Color::Indexed(167),
             code_theme: "base16-ocean.dark",
             shimmer_base: (128, 128, 128),
             shimmer_bright: (238, 238, 238),
@@ -171,6 +176,8 @@ impl Chrome {
             composer_border_fg: Color::Indexed(250),
             composer_border_focus_fg: Color::Indexed(244),
             muted_fg: Color::Indexed(243),
+            diff_add_fg: Color::Indexed(28),
+            diff_del_fg: Color::Indexed(160),
             code_theme: "base16-ocean.light",
             shimmer_base: (128, 128, 128),
             shimmer_bright: (30, 30, 30),

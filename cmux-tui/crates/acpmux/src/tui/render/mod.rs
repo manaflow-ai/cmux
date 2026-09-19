@@ -228,10 +228,22 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     _ => (c.dim(), c.muted()),
                 };
                 let open = !detail.is_empty() && is_open(Toggle::Item(i), false);
-                let shown = shorten_tool_title(title);
+                // A diff names its files better than the harness's generic
+                // "Editing files": "Edited calc.py".
+                let files: Vec<String> = detail.lines().filter_map(|l| l.strip_prefix("@@ ")).map(|p| p.rsplit('/').next().unwrap_or(p).to_owned()).collect();
+                let shown = if !files.is_empty() && (kind == "edit" || title.to_lowercase().contains("edit")) {
+                    format!("{} {}", if status == "completed" { "Edited" } else { "Editing" }, files.join(", "))
+                } else {
+                    shorten_tool_title(title)
+                };
                 let title_shown = truncate(&shown, iw.saturating_sub(4));
                 let text = format!("{indent}{glyph} {title_shown}");
                 let mut spans = vec![Span::raw(indent.to_owned()), Span::styled(format!("{glyph} "), gstyle), Span::styled(title_shown, tstyle)];
+                let counts = crate::transcript::diff_counts(detail);
+                if let Some((plus, minus)) = counts {
+                    spans.push(Span::styled(format!("  +{plus}"), Style::default().fg(c.diff_add_fg)));
+                    spans.push(Span::styled(format!(" -{minus}"), Style::default().fg(c.diff_del_fg)));
+                }
                 if !detail.is_empty() {
                     spans.push(Span::styled(if open { "  ▾" } else { "  ›" }, c.dim()));
                 }
@@ -241,7 +253,19 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     item: i,
                     toggle: if detail.is_empty() { None } else { Some(Toggle::Item(i)) },
                 });
-                if open {
+                if open && counts.is_some() {
+                    // Diff lines keep their prefix colors and are not wrapped.
+                    for l in detail.lines() {
+                        let style = match l.chars().next() {
+                            Some('+') => Style::default().fg(c.diff_add_fg),
+                            Some('-') => Style::default().fg(c.diff_del_fg),
+                            Some('@') => c.muted(),
+                            _ => c.dim(),
+                        };
+                        let text = format!("{indent}  {}", truncate(l, iw.saturating_sub(3)));
+                        rows.push(Row { line: Line::from(Span::styled(text.clone(), style)), text, item: i, toggle: None });
+                    }
+                } else if open {
                     wrap(detail, iw.saturating_sub(2), c.dim(), &format!("{indent}  "), i, rows);
                 }
             }

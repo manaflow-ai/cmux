@@ -9,7 +9,12 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     // Title row: name, status, and token usage. Settings live under the
     // composer.
     let title_y = area.y;
-    let name = truncate(&app.selected_session().map(session_title).unwrap_or_else(|| app.selected_name()), 64);
+    let name = {
+        let raw = app.selected_session().map(session_title).unwrap_or_else(|| app.selected_name());
+        let peer = app.selected_session().and_then(|s| s.get("peer").and_then(Value::as_str)).map(str::to_owned);
+        let stripped = match peer { Some(p) => raw.strip_prefix(&format!("{p}/")).map(str::to_owned).unwrap_or(raw), None => raw };
+        truncate(&stripped, 64)
+    };
     let (status, mode, model) = app
         .selected_id()
         .and_then(|id| app.transcripts.get(&id))
@@ -27,8 +32,11 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         let buf = f.buffer_mut();
         let project = app
             .selected_session()
-            .and_then(|s| s.get("cwd").and_then(Value::as_str))
-            .map(|cwd| std::path::Path::new(cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(cwd)))
+            .and_then(|s| {
+                let cwd = s.get("cwd").and_then(Value::as_str)?;
+                let base = std::path::Path::new(cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(cwd));
+                Some(match s.get("peer").and_then(Value::as_str) { Some(p) => format!("{p} · {base}"), None => base })
+            })
             .or_else(|| app.draft().map(|d| std::path::Path::new(&d.cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()))
             .unwrap_or_default();
         let mut x = area.x + 2;
@@ -119,6 +127,21 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         buf.set_stringn(inner.x, inner.y, "loading…", inner.width as usize, c.dim());
         return;
     };
+    if t.items.is_empty() && t.status != "running" {
+        let project = app
+            .selected_session()
+            .and_then(|s| s.get("cwd").and_then(Value::as_str))
+            .map(|cwd| std::path::Path::new(cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(cwd)))
+            .unwrap_or_default();
+        let headline = if project.is_empty() { "What should we build?".to_owned() } else { format!("What should we build in {project}?") };
+        let top = inner.y + inner.height / 3;
+        let w = headline.width().min(inner.width as usize);
+        buf.set_stringn(inner.x + (inner.width as usize - w) as u16 / 2, top, &headline, w, Style::default().add_modifier(Modifier::BOLD));
+        let sub = "Type below and press Enter";
+        let sw = sub.width().min(inner.width as usize);
+        buf.set_stringn(inner.x + (inner.width as usize - sw) as u16 / 2, top + 2, sub, sw, c.dim());
+        return;
+    }
     let empty = std::collections::HashSet::new();
     let toggled = app.toggled.get(&id).unwrap_or(&empty);
     let rows = transcript_rows(t, inner.width as usize, app.show_thoughts, app.show_system, toggled, &c);
@@ -134,6 +157,15 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         let y = inner.y + (i - offset) as u16;
         let p = Paragraph::new(row.line.clone());
         f_render(buf, p, Rect { x: inner.x, y, width: inner.width, height: 1 });
+        // Codex app: a collapsible row lights up under the pointer.
+        if row.toggle.is_some() && hover.map(|(_, hy)| hy == y).unwrap_or(false) {
+            let (lo, hi) = content_bounds(&row.text);
+            for x in lo..hi.min(inner.width as usize) {
+                if let Some(cell) = buf.cell_mut((inner.x + x as u16, y)) {
+                    cell.set_style(cell.style().bg(c.prompt_button_hover_bg));
+                }
+            }
+        }
         // URLs and paths become OSC 8 hyperlinks the terminal can Cmd-click;
         // the run is re-printed after the frame (see `links::paint`).
         for link in crate::tui::links::find(&row.text) {

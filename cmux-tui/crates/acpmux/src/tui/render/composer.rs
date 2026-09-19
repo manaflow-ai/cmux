@@ -181,8 +181,8 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
     }
     let model_text = if on_draft {
         format!("{agent}{}", if model_shown.is_empty() { String::new() } else { format!(" · {model_shown}") })
-    } else if model_shown.is_empty() {
-        agent.clone()
+    } else if model_shown.is_empty() || model_shown == "default" {
+        format!("{agent} · default")
     } else {
         model_shown.clone()
     };

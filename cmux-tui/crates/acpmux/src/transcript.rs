@@ -48,6 +48,86 @@ pub struct Transcript {
     pub turn_times: Vec<(usize, u64, Option<u64>)>,
 }
 
+/// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
+/// on lines, bounded so a huge file falls back to "everything changed".
+pub fn diff_lines(old: &str, new: &str) -> Vec<(char, String)> {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    if a.len() * b.len() > 400_000 {
+        let mut out: Vec<(char, String)> = a.iter().map(|l| ('-', l.to_string())).collect();
+        out.extend(b.iter().map(|l| ('+', l.to_string())));
+        return out;
+    }
+    let (n, m) = (a.len(), b.len());
+    let mut lcs = vec![vec![0u32; m + 1]; n + 1];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i][j] = if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+        }
+    }
+    let (mut i, mut j) = (0, 0);
+    let mut out = Vec::new();
+    while i < n && j < m {
+        if a[i] == b[j] {
+            out.push((' ', a[i].to_string()));
+            i += 1;
+            j += 1;
+        } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+            out.push(('-', a[i].to_string()));
+            i += 1;
+        } else {
+            out.push(('+', b[j].to_string()));
+            j += 1;
+        }
+    }
+    out.extend(a[i..].iter().map(|l| ('-', l.to_string())));
+    out.extend(b[j..].iter().map(|l| ('+', l.to_string())));
+    out
+}
+
+/// A diff block as transcript detail: the path, then changed lines with two
+/// lines of context, hunks separated by `…`.
+pub fn diff_text(path: &str, old: &str, new: &str) -> String {
+    let lines = diff_lines(old, new);
+    let keep: Vec<bool> = (0..lines.len())
+        .map(|i| {
+            let lo = i.saturating_sub(2);
+            let hi = (i + 3).min(lines.len());
+            lines[lo..hi].iter().any(|(k, _)| *k != ' ')
+        })
+        .collect();
+    let mut out = String::new();
+    if !path.is_empty() {
+        out.push_str(&format!("@@ {path}\n"));
+    }
+    let mut gap = false;
+    for (i, (k, l)) in lines.iter().enumerate() {
+        if !keep[i] {
+            gap = true;
+            continue;
+        }
+        if gap && !out.is_empty() && !out.ends_with("@@ ") {
+            out.push_str("…\n");
+            gap = false;
+        }
+        out.push(*k);
+        out.push(' ');
+        out.push_str(l);
+        out.push('\n');
+    }
+    out.trim_end().to_owned()
+}
+
+/// (+lines, -lines) when `detail` is a diff, else None.
+pub fn diff_counts(detail: &str) -> Option<(usize, usize)> {
+    if !detail.starts_with("@@ ") && !detail.lines().any(|l| l.starts_with("+ ") || l.starts_with("- ")) {
+        return None;
+    }
+    let plus = detail.lines().filter(|l| l.starts_with("+ ")).count();
+    let minus = detail.lines().filter(|l| l.starts_with("- ")).count();
+    if plus + minus == 0 { None } else { Some((plus, minus)) }
+}
+
 fn text_of(content: &Value) -> String {
     match content {
         Value::Array(items) => items.iter().map(text_of).collect::<Vec<_>>().join(""),
@@ -119,7 +199,15 @@ impl Transcript {
                 let mut detail = String::new();
                 if let Some(c) = update.get("content").and_then(Value::as_array) {
                     for block in c {
-                        let t = text_of(block);
+                        // ACP diff blocks: {type: "diff", path, oldText, newText}.
+                        let t = if block.get("type").and_then(Value::as_str) == Some("diff") {
+                            let old = block.get("oldText").and_then(Value::as_str).unwrap_or("");
+                            let new = block.get("newText").and_then(Value::as_str).unwrap_or("");
+                            let path = block.get("path").and_then(Value::as_str).unwrap_or("");
+                            diff_text(path, old, new)
+                        } else {
+                            text_of(block)
+                        };
                         if !t.is_empty() {
                             if !detail.is_empty() {
                                 detail.push('\n');
@@ -403,6 +491,22 @@ impl Transcript {
 
     pub fn pending_permission(&self) -> Option<&Item> {
         self.items.iter().rev().find(|i| matches!(i, Item::Permission { decided: None, .. }))
+    }
+}
+
+#[cfg(test)]
+mod diff_tests {
+    #[test]
+    fn diffs_lines_with_context() {
+        let old = "a\nb\nc\nd\ne\nf\ng\n";
+        let new = "a\nb\nc\nD\ne\nf\ng\nh\n";
+        let text = super::diff_text("x.txt", old, new);
+        assert!(text.starts_with("@@ x.txt\n"), "{text}");
+        assert!(text.contains("- d\n+ D\n"), "{text}");
+        assert!(text.contains("+ h"), "{text}");
+        assert!(!text.contains("  a\n"), "{text}");
+        assert_eq!(super::diff_counts(&text), Some((2, 1)));
+        assert_eq!(super::diff_counts("plain output"), None);
     }
 }
 
