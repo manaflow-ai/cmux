@@ -119,6 +119,13 @@ provider, image id, cmux image version, build metadata (`repoCommit`, agent pins
 validation status. **The manifest is the only source of truth for the image users get; no env
 var selects or overrides it.**
 
+Machine connectivity is a separate, fail-closed readiness contract. A manifest row is
+machine-connectable only when `validationStatus` is `passed` and its `machineRuntime` is a
+complete `approved` record for mux protocol 12, bootstrap generation 1, the x86_64
+`cmux-cloud-supervisor-v1`, and the server-side WebSocket ticket transport. Existing Freestyle
+templates are parsed as `legacy` until those fields are recorded, so their current pins remain
+usable for their supported Cloud paths without being advertised as machine-ready.
+
 Image policy:
 
 - Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
