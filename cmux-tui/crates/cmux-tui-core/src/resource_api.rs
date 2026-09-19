@@ -1010,6 +1010,36 @@ mod tests {
     }
 
     #[test]
+    fn cloud_cwd_snapshot_presents_the_launch_directory_until_the_shell_reports() {
+        // https://github.com/manaflow-ai/cmux/issues/10756: the daemon spawned
+        // the shell in a known directory, and a shell that has not reported
+        // (or never will, without shell integration) still presents it.
+        let mux = Mux::new_for_test(
+            "cloud-cwd-launch",
+            SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        let cwd = |mux: &Mux| {
+            public_session_snapshot(mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str())
+                .unwrap()["cwd"]
+                .clone()
+        };
+        assert_eq!(cwd(&mux), "/tmp");
+        // A report replaces the launch directory; an explicit clear removes the
+        // directory instead of resurrecting the launch directory.
+        surface.set_test_pwd(Some("file://localhost/srv/live".into()));
+        assert_eq!(cwd(&mux), "/srv/live");
+        surface.set_test_pwd(None);
+        assert!(cwd(&mux).is_null());
+        mux.shutdown();
+    }
+
+    #[test]
     fn cloud_cwd_snapshot_follows_reported_directory_instead_of_launch_directory() {
         let mux = Mux::new_for_test(
             "cloud-cwd",
