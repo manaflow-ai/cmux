@@ -1296,7 +1296,7 @@ check_agent_notification_paths_cover_its_suites() {
   # The workflow reruns suites that ci.yml's shards already run, so it should
   # start only for changes that can affect them: every file that defines one of
   # its suites, and every helper file those name, must match a path trigger,
-  # and cmuxTests/** must not be one.
+  # and no cmuxTests trigger may match any other file.
   ROOT_DIR="$ROOT_DIR" python3 - <<'PY'
 import fnmatch, os, re, sys
 from pathlib import Path
@@ -1324,14 +1324,23 @@ for suite in suites:
 # private types are skipped: another file cannot reach them, and several test
 # files declare a private type of the same name.
 suite_text = "\n".join(sources[f] for f in suite_files)
+helper_files = set()
 top_level = re.compile(r"^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:final|internal|public|open)\s+)*(?:class|struct|enum|actor|protocol)\s+(\w+)", re.M)
 for f, source in sources.items():
     if f in suite_files:
         continue
     used = sorted(n for n in set(top_level.findall(source)) if re.search(rf"\b{re.escape(n)}\b", suite_text))
     rel = f"cmuxTests/{f.name}"
+    if used:
+        helper_files.add(f)
     if used and not any(fnmatch.fnmatchcase(rel, p) for p in paths):
         errors.append(f"suites use {', '.join(used)} from {rel}, which matches no path trigger")
+# A trigger that also matches unrelated test files starts a second run of
+# suites that ci.yml already ran.
+for p in paths:
+    extra = sorted(f.name for f in sources if fnmatch.fnmatchcase(f"cmuxTests/{f.name}", p) and f not in suite_files | helper_files)
+    if extra:
+        errors.append(f"trigger {p} also matches unrelated files: {', '.join(extra[:5])}")
 for e in errors:
     print(f"FAIL: agent-notification-tests.yml {e}")
 sys.exit(1 if errors else 0)
