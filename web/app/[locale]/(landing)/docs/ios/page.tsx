@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { DocsLink as Link } from "@/app/[locale]/components/docs-link";
 import { auditedDocsMetadata } from "../audited-docs-metadata";
@@ -49,6 +50,40 @@ export default function IosPage() {
         <li>{t("prereq2")}</li>
         <li>{t("prereq3")}</li>
       </ul>
+
+      <DocsHeading level={2} id="mac-setup">{t("macSetupTitle")}</DocsHeading>
+      <p>{t("macSetupIntro")}</p>
+      <ol>
+        <li>{t("macSetupStep1")}</li>
+        <li>{t("macSetupStep2")}</li>
+        <li>{t("macSetupStep3")}</li>
+      </ol>
+      <figure className="not-prose my-6">
+        <div className="dark:hidden">
+          <Image
+            src="/docs/ios/mac-settings-mobile-pairing-light.png"
+            width={1030}
+            height={285}
+            sizes="(min-width: 1152px) 856px, (min-width: 768px) calc(100vw - 19rem), calc(100vw - 3rem)"
+            alt={t("macSetupScreenshotAlt")}
+            className="h-auto w-full rounded-lg border border-border"
+          />
+        </div>
+        <div className="hidden dark:block">
+          <Image
+            src="/docs/ios/mac-settings-mobile-pairing-dark.png"
+            width={1030}
+            height={285}
+            sizes="(min-width: 1152px) 856px, (min-width: 768px) calc(100vw - 19rem), calc(100vw - 3rem)"
+            alt={t("macSetupScreenshotAlt")}
+            className="h-auto w-full rounded-lg border border-border"
+          />
+        </div>
+        <figcaption className="mt-2 text-center font-mono text-[11px] text-muted">
+          {t("macSetupScreenshotCaption")}
+        </figcaption>
+      </figure>
+      <Callout>{t("macSetupNote")}</Callout>
 
       <DocsHeading level={2} id="networking">{t("networkingTitle")}</DocsHeading>
       <p>{t("networkingDesc")}</p>
