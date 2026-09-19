@@ -34,6 +34,12 @@ public struct TerminalSection: View {
     @State private var memGuardrailEnabled: DefaultsValueModel<Bool>
     @State private var memGuardrailThresholdGB: DefaultsValueModel<Double>
 
+    @State private var localTmuxSessions: [LocalTmuxSessionSummary] = []
+    @State private var localTmuxSessionName = ""
+    @State private var localTmuxLoading = false
+    @State private var localTmuxActionInFlight = false
+    @State private var localTmuxError: String?
+
     public init(
         defaultsStore: UserDefaultsSettingsStore,
         jsonStore: JSONConfigStore,
@@ -71,9 +77,13 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            sessionPersistenceCard
             resumeCommandsCard
         }
-        .task { startObservingSettings() }
+        .task {
+            startObservingSettings()
+            await loadLocalTmuxSessions()
+        }
     }
 
     private func startObservingSettings() {
@@ -183,6 +193,205 @@ public struct TerminalSection: View {
             return String(localized: "settings.terminal.sessionContentAlignment.center", defaultValue: "Center")
         case .right:
             return String(localized: "settings.terminal.sessionContentAlignment.right", defaultValue: "Right")
+        }
+    }
+
+    @ViewBuilder
+    private var sessionPersistenceCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .action,
+                searchAnchorID: "setting:terminal:session-persistence",
+                String(
+                    localized: "settings.terminal.localTmux.title",
+                    defaultValue: "Keep Local Sessions Alive"
+                ),
+                subtitle: String(
+                    localized: "settings.terminal.localTmux.subtitle",
+                    defaultValue: "Named local-tmux sessions keep processes and scrollback alive across cmux quit, crashes, and updates. Ordinary terminals keep their current behavior."
+                ),
+                controlWidth: 300
+            ) {
+                HStack(spacing: 8) {
+                    Text(localTmuxStatusText)
+                        .cmuxFont(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    Button(String(localized: "settings.terminal.localTmux.refresh", defaultValue: "Refresh")) {
+                        refreshLocalTmuxSessions()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(localTmuxLoading || localTmuxActionInFlight)
+                    .accessibilityIdentifier("SettingsTerminalLocalTmuxRefreshButton")
+
+                    Link(
+                        String(localized: "settings.terminal.localTmux.details", defaultValue: "Details"),
+                        destination: URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/local-tmux.md")!
+                    )
+                    .cmuxFont(.caption)
+                    .accessibilityIdentifier("SettingsTerminalLocalTmuxDocsLink")
+                }
+            }
+
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .action,
+                String(
+                    localized: "settings.terminal.localTmux.start",
+                    defaultValue: "Start Persistent Session"
+                ),
+                subtitle: String(
+                    localized: "settings.terminal.localTmux.start.subtitle",
+                    defaultValue: "Creates a named local-tmux session in the selected workspace directory and attaches it to cmux."
+                ),
+                controlWidth: 300
+            ) {
+                HStack(spacing: 8) {
+                    TextField(
+                        String(localized: "settings.terminal.localTmux.name", defaultValue: "Session name"),
+                        text: $localTmuxSessionName
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 170)
+                    .accessibilityIdentifier("SettingsTerminalLocalTmuxNameField")
+
+                    Button(String(localized: "settings.terminal.localTmux.startButton", defaultValue: "Start")) {
+                        startLocalTmuxSession()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(
+                        localTmuxActionInFlight
+                            || localTmuxSessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
+                    .accessibilityIdentifier("SettingsTerminalLocalTmuxStartButton")
+                }
+            }
+
+            if let localTmuxError {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .action,
+                    String(localized: "settings.terminal.localTmux.status", defaultValue: "Status"),
+                    subtitle: localTmuxError
+                ) {
+                    EmptyView()
+                }
+            }
+
+            ForEach(localTmuxSessions) { session in
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .action,
+                    session.name,
+                    subtitle: localTmuxSessionSubtitle(session),
+                    controlWidth: 130
+                ) {
+                    if session.isLive {
+                        Button(
+                            session.clientCount > 0
+                                ? String(localized: "settings.terminal.localTmux.focusButton", defaultValue: "Focus")
+                                : String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach")
+                        ) {
+                            attachLocalTmuxSession(session)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(localTmuxActionInFlight)
+                        .accessibilityIdentifier("SettingsTerminalLocalTmuxAttachButton-\(session.id)")
+                    } else {
+                        Text(String(localized: "settings.terminal.localTmux.stale", defaultValue: "Stale"))
+                            .cmuxFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("SettingsTerminalLocalTmuxCard")
+    }
+
+    private var localTmuxStatusText: String {
+        if localTmuxLoading {
+            return String(localized: "settings.terminal.localTmux.checking", defaultValue: "Checking…")
+        }
+        let liveCount = localTmuxSessions.filter(\.isLive).count
+        if liveCount == 0 {
+            return String(localized: "settings.terminal.localTmux.none", defaultValue: "No live sessions")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "settings.terminal.localTmux.liveCount", defaultValue: "%lld live"),
+            liveCount
+        )
+    }
+
+    private func localTmuxSessionSubtitle(_ session: LocalTmuxSessionSummary) -> String {
+        var parts: [String] = []
+        parts.append(
+            session.isManaged
+                ? String(localized: "settings.terminal.localTmux.managed", defaultValue: "Managed")
+                : String(localized: "settings.terminal.localTmux.unmanaged", defaultValue: "Unmanaged")
+        )
+        if session.clientCount > 0 {
+            parts.append(
+                String.localizedStringWithFormat(
+                    String(localized: "settings.terminal.localTmux.clients", defaultValue: "%lld client(s)"),
+                    session.clientCount
+                )
+            )
+        }
+        if let cwd = session.cwd, !cwd.isEmpty {
+            parts.append(cwd)
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func loadLocalTmuxSessions() async {
+        localTmuxLoading = true
+        defer { localTmuxLoading = false }
+        do {
+            localTmuxSessions = try await hostActions.localTmuxSessions()
+            localTmuxError = nil
+        } catch {
+            localTmuxError = error.localizedDescription
+        }
+    }
+
+    private func refreshLocalTmuxSessions() {
+        tasks.replaceOnMainActor("localTmuxRefresh") {
+            await loadLocalTmuxSessions()
+        }
+    }
+
+    private func startLocalTmuxSession() {
+        let name = localTmuxSessionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        localTmuxActionInFlight = true
+        tasks.replaceOnMainActor("localTmuxAction") {
+            defer { localTmuxActionInFlight = false }
+            do {
+                try await hostActions.startLocalTmuxSession(name: name)
+                localTmuxSessionName = ""
+                localTmuxError = nil
+                await loadLocalTmuxSessions()
+            } catch {
+                localTmuxError = error.localizedDescription
+            }
+        }
+    }
+
+    private func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) {
+        localTmuxActionInFlight = true
+        tasks.replaceOnMainActor("localTmuxAction") {
+            defer { localTmuxActionInFlight = false }
+            do {
+                try await hostActions.attachLocalTmuxSession(session)
+                localTmuxError = nil
+                await loadLocalTmuxSessions()
+            } catch {
+                localTmuxError = error.localizedDescription
+            }
         }
     }
 
