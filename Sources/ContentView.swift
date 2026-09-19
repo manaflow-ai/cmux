@@ -12311,7 +12311,14 @@ struct VerticalTabsSidebar: View, Equatable {
                         tabManager: tabManager,
                         debugSource: "sidebar.emptyArea.remoteTmux"
                     )
-                } else {
+                } else if AppDelegate.shared?.addWorkspace(
+                    windowId: windowId,
+                    bringToFront: false,
+                    select: true,
+                    placementOverride: .end
+                ) == nil {
+                    // Keep previews and transitional windows usable while the
+                    // per-window context is being registered.
                     tabManager.addWorkspaceIfActive(placementOverride: .end)
                 }
                 if let selectedId = tabManager.selectedTabId {
