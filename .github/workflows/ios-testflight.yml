@@ -91,6 +91,24 @@ jobs:
             // uploaded monotonically, so wait on a cheap Linux runner until every
             // earlier main-push run has finished its upload job. Assignment can
             // continue independently after the upload completes.
+            //
+            // The 20-minute internal poll never waits. Every waiting run lists
+            // the runs ahead of it once a minute, so N waiting polls cost about
+            // N*N/2 API calls a minute: sixteen of them spent roughly 8,000
+            // requests an hour of the repository's 1,000-request GITHUB_TOKEN
+            // budget and failed every workflow that calls the API. A poll is
+            // idempotent, so it leaves and the next one builds whatever main is
+            // by then, which is the batching this schedule exists for. Manual
+            // dispatches and the twice-daily DEMO schedule still wait: they are
+            // rare, and dropping one loses a build someone asked for.
+            const isInternalPoll =
+              context.eventName === 'schedule' && variant === 'internal';
+            const skipPoll = (reason) => {
+              core.notice(`skipping this TestFlight poll: ${reason}; the next poll retries`);
+              core.setOutput('should_build', 'false');
+              core.setOutput('last_uploaded_sha', '');
+              core.setOutput('variant', variant);
+            };
             if (context.ref === 'refs/heads/main') {
               const currentRunId = Number(context.runId);
               const maxWaits = 300;
@@ -145,6 +163,10 @@ jobs:
                     }
                   }
                 } catch (error) {
+                  if (isInternalPoll) {
+                    skipPoll(`could not inspect earlier TestFlight runs (${error.message})`);
+                    return;
+                  }
                   if (wait === maxWaits - 1) {
                     core.setFailed(
                       `timed out ordering main TestFlight uploads after GitHub API errors: ${error.message}`
@@ -160,6 +182,10 @@ jobs:
                   continue;
                 }
                 if (blockingRuns.length === 0) break;
+                if (isInternalPoll) {
+                  skipPoll(`earlier run(s) ${blockingRuns.join(', ')} have not finished uploading`);
+                  return;
+                }
                 if (wait === maxWaits - 1) {
                   core.setFailed(
                     `timed out waiting for earlier main TestFlight upload run(s): ${blockingRuns.join(', ')}`
