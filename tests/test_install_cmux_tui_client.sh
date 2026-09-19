@@ -128,3 +128,27 @@ fi
 grep -q 'attest-signer-workflow must look like owner/repo/.github/workflows/name.yml' "$TEST_DIR/malformed.log"
 [ ! -s "$EVENTS" ]
 echo "PASS: a malformed signer workflow is rejected before any download"
+
+# Verification is the default for a remote install: no flag, and the publishing
+# workflow is still required to have signed the manifest.
+DEFAULT_APP="$TEST_DIR/Default.app"
+install_remote "$DEFAULT_APP" --expected-commit "$COMMIT" > "$TEST_DIR/default.log" 2>&1
+cmp "$CLIENT" "$DEFAULT_APP/Contents/Resources/bin/cmux-tui"
+grep -q "^gh attestation verify .* --signer-workflow $SIGNER --source-digest $COMMIT\$" "$EVENTS"
+if FAKE_GH_EXIT=1 install_remote "$TEST_DIR/DefaultDenied.app" --expected-commit "$COMMIT" > "$TEST_DIR/default-denied.log" 2>&1; then
+  echo "FAIL: a remote install without flags skipped attestation" >&2
+  exit 1
+fi
+grep -q 'no valid build-provenance attestation' "$TEST_DIR/default-denied.log"
+echo "PASS: remote installs verify the publishing workflow's attestation by default"
+
+# Only the explicit local-development opt-out installs without gh, and it says so.
+OPT_OUT_APP="$TEST_DIR/OptOut.app"
+FAKE_GH_EXIT=1 install_remote "$OPT_OUT_APP" --allow-unattested > "$TEST_DIR/opt-out.log" 2>&1
+cmp "$CLIENT" "$OPT_OUT_APP/Contents/Resources/bin/cmux-tui"
+grep -q 'warning: installing an unattested cmux-tui manifest' "$TEST_DIR/opt-out.log"
+if grep -q '^gh ' "$EVENTS"; then
+  echo "FAIL: --allow-unattested still invoked gh" >&2
+  exit 1
+fi
+echo "PASS: --allow-unattested is the only unverified remote install path"
