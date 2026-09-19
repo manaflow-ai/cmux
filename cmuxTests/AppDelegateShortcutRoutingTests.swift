@@ -3104,9 +3104,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 titlebarPadding: 32,
                 hostingSafeAreaTop: 0
             ),
-            WindowChromeMetrics.appTitlebarHeight,
+            0,
             accuracy: 0.5,
-            "Minimal mode keeps the Bonsplit strip below the native titlebar/glass layer"
+            "Manually hosted minimal windows already have zero safe area, so the Bonsplit strip must not be pulled offscreen"
         )
 
         XCTAssertEqual(
@@ -3116,9 +3116,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 titlebarPadding: 32,
                 hostingSafeAreaTop: 28
             ),
-            WindowChromeMetrics.appTitlebarHeight,
+            -28,
             accuracy: 0.5,
-            "Minimal mode uses the app titlebar height even when SwiftUI reports a larger safe area"
+            "SwiftUI WindowGroup windows still need their native titlebar safe area cancelled"
         )
     }
 
