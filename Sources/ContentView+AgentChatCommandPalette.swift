@@ -79,16 +79,11 @@ extension ContentView {
                 commandId: commandPaletteLaunchClaudeTeamsCommandID,
                 title: { _ in
                     String(
-                        localized: "command.launchClaudeTeams.title",
-                        defaultValue: "Launch Claude Teams"
+                        localized: "agentSession.provider.claude",
+                        defaultValue: "Claude Code"
                     )
                 },
-                subtitle: { _ in
-                    String(
-                        localized: "command.agentLauncher.subtitle",
-                        defaultValue: "Agent Launcher"
-                    )
-                },
+                subtitle: { _ in "cmux claude-teams" },
                 keywords: ["claude", "claude-teams", "teams", "agent", "launcher"],
                 when: canLaunchFromCurrentWorkspace
             ))
@@ -98,16 +93,11 @@ extension ContentView {
                 commandId: commandPaletteLaunchCodexTeamsCommandID,
                 title: { _ in
                     String(
-                        localized: "command.launchCodexTeams.title",
-                        defaultValue: "Launch Codex Teams"
+                        localized: "agentSession.provider.codex",
+                        defaultValue: "Codex"
                     )
                 },
-                subtitle: { _ in
-                    String(
-                        localized: "command.agentLauncher.subtitle",
-                        defaultValue: "Agent Launcher"
-                    )
-                },
+                subtitle: { _ in "cmux codex-teams" },
                 keywords: ["codex", "codex-teams", "teams", "agent", "launcher"],
                 when: canLaunchFromCurrentWorkspace
             ))
