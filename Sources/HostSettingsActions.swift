@@ -185,7 +185,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func createCustomSidebar(named name: String) -> CustomSidebarOnboardingResult {
-        guard let template = CustomSidebarOnboardingAssets.starterTemplate() else {
+        guard let template = CustomSidebarOnboardingAssets().starterTemplate() else {
             return .templateUnavailable
         }
         return installCustomSidebarTemplate(
@@ -196,7 +196,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
-        guard let template = CustomSidebarOnboardingAssets.exampleTemplate(id: id) else {
+        guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
             return .templateUnavailable
         }
         return installCustomSidebarTemplate(
