@@ -1319,14 +1319,19 @@ pr_concurrency_cancels_superseded_runs() {
   # cancel-in-progress must be true for every pull request event the workflow
   # triggers on.
   local file="$1" event
-  local events
+  local events group_key
   events="$(pr_workflow_events "$file")"
   [ -n "$events" ] || return 1
-  awk '
+  # github.ref is the base branch on pull_request_target, so only the pull
+  # request number separates two pull requests there.
+  group_key='github\.(event\.pull_request\.number|ref)([^_a-z]|$)'
+  if grep -qx 'pull_request_target' <<<"$events"; then
+    group_key='github\.event\.pull_request\.number([^_a-z]|$)'
+  fi
+  GROUP_KEY="$group_key" awk '
     /^concurrency:/ { in_block=1; next }
     in_block && /^[^[:space:]]/ { in_block=0 }
-    in_block && /^[[:space:]]+group:/ \
-      && /github\.(event\.pull_request\.number|ref|head_ref)([^_a-z]|$)/ { group_ok=1 }
+    in_block && /^[[:space:]]+group:/ && $0 ~ ENVIRON["GROUP_KEY"] { group_ok=1 }
     END { exit !group_ok }
   ' "$file" || return 1
   for event in $events; do
@@ -1334,8 +1339,12 @@ pr_concurrency_cancels_superseded_runs() {
       /^concurrency:/ { in_block=1; next }
       in_block && /^[^[:space:]]/ { in_block=0 }
       in_block && /^[[:space:]]+cancel-in-progress:[[:space:]]*true[[:space:]]*$/ { ok=1 }
-      in_block && /^[[:space:]]+cancel-in-progress:/ \
-        && index($0, "github.event_name == \047" ENVIRON["EVENT"] "\047") { ok=1 }
+      in_block && /^[[:space:]]+cancel-in-progress:/ {
+        value=$0
+        sub(/^[[:space:]]+cancel-in-progress:[[:space:]]*/, "", value)
+        sub(/[[:space:]]+$/, "", value)
+        if (value == "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 }}") ok=1
+      }
       END { exit !ok }
     ' "$file" || return 1
   done
@@ -1361,7 +1370,10 @@ check_pr_macos_workflows_cancel_superseded_runs() {
 on:\n  pull_request:~ci-${{ github.ref }}~true~accept
 on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' }}~accept
 on: [push, pull_request]~ci-${{ github.event.pull_request.number || github.run_id }}~${{ github.event_name == 'pull_request' }}~accept
-on:\n  pull_request_target:~ci-${{ github.ref }}~${{ github.event_name == 'pull_request_target' }}~accept
+on:\n  pull_request_target:~ci-${{ github.event.pull_request.number }}~${{ github.event_name == 'pull_request_target' }}~accept
+on:\n  pull_request_target:~ci-${{ github.ref }}~true~reject
+on:\n  pull_request:~ci-${{ github.head_ref }}~true~reject
+on:\n  pull_request:~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' && false }}~reject
 on:\n  pull_request:~ci-${{ github.sha }}~true~reject
 on:\n  pull_request:~ci-${{ github.run_id }}~true~reject
 on:\n  pull_request:~ci-${{ github.ref }}~${{ false }}~reject
@@ -1374,8 +1386,20 @@ CASES
 
   for file in "$ROOT_DIR"/.github/workflows/*.yml "$ROOT_DIR"/.github/workflows/*.yaml; do
     [ -f "$file" ] || continue
-    [ -n "$(pr_workflow_events "$file")" ] || continue
     grep -qE 'runs-on:.*(macos|MACOS_RUNNER)' "$file" || continue
+    if [ -z "$(pr_workflow_events "$file")" ]; then
+      # A quoted "on" key, flow mapping or other indentation is not read
+      # above. Fail instead of skipping a workflow that may run on pull requests.
+      if awk '
+        /^["\047]?on["\047]?:/ { in_on=1; print; next }
+        in_on && /^[^[:space:]#]/ { in_on=0 }
+        in_on { print }
+      ' "$file" | grep -q 'pull_request'; then
+        echo "FAIL: $(basename "$file") names pull_request in a form this guard cannot read; write on: as a block mapping, a list or a single event"
+        failed=1
+      fi
+      continue
+    fi
     if ! pr_concurrency_cancels_superseded_runs "$file"; then
       echo "FAIL: $(basename "$file") runs macOS jobs on pull requests but a new push does not cancel the previous run; key the concurrency group on the pull request and set cancel-in-progress for its pull request events"
       failed=1
