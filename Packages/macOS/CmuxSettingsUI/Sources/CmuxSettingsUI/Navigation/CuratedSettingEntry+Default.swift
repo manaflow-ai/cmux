@@ -174,10 +174,15 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .terminal,
                 id: "session-persistence",
-                title: String(localized: "settings.terminal.localTmux.title", defaultValue: "Keep Local Sessions Alive"),
+                title: String(
+                    localized: "settings.terminal.localTmux.title",
+                    defaultValue: "Keep Local Sessions Alive",
+                    bundle: .module
+                ),
                 detailText: String(
                     localized: "settings.terminal.localTmux.subtitle",
-                    defaultValue: "Named local-tmux sessions keep processes and scrollback alive across cmux quit, crashes, and updates. Ordinary terminals keep their current behavior."
+                    defaultValue: "Named local-tmux sessions keep processes and scrollback alive across cmux quit, crashes, and updates. Ordinary terminals keep their current behavior.",
+                    bundle: .module
                 ),
                 synonyms: "session persistence keep local sessions alive local tmux local-tmux tmux detach reattach crash update quit durable terminal process scrollback"
             ),
