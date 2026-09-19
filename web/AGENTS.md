@@ -35,3 +35,32 @@ the checker, trusted workflow, complexity rule, and Oxlint lock entries
 unchanged in normal pull requests. Policy changes need a separate reviewed
 update. The contributor-side `Web complexity candidate` check is only an early
 local diagnostic.
+
+## Cloud VM API runs on Effect
+
+The Cloud VM control plane (`services/vms`, every route under `app/api/vm`)
+is an Effect boundary. A new or changed VM endpoint follows it; a plain
+`async` route that reaches Drizzle or a provider SDK directly is not accepted,
+and neither is a PR that adds a VM route and leaves the migration "for later".
+
+- Business logic is an Effect program in `services/vms/workflows.ts` (or a
+  sibling module) that reads and writes through `VmRepository`, calls
+  providers through `VmProviderGateway`, and bills through `VmBillingGateway`.
+  Add repository methods for new queries; do not import `db/` or
+  `services/coderouter/teamMachines` from a route.
+- Failures are tagged errors in `services/vms/errors.ts`, added to the
+  `VmWorkflowError` union. The responder table `vmWorkflowErrorResponders` in
+  `services/vms/routeHelpers.ts` must then get an entry, or typecheck fails.
+  Route-specific copy goes in an `onError` overrides table in the route.
+- Routes run programs with `runVmRoute(program, { request, onError })` from
+  `services/vms/routeWorkflow.ts` and branch on `run.ok`. No `Effect.runPromise`
+  in a route, no `try { await runVmWorkflow(...) } catch`, no `isVm*Error`
+  predicate chains, no per-route `Effect.provide`.
+- `runVmWorkflow` (Promise, throws the typed error) is only for cron and
+  account-deletion callers that have no HTTP error contract.
+- Tests for a route mock the repository or the driver, not the workflow, so
+  the Effect path is what runs. `tests/vm-route-workflow.test.ts` shows the
+  boundary contract.
+
+Plain TypeScript is still right for billing, coderouter, subrouter, vault,
+pages, and scripts. The rule is about the VM control plane.
