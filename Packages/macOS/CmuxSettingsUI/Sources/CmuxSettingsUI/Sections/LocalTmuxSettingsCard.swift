@@ -101,28 +101,11 @@ struct LocalTmuxSettingsCard: View {
 
             ForEach(model.sessions) { session in
                 SettingsCardDivider()
-                SettingsCardRow(
-                    configurationReview: .action,
-                    session.name,
-                    subtitle: sessionSubtitle(session),
-                    controlWidth: 130
-                ) {
-                    if session.isLive {
-                        Button(
-                            String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach", bundle: .module)
-                        ) {
-                            model.attach(session)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(model.phase != .idle)
-                        .accessibilityIdentifier("SettingsTerminalLocalTmuxAttachButton-\(session.id)")
-                    } else {
-                        Text(String(localized: "settings.terminal.localTmux.stale", defaultValue: "Stale", bundle: .module))
-                            .cmuxFont(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                LocalTmuxSessionRow(
+                    session: session,
+                    canAttach: model.phase == .idle,
+                    onAttach: { model.attach(session) }
+                )
             }
         }
         .accessibilityIdentifier("SettingsTerminalLocalTmuxCard")
@@ -150,27 +133,50 @@ struct LocalTmuxSettingsCard: View {
         return String.localizedStringWithFormat(format, Int64(model.liveSessionCount))
     }
 
-    /// Formats one already-decoded session row for display.
-    private func sessionSubtitle(_ session: LocalTmuxSessionSummary) -> String {
-        var parts: [String] = []
-        parts.append(
+}
+
+/// Renders one immutable session snapshot below the `ForEach` boundary.
+@MainActor
+private struct LocalTmuxSessionRow: View {
+    let session: LocalTmuxSessionSummary
+    let canAttach: Bool
+    let onAttach: () -> Void
+
+    var body: some View {
+        SettingsCardRow(
+            configurationReview: .action,
+            session.name,
+            subtitle: subtitle,
+            controlWidth: 130
+        ) {
+            if session.isLive {
+                Button(
+                    String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach", bundle: .module),
+                    action: onAttach
+                )
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!canAttach)
+                .accessibilityIdentifier("SettingsTerminalLocalTmuxAttachButton-\(session.id)")
+            } else {
+                Text(String(localized: "settings.terminal.localTmux.stale", defaultValue: "Stale", bundle: .module))
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var subtitle: String {
+        var parts: [String] = [
             session.isManaged
                 ? String(localized: "settings.terminal.localTmux.managed", defaultValue: "Managed", bundle: .module)
                 : String(localized: "settings.terminal.localTmux.unmanaged", defaultValue: "Unmanaged", bundle: .module)
-        )
+        ]
         if session.clientCount > 0 {
-            let format = String(
-                localized: "settings.terminal.localTmux.clientsCount",
-                defaultValue: "Clients: %lld",
-                bundle: .module
-            )
-            parts.append(
-                String.localizedStringWithFormat(format, Int64(session.clientCount))
-            )
+            let format = String(localized: "settings.terminal.localTmux.clientsCount", defaultValue: "Clients: %lld", bundle: .module)
+            parts.append(String.localizedStringWithFormat(format, Int64(session.clientCount)))
         }
-        if let cwd = session.cwd, !cwd.isEmpty {
-            parts.append(cwd)
-        }
+        if let cwd = session.cwd, !cwd.isEmpty { parts.append(cwd) }
         return parts.joined(separator: " · ")
     }
 }
