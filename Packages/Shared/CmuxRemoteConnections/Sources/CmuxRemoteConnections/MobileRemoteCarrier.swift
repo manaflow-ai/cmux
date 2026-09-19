@@ -1,6 +1,6 @@
 /// The protocol that carries a remote terminal session.
 public enum MobileRemoteCarrier: String, Codable, CaseIterable, Equatable, Sendable {
-    /// Select the strongest available carrier after capability probing.
+    /// Select an available carrier that satisfies the requested session capabilities.
     case automatic
     /// SSH over the operating system's routed TCP connection.
     case ssh

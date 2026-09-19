@@ -176,8 +176,10 @@ No maclease or retired fleet allocation is allowed. Locate controller-job
 support before allocating builds or simulator verification. The current
 `scripts/cmux-job.sh mac` still invokes maclease and is not a valid replacement.
 The worktree initially lacked GhosttyKit; app tests have not passed.
-The local dogfood doctor found stale installed queue tooling and repair was
-started with the repository setup script.
+The local dogfood doctor now passes after reinstalling the stable queue tooling
+with system Bash. Homebrew Bash deadlocked in heredoc_write; a process sample
+identified the blocked setup and only this task's stalled processes were stopped.
+The phone is offline or locked; its delivery queue is configured.
 
 ## Open product questions
 
