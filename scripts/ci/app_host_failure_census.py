@@ -12,6 +12,7 @@ XCTEST_START = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' started\.")
 XCTEST_FAIL = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' failed")
 SWIFT_START = re.compile(r"(?:◇|▶) Test (.+?) started\.")
 SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
+SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?::\s*(.*))?$")
 SWIFT_FAIL = re.compile(r"✘ Test (.+?) failed(?: after| with)\b")
 RESTART = "Restarting after unexpected exit"
 KNOWN = re.compile(r"known issue|XCTExpectFailure", re.IGNORECASE)
@@ -58,8 +59,8 @@ def parse_log(text, run_id="unknown", job_id=None):
                     if ": error:" in candidate:
                         assertions[name] = candidate.split(": error:", 1)[1].strip()
                         break
-        if "recorded an issue" in line and KNOWN.search(line):
-            known_match = re.search(r"✘ Test (.+?) recorded an issue", line)
+        if ("recorded an issue" in line or "recorded a known issue" in line) and KNOWN.search(line):
+            known_match = SWIFT_KNOWN_ISSUE.search(line) or re.search(r"✘ Test (.+?) recorded an issue", line)
             if known_match:
                 known_tests.add(_clean(known_match.group(1)).strip('"'))
             im = None

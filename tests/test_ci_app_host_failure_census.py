@@ -25,6 +25,17 @@ def test_known_issue_is_excluded_and_runs_are_deduplicated():
     assert row["runs_seen"] == 1 and row["runs_failed"] == 1
 
 
+def test_swift_testing_known_issue_is_excluded():
+    record = census.parse_log(
+        '◇ Test "known" started.\n'
+        '✘ Test "known" recorded a known issue.\n'
+        '✘ Test "known" failed after 1 seconds with 1 issue.\n',
+        "r",
+    )
+    assert record["tests_seen"] == set()
+    assert record["tests_failed"] == set()
+
+
 if __name__ == "__main__":
     test_parses_xctest_swift_and_restart()
     test_known_issue_is_excluded_and_runs_are_deduplicated()
