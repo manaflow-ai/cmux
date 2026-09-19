@@ -9,6 +9,17 @@ extension CmuxTopProcessSnapshot {
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true
     ) -> CmuxTopProcessSnapshot {
+        cmuxTopProcessSnapshotCaptureCoordinator.captureCoordinatedFresh(
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope
+        )
+    }
+
+    static func captureUncoordinated(
+        includeProcessDetails: Bool = false,
+        includeCMUXScope: Bool = true
+    ) -> CmuxTopProcessSnapshot {
+        let sampledAt = Date()
         let listing = DarwinProcessEnumerator().capture()
         return CmuxTopProcessSnapshot(
             processes: processRecords(
@@ -16,7 +27,7 @@ extension CmuxTopProcessSnapshot {
                 includeProcessDetails: includeProcessDetails,
                 includeCMUXScope: includeCMUXScope
             ),
-            sampledAt: Date(),
+            sampledAt: sampledAt,
             includesProcessDetails: includeProcessDetails,
             includesCMUXScope: includeCMUXScope,
             enumerationIsComplete: listing.isComplete,
@@ -25,11 +36,11 @@ extension CmuxTopProcessSnapshot {
     }
 
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
-        processRecords(
-            from: DarwinProcessEnumerator().capture().processes,
+        let snapshot = cmuxTopProcessSnapshotCaptureCoordinator.captureCoordinatedFresh(
             includeProcessDetails: includeProcessDetails,
             includeCMUXScope: includeCMUXScope
         )
+        return snapshot.processesByPID.values.sorted { $0.pid < $1.pid }
     }
 
     private static func processRecords(
