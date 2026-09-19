@@ -170,6 +170,14 @@ extension BrowserPanel {
                 source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
                 injectionTime: .atDocumentStart, forMainFrameOnly: false
             ))
+            if let endpoint = cloudAccess.model?.browserProxy,
+               let script = CloudBrowserRouting.websocketBridgeScript(endpoint: endpoint, address: host) {
+                replacement.configuration.userContentController.addUserScript(WKUserScript(
+                    source: script,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                ))
+            }
         }
         return replacement
     }
