@@ -13,13 +13,17 @@ import Testing
 @Suite("Terminal link browser placement", .serialized)
 @MainActor
 struct TerminalLinkBrowserPlacementTests {
+    private var terminalLinkPlacementKey: String {
+        BrowserCatalogSection().terminalLinkBrowserPlacement.userDefaultsKey
+    }
+
     private func withDefaults(_ body: (UserDefaults) throws -> Void) rethrows {
         let suite = "terminal-link-placement-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
-        defaults.set("samePane", forKey: "browserTerminalLinkBrowserPlacement")
+        defaults.set("samePane", forKey: terminalLinkPlacementKey)
         try body(defaults)
     }
 
@@ -96,9 +100,9 @@ struct TerminalLinkBrowserPlacementTests {
     func splitFallback(rawValue: String) throws {
         try withDefaults { defaults in
             if rawValue.isEmpty {
-                defaults.removeObject(forKey: "browserTerminalLinkBrowserPlacement")
+                defaults.removeObject(forKey: terminalLinkPlacementKey)
             } else {
-                defaults.set(rawValue, forKey: "browserTerminalLinkBrowserPlacement")
+                defaults.set(rawValue, forKey: terminalLinkPlacementKey)
             }
             let workspace = Workspace()
             defer { workspace.teardownAllPanels() }
@@ -135,24 +139,28 @@ struct TerminalLinkBrowserPlacementTests {
                 userDefaults: defaults,
                 startWatching: false
             )
-            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "samePane")
+            #expect(defaults.string(forKey: terminalLinkPlacementKey) == "samePane")
             try #"{"browser":{"terminalLinkBrowserPlacement":"split"}}"#.write(to: file, atomically: true, encoding: .utf8)
             store.reload()
-            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "split")
+            #expect(defaults.string(forKey: terminalLinkPlacementKey) == "split")
             try #"{"browser":{"terminalLinkBrowserPlacement":"samePane"}}"#.write(to: file, atomically: true, encoding: .utf8)
             store.reload()
-            #expect(defaults.string(forKey: "browserTerminalLinkBrowserPlacement") == "samePane")
+            #expect(defaults.string(forKey: terminalLinkPlacementKey) == "samePane")
             try #"{"browser":{"terminalLinkBrowserPlacement":"invalid"}}"#.write(to: file, atomically: true, encoding: .utf8)
             store.reload()
             #expect(UserDefaultsSettingsClient(defaults: defaults)
                 .value(for: BrowserCatalogSection().terminalLinkBrowserPlacement) == .split)
+            #expect(defaults.string(forKey: terminalLinkPlacementKey) != "invalid")
         }
     }
 
     @Test("Socket terminal origin obeys placement while explicit browser open keeps split behavior")
     func socketRespectsTerminalOrigin() throws {
+        // `browser.open_split` is the production socket handler and reads
+        // UserDefaults.standard, so this integration fixture must temporarily
+        // configure the process-wide store. All other tests use an isolated suite.
         let defaults = UserDefaults.standard
-        let key = "browserTerminalLinkBrowserPlacement"
+        let key = terminalLinkPlacementKey
         let original = defaults.object(forKey: key)
         defaults.set("samePane", forKey: key)
         defer {
@@ -188,11 +196,12 @@ struct TerminalLinkBrowserPlacementTests {
         }
     }
 
-
     @Test("Socket links resolve a Dock tab alias to its owning pane")
     func dockSocketUsesSourceAlias() throws {
+        // The socket handler intentionally reads UserDefaults.standard; keep
+        // this integration test scoped to one suite and restore the value.
         let defaults = UserDefaults.standard
-        let key = "browserTerminalLinkBrowserPlacement"
+        let key = terminalLinkPlacementKey
         let original = defaults.object(forKey: key)
         defaults.set("samePane", forKey: key)
         defer {

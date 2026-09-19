@@ -45,7 +45,10 @@ extension DockSplitStore: TerminalLinkOpenContainer {
         placement: TerminalLinkBrowserPlacement,
         focus: Bool = true
     ) -> Bool {
-        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId) else { return false }
+        guard let panelId = panelID(forTerminalLinkSourceID: sourcePanelId),
+              paneId(forPanelId: panelId) != nil else {
+            return false
+        }
         if focus { noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow) }
         return BrowserSplitContainer.dock(self).openBrowser(
             of: panelId,

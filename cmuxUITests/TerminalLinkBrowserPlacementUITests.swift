@@ -107,27 +107,47 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         }
         attach(app, name: "\(placement)-after-click")
 
-        _ = try rpc("surface.focus", ["workspace_id": workspace, "surface_id": source])
+        // Send the intercepted command to the source surface while a different
+        // pane owns focus. In same-pane mode the click leaves only one pane, so
+        // create a second terminal pane specifically for this origin-routing
+        // assertion. A current-focus implementation would incorrectly open in
+        // this pane instead of the source terminal's pane.
+        let backgroundSurface: String
+        if placement == "samePane" {
+            let split = try rpc("surface.split", [
+                "workspace_id": workspace,
+                "surface_id": source,
+                "direction": "right",
+                "focus": true,
+            ])
+            backgroundSurface = try XCTUnwrap(split["surface_id"] as? String)
+            XCTAssertEqual(try panes(workspace).count, expectedPanes + 1)
+        } else {
+            backgroundSurface = try XCTUnwrap(clickedBrowser["id"] as? String)
+        }
+        _ = try rpc("surface.focus", ["workspace_id": workspace, "surface_id": backgroundSurface])
+        let expectedCommandPanes = placement == "samePane" ? expectedPanes + 1 : expectedPanes
+
         let outputPath = fixture.appendingPathComponent("open-output.txt").path
         let shellCommand = "open https://example.com/terminal-placement > '\(outputPath)' 2>&1"
         _ = try rpc("surface.send_text", ["workspace_id": workspace, "surface_id": source, "text": shellCommand])
         _ = try rpc("surface.send_key", ["workspace_id": workspace, "surface_id": source, "key": "enter"])
         XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 2 })
-        XCTAssertEqual(try panes(workspace).count, expectedPanes)
+        XCTAssertEqual(try panes(workspace).count, expectedCommandPanes)
         if placement == "samePane" {
             XCTAssertTrue(try browsers(workspace).allSatisfy { $0["pane_id"] as? String == sourcePane })
         }
-        let expectedPlacement = placement == "samePane" ? "placement=samePane" : "placement=reuse"
         var wrapperOutput = ""
         let wrapperFinished = poll {
             wrapperOutput = (try? String(contentsOfFile: outputPath, encoding: .utf8)) ?? ""
-            return wrapperOutput.contains(expectedPlacement)
+            return wrapperOutput.contains("OK surface=")
         }
         let output = XCTAttachment(string: wrapperOutput)
         output.name = "\(placement)-open-wrapper-output"
         output.lifetime = .keepAlways
         add(output)
         XCTAssertTrue(wrapperFinished, wrapperOutput)
+        XCTAssertTrue(wrapperOutput.contains("OK surface="), wrapperOutput)
         let openedBrowser = try XCTUnwrap(try browsers(workspace).last?["id"] as? String)
         _ = try rpc("surface.focus", ["workspace_id": workspace, "surface_id": openedBrowser])
         attach(app, name: "\(placement)-after-open-command")
@@ -138,7 +158,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
                 "url": "about:blank", "focus": true,
             ])
             XCTAssertEqual(explicit["created_split"] as? Bool, true)
-            XCTAssertEqual(try panes(workspace).count, 2)
+            XCTAssertEqual(try panes(workspace).count, expectedCommandPanes + 1)
             attach(app, name: "samePane-manual-browser-split")
         }
     }

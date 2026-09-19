@@ -160,7 +160,7 @@ enum BrowserSplitContainer {
                 inPane: paneID,
                 url: request.url,
                 focus: request.focus,
-                selectWhenNotFocused: true,
+                selectWhenNotFocused: request.focus,
                 preferredProfileID: request.preferredProfileID,
                 creationPolicy: request.preloadInBackground ? .automationPreload : .userInitiated,
                 chromeVisibility: request.chromeVisibility,

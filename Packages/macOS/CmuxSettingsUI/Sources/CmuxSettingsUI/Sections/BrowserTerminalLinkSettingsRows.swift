@@ -46,7 +46,6 @@ struct BrowserTerminalLinkSettingsRows: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .disabled(!openLinks && !interceptOpen)
             .accessibilityIdentifier("SettingsTerminalLinkBrowserPlacementPicker")
         }
     }

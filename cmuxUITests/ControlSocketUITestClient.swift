@@ -38,6 +38,13 @@ final class ControlSocketUITestClient {
             _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, ptr, socklen_t(MemoryLayout<timeval>.size))
         }
 
+        #if os(macOS)
+        var noSigPipe: Int32 = 1
+        _ = withUnsafePointer(to: &noSigPipe) { ptr in
+            setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, ptr, socklen_t(MemoryLayout<Int32>.size))
+        }
+        #endif
+
         var addr = sockaddr_un()
         memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -63,14 +70,22 @@ final class ControlSocketUITestClient {
         guard connected == 0 else { return failed("connect", code: errno) }
 
         let payload = Array((line + "\n").utf8)
-        let wrote = payload.withUnsafeBytes { rawBuffer in
-            guard let baseAddress = rawBuffer.baseAddress else { return true }
-            return Darwin.write(fd, baseAddress, rawBuffer.count) == rawBuffer.count
+        var written = 0
+        while written < payload.count {
+            let result = payload.withUnsafeBytes { rawBuffer -> Int in
+                guard let baseAddress = rawBuffer.baseAddress else { return 0 }
+                return Darwin.write(fd, baseAddress.advanced(by: written), payload.count - written)
+            }
+            if result > 0 {
+                written += result
+                continue
+            }
+            if result < 0 && errno == EINTR { continue }
+            return failed("write", code: errno)
         }
-        guard wrote else { return failed("write", code: errno) }
 
         var buffer = [UInt8](repeating: 0, count: 4096)
-        var accumulator = ""
+        var responseData = Data()
         let deadline = Date().addingTimeInterval(responseTimeout)
         while Date() < deadline {
             let count = Darwin.read(fd, &buffer, buffer.count)
@@ -82,14 +97,18 @@ final class ControlSocketUITestClient {
                 lastFailure = "EOF before a complete reply"
                 break
             }
-            if let chunk = String(bytes: buffer[0..<count], encoding: .utf8) {
-                accumulator.append(chunk)
-                if let newline = accumulator.firstIndex(of: "\n") {
-                    return String(accumulator[..<newline])
+            responseData.append(contentsOf: buffer[0..<count])
+            if let newline = responseData.firstIndex(of: 0x0A) {
+                guard let response = String(data: responseData[..<newline], encoding: .utf8) else {
+                    return failed("decode", code: EILSEQ)
                 }
+                return response
             }
         }
-        return accumulator.isEmpty ? nil : accumulator.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let response = String(data: responseData, encoding: .utf8) else {
+            return failed("decode", code: EILSEQ)
+        }
+        return response.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func failed(_ operation: String, code: Int32) -> String? {

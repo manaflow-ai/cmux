@@ -11,6 +11,7 @@ final class CloudGuestURLTestContainer: TerminalLinkOpenContainer {
     let terminalLinkContainerDebugName = "cloud-fixture"
     var opened: [URL] = []
     var focus = true
+    var placement: TerminalLinkBrowserPlacement = .split
     var accepts = true
     func terminalLinkWorkingDirectory(for sourcePanelId: UUID) -> String? { nil }
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool { true }
@@ -23,6 +24,7 @@ final class CloudGuestURLTestContainer: TerminalLinkOpenContainer {
         focus: Bool
     ) -> Bool {
         self.focus = focus
+        self.placement = placement
         opened.append(url)
         return accepts
     }
