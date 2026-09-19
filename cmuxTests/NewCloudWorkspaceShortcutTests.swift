@@ -210,8 +210,8 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             XCTAssertEqual(leading, [.newWorkspace, .newCloudWorkspace, .newCloudMachine, .newTerminal, .newBrowser])
 
             let hints = Dictionary(uniqueKeysWithValues: rows.map { ($0.action, $0.item) })
-            XCTAssertEqual(hints[.newWorkspace]?.keyEquivalent, "n")
-            XCTAssertEqual(hints[.newWorkspace]?.keyEquivalentModifierMask, [.command])
+            XCTAssertEqual(hints[.newWorkspace]?.keyEquivalent, "")
+            XCTAssertEqual(hints[.newWorkspace]?.keyEquivalentModifierMask, [])
             XCTAssertEqual(hints[.newCloudWorkspace]?.keyEquivalent, "y")
             XCTAssertEqual(hints[.newCloudWorkspace]?.keyEquivalentModifierMask, [.command, .shift])
             XCTAssertEqual(hints[.newCloudMachine]?.keyEquivalent, "y")
