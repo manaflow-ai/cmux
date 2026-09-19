@@ -25,10 +25,10 @@ Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux 
 
 Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS archives, tests, profiling, simulator and UI verification, and any other resource-intensive workload may use any available slot. Do not wait for an AWS-only builder or infer capacity from a workload label. Use the shared lease state and slot-isolated paths supplied by the fleet tooling.
 
-Compile-only check, no launch:
+Compile-only check, no launch. Point it at the derived data `reload.sh` uses for the tag, so the check reuses that build instead of starting a second cold one:
 
 ```bash
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<tag> build
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>" build
 ```
 
 Rebuild GhosttyKit.xcframework with Release optimizations:
@@ -37,7 +37,7 @@ Rebuild GhosttyKit.xcframework with Release optimizations:
 cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
 ```
 
-Clean up older tags you started this session (quit the app, remove its `/tmp` socket and derived data) before launching a new one.
+Clean up older tags you started this session (quit the app, remove its `/tmp` socket) before launching a new one. Remove a tag's derived data only when no active task needs it; the next build of that tag is a full cold build without it.
 
 ### Intel Macs, Xcode 16.2, Swift 6.0
 
