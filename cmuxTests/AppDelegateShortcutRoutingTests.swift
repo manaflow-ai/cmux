@@ -6308,6 +6308,53 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testWindowSendEventPreservesFirstCloudKeyBeforePortalMount() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let window = try XCTUnwrap(window(withId: windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = coldCloudTerminalPanel(workspace: workspace)
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel, at: .workspace(id: workspace.id, placement: .tab), focus: true, isLoading: false
+        )
+        // Keep the real manual pane unmounted and cold. Early typing must reach
+        // its actual input queue without depending on renderer availability.
+        TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+        panel.hostedView.removeFromSuperview()
+        _ = window.makeFirstResponder(nil)
+        let view = panel.hostedView.surfaceView
+        XCTAssertFalse(view.window === window)
+        XCTAssertFalse(panel.surface.hasLiveSurface)
+        XCTAssertTrue(panel.surface.canCreateRuntimeSurface)
+        XCTAssertEqual(workspace.focusedTerminalInputTarget()?.0, panel.id)
+#if DEBUG
+        let specification = try XCTUnwrap(SyntheticKeyEventFactory.parseShortcutCombo("e"))
+        let event = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: true, timestamp: ProcessInfo.processInfo.systemUptime
+        ))
+        window.sendEvent(event)
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14])
+        let keyUp = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: false, timestamp: ProcessInfo.processInfo.systemUptime
+        ))
+        window.sendEvent(keyUp)
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown, .keyUp])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14, 14])
+#endif
+    }
+
+    private func pendingKeyEvents(in view: GhosttyNSView) -> [NSEvent] {
+        view.pendingInputReplayActions.compactMap { action in
+            switch action {
+            case .keyDown(let event), .keyUp(let event): return event
+            case .paste: return nil
+            }
+        }
+    }
+
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
