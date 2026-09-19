@@ -10674,6 +10674,42 @@
    "constraints": [
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
    ]
+  },
+  "move-tab-to-workspace": {
+   "authority": "control",
+   "since": 12,
+   "capability": "tab-workspace-move-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
+   ]
   }
  },
  "events": {

@@ -170,6 +170,7 @@ MODEL_BY_PATH = {
     'commands/mint-terminal-renderer/request': models.MintTerminalRendererRequest,
     'commands/mint-terminal-renderer-by-terminal/request': models.MintTerminalRendererByTerminalRequest,
     'commands/move-tab/request': models.MoveTabRequest,
+    'commands/move-tab-to-workspace/request': models.MoveTabToWorkspaceRequest,
     'commands/move-terminal/request': models.MoveTerminalRequest,
     'commands/move-workspace/request': models.MoveWorkspaceRequest,
     'commands/new-browser-tab/request': models.NewBrowserTabRequest,

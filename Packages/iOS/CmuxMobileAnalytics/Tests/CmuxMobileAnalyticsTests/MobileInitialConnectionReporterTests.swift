@@ -124,7 +124,14 @@ private struct InitialConnectionTestConsent: AnalyticsConsentProviding {
             tNanos: 1_000_000_000,
             a: DiagnosticAppEventKind.appForegrounded.rawValue
         ))
-        try await Task.sleep(for: .milliseconds(20))
+        // Advance the reporter through its diagnostic clock instead of waiting
+        // for wall-clock time. Processing this later lifecycle edge exercises
+        // the same timeout path deterministically.
+        reporter.ingest(DiagnosticEvent(
+            code: .appFeatureAction,
+            tNanos: 1_020_000_000,
+            a: DiagnosticAppEventKind.appBackgrounded.rawValue
+        ))
         await reporter.flush()
 
         let timeout = await productUploader.uploadedEvents.first

@@ -17,7 +17,7 @@ import Testing
             iosVersion: "1.0.4",
             buildType: .prod
         )
-        #expect(official.stableVersion == "0.64.23")
+        #expect(official.stableVersion == "0.64.25")
         #expect(official.nightlyVersion?.contains("nightly") == true)
     }
 
@@ -42,9 +42,9 @@ import Testing
 
         let official = MobileWhatsNewCatalog.macUpdateDetail(
             buildType: .prod,
-            requiredVersion: "0.64.23"
+            requiredVersion: "0.64.25"
         )
-        #expect(official.contains("0.64.23"))
+        #expect(official.contains("0.64.25"))
         #expect(!official.contains("BETA"))
         #expect(!official.contains("%@"))
     }
