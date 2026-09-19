@@ -208,11 +208,21 @@ struct CloudInitialWorkspaceNamingTests {
             #expect(fixture.workspace.effectiveCustomTitleSource == .user)
 
             // The remote graph still has its older default name. Binding must
-            // submit the local intent before that snapshot can overwrite it.
+            // submit the local intent before that snapshot can overwrite it:
+            // the title is protected by the unacknowledged intent, not by its
+            // user provenance (#12986).
+            let key = CloudRenameCoordinator.Key.workspace(machine: fixture.provider.machine, id: "a")
+            #expect(fixture.catalog.pendingCloudRenameName(for: key) == "Chosen during creation")
+            fixture.renameService.reconcileRemoteState(
+                machine: fixture.provider.machine, state: fixture.provider.graph,
+                catalog: fixture.catalog, observation: .current
+            )
+            #expect(fixture.workspace.title == "Chosen during creation")
             try await fixture.settle()
+            #expect(fixture.catalog.pendingCloudRenameName(for: key) == nil)
             #expect(fixture.provider.writes.map { $0.0 } == ["a"])
             #expect(fixture.provider.writes.map { $0.1 } == ["Chosen during creation"])
-            #expect(fixture.workspace.title == "Chosen during creation")
+            try fixture.expectParity("terminal", workspaceName: "Chosen during creation")
         } catch {
             fixture.catalog.installCloudWorkspaceRenameService(originalService)
             await fixture.close()
