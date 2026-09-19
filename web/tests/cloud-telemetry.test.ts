@@ -133,7 +133,7 @@ describe("shared development error destination", () => {
     const sent: { url: string; body: any }[] = [];
     await exportCloudDiagnostics(["client", "server"].map((source) => ({
       userId: "private-account", eventId: source, attempts: 1,
-      payload: { client: parsed.client, span: parsed.spans[0]!, source: source as "client" | "server" },
+      payload: { client: parsed.client, span: parsed.spans[0]!, source: source as "client" | "server", backend: { tag: "errhub", revision: "a".repeat(40), sourceSha256: "b".repeat(64) } },
     })), configuration, (async (url, init) => {
       sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
       return new Response("{}");
