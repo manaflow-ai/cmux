@@ -73,6 +73,63 @@ def is_plainly_linux_runner(runs_on: str) -> bool:
     return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
 
 
+_JOB_SPLIT_RE = re.compile(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)")
+
+# `changes` routes every other job and `ci-status` is the required gate, so an
+# edit to either always runs every area.
+_ROUTING_JOBS = frozenset({"changes", "ci-status"})
+
+
+def split_workflow_jobs(workflow: str) -> Optional[tuple[str, dict[str, str]]]:
+    """Return the text before `jobs:` and each job's block, or None if unreadable."""
+    preamble, found, body = workflow.partition("\njobs:\n")
+    if not found:
+        return None
+    jobs: dict[str, str] = {}
+    for block in _JOB_SPLIT_RE.split(body):
+        name, _, _ = block.partition(":")
+        if not block.strip():
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", name) or name in jobs:
+            return None
+        jobs[name] = block
+    return (preamble, jobs) if jobs else None
+
+
+def job_is_plainly_linux(block: str) -> bool:
+    runs_on = re.search(r"(?m)^    runs-on:[ \t]*(.*)$", block)
+    return bool(runs_on) and is_plainly_linux_runner(runs_on.group(1))
+
+
+def ci_workflow_change_is_linux_only(base: str, head: str) -> bool:
+    """True when base and head ci.yml differ only in jobs that run on Linux.
+
+    Triggers, env, permissions and concurrency live before `jobs:` and reach
+    every job, so any change there is not Linux-only. Unreadable input and an
+    unchanged file are not Linux-only either, so the caller fails open.
+    """
+    base_parts = split_workflow_jobs(base)
+    head_parts = split_workflow_jobs(head)
+    if base_parts is None or head_parts is None:
+        return False
+    (base_preamble, base_jobs), (head_preamble, head_jobs) = base_parts, head_parts
+    if base_preamble != head_preamble:
+        return False
+    changed = {
+        name
+        for name in base_jobs.keys() | head_jobs.keys()
+        if base_jobs.get(name) != head_jobs.get(name)
+    }
+    if not changed or changed & _ROUTING_JOBS:
+        return False
+    return all(
+        job_is_plainly_linux(jobs[name])
+        for name in changed
+        for jobs in (base_jobs, head_jobs)
+        if name in jobs
+    )
+
+
 def macos_job_test_references(workflow: str) -> Optional[tuple[frozenset[str], frozenset[str]]]:
     """Return the tests/ paths ci.yml names in non-Linux jobs and in all jobs.
 
@@ -191,7 +248,7 @@ def is_macos_change(path: str) -> bool:
     return not is_macos_neutral(path)
 
 
-def classify_files(paths: Iterable[str]) -> ChangeAreas:
+def classify_files(paths: Iterable[str], *, ci_workflow_linux_only: bool = False) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
@@ -200,6 +257,8 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
     for raw_path in paths:
         path = normalize_path(raw_path)
         if not path:
+            continue
+        if path == CI_WORKFLOW_PATH and ci_workflow_linux_only:
             continue
         if forces_all_areas(path):
             macos = True
@@ -220,6 +279,19 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
         web=web,
         agent_session_web=agent_session_web,
     )
+
+
+def ci_workflow_linux_only(base_path: Optional[Path]) -> bool:
+    if base_path is None:
+        return False
+    try:
+        base = base_path.read_text(encoding="utf-8")
+        head = Path(CI_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    linux_only = ci_workflow_change_is_linux_only(base, head)
+    print(f"ci.yml changed; only Linux jobs differ: {bool_output(linux_only)}")
+    return linux_only
 
 
 def run_git(args: list[str]) -> str:
@@ -251,6 +323,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Path to append GitHub Actions step outputs to.",
     )
     parser.add_argument(
+        "--ci-workflow-base",
+        type=Path,
+        help="The base revision of ci.yml, to compare its jobs with the checked-out one.",
+    )
+    parser.add_argument(
         "--files-from",
         type=Path,
         help="Read changed files from this newline-delimited file instead of git.",
@@ -277,7 +354,7 @@ def main(argv: list[str]) -> int:
                 raise RuntimeError("pull_request event is missing base/head SHA")
             files = changed_files(args.base_sha, args.head_sha)
         if files:
-            areas = classify_files(files)
+            areas = classify_files(files, ci_workflow_linux_only=ci_workflow_linux_only(args.ci_workflow_base))
         else:
             areas = ChangeAreas.all()
             print("PR diff is empty; running all CI areas.")

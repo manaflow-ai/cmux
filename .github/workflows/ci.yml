@@ -72,6 +72,7 @@ jobs:
             ghosttykit_guard_only=true
             has_ghosttykit_guard_file=false
             ci_router_changed=false
+            ci_workflow_changed=false
             while IFS= read -r changed_file; do
               case "$changed_file" in
                 ghostty|scripts/download-prebuilt-ghosttykit.sh|scripts/validate-xcframework-archive.py|scripts/ghosttykit-checksums.txt|tests/test_ci_ghosttykit_release_check.sh)
@@ -81,7 +82,7 @@ jobs:
                   ci_router_changed=true
                   ;;
                 .github/workflows/ci.yml)
-                  ci_router_changed=true
+                  ci_workflow_changed=true
                   ;;
                 scripts/ci/*)
                   ci_router_changed=true
@@ -111,9 +112,23 @@ jobs:
               exit 0
             fi
 
+            # The detector is unchanged here, so it may judge a ci.yml edit: only
+            # an edit confined to Linux jobs skips macOS, and anything it cannot
+            # read runs every area.
+            workflow_base_args=()
+            if [ "$ci_workflow_changed" = true ]; then
+              if ! git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml; then
+                echo "Could not read the base ci.yml; running all CI areas." >&2
+                emit_all_areas
+                exit 0
+              fi
+              workflow_base_args=(--ci-workflow-base /tmp/cmux-ci-base-workflow.yml)
+            fi
+
             python3 scripts/ci/detect_ci_change_areas.py \
               --event-name "$EVENT_NAME" \
-              --files-from /tmp/cmux-ci-changed-files.txt
+              --files-from /tmp/cmux-ci-changed-files.txt \
+              ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
 
