@@ -7,9 +7,6 @@ on:
     branches:
       - main
     types: [opened, edited, reopened, synchronize, ready_for_review]
-  # The merge queue waits for this required status on the merge group commit.
-  # The group is checked as data against the policy of the main it lands on.
-  merge_group:
   push:
     branches:
       - main
@@ -38,7 +35,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
           path: trusted
           fetch-depth: 0
           persist-credentials: false
@@ -52,7 +49,7 @@ jobs:
 
       - name: Verify trusted checkout
         env:
-          TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.sha }}
+          TRUSTED_SHA: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.sha || github.sha }}
         run: |
           set -euo pipefail
           [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
@@ -70,20 +67,20 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Checkout pull-request source
-        if: github.event_name != 'push'
+        if: github.event_name == 'pull_request_target'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
           path: candidate
           fetch-depth: 1
           persist-credentials: false
 
       - name: Check pull-request source with trusted policy
-        if: github.event_name != 'push'
+        if: github.event_name == 'pull_request_target'
         working-directory: candidate/web
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           bun "$GITHUB_WORKSPACE/trusted/web/scripts/check-complexity.mjs" \
