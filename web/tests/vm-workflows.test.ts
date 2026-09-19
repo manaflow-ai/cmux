@@ -68,6 +68,7 @@ import {
   reconcileVmProviderStatuses,
   resizeVm,
   snapshotVm,
+  sweepExpiredVms,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -1681,6 +1682,154 @@ describe("VM Effect workflows", () => {
     expect(revoked).toBe(0);
     expect(revokedLeaseIds).toEqual([]);
     expect(leaseRevocationRetries).toHaveLength(1);
+  });
+
+  dbTest("expiry candidates protect every paid plan and only select expired free rows", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const prefix = "expiry-candidates-test-";
+    const now = new Date("2026-09-17T00:00:00Z");
+    const cutoff = new Date("2026-09-10T00:00:00Z");
+    const insertVm = async (name: string, plan: string | null, createdAt = new Date(0), status = "running") => {
+      await sql!`insert into cloud_vms (user_id, owner_team_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, created_at)
+        values (${prefix + name}, ${prefix + name}, ${prefix + name}, ${plan}, 'freestyle', ${prefix + name}, 'snapshot-test', ${status}, ${createdAt})`;
+    };
+    try {
+      await insertVm("free", "free");
+      await insertVm("null", null);
+      await insertVm("blank", "  ");
+      await insertVm("recent", "free", now);
+      await insertVm("boundary", "free", cutoff);
+      await insertVm("paid-row", "pro");
+      await insertVm("destroyed", "free", new Date(0), "destroyed");
+      for (const plan of ["go", "pro", "max", "team", "founders"]) {
+        await insertVm(plan, "free");
+        await sql`insert into stripe_subscriptions (id, customer_id, stack_user_id, stack_team_id, scope, status, plan)
+          values (${prefix + plan}, 'test-customer', ${prefix + plan}, ${plan === "team" ? prefix + plan : null}, ${plan === "team" ? "team" : "user"}, 'active', ${plan})`;
+      }
+      const rows = await Effect.runPromise(vmRepositoryLiveShape.expiredLifecycleCandidates!({ now, freeAccessExpiresBefore: cutoff, limit: 50 }));
+      expect(rows.map((row) => row.userId).sort()).toEqual(["blank", "free", "null"].map((name) => prefix + name));
+      expect(await Effect.runPromise(vmRepositoryLiveShape.expiredLifecycleCandidates!({ now, freeAccessExpiresBefore: null, limit: 50 }))).toEqual([]);
+    } finally {
+      await sql`delete from stripe_subscriptions where id like ${prefix + "%"}`;
+      await sql`delete from cloud_vms where user_id like ${prefix + "%"}`;
+    }
+  });
+
+  test("sweeps an expired free machine through destroy and home-volume cleanup", async () => {
+    const now = new Date("2026-08-31T12:00:00.000Z");
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000120",
+      userId: "user-workflow-expired-free",
+      billingTeamId: "team-workflow-expired-free",
+      billingPlanId: "free",
+      provider: "freestyle",
+      providerVmId: "expired-freestyle-machine",
+      status: "running",
+      createdAt: new Date("2026-08-01T12:00:00.000Z"),
+      providerMetadata: {
+        homeVolume: "cmux-home-expired-free-expired-freestyle-machine",
+        homeVolumePerMachine: true,
+      },
+    });
+    const destroyedIds: string[] = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const deletedVolumes: string[] = [];
+    const repo = testWorkflowRepo({
+      vm,
+      destroyedIds,
+      usageEvents,
+      expiredLifecycleCandidates: (input) => {
+        expect(input.now).toEqual(now);
+        expect(input.freeAccessExpiresBefore).toEqual(new Date("2026-08-24T12:00:00.000Z"));
+        expect(input.limit).toBe(50);
+        return Effect.succeed([vm]);
+      },
+    });
+    const destroyedProviderIds: string[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: (_provider, providerVmId) => Effect.sync(() => {
+        destroyedProviderIds.push(providerVmId);
+      }),
+      deleteHomeVolume: (_provider, volumeName) => Effect.sync(() => {
+        deletedVolumes.push(volumeName);
+      }),
+    };
+
+    const result = await Effect.runPromise(
+      sweepExpiredVms({ now, resolveCurrentEntitlements: async () => ({ planId: "free" }) }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(result).toEqual({ checked: 1, destroyed: 1, skipped: 0, supported: true });
+    expect(destroyedProviderIds).toEqual(["expired-freestyle-machine"]);
+    expect(deletedVolumes).toEqual(["cmux-home-expired-free-expired-freestyle-machine"]);
+    expect(destroyedIds).toEqual([vm.id]);
+    expect(usageEvents.some((event) => event.eventType === "vm.destroyed")).toBe(true);
+  });
+
+  test.each(["go", "pro", "max", "team", "founders", "unknown", null])(
+    "keeps expired free machines when current entitlement is %s",
+    async (planId) => {
+      const vm = testCloudVmRow({ providerVmId: "expired-free", status: "running", createdAt: new Date(0) });
+      const destroyedIds: string[] = [];
+      const repo = testWorkflowRepo({ vm, destroyedIds, expiredLifecycleCandidates: () => Effect.succeed([vm]) });
+      const result = await Effect.runPromise(sweepExpiredVms({
+        resolveCurrentEntitlements: async () => planId === null ? null : { planId },
+      }).pipe(Effect.provide(workflowLayer(repo, unusedProviderGateway()))));
+      expect(result).toEqual({ checked: 1, destroyed: 0, skipped: 1, supported: true });
+      expect(destroyedIds).toEqual([]);
+    },
+  );
+
+  test("keeps expired machines when current entitlement lookup throws", async () => {
+    const vm = testCloudVmRow({ providerVmId: "expired-free", status: "paused", createdAt: new Date(0) });
+    const repo = testWorkflowRepo({ vm, expiredLifecycleCandidates: () => Effect.succeed([vm]) });
+    const result = await Effect.runPromise(sweepExpiredVms({
+      resolveCurrentEntitlements: async () => { throw new Error("Stack unavailable"); },
+    }).pipe(Effect.provide(workflowLayer(repo, unusedProviderGateway()))));
+    expect(result).toEqual({ checked: 1, destroyed: 0, skipped: 1, supported: true });
+  });
+
+  test("expiry sweep retries provider failures and revokes model tokens after a successful destroy", async () => {
+    const vm = testCloudVmRow({ providerVmId: "expired-free", status: "paused", createdAt: new Date(0) });
+    const destroyedIds: string[] = [];
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm, destroyedIds, usageEvents, expiredLifecycleCandidates: () => Effect.succeed([vm]) });
+    const calls: string[] = [];
+    let failDestroy = true;
+    const provider = { ...unusedProviderGateway(), destroy: () => {
+      calls.push("destroy");
+      return failDestroy ? Effect.fail(providerOperationError("destroy", "unavailable")) : Effect.void;
+    } };
+    const run = () => Effect.runPromise(sweepExpiredVms({
+      resolveCurrentEntitlements: async () => ({ planId: "free" }),
+      modelPlane: { revoke: async (id) => { expect(id).toBe(vm.id); calls.push("revoke"); } },
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect((await run()).destroyed).toBe(0);
+    expect(destroyedIds).toEqual([]);
+    expect(calls).toEqual(["destroy"]);
+    failDestroy = false;
+    expect((await run()).destroyed).toBe(1);
+    expect(calls).toEqual(["destroy", "destroy", "revoke"]);
+    expect(destroyedIds).toEqual([vm.id]);
+    expect(usageEvents.find((event) => event.eventType === "vm.destroyed")?.metadata).toEqual({ source: "expired_lifecycle_sweeper" });
+  });
+
+  test("expiry sweep ignores retired providers and rows outside the free window", async () => {
+    const now = new Date();
+    const vm = testCloudVmRow({ providerVmId: "free-vm", status: "running", createdAt: new Date(0) });
+    const repo = testWorkflowRepo({ vm, expiredLifecycleCandidates: () => Effect.succeed([
+      { ...vm, provider: "retired" as CloudVmRow["provider"] },
+      { ...vm, createdAt: now },
+      { ...vm, billingPlanId: "pro" },
+      { ...vm, status: "destroyed" },
+    ]) });
+    let lookups = 0;
+    const result = await Effect.runPromise(sweepExpiredVms({ now,
+      resolveCurrentEntitlements: async () => { lookups += 1; return { planId: "free" }; },
+    }).pipe(Effect.provide(workflowLayer(repo, unusedProviderGateway()))));
+    expect(result).toEqual({ checked: 4, destroyed: 0, skipped: 4, supported: true });
+    expect(lookups).toBe(0);
   });
 
   dbTest("backs off failed expired identity cleanup so later leases progress", async () => {
@@ -6539,6 +6688,7 @@ function testWorkflowRepo(input: {
   readonly markProviderObservedStatus?: (
     update: ObservedStatusUpdate,
   ) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly expiredLifecycleCandidates?: VmRepositoryShape["expiredLifecycleCandidates"];
   readonly markDestroyed?: VmRepositoryShape["markDestroyed"];
   readonly destroyedIds?: string[];
 }): VmRepositoryShape {
@@ -6554,6 +6704,7 @@ function testWorkflowRepo(input: {
     markBaseCreateRunning: () => unusedDatabaseEffect("markBaseCreateRunning"),
     markBaseCreateFailed: () => Effect.void,
     activeLimitCandidates: () => Effect.succeed([]),
+    expiredLifecycleCandidates: input.expiredLifecycleCandidates,
     reservePausedResume: () =>
       Effect.succeed({
         ...input.vm,

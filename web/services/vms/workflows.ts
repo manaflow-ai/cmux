@@ -77,6 +77,7 @@ import {
   isVmLimitExceededError,
   isVmModelPlaneError,
   type VmWorkflowError,
+  vmWorkflowErrorCause,
 } from "./errors";
 import {
   isPaidVmPlan,
@@ -111,6 +112,7 @@ import {
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
+import { resolveExpiredVmEntitlements, type CurrentVmEntitlementsResolver } from "./expiryEntitlements";
 
 export {
   homeVolumeNameForUser,
@@ -205,6 +207,9 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
+const EXPIRED_VM_SWEEP_LIMIT = 50;
+const EXPIRED_VM_SWEEP_CONCURRENCY = 10;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
@@ -234,6 +239,13 @@ export type VmProviderStatusReconcileResult = {
   readonly destroyed: number;
   readonly skipped: number;
   readonly skippedNoGetStatus: boolean;
+};
+
+export type VmExpiredLifecycleSweepResult = {
+  readonly checked: number;
+  readonly destroyed: number;
+  readonly skipped: number;
+  readonly supported: boolean;
 };
 
 /** A VM control-plane program: typed failures, live services provided by {@link vmWorkflowRuntime}. */
@@ -433,6 +445,95 @@ export function reconcileVmProviderStatuses(input: {
       skipped,
       skippedNoGetStatus: false,
     };
+  });
+}
+
+/**
+ * Destroy expired free-window machines only after current entitlement checks.
+ * Failed or unknown eligibility stays retryable without touching the provider.
+ */
+export function sweepExpiredVms(input: {
+  readonly now?: Date;
+  readonly limit?: number;
+  /** Test seam and future worker seam. Null means entitlement is unknown. */
+  readonly resolveCurrentEntitlements?: CurrentVmEntitlementsResolver;
+  readonly modelPlane?: VmModelPlaneRevoker;
+} = {}): Effect.Effect<VmExpiredLifecycleSweepResult, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const findCandidates = repo.expiredLifecycleCandidates;
+    if (!findCandidates) {
+      return { checked: 0, destroyed: 0, skipped: 0, supported: false };
+    }
+
+    const now = input.now ?? new Date();
+    const freeWindowDays = vmFreeAccessWindowDays();
+    const freeAccessExpiresBefore = freeWindowDays > 0
+      ? new Date(now.getTime() - freeWindowDays * DAY_MS)
+      : null;
+    const candidates = yield* findCandidates({
+      now,
+      freeAccessExpiresBefore,
+      limit: boundedExpiredVmSweepLimit(input.limit),
+    });
+    const resolveCurrentEntitlements = input.resolveCurrentEntitlements ?? resolveExpiredVmEntitlements;
+
+    const outcomes = yield* Effect.forEach(candidates, (vm) => {
+      const providerVmId = vm.providerVmId;
+      if (!providerVmId || isRetiredProviderRow(vm) || !freeAccessExpiresBefore ||
+        vm.createdAt >= freeAccessExpiresBefore ||
+        (vm.billingPlanId?.trim().toLowerCase() || "free") !== "free" ||
+        !["running", "paused"].includes(vm.status)) return Effect.succeed("skipped" as const);
+      return Effect.tryPromise({
+        try: () => resolveCurrentEntitlements(vm),
+        catch: () => null,
+      }).pipe(
+        Effect.timeout("3 seconds"),
+        Effect.catchAll(() => Effect.succeed(null)),
+        Effect.flatMap((entitlements) => {
+          // Stack is authoritative for current paid/manual/founder access. A
+          // missing answer is unknown and therefore never eligible to destroy.
+          if (!entitlements || entitlements.planId !== "free") return Effect.succeed("skipped" as const);
+          return destroyVmRow(repo, providers, vm, {
+            actorUserId: vm.userId,
+            providerVmId,
+            identityCleanup: "best_effort",
+            modelPlane: input.modelPlane,
+            source: "expired_lifecycle_sweeper",
+          }).pipe(
+            Effect.as("destroyed" as const),
+            Effect.catchAll((err) =>
+              Effect.gen(function* () {
+                console.error(
+                  `[vm] expired lifecycle destroy failed for ${vm.providerVmId}`,
+                  errorMessage(vmWorkflowErrorCause(err) ?? err),
+                );
+                yield* repo.recordUsageEvent({
+                  userId: vm.userId,
+                  billingTeamId: vm.billingTeamId,
+                  billingPlanId: vm.billingPlanId,
+                  vmId: vm.id,
+                  eventType: "vm.expired.destroy_failed",
+                  provider: vm.provider,
+                  imageId: vm.imageId,
+                  metadata: {
+                    source: "expired_lifecycle_sweeper",
+                    message: errorMessage(vmWorkflowErrorCause(err) ?? err),
+                  },
+                }).pipe(Effect.catchAll(() => Effect.void));
+                return "skipped" as const;
+              }),
+            ),
+          );
+        }),
+      );
+    }, { concurrency: EXPIRED_VM_SWEEP_CONCURRENCY });
+
+    const destroyed = outcomes.filter((outcome) => outcome === "destroyed").length;
+    const skipped = outcomes.length - destroyed;
+
+    return { checked: candidates.length, destroyed, skipped, supported: true };
   });
 }
 
@@ -2350,6 +2451,11 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
   return Math.max(1, Math.min(VM_STATUS_RECONCILE_BATCH_LIMIT, Math.trunc(limit)));
 }
 
+function boundedExpiredVmSweepLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return EXPIRED_VM_SWEEP_LIMIT;
+  return Math.max(1, Math.min(EXPIRED_VM_SWEEP_LIMIT, Math.trunc(limit)));
+}
+
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
@@ -2737,22 +2843,67 @@ export function destroyVm(input: {
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
 
-    yield* revokeActiveIdentities(vm, { failOnCleanupError: true });
-    yield* providers.destroy(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
+    yield* destroyVmRow(repo, providers, vm, {
+      actorUserId: input.userId,
+      providerVmId: vm.providerVmId ?? input.providerVmId,
+      afterProviderDestroy: input.afterProviderDestroy,
+      modelPlane: input.modelPlane,
+      identityCleanup: "strict",
+      source: input.source ?? "user_request",
+    });
+  });
+}
+
+type DestroyVmRowOptions = {
+  readonly actorUserId: string;
+  readonly providerVmId: string;
+  readonly afterProviderDestroy?: () => void;
+  readonly modelPlane?: VmModelPlaneRevoker;
+  readonly identityCleanup: "strict" | "best_effort";
+  readonly source?: string;
+};
+
+/** Shared provider and Postgres finalization for user deletes and cron sweeps. */
+function destroyVmRow(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  options: DestroyVmRowOptions,
+): Effect.Effect<void, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    const identityCleanup = revokeActiveIdentities(vm, {
+      failOnCleanupError: options.identityCleanup === "strict",
+    });
+    if (options.identityCleanup === "best_effort") {
+      yield* identityCleanup.pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.error(
+              `[vm] identity cleanup failed before destroy for ${options.providerVmId}`,
+              errorMessage(vmWorkflowErrorCause(err) ?? err),
+            );
+          }),
+        ),
+      );
+    } else {
+      yield* identityCleanup;
+    }
+
+    yield* providers.destroy(vm.provider, options.providerVmId).pipe(
       Effect.catchAll((err) => {
         if (isProviderNotFoundError(err.cause)) return Effect.void;
         return Effect.fail(err);
       }),
     );
-    const destroyedProviderVmId = vm.providerVmId ?? input.providerVmId;
-    yield* revokeModelPlane(input.modelPlane, vm.id);
+    const destroyedProviderVmId = options.providerVmId;
+    yield* revokeModelPlane(options.modelPlane, vm.id);
     // This callback is advisory progress reporting. A failure must not skip
     // the mandatory volume cleanup or DB finalization now that the provider
     // machine is gone. Keep the failure observable in the usage ledger, but
     // leave destroy successful because those mandatory operations are the
     // authoritative outcome.
     try {
-      input.afterProviderDestroy?.();
+      options.afterProviderDestroy?.();
     } catch (err) {
       const message = errorMessage(err);
       console.error(
@@ -2760,7 +2911,7 @@ export function destroyVm(input: {
         message,
       );
       yield* repo.recordUsageEvent({
-        userId: input.userId,
+        userId: options.actorUserId,
         billingTeamId: vm.billingTeamId,
         billingPlanId: vm.billingPlanId,
         vmId: vm.id,
@@ -2786,7 +2937,7 @@ export function destroyVm(input: {
               errorMessage(err.cause),
             );
             yield* repo.recordUsageEvent({
-              userId: input.userId,
+              userId: options.actorUserId,
               billingTeamId: vm.billingTeamId,
               billingPlanId: vm.billingPlanId,
               vmId: vm.id,
@@ -2805,7 +2956,7 @@ export function destroyVm(input: {
     // the provider-status reconciler is the backstop if it still fails.
     yield* repo.markDestroyed(vm.id).pipe(Effect.retry({ times: 2 }));
     yield* repo.recordUsageEvent({
-      userId: input.userId,
+      userId: options.actorUserId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
       vmId: vm.id,
@@ -2814,8 +2965,8 @@ export function destroyVm(input: {
       imageId: vm.imageId,
       vmCreatedAt: vm.createdAt,
       metadata: {
-        source: input.source ?? "user_request",
         ...(homeVolume ? { homeVolume, homeVolumeDeleted } : {}),
+        ...(options.source ? { source: options.source } : {}),
       },
     }).pipe(Effect.catchAll(() => Effect.void));
   });
@@ -3746,9 +3897,9 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
 }
 
 /// Access-verb variant of requireUserVm: a free-plan machine older than the
-/// free access window is preserved but unreachable until the caller upgrades.
-/// List/status/rename/delete deliberately keep using requireUserVm so the
-/// machine stays visible and disposable while locked.
+/// free access window is locked until the caller upgrades or the lifecycle
+/// sweep removes it. List/status/rename/delete deliberately keep using
+/// requireUserVm so the machine stays visible and disposable while locked.
 function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     let vm = yield* requireUserVm(input);

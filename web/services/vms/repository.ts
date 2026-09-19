@@ -1,5 +1,24 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { PAID_PLAN_IDS, ACTIVE_STRIPE_PRO_STATUSES } from "../billing/pro";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -19,6 +38,7 @@ import {
   cloudVmTunnelEnrollmentLocks,
   cloudVms,
   cloudVmUsageEvents,
+  stripeSubscriptions,
 } from "../../db/schema";
 import {
   accountDeletionAdvisoryLockKey,
@@ -413,6 +433,11 @@ export type VmRepositoryShape = {
     readonly operationId: string;
   }) => Effect.Effect<void, VmDatabaseError>;
   readonly reconciliationCandidates: (input: {
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly expiredLifecycleCandidates?: (input: {
+    readonly now: Date;
+    readonly freeAccessExpiresBefore: Date | null;
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /** Live VM rows that currently claim a persistent home volume. */
@@ -2539,6 +2564,41 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .from(cloudVms)
         .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
         .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
+    }),
+
+  expiredLifecycleCandidates: (input) =>
+    dbEffect("expiredLifecycleCandidates", async () => {
+      const db = cloudDb();
+      const activeSubscription = alias(stripeSubscriptions, "active_vm_subscription");
+      const activePaidAccess = db.select({ id: activeSubscription.id })
+        .from(activeSubscription).where(and(
+          inArray(activeSubscription.status, [...ACTIVE_STRIPE_PRO_STATUSES]),
+          inArray(activeSubscription.plan, [...PAID_PLAN_IDS]),
+          or(
+            and(eq(activeSubscription.scope, "user"), eq(activeSubscription.stackUserId, cloudVms.userId)),
+            and(eq(activeSubscription.scope, "team"), eq(activeSubscription.stackTeamId, cloudVms.billingTeamId)),
+          ),
+        ));
+      // The row's recorded plan is only a lower bound. The workflow performs a
+      // fresh Stack entitlement check before destruction, so upgraded users and
+      // operator grants are protected even when this legacy value is stale.
+      const freeAccessExpired = input.freeAccessExpiresBefore
+        ? and(
+          sql`lower(coalesce(nullif(trim(${cloudVms.billingPlanId}), ''), 'free')) = 'free'`,
+          lt(cloudVms.createdAt, input.freeAccessExpiresBefore),
+        )
+        : sql`false`;
+      return await db
+        .select()
+        .from(cloudVms)
+        .where(and(
+          inArray(cloudVms.status, ["running", "paused"]),
+          isNotNull(cloudVms.providerVmId),
+          freeAccessExpired,
+          notExists(activePaidAccess),
+        ))
+        .orderBy(asc(cloudVms.createdAt), asc(cloudVms.id))
         .limit(input.limit);
     }),
 
