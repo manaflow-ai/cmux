@@ -102,11 +102,16 @@ fi
 # those same build settings before invoking this script. The stamp is
 # intentionally optional so direct script callers retain override support.
 if [[ -n "${CMUX_DIFF_SIDECAR_STAMP:-}" ]]; then
-  stamp_tmp="${CMUX_DIFF_SIDECAR_STAMP}.tmp.$$"
+  stamp_tmp="$(mktemp "${CMUX_DIFF_SIDECAR_STAMP}.tmp.XXXXXX")"
+  cleanup_stamp_tmp() {
+    [[ -e "$stamp_tmp" ]] && rm -f "$stamp_tmp"
+  }
+  trap cleanup_stamp_tmp EXIT
   {
     printf 'requested_archs=%s\n' "$requested_archs"
     printf 'min_macos=%s\n' "${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}"
     shasum -a 256 "$destination"
   } > "$stamp_tmp"
   mv -f "$stamp_tmp" "$CMUX_DIFF_SIDECAR_STAMP"
+  trap - EXIT
 fi
