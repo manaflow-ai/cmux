@@ -26,14 +26,18 @@ const AttachmentSchema = z.strictObject({
 });
 type Attachment = z.infer<typeof AttachmentSchema>;
 const TEAM_SOCKET_LIMIT = 4096;
+export const TEAM_ID_STORAGE_KEY = "iroh-v2:team-id";
 
-/** No presence timer, credential timer or cleanup alarm runs in this object. */
+/** Expiry retention runs in a bounded alarm; presence and credential timers remain outside this object. */
 export class TeamControl extends DurableObject<Environment> {
   private brokers = new Map<string, TeamBroker>();
   private opening = new Set<string>();
   private queues = new Map<WebSocket, { tail: Promise<void>; count: number }>();
   private queuedBytes = 0;
   private dashboard: DashboardControl;
+  private knownTeamId: string | null = null;
+  private retentionRefresh: Promise<void> | null = null;
+  private retentionRefreshNeeded = false;
 
   constructor(ctx: DurableObjectState, env: Environment) {
     super(ctx, env);
@@ -43,27 +47,35 @@ export class TeamControl extends DurableObject<Environment> {
       enqueue: (ws, bytes, action) => this.enqueue(ws, bytes, action),
       changed: (result, teamId) => this.scheduleChanges(result, teamId), opening: this.opening,
     });
-    ctx.blockConcurrencyWhile(async () => { applyStorageMigrations(ctx.storage); });
+    ctx.blockConcurrencyWhile(async () => {
+      applyStorageMigrations(ctx.storage);
+      this.knownTeamId = await ctx.storage.get<string>(TEAM_ID_STORAGE_KEY) ?? null;
+      if (this.knownTeamId !== null) await this.refreshRetentionAlarm(this.knownTeamId);
+    });
     // Native WebSocket ping/pong is handled by Cloudflare without waking us.
   }
 
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
     let requestId = "unidentified";
+    let teamId: string | null = null;
     try {
       const incoming = await readInternalRequest(request);
       requestId = incoming.setup.requestId;
+      teamId = incoming.authority.teamId;
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
         const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt);
         const result = await broker.execute(session, incoming.input);
         this.scheduleChanges(result, session.identity.teamId);
+        this.scheduleRetention(session.identity.teamId);
         observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
         return this.json(result.response);
       }
       const result = await broker.open(incoming.setup, incoming.authority, incoming.expiresAt, incoming.issueTicket);
       if (!result.session) throw new OperationError("internal_error", 500);
       this.scheduleChanges(result, incoming.authority.teamId);
+      this.scheduleRetention(incoming.authority.teamId);
       observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
       if (incoming.path === "/session") return this.json(result.response);
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
@@ -84,6 +96,7 @@ export class TeamControl extends DurableObject<Environment> {
         return new Response(null, { status: 101, webSocket: client });
       } finally { this.opening.delete(session.sessionId); }
     } catch (error) {
+      if (teamId !== null) this.scheduleRetention(teamId);
       const failure = publicError(error);
       observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable });
       return httpFailure(error, requestId);
@@ -128,6 +141,7 @@ export class TeamControl extends DurableObject<Environment> {
           try { await this.send(ws, failure.body); } catch { this.close(ws, "slow_consumer"); }
           if (["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(code)) this.close(ws, code);
         } finally {
+          this.scheduleRetention(attachment.session.identity.teamId);
           observe(this.ctx, this.env, { event: "iroh.socket.operation", environment: this.env.ENVIRONMENT, operation: inputOperation(input), status, code, durationMs: Date.now() - started });
         }
       });
@@ -165,11 +179,12 @@ export class TeamControl extends DurableObject<Environment> {
     const scope = environmentScope(this.env);
     const expected = this.env.TEAM_CONTROL.idFromName(objectName(scope.environment, scope.projectId, teamId));
     if (!this.ctx.id.equals(expected)) throw new OperationError("identity_mismatch", 403);
+    this.rememberTeamId(teamId);
     let broker = this.brokers.get(teamId);
     if (!broker) {
       const services = runtime(this.env);
       broker = new TeamBroker({
-        store: new TeamStore(this.ctx.storage, { ...scope, teamId }, { initialize: false }),
+        store: this.storeForTeam(teamId),
         ownership: services.ownership, relays: services.relays, now: () => Math.floor(Date.now() / 1000),
         charge: async (userId, operation) => { unwrap(await this.user(userId).consume(userId, operation as UsageOperation)); },
         issueTicket: (device, now) => issueTicket(device, services.currentKeyId, services.currentKey, now),
@@ -180,6 +195,56 @@ export class TeamControl extends DurableObject<Environment> {
       this.brokers.set(teamId, broker);
     }
     return broker;
+  }
+
+  override async alarm(): Promise<void> {
+    const teamId = await this.ctx.storage.get<string>(TEAM_ID_STORAGE_KEY);
+    if (teamId === undefined) return;
+    this.knownTeamId = teamId;
+    await this.refreshRetentionAlarm(teamId);
+  }
+
+  private storeForTeam(teamId: string): TeamStore {
+    return new TeamStore(this.ctx.storage, { ...environmentScope(this.env), teamId }, { initialize: false });
+  }
+
+  private rememberTeamId(teamId: string): void {
+    if (this.knownTeamId !== null) {
+      if (this.knownTeamId !== teamId) throw new OperationError("identity_mismatch", 403);
+      return;
+    }
+    this.knownTeamId = teamId;
+    this.ctx.waitUntil(this.ctx.storage.put(TEAM_ID_STORAGE_KEY, teamId).catch(error => {
+      console.error("iroh_v2_team_id_persist_failed", error);
+    }));
+  }
+
+  private scheduleRetention(teamId: string): void {
+    this.retentionRefreshNeeded = true;
+    if (this.retentionRefresh !== null) return;
+    const refresh = (async () => {
+      do {
+        this.retentionRefreshNeeded = false;
+        await this.refreshRetentionAlarm(teamId);
+      } while (this.retentionRefreshNeeded);
+    })();
+    this.retentionRefresh = refresh;
+    this.ctx.waitUntil(refresh.catch(error => {
+      console.error("iroh_v2_retention_schedule_failed", error);
+    }).finally(() => {
+      if (this.retentionRefresh === refresh) this.retentionRefresh = null;
+    }));
+  }
+
+  private async refreshRetentionAlarm(teamId: string): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    const store = this.storeForTeam(teamId);
+    store.pruneExpiredState(now);
+    const next = store.nextRetentionAt();
+    if (next === null) return;
+    const due = next <= now ? Date.now() + 1000 : next * 1000;
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > due) await this.ctx.storage.setAlarm(due);
   }
 
   private user(userId: string) {
