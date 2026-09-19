@@ -25,7 +25,8 @@ asynchronous loading never shuffle the fleet. It is independent of the default
 machine above: a pin is sidebar priority, the default is Cmd+Y routing.
 
 ```swift
-let pins = CloudMachinePinStore(defaults: defaults, scopeProvider: { "user:a|team:one" })
+let pinDefaults = UserDefaults(suiteName: UUID().uuidString)!
+let pins = CloudMachinePinStore(defaults: pinDefaults, scopeProvider: { "user:a|team:one" })
 pins.reconcile(machineIDs: ["b", "a"])   // the complete visible fleet; absent ids lose their pin
 pins.setPinned(true, machineID: "a")
 pins.orderedMachineIDs(["b", "a"])       // ["a", "b"]
