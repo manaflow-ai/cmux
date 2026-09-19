@@ -40,7 +40,7 @@ public final class AuthCoordinator {
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
-    public private(set) var availableTeams: [CMUXAuthTeam] = [] {
+    public internal(set) var availableTeams: [CMUXAuthTeam] = [] {
         didSet { publishAuthenticatedTeamScope() }
     }
     /// The user's selected team id. Writes persist through the injected
