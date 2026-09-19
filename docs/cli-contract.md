@@ -722,6 +722,18 @@ the expected text without connecting to a cmux socket.
 - `cmux --help` -> `open <path-or-url>...`
 - `cmux --help` -> `sessions [list] [options]`
 - `cmux help` -> `cmux - control cmux via Unix socket`
+- `cmux --help` -> `Start & Resume:`
+- `cmux --help` -> `Diagnostics / Advanced:`
+- `cmux help start` -> `Start & Resume:`
+- `cmux help agents` -> `Agents:`
+- `cmux help navigate` -> `Navigate & Arrange:`
+- `cmux help inspect` -> `Inspect:`
+- `cmux help customize` -> `Customize:`
+- `cmux help automation` -> `Automation:`
+- `cmux help browser` -> `Browser:`
+- `cmux help remote` -> `Remote:`
+- `cmux help diagnostics` -> `Diagnostics / Advanced:`
+- `cmux help unknown-task-topic` -> `cmux - control cmux via Unix socket`
 - `cmux --help` -> `cmux guide | cmux --skill`
 - `cmux cloud --help` -> `guide | --skill`
 - `cmux guide` -> `# cmux guide`
