@@ -8,6 +8,100 @@ import Testing
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
+    @Test(arguments: [false, true])
+    func bufferedBytesFollowTheNewBinding(detachFirst: Bool) async throws {
+        try await Self.withConnection { old, oldPeer in
+            try await Self.withConnection { replacement, peer in
+                let queue = DispatchQueue(label: "test.cloud-buffered-rebind")
+                let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+                queue.suspend()
+                router.setConnection(old)
+                router.send(.bytes(Data("new-binding".utf8)))
+                if detachFirst { router.setConnection(nil) }
+                router.setConnection(replacement)
+                queue.resume()
+                let encoded = try await Self.blocking {
+                    let command = try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                    return command["bytes"] as? String
+                }
+                #expect(encoded == Data("new-binding".utf8).base64EncodedString())
+                #expect(try await Self.blocking { try Self.readAvailable(oldPeer).isEmpty })
+                router.invalidate()
+            }
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func rejectedHandoffRetainsKnownUnsentInput(queuedBeforeBind: Bool) async throws {
+        try await Self.withConnection { rejected, _ in
+            rejected.close()
+            try await Self.withConnection { replacement, peer in
+                let queue = DispatchQueue(label: "test.cloud-rejected-handoff")
+                let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+                queue.suspend()
+                if queuedBeforeBind { router.send(.bytes(Data("before".utf8))) }
+                router.setConnection(rejected)
+                if !queuedBeforeBind { router.send(.bytes(Data("before".utf8))) }
+                router.send(.namedKey("Enter"))
+                router.setConnection(replacement)
+                queue.resume()
+                let commands = try await Self.blocking {
+                    try (0..<2).map { _ in
+                        let command = try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                        return (command["bytes"] as? String, command["keys"] as? [String])
+                    }
+                }
+                #expect(commands[0].0 == Data("before".utf8).base64EncodedString())
+                #expect(commands[1].1 == ["enter"])
+                router.invalidate()
+            }
+        }
+    }
+
+    @Test func pendingConnectionCannotReopenAnInvalidatedRouter() async throws {
+        try await Self.withConnection { connection, _ in
+            let queue = DispatchQueue(label: "test.cloud-terminal-invalidation")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            queue.suspend()
+            router.setConnection(connection)
+            router.invalidate()
+            router.setConnection(connection)
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            #expect(!router.send(.bytes(Data("after-teardown".utf8))))
+            router.invalidate()
+            try await Self.blocking { queue.sync {} }
+        }
+    }
+
+    @Test func callbackAdmissionRejectsBeforeRouterQueueRuns() async throws {
+        let queue = DispatchQueue(label: "test.cloud-callback-admission")
+        let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+        let bytes = Data(repeating: 0x61, count: 128 * 1024)
+        queue.suspend()
+        #expect(router.send(.bytes(bytes)))
+        #expect(router.send(.bytes(bytes)))
+        #expect(!router.send(.bytes(Data([0x61]))))
+        #expect(!router.send(.bytes(Data([0x61]))))
+        router.invalidate()
+        queue.resume()
+        try await Self.blocking { queue.sync {} }
+    }
+
+    @Test func commandAdmissionRejectsBeforeSocketQueueRuns() async throws {
+        let queue = DispatchQueue(label: "test.cloud-command-admission")
+        try await Self.withConnection(queue: queue) { connection, _ in
+            let line = Data(repeating: 0x61, count: 128 * 1024)
+            queue.suspend()
+            #expect(connection.sendInput(line: line))
+            #expect(connection.sendInput(line: line))
+            #expect(!connection.sendInput(line: Data([0x61])))
+            #expect(!connection.send(line: Data([0x61])))
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+        }
+    }
+
     @Test func burstSurvivesAConsumerWaitingForAnInputRoundTrip() async throws {
         try await Self.withConnection { connection, peer in
             let chunks = (0..<100).map { Data("\u{1b}[?2026hchunk-\($0)\u{1b}[?2026l".utf8) }
@@ -29,6 +123,178 @@ import Testing
                 if case let .output(_, bytes, _) = frame { received.append(bytes) }
             }
             #expect(received == chunks)
+        }
+    }
+
+    @Test func keystrokeBurstSurvivesBriefPeerBackpressure() async throws {
+        let writerQueue = DispatchQueue(label: "test.cloud-burst-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
+            let inputQueue = DispatchQueue(label: "test.cloud-burst-input")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: inputQueue)
+            let expected = Data((0..<8192).map { UInt8(truncatingIfNeeded: $0) })
+            // Hold both lanes until the burst is submitted. This reproduces a
+            // brief scheduling/peer pause without relying on sleeps or rates.
+            writerQueue.suspend()
+            inputQueue.suspend()
+            router.setConnection(connection)
+            for byte in expected { router.send(.bytes(Data([byte]))) }
+            router.setConnection(connection)
+            inputQueue.resume()
+            try await Self.blocking { inputQueue.sync {} }
+            writerQueue.resume()
+            try await Self.blocking { writerQueue.sync {} }
+
+            let actual = try await Self.blocking {
+                var bytes = Data()
+                while bytes.count < expected.count {
+                    let line = try Self.readLine(peer)
+                    if line.isEmpty { break }
+                    let command = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+                    #expect(command["surface"] as? Int == 7)
+                    let encoded = try #require(command["bytes"] as? String)
+                    bytes.append(try #require(Data(base64Encoded: encoded)))
+                }
+                return bytes
+            }
+            #expect(actual == expected)
+            connection.send(line: Data("still-connected\n".utf8))
+            #expect(try await Self.blocking { try Self.readLine(peer) } == Data("still-connected\n".utf8))
+        }
+    }
+
+    @Test func inputWaitsForReceiptsBeforeExhaustingThePeerReplyQueue() async throws {
+        let writerQueue = DispatchQueue(label: "test.cloud-input-credit-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-input-credit")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            queue.suspend()
+            router.setConnection(connection)
+            for _ in 0..<512 { router.send(.namedKey("Enter")) }
+            router.setConnection(nil)
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            connection.send(line: Data("peer-barrier\n".utf8))
+            try await Self.blocking { writerQueue.sync {} }
+            let initialSubmitted = try await Self.blocking {
+                var submitted = try Self.readAvailable(peer).split(separator: 0x0A).count
+                // cmux-tui reserves 256 control replies. A paused reader must
+                // leave room for control traffic instead of closing the peer.
+                let initialSubmitted = submitted
+                let receipt = Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8)
+                for _ in 0..<submitted { try Self.write(peer, receipt) }
+                while submitted < 512 {
+                    let line = try Self.readLine(peer)
+                    try #require(!line.isEmpty)
+                    submitted += 1
+                    try Self.write(peer, receipt)
+                }
+                let barrier = try Self.readLine(peer)
+                try #require(barrier == Data("peer-barrier\n".utf8))
+                return initialSubmitted
+            }
+            #expect(initialSubmitted > 0 && initialSubmitted < 256)
+        }
+    }
+
+    @Test func rejectedInputClosesWithoutSpendingMoreCredits() async throws {
+        let writerQueue = DispatchQueue(label: "test.cloud-input-rejection-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-input-rejected")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            queue.suspend()
+            router.setConnection(connection)
+            for _ in 0..<100 { router.send(.namedKey("Enter")) }
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            try await Self.blocking { writerQueue.sync {} }
+            let counts = try await Self.blocking {
+                let submitted = try Self.readAvailable(peer).split(separator: 0x0A).count
+                try Self.write(peer, Data("{\"id\":0,\"ok\":false,\"error\":\"rejected\"}\n".utf8))
+                let afterRejection = try Self.readLine(peer)
+                return (submitted, afterRejection.isEmpty)
+            }
+            #expect(counts.0 > 0 && counts.0 < 100)
+            #expect(counts.1)
+        }
+    }
+
+    @Test func pausedFrameConsumerResumesInputWithoutResetOrLoss() async throws {
+        let writerQueue = DispatchQueue(label: "test.cloud-paused-consumer-writer")
+        try await Self.withConnection(queue: writerQueue) { connection, peer in
+            try Self.write(peer, Self.outputLine(Data("initial".utf8)))
+            var frames = connection.events.makeAsyncIterator()
+            #expect(await frames.next() == .output(surfaceID: 1, bytes: Data("initial".utf8)))
+            let queue = DispatchQueue(label: "test.cloud-paused-consumer-input")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            queue.suspend()
+            router.setConnection(connection)
+            for _ in 0..<512 { router.send(.namedKey("Enter")) }
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            try await Self.blocking { writerQueue.sync {} }
+            let receipt = Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8)
+            let initial = try await Self.blocking {
+                let count = try Self.readAvailable(peer).split(separator: 0x0A).count
+                for _ in 0..<count { try Self.write(peer, receipt) }
+                return count
+            }
+            #expect(initial > 0 && initial < 256)
+            // No next() call yet: replies are waiting on the shared socket.
+            // The remaining commands must stay bounded, not close the session.
+            #expect(try await Self.blocking { try Self.readAvailable(peer).isEmpty })
+            async let delivered: Int = Self.blocking {
+                defer { shutdown(peer, SHUT_WR) }
+                var total = initial
+                while total < 512 {
+                    try #require(!Self.readLine(peer).isEmpty)
+                    total += 1
+                    try Self.write(peer, receipt)
+                }
+                try Self.write(peer, Self.outputLine(Data("complete".utf8)))
+                return total
+            }
+            #expect(await frames.next() == .output(surfaceID: 1, bytes: Data("complete".utf8)))
+            #expect(try await delivered == 512)
+        }
+    }
+
+    @Test func byteBatchPreservesNamedKeyAndConnectionBoundaries() async throws {
+        try await Self.withConnection { connection, peer in
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            let queue = DispatchQueue(label: "test.cloud-input-order")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            queue.suspend()
+            router.setConnection(connection)
+            router.send(.bytes(Data("before".utf8)))
+            router.send(.namedKey("Enter"))
+            router.send(.bytes(Data("after".utf8)))
+            router.setConnection(nil)
+            router.send(.bytes(Data("rebound".utf8)))
+            router.setConnection(connection)
+            queue.resume()
+
+            let commands = try await Self.blocking {
+                try (0..<4).map { _ in
+                    let command = try #require(JSONSerialization.jsonObject(with: Self.readLine(peer)) as? [String: Any])
+                    try Self.write(peer, Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8))
+                    return command
+                }.map { command in
+                    // Only immutable Sendable values cross out of peer I/O.
+                    (command["cmd"] as? String, command["bytes"] as? String,
+                     command["keys"] as? [String], command["id"] as? Int)
+                }
+            }
+            #expect(commands.map { $0.0 } == ["send", "send-key", "send", "send"])
+            #expect(commands[0].1 == Data("before".utf8).base64EncodedString())
+            #expect(commands[1].2 == ["enter"])
+            #expect(commands[2].1 == Data("after".utf8).base64EncodedString())
+            #expect(commands[3].1 == Data("rebound".utf8).base64EncodedString())
+            #expect(commands.allSatisfy { $0.3 == 0 })
         }
     }
 
@@ -283,6 +549,7 @@ import Testing
     }
 
     private static func withConnection(
+        queue: DispatchQueue = DispatchQueue(label: "test.cloud-io"),
         _ body: (CloudTuiManualIOConnection, Int32) async throws -> Void
     ) async throws {
         let path = "/tmp/cmux-io-\(UUID().uuidString.prefix(12)).sock"
@@ -301,7 +568,7 @@ import Testing
             }
         }
         guard bound == 0, listen(listener, 1) == 0 else { throw socketError() }
-        let connection = CloudTuiManualIOConnection(socketPath: path)
+        let connection = CloudTuiManualIOConnection(socketPath: path, queue: queue)
         defer { connection.close() }
         try await connection.start()
         let peer = accept(listener, nil, nil)
@@ -341,6 +608,20 @@ import Testing
         }
     }
 
+    /// Called only after the writer queue has processed the submitted burst.
+    /// A nonblocking drain observes the causal boundary without a timing wait.
+    private static func readAvailable(_ descriptor: Int32) throws -> Data {
+        var result = Data()
+        var buffer = [UInt8](repeating: 0, count: 8192)
+        while true {
+            let count = recv(descriptor, &buffer, buffer.count, MSG_DONTWAIT)
+            if count < 0, errno == EINTR { continue }
+            if count < 0, errno == EAGAIN || errno == EWOULDBLOCK { return result }
+            guard count > 0 else { throw socketError() }
+            result.append(buffer, count: count)
+        }
+    }
+
     /// Blocking peer I/O stays off Swift's cooperative executor and the client's
     /// dispatch queue. Each test owns its descriptors until these jobs finish.
     private static func blocking<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
@@ -350,4 +631,42 @@ import Testing
     }
 
     private static func socketError() -> NSError { NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+    @Test(arguments: [false, true])
+    func acceptedPasteSurvivesFramingAndReceiptBackpressure(rebind: Bool) async throws {
+        try await Self.withConnection { connection, peer in
+            let queue = DispatchQueue(label: "test.cloud-admission-lifetime")
+            let router = CloudTuiManualIOInputRouter(surfaceID: 7, queue: queue)
+            defer { router.invalidate() }
+            let block = Data(repeating: 0xFF, count: 128 * 1024)
+            queue.suspend()
+            #expect(router.send(.bytes(block)))
+            #expect(router.send(.bytes(block)))
+            queue.resume()
+            try await Self.blocking { queue.sync {} }
+            // Running the callbacks must not free their still-pending payloads.
+            #expect(!router.send(.bytes(Data([0x61]))))
+            router.setConnection(connection)
+            if rebind {
+                router.setConnection(nil)
+                router.setConnection(connection)
+            }
+            let consumer = Task { for await _ in connection.events {} }
+            defer { consumer.cancel() }
+            let actual = try await Self.blocking {
+                var bytes = Data()
+                while bytes.count < block.count * 2 {
+                    let line = try Self.readLine(peer)
+                    try #require(!line.isEmpty)
+                    let command = try #require(JSONSerialization.jsonObject(with: line) as? [String: Any])
+                    let encoded = try #require(command["bytes"] as? String)
+                    bytes.append(try #require(Data(base64Encoded: encoded)))
+                    try Self.write(peer, Data("{\"id\":0,\"ok\":true,\"data\":{}}\n".utf8))
+                }
+                return bytes
+            }
+            #expect(actual == block + block)
+        }
+    }
+
+
 }

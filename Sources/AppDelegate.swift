@@ -19109,8 +19109,8 @@ extension AppDelegate {
         allBrowserPanelsForInspectorWindowClose()
     }
 }
-private extension NSWindow {
-    static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
+extension NSWindow {
+    fileprivate static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
               textView.isFieldEditor,
               textView.window === window else {
@@ -19160,7 +19160,7 @@ private extension NSWindow {
         return nil
     }
 
-    @objc func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
+    @objc fileprivate func cmux_makeFirstResponder(_ responder: NSResponder?) -> Bool {
         if AppDelegate.shared?.browserFirstResponderBypass.isActive == true {
 #if DEBUG
             cmuxDebugLog(
@@ -19451,7 +19451,7 @@ private extension NSWindow {
 #endif
     }
 
-    @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
+    @objc fileprivate func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         defer {
