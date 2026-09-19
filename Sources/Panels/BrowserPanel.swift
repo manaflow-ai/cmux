@@ -10281,129 +10281,8 @@ enum BrowserImportUITestFixtureLoader {
 }
 #endif
 
-@MainActor
-final class BrowserDataImportCoordinator {
-    static let shared = BrowserDataImportCoordinator()
-
-    private var importInProgress = false
-
-    /// Held detector instance; the coordinator detects and summarizes installed
-    /// browsers through this rather than the former `BrowserInstalledBrowserDetector`
-    /// static namespace.
-    private let installedBrowserDetector = BrowserInstalledBrowserDetector()
-
-    private init() {}
-
-    func presentImportDialog(
-        defaultDestinationProfileID: UUID? = nil,
-        defaultScope: BrowserImportScope? = nil
-    ) {
-        presentImportDialog(
-            prefilledBrowsers: nil,
-            defaultDestinationProfileID: defaultDestinationProfileID,
-            defaultScope: defaultScope
-        )
-    }
-
-    private struct ImportSelection {
-        let browser: InstalledBrowserCandidate
-        let executionPlan: BrowserImportExecutionPlan
-        let scope: BrowserImportScope
-        let domainFilters: [String]
-    }
-
-    private func presentImportDialog(
-        prefilledBrowsers: [InstalledBrowserCandidate]?,
-        defaultDestinationProfileID: UUID?,
-        defaultScope: BrowserImportScope?
-    ) {
-        guard !importInProgress else { return }
-#if DEBUG
-        let environment = ProcessInfo.processInfo.environment
-        let fixtureBrowsers = BrowserImportUITestFixtureLoader.browsers(from: environment)
-        let fixtureDestinationProfiles = BrowserImportUITestFixtureLoader.destinationProfiles(from: environment)
-        let browsers = prefilledBrowsers ?? fixtureBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
-#else
-        let fixtureDestinationProfiles: [BrowserProfileDefinition]? = nil
-        let browsers = prefilledBrowsers ?? installedBrowserDetector.detectInstalledBrowsers()
-#endif
-        guard !browsers.isEmpty else {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(
-                localized: "browser.import.noBrowsers.title",
-                defaultValue: "No importable browsers found"
-            )
-            alert.informativeText = String(
-                localized: "browser.import.noBrowsers.message",
-                defaultValue: "cmux could not find browser profiles to import from on this Mac."
-            )
-            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-            alert.runModal()
-            return
-        }
-
-        guard let selection = promptForSelection(
-            browsers: browsers,
-            destinationProfiles: fixtureDestinationProfiles,
-            defaultDestinationProfileID: defaultDestinationProfileID,
-            defaultScope: defaultScope
-        ) else { return }
-
-#if DEBUG
-        if captureSelectionIfRequested(selection, destinationProfiles: fixtureDestinationProfiles) {
-            return
-        }
-#endif
-        let realizedPlan: RealizedBrowserImportExecutionPlan
-        do {
-            realizedPlan = try BrowserImportPlanResolver.realize(plan: selection.executionPlan)
-        } catch {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = String(
-                localized: "browser.import.error.title",
-                defaultValue: "Import could not start"
-            )
-            alert.informativeText = error.localizedDescription
-            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-            alert.runModal()
-            return
-        }
-        importInProgress = true
-
-        let progressWindow = showProgressWindow(
-            title: String(
-                localized: "browser.import.progress.title",
-                defaultValue: "Importing Browser Data"
-            ),
-            message: String(
-                format: String(
-                    localized: "browser.import.progress.message",
-                    defaultValue: "Importing %@ from %@…"
-                ),
-                selection.scope.displayName.lowercased(),
-                selection.browser.displayName
-            )
-        )
-
-        Task.detached(priority: .userInitiated) {
-            let outcome = await BrowserDataImporter.importData(
-                from: selection.browser,
-                plan: realizedPlan,
-                scope: selection.scope,
-                domainFilters: selection.domainFilters
-            )
-
-            await MainActor.run {
-                self.hideProgressWindow(progressWindow)
-                self.presentOutcome(outcome)
-                self.importInProgress = false
-            }
-        }
-    }
-
-    private func promptForSelection(
+extension BrowserDataImportCoordinator {
+    func promptForSelection(
         browsers: [InstalledBrowserCandidate],
         destinationProfiles: [BrowserProfileDefinition]?,
         defaultDestinationProfileID: UUID?,
@@ -10451,7 +10330,7 @@ final class BrowserDataImportCoordinator {
         let entries: [Entry]
     }
 
-    private func captureSelectionIfRequested(
+    func captureSelectionIfRequested(
         _ selection: ImportSelection,
         destinationProfiles: [BrowserProfileDefinition]?
     ) -> Bool {
@@ -11544,7 +11423,7 @@ final class BrowserDataImportCoordinator {
         }
     }
 
-    private func showProgressWindow(title: String, message: String) -> NSWindow {
+    func showProgressWindow(title: String, message: String) -> NSWindow {
         let window = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 122),
             styleMask: [.titled],
@@ -11595,7 +11474,7 @@ final class BrowserDataImportCoordinator {
         return window
     }
 
-    private func hideProgressWindow(_ window: NSWindow) {
+    func hideProgressWindow(_ window: NSWindow) {
         if let parent = window.sheetParent {
             parent.endSheet(window)
         } else {
@@ -11603,7 +11482,7 @@ final class BrowserDataImportCoordinator {
         }
     }
 
-    private func presentOutcome(_ outcome: BrowserImportOutcome) {
+    func presentOutcome(_ outcome: BrowserImportOutcome) {
         let lines = outcome.formattedLines
         let alert = NSAlert()
         alert.alertStyle = .informational
