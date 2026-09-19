@@ -18,7 +18,7 @@ concurrency:
 jobs:
   delivery:
     name: verify registry delivery
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 5
     steps:
       # Always use the trusted default branch, never workflow_run's source.
