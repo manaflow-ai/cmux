@@ -466,4 +466,205 @@ struct WindowKeyDownReplayGuardTests {
         #expect(terminal.keyDownEvents.map { $0.charactersIgnoringModifiers } == ["z"])
         #expect(textView.undoCallCount == 0)
     }
+
+    // MARK: - Copy key equivalent resolution
+
+    /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/10872.
+    ///
+    /// "Dvorak - QWERTY ⌘" swaps to the QWERTY table while Command is held, so
+    /// AppKit matches Edit ▸ Copy from the physical C key even though
+    /// `charactersIgnoringModifiers` still reports the Dvorak character "j".
+    /// The guard has to resolve the same character AppKit matched, otherwise a
+    /// Copy that the menu disabled falls through to Ghostty and types "j" into
+    /// the pty.
+    @Test
+    func dvorakQwertyCommandCopyKeyMatchesTheCopyKeyEquivalent() {
+        guard let event = makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "j",
+            keyCode: UInt16(kVK_ANSI_C)
+        ) else {
+            Issue.record("Failed to construct Dvorak-QWERTY ⌘ Copy event")
+            return
+        }
+
+        #expect(
+            GhosttyNSView.isStandardCopyMenuKeyEquivalent(
+                event,
+                layoutCharacterProvider: dvorakQwertyCommandLayoutCharacter
+            ),
+            Comment(rawValue: "⌘ + physical C on Dvorak - QWERTY ⌘ is the Copy key equivalent AppKit matched")
+        )
+    }
+
+    /// The same layout in the other direction: the physical I key reports the
+    /// Dvorak character "c" without Command, but AppKit matches it as ⌘I. The
+    /// guard must not swallow it as an unavailable Copy.
+    @Test
+    func dvorakQwertyCommandDoesNotMatchCopyOnTheDvorakCKey() {
+        guard let event = makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "c",
+            keyCode: UInt16(kVK_ANSI_I)
+        ) else {
+            Issue.record("Failed to construct Dvorak-QWERTY ⌘ ⌘I event")
+            return
+        }
+
+        #expect(
+            !GhosttyNSView.isStandardCopyMenuKeyEquivalent(
+                event,
+                layoutCharacterProvider: dvorakQwertyCommandLayoutCharacter
+            ),
+            Comment(rawValue: "⌘ + physical I on Dvorak - QWERTY ⌘ is ⌘I, not Copy")
+        )
+    }
+
+    @Test
+    func usQwertyCopyKeyMatchesTheCopyKeyEquivalent() {
+        guard let event = makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "c",
+            keyCode: UInt16(kVK_ANSI_C)
+        ) else {
+            Issue.record("Failed to construct US-QWERTY Copy event")
+            return
+        }
+
+        #expect(
+            GhosttyNSView.isStandardCopyMenuKeyEquivalent(
+                event,
+                layoutCharacterProvider: usQwertyLayoutCharacter
+            )
+        )
+    }
+
+    /// Plain Dvorak has no Command table swap, so the physical I key really is
+    /// the user's Copy key on that layout and stays a match.
+    @Test
+    func plainDvorakCopyKeyMatchesTheCopyKeyEquivalent() {
+        guard let event = makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "c",
+            keyCode: UInt16(kVK_ANSI_I)
+        ) else {
+            Issue.record("Failed to construct plain Dvorak Copy event")
+            return
+        }
+
+        #expect(
+            GhosttyNSView.isStandardCopyMenuKeyEquivalent(
+                event,
+                layoutCharacterProvider: plainDvorakLayoutCharacter
+            )
+        )
+    }
+
+    /// Non-Latin input sources report non-ASCII characters that can never match
+    /// a Latin key equivalent, so the layout lookup stays the source of truth.
+    @Test
+    func nonLatinInputSourceStillMatchesTheCopyKeyEquivalent() {
+        guard let event = makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "ㅊ",
+            keyCode: UInt16(kVK_ANSI_C)
+        ) else {
+            Issue.record("Failed to construct Hangul Copy event")
+            return
+        }
+
+        #expect(
+            GhosttyNSView.isStandardCopyMenuKeyEquivalent(
+                event,
+                layoutCharacterProvider: usQwertyLayoutCharacter
+            )
+        )
+    }
+
+    @Test
+    func otherCommandKeysDoNotMatchTheCopyKeyEquivalent() {
+        guard let event = makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "v",
+            keyCode: UInt16(kVK_ANSI_V)
+        ) else {
+            Issue.record("Failed to construct ⌘V event")
+            return
+        }
+
+        #expect(
+            !GhosttyNSView.isStandardCopyMenuKeyEquivalent(
+                event,
+                layoutCharacterProvider: usQwertyLayoutCharacter
+            )
+        )
+    }
+
+    @Test
+    func copyKeyWithExtraModifiersDoesNotMatchTheCopyKeyEquivalent() {
+        guard let event = makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "c",
+            keyCode: UInt16(kVK_ANSI_C),
+            modifierFlags: [.command, .shift]
+        ) else {
+            Issue.record("Failed to construct ⌘⇧C event")
+            return
+        }
+
+        #expect(
+            !GhosttyNSView.isStandardCopyMenuKeyEquivalent(
+                event,
+                layoutCharacterProvider: usQwertyLayoutCharacter
+            )
+        )
+    }
+
+    private func makeCommandKeyDownEvent(
+        charactersIgnoringModifiers: String,
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags = [.command]
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: charactersIgnoringModifiers,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+}
+
+/// `KeyboardLayout.character(forKeyCode:modifierFlags:)` translates through
+/// the Command table in shortcut mode, which is what makes this layout
+/// resolve QWERTY characters for ⌘ chords and Dvorak characters otherwise.
+private func dvorakQwertyCommandLayoutCharacter(
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
+) -> String? {
+    modifierFlags.contains(.command)
+        ? usQwertyLayoutCharacter(keyCode: keyCode, modifierFlags: modifierFlags)
+        : plainDvorakLayoutCharacter(keyCode: keyCode, modifierFlags: modifierFlags)
+}
+
+private func plainDvorakLayoutCharacter(
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
+) -> String? {
+    switch Int(keyCode) {
+    case kVK_ANSI_C: return "j"
+    case kVK_ANSI_I: return "c"
+    case kVK_ANSI_V: return "k"
+    default: return nil
+    }
+}
+
+private func usQwertyLayoutCharacter(
+    keyCode: UInt16,
+    modifierFlags: NSEvent.ModifierFlags
+) -> String? {
+    switch Int(keyCode) {
+    case kVK_ANSI_C: return "c"
+    case kVK_ANSI_I: return "i"
+    case kVK_ANSI_V: return "v"
+    default: return nil
+    }
 }
