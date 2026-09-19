@@ -24,6 +24,14 @@ impl Mux {
         if current.directory_publication_matches(&directory) {
             return Ok(true);
         }
+        // A terminal that has never reported has nothing to publish: the
+        // snapshot already presents its launch directory, and confirming an
+        // absent report would only spend a resource revision, which replayed
+        // creations and restarts must not do.
+        if directory.is_none() && !source.directory_was_reported() {
+            current.commit_published_directory(None);
+            return Ok(true);
+        }
         let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(true) };
         let Some(durable) = registry.terminal_record(&host_id)? else { return Ok(true) };
         if durable.lifecycle != TerminalLifecycle::Running {
@@ -43,10 +51,9 @@ impl Mux {
         let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
         if let Some(directory) = &directory {
             fields.insert("cwd".into(), serde_json::json!(directory));
-        } else if source.directory_was_reported() {
+        } else {
             // An explicit clear: the shell reported a directory before and now
-            // reports none. A terminal that has never reported keeps the launch
-            // directory the snapshot already presents.
+            // reports none.
             fields.remove("cwd");
         }
         let deltas = serde_json::json!([{
