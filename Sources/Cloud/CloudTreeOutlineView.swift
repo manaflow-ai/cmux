@@ -14,6 +14,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var adoptedOperationIDs: [String: UUID] = [:]
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
+    /// Workspace ids owned by the main window hosting this tree. The catalog is
+    /// shared by all windows, so projection-derived open markers must be scoped.
+    var workspaceIDs: Set<UUID> = []
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
     let machineActions: MachineRowActions
@@ -64,7 +67,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             pendingCreates: pendingCreates, adoptedOperationIDs: adoptedOperationIDs,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            unreadTerminalIDs: unreadTerminalIDs,
+            workspaceIDs: workspaceIDs
         ))
     }
     // MARK: - Coordinator

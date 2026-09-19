@@ -146,6 +146,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
                     let didStart = MachineRowActions.openNewMachine(
                         arguments: arguments,
+                        preferredWindow: preferredWindow,
                         onOutput: progress,
                         onCompletion: { result in
                             completion(result)
