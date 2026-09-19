@@ -1292,6 +1292,30 @@ check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
+check_pr_macos_workflows_cancel_superseded_runs() {
+  # A pull request workflow without a concurrency group never cancels the run
+  # for the previous push. On a macOS runner pool with a fixed slot count those
+  # runs stay queued behind everything else: on 2026-09-19, 58 of 72 queued
+  # "Agent notification semantics" runs were for commits that were no longer
+  # their pull request's head or whose pull request was closed.
+  local file failed=0
+  for file in "$ROOT_DIR"/.github/workflows/*.yml; do
+    grep -qE '^  pull_request(_target)?:' "$file" || continue
+    grep -qE 'runs-on:.*(macos|MACOS_RUNNER)' "$file" || continue
+    if ! awk '
+      /^concurrency:/ { in_block=1; next }
+      in_block && /^[^[:space:]]/ { in_block=0 }
+      in_block && /cancel-in-progress:[[:space:]]*(true|\$\{\{)/ { ok=1 }
+      END { exit !ok }
+    ' "$file"; then
+      echo "FAIL: $(basename "$file") runs macOS jobs on pull requests but never cancels a superseded run; add a concurrency group with cancel-in-progress"
+      failed=1
+    fi
+  done
+  [ "$failed" -eq 0 ] || exit 1
+  echo "PASS: pull request workflows with macOS jobs cancel superseded runs"
+}
+
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
 check_gui_smoke_unsupported_launch_handling
@@ -1300,3 +1324,4 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
+check_pr_macos_workflows_cancel_superseded_runs
