@@ -24,3 +24,16 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
 
 }
 
+extension SurfaceCatalogSnapshot {
+    private enum CodingKeys: String, CodingKey {
+        case machines, resources, projections, staleMachineIDs
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        machines = try values.decode([SurfaceMachineInfo].self, forKey: .machines)
+        resources = try values.decode([SurfaceResource].self, forKey: .resources)
+        projections = try values.decode([SurfaceProjection].self, forKey: .projections)
+        staleMachineIDs = try values.decodeIfPresent(Set<SurfaceMachineID>.self, forKey: .staleMachineIDs) ?? []
+    }
+}
