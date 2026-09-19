@@ -12,8 +12,8 @@ struct TerminalUploadCommand: Sendable, Equatable {
 
     /// The first enabled rule whose `hostPattern` matches `destination`, or nil
     /// when none matches (the caller then uses the built-in `scp` transport).
-    func command(forDestination destination: String) -> String? {
-        let host = Self.hostForMatching(destination)
+    func command(forDestination destination: String, sshOptions: [String] = []) -> String? {
+        let host = Self.hostForMatching(destination, sshOptions: sshOptions)
         for rule in rules where rule.enabled {
             guard let pattern = rule.hostPattern else {
                 return rule.command
@@ -30,8 +30,38 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// `::1`), and lowercases. A non-bracketed `host:port` is matched as-is; the
     /// detected-ssh port is carried separately, so destinations here are bare
     /// hosts in practice.
-    static func hostForMatching(_ destination: String) -> String {
-        var value = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+    static func hostForMatching(_ destination: String, sshOptions: [String] = []) -> String {
+        // A connection through a ProxyCommand or jump host is dialled as
+        // `localhost` (or some other placeholder) with the host it actually
+        // reaches carried in `HostName`. Matching the destination argument alone
+        // makes every brokered host look identical, so an explicit `HostName`
+        // decides when there is one.
+        if let hostName = hostNameOption(in: sshOptions) {
+            return normalized(hostName)
+        }
+        return normalized(destination)
+    }
+
+    /// The value of the first `HostName` option, or nil when none carries one.
+    /// ssh uses the first value it obtains for a parameter, so the first wins
+    /// here too. Keys are case-insensitive and `-o` accepts `Key value` as well
+    /// as `Key=Value`.
+    static func hostNameOption(in sshOptions: [String]) -> String? {
+        let separators = CharacterSet(charactersIn: "= \t")
+        for option in sshOptions {
+            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let separator = trimmed.rangeOfCharacter(from: separators) else { continue }
+            let key = trimmed[trimmed.startIndex..<separator.lowerBound]
+            guard key.lowercased() == "hostname" else { continue }
+            let value = trimmed[separator.lowerBound...]
+                .trimmingCharacters(in: CharacterSet(charactersIn: "= \t"))
+            if !value.isEmpty { return value }
+        }
+        return nil
+    }
+
+    private static func normalized(_ host: String) -> String {
+        var value = host.trimmingCharacters(in: .whitespacesAndNewlines)
         if let atIndex = value.lastIndex(of: "@") {
             value = String(value[value.index(after: atIndex)...])
         }
