@@ -391,6 +391,39 @@ struct SurfaceCatalogTests {
         ])
     }
 
+    @Test("Device mirror directories stay visible without a Cloud VM observation")
+    func deviceDirectoryPresentationDoesNotUseCloudFreshness() throws {
+        let machine = SurfaceMachineID.device(
+            SurfaceDeviceInstanceID(deviceID: "3f2504e0-4f89-11d3-9a0c-0305e82c3301", tag: "default")
+        )
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        var resource = terminal(machine, "term_1", title: "~")
+        resource.remoteWorkspace = SurfaceRemoteWorkspace(id: "ws", name: "~", index: 0, focused: true)
+
+        let directories: [String?] = ["/Users/remote", "/Users/remote/project", nil]
+        for directory in directories {
+            resource.detail = directory
+            catalog.replaceResources([resource], on: machine, from: provider)
+
+            let snapshot = catalog.snapshot
+            let presented = try #require(snapshot.resources.first { $0.id == resource.id })
+            #expect(presented.detail == directory)
+            #expect(catalog.export.catalog.resources.first { $0.id == resource.id }?.detail == directory)
+            let nodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+                machines: [], snapshot: snapshot, localWorkspaces: [],
+                includeLocalMachine: false, source: .cloudWithDevicesSection
+            ))
+            let rows = nodes.compactMap { node -> CloudTreeTerminalRow? in
+                if case .terminal(let row) = node.kind, row.resource.id == resource.id { return row }
+                return nil
+            }
+            #expect(!rows.isEmpty)
+            #expect(rows.allSatisfy { $0.directoryText == (directory ?? CloudWorkspaceSidebarPresentation.unavailableDirectory) })
+        }
+    }
+
     @Test func `Restoring a projection of a published resource wakes its provider`() async throws {
         // A restored device pane is a blank placeholder until its provider
         // materializes the mirror. When the provider published the resource
