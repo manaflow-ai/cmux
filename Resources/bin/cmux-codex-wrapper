@@ -595,6 +595,16 @@ if ! should_inject_codex_hooks "$@"; then
     exec_real_codex_passthrough "$@"
 fi
 
+# cmux owns the Computer Use provider for every Codex session it launches.
+# Codex also exposes a native `computer` tool behind the `computer_use` feature;
+# leaving that feature enabled lets the model silently bypass the explicitly
+# requested `cmux-cua` MCP server. Disable the competing provider before any
+# session arguments are forwarded. If cmux-cua cannot attach, the session has
+# no Computer Use provider rather than falling back to Codex Computer Use.
+# This policy is intentionally scoped to cmux-launched sessions. Plain Codex
+# outside cmux keeps its normal native Computer Use behavior.
+cmux_codex_native_computer_use_args=(--disable computer_use)
+
 # Export launch identity so the hook subprocesses and cmux's agent-pid /
 # ended-detection can bind this Codex to its surface and pid. Because we exec
 # codex below, $$ becomes the real codex pid. The invocation token is owned by
@@ -715,11 +725,16 @@ if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
 fi
 
 if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
+    exec "$REAL_CODEX" \
+        "${cmux_codex_native_computer_use_args[@]}" \
+        "${cmux_codex_computer_use_args[@]}" \
+        "${cmux_codex_injected_args[@]}" "$@"
 fi
 
 # A reconciled persistent channel intentionally emits no overrides; an emitter
 # failure also returns nothing. In both cases preserve the cmux surface context
 # and Computer Use attachment so persistent, native, or future hooks can still
 # bind this session.
-exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "$@"
+exec "$REAL_CODEX" \
+    "${cmux_codex_native_computer_use_args[@]}" \
+    "${cmux_codex_computer_use_args[@]}" "$@"

@@ -796,6 +796,23 @@ def args_config(args: list[str]) -> str | None:
     return arg_value(args, "mcp_servers.cmux-cua.args=")
 
 
+def expect_native_computer_use_disabled(
+    args: list[str],
+    context: str,
+    failures: list[str],
+) -> None:
+    try:
+        disable_index = args.index("--disable")
+    except ValueError:
+        expect(False, f"{context}: cmux Codex must disable native computer_use, got {args}", failures)
+        return
+    expect(
+        disable_index + 1 < len(args) and args[disable_index + 1] == "computer_use",
+        f"{context}: expected --disable computer_use, got {args}",
+        failures,
+    )
+
+
 def configured_skill_path(args: list[str]) -> Path | None:
     raw = arg_value(args, "skills.config=")
     prefix = '[{path="'
@@ -953,6 +970,7 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    expect_native_computer_use_disabled(args, "cmux-cua attach", failures)
     expect("skill-install=" not in stderr and "managed-link-retired" not in stderr,
            f"ordinary Codex launch must keep diagnostics quiet, got {stderr!r}", failures)
     # Codex CLI does not discover skills from skills.config session flags; the
@@ -1385,6 +1403,7 @@ def test_codex_fork_gets_hooks_and_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("fork" in args, f"expected fork subcommand to survive, got {args}", failures)
+    expect_native_computer_use_disabled(args, "fork", failures)
     cmd = command_config(args)
     expect(cmd is not None, f"missing computer-use command config for fork in {args}", failures)
     if cmd is not None:
@@ -1443,6 +1462,7 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
         f"missing broker must not emit unsupported session discovery, got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "missing broker", failures)
 
 
 def test_codex_skips_when_disabled(failures: list[str]) -> None:
@@ -1461,6 +1481,7 @@ def test_codex_skips_when_live_app_setting_is_disabled(failures: list[str]) -> N
         f"expected no injection when the live app setting is disabled, got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "disabled cmux Computer Use", failures)
 
 
 def test_codex_skips_when_daemon_credential_is_missing(failures: list[str]) -> None:
@@ -1501,6 +1522,7 @@ def test_codex_fails_closed_for_computer_use_when_socket_dead(failures: list[str
         f"expected NO computer-use attach with dead socket (fail closed), got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "dead cmux socket", failures)
 
 
 def test_codex_rejects_cmux_cua_override_under_group_writable_ancestor(failures: list[str]) -> None:
