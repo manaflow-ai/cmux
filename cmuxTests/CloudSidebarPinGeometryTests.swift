@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 import Testing
@@ -12,6 +13,66 @@ import Testing
 @MainActor
 @Suite("Cloud leading identity geometry")
 struct CloudSidebarPinGeometryTests {
+    @Test("The first machine pin repaints the native cell before a refresh", arguments: [220.0, 380.0])
+    func machinePinRepaintsImmediately(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 560))
+        let store = CloudMachinePinStore(defaults: fixture.defaults, scopeProvider: { "pin-render-test" })
+        let catalog = fixture.snapshot()
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            machinePinStore: store, catalogProvider: { catalog }
+        )
+        model.localWorkspacesProvider = { [] }
+        model.readCatalog()
+        let coordinator = fixture.coordinator
+        coordinator.machineActions.setPinned = { id, pinned in model.setMachinePinned(pinned, id: id) }
+        coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
+            machines: model.sidebarMachines, snapshot: catalog, localWorkspaces: [], includeLocalMachine: false
+        ))
+        let outline = try #require(coordinator.outlineView)
+        let machine = try #require(coordinator.nodes.first)
+        outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+
+        // Capture the production cell as the outline presents it. Do not call
+        // configure or apply after the menu action: that would hide the delay.
+        func capture() throws -> NSBitmapImageRep {
+            fixture.container.layoutSubtreeIfNeeded()
+            let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+            cell.layoutSubtreeIfNeeded()
+            let bitmap = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+            cell.cacheDisplay(in: cell.bounds, to: bitmap)
+            return bitmap
+        }
+        func choose(_ pinned: Bool) throws {
+            let menu = try #require(coordinator.contextMenu(forRow: 0))
+            let title = pinned
+                ? String(localized: "machines.row.pin", defaultValue: "Pin Machine")
+                : String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
+            let item = try #require(menu.items.first { $0.title == title })
+            #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        }
+        let unpinned = try capture()
+        try choose(true)
+        #expect(store.isPinned(fixture.machine.rawValue))
+        #expect(coordinator.nodes.first?.isPinned == true)
+        let pinned = try capture()
+        let changes = try #require(try differenceBounds(unpinned, pinned))
+        let scale = CGFloat(pinned.pixelsWide) / outline.frameOfCell(atColumn: 0, row: 0).width
+        #expect(changes.minX / scale < 20, "The leading pin must appear immediately")
+        #expect(outline.selectedRow == 0)
+        #expect(outline.isItemExpanded(machine))
+        #if compiler(>=6.2)
+        Attachment.record(try #require(pinned.representation(using: .png, properties: [:])), named: "machine-first-pin-\(Int(width)).png")
+        #endif
+
+        try choose(false)
+        #expect(coordinator.nodes.first?.isPinned == false)
+        let restored = try capture()
+        #expect(restored.tiffRepresentation == unpinned.tiffRepresentation)
+    }
+
     @Test("Pin reserves space before content at narrow and wide widths", arguments: [100.0, 320.0], [75, 100, 150, 200])
     func leadingPin(width: Double, percent: Int) throws {
         let unpinned = try contentBounds(width: width, pinned: false, percent: percent)

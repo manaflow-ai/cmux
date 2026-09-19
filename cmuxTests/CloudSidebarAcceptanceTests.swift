@@ -24,6 +24,7 @@ struct CloudSidebarAcceptanceTests {
 
     @Test func pinsAndUnreadState() throws {
         let pins = CloudSidebarPinGeometryTests()
+        for width in [220.0, 380.0] { try pins.machinePinRepaintsImmediately(width: width) }
         for percent in [75, 100, 150, 200] {
             try pins.noEmptyAttentionGutter(percent: percent)
             for width in [100.0, 320.0] { try pins.leadingPin(width: width, percent: percent) }

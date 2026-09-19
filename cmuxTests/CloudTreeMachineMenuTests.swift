@@ -285,13 +285,12 @@ struct CloudTreeMachineMenuTests {
         let outline = try #require(coordinator.outlineView)
         let pinRow = outline.row(forItem: try #require(coordinator.nodes.last))
         try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: try #require(coordinator.contextMenu(forRow: pinRow)))
-        render()
+        // The native action must update the row before a catalog/SwiftUI refresh.
         #expect(coordinator.nodes.map(\.searchableTitle) == ["pin-me", "older"])
         #expect(coordinator.nodes.first?.isPinned == true)
         let pinnedMenu = try #require(coordinator.contextMenu(forRow: 0))
         #expect(pinnedMenu.items.contains { $0.title == Self.title("machines.row.unpin", "Unpin Machine") })
         try Self.choose(Self.title("machines.row.unpin", "Unpin Machine"), in: pinnedMenu)
-        render()
         #expect(coordinator.nodes.first?.isPinned == false)
         try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: try #require(coordinator.contextMenu(forRow: 0)))
 
