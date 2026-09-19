@@ -34,31 +34,7 @@ extension TerminalController {
     }
 
     private nonisolated func v2AuthTeamStatusPayload() -> [String: Any] {
-        var result: [String: Any] = [:]
-        v2MainSync {
-            MainActor.assumeIsolated {
-                guard let coordinator = self.authCoordinator else {
-                    result = ["signed_in": false, "teams": []]
-                    return
-                }
-                var status: [String: Any] = [
-                    "signed_in": coordinator.isAuthenticated
-                ]
-                if let teamID = coordinator.resolvedTeamID {
-                    status["selected_team_id"] = teamID
-                }
-                status["teams"] = coordinator.availableTeams.map { team in
-                    var value: [String: Any] = [
-                        "id": team.id,
-                        "display_name": team.displayName
-                    ]
-                    if let slug = team.slug { value["slug"] = slug }
-                    return value
-                }
-                result = status
-            }
-        }
-        return result
+        v2MainSync { self.v2AuthTeamStatusPayloadOnMain() }
     }
 
     /// Async socket path for team mutations. Socket connections must suspend
@@ -69,7 +45,7 @@ extension TerminalController {
         let id = request.id?.foundationObject
         switch request.method {
         case "auth.team.list":
-            return v2Ok(id: id, result: v2AuthTeamStatusPayload())
+            return v2Ok(id: id, result: await v2AuthTeamStatusPayloadAsync())
         case "auth.team.use":
             guard let teamID = params["team_id"] as? String,
                   !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -116,7 +92,7 @@ extension TerminalController {
         }
         do {
             try await action(flow)
-            return v2Ok(id: id, result: v2AuthTeamStatusPayload())
+            return v2Ok(id: id, result: await v2AuthTeamStatusPayloadAsync())
         } catch {
             authTeamLog.error("team mutation failed: \(String(describing: error), privacy: .private)")
             return v2Error(
@@ -138,5 +114,31 @@ extension TerminalController {
         default:
             return String(localized: "socket.authTeam.failed", defaultValue: "Could not update the team. Try again.")
         }
+    }
+
+    private nonisolated func v2AuthTeamStatusPayloadAsync() async -> [String: Any] {
+        await v2MainAsync {
+            self.v2AuthTeamStatusPayloadOnMain()
+        }
+    }
+
+    @MainActor
+    private func v2AuthTeamStatusPayloadOnMain() -> [String: Any] {
+        guard let coordinator = authCoordinator else {
+            return ["signed_in": false, "teams": []]
+        }
+        var status: [String: Any] = ["signed_in": coordinator.isAuthenticated]
+        if let teamID = coordinator.resolvedTeamID {
+            status["selected_team_id"] = teamID
+        }
+        status["teams"] = coordinator.availableTeams.map { team in
+            var value: [String: Any] = [
+                "id": team.id,
+                "display_name": team.displayName
+            ]
+            if let slug = team.slug { value["slug"] = slug }
+            return value
+        }
+        return status
     }
 }
