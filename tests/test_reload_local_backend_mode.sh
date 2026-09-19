@@ -46,3 +46,18 @@ out="$(CMUX_DEV_BACKEND_URL="https://cmux-dev-backend-1.tail137216.ts.net:3800" 
   cmux_resolve_tagged_backend probe "$CHECKOUT" "$LOCAL_ORIGIN")" || fail "shared URL no longer resolves"
 [[ "$out" == "https://cmux-dev-backend-1.tail137216.ts.net:3800/" ]] || fail "shared URL resolved to '$out'"
 echo "PASS: the shared backend path is unchanged"
+
+# The caller contract in reload.sh. The resolver tests above would still pass if
+# reload.sh stopped handing over its local origin, or baked a shared backend URL
+# into a local-mode app, so pin both.
+RELOAD="$ROOT_DIR/scripts/reload.sh"
+grep -Fq 'cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD" "$CMUX_DEV_ORIGIN"' "$RELOAD" \
+  || fail "reload.sh must pass its local dev origin to cmux_resolve_tagged_backend"
+awk '
+  /if \[\[ "\$\{CMUX_DEV_BACKEND_MODE:-remote\}" != "local" \]\]; then/ { guarded = 1; next }
+  guarded && /export CMUX_DEV_BACKEND_URL="\$CMUX_DEV_ORIGIN"/ { found = 1 }
+  guarded && /^  fi$/ { guarded = 0 }
+  !guarded && /export CMUX_DEV_BACKEND_URL=/ { unguarded = 1 }
+  END { exit (found && !unguarded) ? 0 : 1 }
+' "$RELOAD" || fail "reload.sh must export CMUX_DEV_BACKEND_URL only outside local mode"
+echo "PASS: reload.sh passes its local origin and never exports a backend URL in local mode"
