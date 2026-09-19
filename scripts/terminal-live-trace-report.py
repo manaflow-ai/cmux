@@ -21,6 +21,8 @@ from collections import defaultdict
 
 PHASE_ORDER = ["started", "requestSent", "responseReceived", "presented"]
 FIELD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=([^\s]+)")
+# The durable AppLog renders fields as "Key: value" pairs inside parentheses.
+NAMED_FIELD_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*):\s*([^,)]+)")
 MS_KEYS = ("elapsed", "duration", "ms", "lag")
 
 
@@ -32,6 +34,8 @@ def parse_export(path):
         if "Terminal operation trace" not in line and "terminalTrace" not in line:
             continue
         fields = dict(FIELD_RE.findall(line))
+        for key, value in NAMED_FIELD_RE.findall(line):
+            fields.setdefault(key.lower(), value.strip())
         operation = fields.get("operation")
         phase = fields.get("phase")
         if not operation or not phase:
