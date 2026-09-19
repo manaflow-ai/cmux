@@ -142,12 +142,12 @@ struct LocalTmuxSettingsCard: View {
         if model.liveSessionCount == 0 {
             return String(localized: "settings.terminal.localTmux.none", defaultValue: "No live sessions", bundle: .module)
         }
-        let liveLabel = String(
-            localized: "settings.terminal.localTmux.liveCount",
-            defaultValue: "Live",
+        let format = String(
+            localized: "settings.terminal.localTmux.liveCountValue",
+            defaultValue: "Live: %lld",
             bundle: .module
         )
-        return "\(liveLabel): \(model.liveSessionCount)"
+        return String.localizedStringWithFormat(format, Int64(model.liveSessionCount))
     }
 
     /// Formats one already-decoded session row for display.
@@ -159,12 +159,14 @@ struct LocalTmuxSettingsCard: View {
                 : String(localized: "settings.terminal.localTmux.unmanaged", defaultValue: "Unmanaged", bundle: .module)
         )
         if session.clientCount > 0 {
-            let clientsLabel = String(
-                localized: "settings.terminal.localTmux.clients",
-                defaultValue: "Clients",
+            let format = String(
+                localized: "settings.terminal.localTmux.clientsCount",
+                defaultValue: "Clients: %lld",
                 bundle: .module
             )
-            parts.append("\(clientsLabel): \(session.clientCount)")
+            parts.append(
+                String.localizedStringWithFormat(format, Int64(session.clientCount))
+            )
         }
         if let cwd = session.cwd, !cwd.isEmpty {
             parts.append(cwd)
