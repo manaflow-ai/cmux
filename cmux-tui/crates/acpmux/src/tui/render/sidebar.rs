@@ -123,6 +123,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let offset = if body_h == 0 { 0 } else { sel_pos.saturating_sub(body_h.saturating_sub(1)).min(entries.len().saturating_sub(body_h)) };
     app.sidebar_offset = offset;
     app.sidebar_rows.clear();
+    app.sidebar_order = entries.iter().filter_map(|e| match e { Entry::Row(i) => Some(*i), _ => None }).collect();
     for (line, entry) in entries.iter().skip(offset).take(body_h).enumerate() {
         let y = body_y + line as u16;
         match entry {

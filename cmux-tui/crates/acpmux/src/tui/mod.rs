@@ -133,6 +133,9 @@ pub struct App {
     pub sidebar_rows: Vec<(Rect, usize)>,
     /// Project groups the user opened past their first rows ("Show more").
     pub expanded_groups: std::collections::HashSet<String>,
+    /// Sidebar rows in the order drawn (absolute indexes), so stepping the
+    /// selection follows the grouped list, not recency.
+    pub sidebar_order: Vec<usize>,
     pub sidebar_offset: usize,
     pub toast: Option<(String, Instant)>,
     pub(super) last_click: Option<(Instant, u16, u16, u8)>,
@@ -178,6 +181,19 @@ impl App {
         self.session_index().and_then(|i| self.sessions.get(i))
     }
     /// Number of sidebar rows: drafts plus sessions.
+    /// Move the selection by `delta` rows of the drawn sidebar order.
+    pub(super) fn select_step(&mut self, delta: isize) {
+        if self.sidebar_order.is_empty() {
+            let next = if delta > 0 { self.selected + 1 } else { self.selected.saturating_sub(1) };
+            self.select(next);
+            return;
+        }
+        let pos = self.sidebar_order.iter().position(|&i| i == self.selected).unwrap_or(0) as isize;
+        let next = (pos + delta).clamp(0, self.sidebar_order.len() as isize - 1) as usize;
+        let idx = self.sidebar_order[next];
+        self.select(idx);
+    }
+
     pub(super) fn row_count(&self) -> usize {
         self.sessions.len() + self.drafts.len()
     }

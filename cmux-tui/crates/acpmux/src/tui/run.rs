@@ -60,6 +60,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         composer_max_rows: std::env::var("ACPMUX_COMPOSER_ROWS").ok().and_then(|v| v.parse().ok()).or_else(|| crate::config::Config::load().ok().and_then(|c| c.composer_max_rows)).unwrap_or(12).clamp(1, 40),
         sidebar_rows: Vec::new(),
         expanded_groups: std::collections::HashSet::new(),
+        sidebar_order: Vec::new(),
         sidebar_offset: 0,
         toast: None,
         last_click: None,

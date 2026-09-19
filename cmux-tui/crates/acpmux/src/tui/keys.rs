@@ -259,7 +259,7 @@ impl App {
                 match self.focus {
                     Focus::Input => self.editor_mut().down(),
                     Focus::Transcript => self.with_viewport(|v| v.scroll_by(1)),
-                    _ => self.select(self.selected + 1),
+                    _ => self.select_step(1),
                 }
                 return;
             }
@@ -267,7 +267,7 @@ impl App {
                 match self.focus {
                     Focus::Input => self.editor_mut().up(),
                     Focus::Transcript => self.with_viewport(|v| v.scroll_by(-1)),
-                    _ => self.select(self.selected.saturating_sub(1)),
+                    _ => self.select_step(-1),
                 }
                 return;
             }
@@ -354,8 +354,8 @@ impl App {
             },
             Focus::Sidebar => match key.code {
                 KeyCode::Esc | KeyCode::Tab => self.focus = Focus::Input,
-                KeyCode::Char('j') | KeyCode::Down => self.select(self.selected + 1),
-                KeyCode::Char('k') | KeyCode::Up => self.select(self.selected.saturating_sub(1)),
+                KeyCode::Char('j') | KeyCode::Down => self.select_step(1),
+                KeyCode::Char('k') | KeyCode::Up => self.select_step(-1),
                 KeyCode::Enter => self.focus = Focus::Input,
                 KeyCode::Char('/') => self.run_action(Action::Palette, &[]),
                 KeyCode::Char('?') => self.run_action(Action::Help, &[]),

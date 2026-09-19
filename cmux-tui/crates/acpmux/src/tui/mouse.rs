@@ -223,8 +223,7 @@ impl App {
         let a = self.areas.sidebar;
         if x >= a.x && x < a.x + a.width && y >= a.y && y < a.y + a.height {
             // Wheel over the sidebar moves the selection like a list.
-            let next = if delta > 0 { self.selected + 1 } else { self.selected.saturating_sub(1) };
-            self.select(next);
+            self.select_step(if delta > 0 { 1 } else { -1 });
             return;
         }
         self.with_viewport(|v| v.scroll_by(delta));
