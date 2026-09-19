@@ -59,9 +59,12 @@ enum Command {
     /// Get a session by name, or create it: idempotent for scripts.
     Ensure {
         name: String,
-        /// Harness: a family (claude, codex), an alias, or a profile name.
-        #[arg(long = "harness", short = 'u')]
-        harness: Option<String>,
+        /// HARNESS[/MODEL]: a family or profile, optionally with a model (`claude/opus`, `opencode/zai/glm-5.1`).
+        #[arg(long, short)]
+        model: Option<String>,
+        /// A preset from `acpmux preset`: harness plus model, effort, policy, env.
+        #[arg(long, short)]
+        preset: Option<String>,
         /// Create on this peer when missing.
         #[arg(long)]
         host: Option<String>,
@@ -69,8 +72,6 @@ enum Command {
         cwd: Option<PathBuf>,
         #[arg(long)]
         policy: Option<String>,
-        #[arg(long, short)]
-        model: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
     },
@@ -82,8 +83,8 @@ enum Command {
     },
     /// Run one prompt on several harnesses, one after another, and compare.
     Compare {
-        /// Harness names: -u claude -u codex …
-        #[arg(long = "harness", short = 'u', required = true)]
+        /// HARNESS[/MODEL] per run: -m claude -m codex/gpt-5.5 …
+        #[arg(long, short, required = true)]
         harnesses: Vec<String>,
         /// The prompt.
         prompt: Vec<String>,
@@ -101,9 +102,19 @@ enum Command {
     /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
     /// A name that is not a family or profile is an alias: `-u deepseek` then works. `key=` clears one key; `--clear` removes the entry.
+    /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
+    /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
+    #[command(alias = "presets")]
+    Preset {
+        name: Option<String>,
+        /// key=value pairs: harness, model, effort, policy, description, env.KEY
+        pairs: Vec<String>,
+        #[arg(long)]
+        clear: bool,
+    },
     Defaults {
         family: Option<String>,
-        /// key=value pairs: model, models.PROFILE, effort, policy, prefer (comma list), env.KEY
+        /// key=value pairs: model, effort, policy, prefer (comma list), env.KEY
         pairs: Vec<String>,
         #[arg(long)]
         clear: bool,
@@ -189,7 +200,10 @@ enum Command {
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
-    Models,
+    Models {
+        #[arg(long)]
+        refresh: bool,
+    },
     #[command(hide = true)]
     Info { session: String },
     #[command(hide = true)]
@@ -324,8 +338,12 @@ enum DaemonCmd {
     Harnesses,
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
-    /// Every model id each harness reports (`provider/model` for OpenCode and pi).
-    Models,
+    /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
+    Models {
+        /// Forget the reported catalogs and probe every harness again now.
+        #[arg(long)]
+        refresh: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -364,10 +382,9 @@ enum PeerCmd {
 
 #[derive(Args)]
 struct NewArgs {
-    /// Harness: a family (claude, codex, opencode, pi), an alias (see `acpmux defaults`), or a profile name.
-    /// Omitted: inferred from --model when one harness knows it, else the configured default.
-    #[arg(long = "harness", short = 'u')]
-    harness: Option<String>,
+    /// A preset from `acpmux preset`: harness plus model, effort, policy, env. `-m` and `-e` still win.
+    #[arg(long, short)]
+    preset: Option<String>,
     /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
     #[arg(long)]
     host: Option<String>,
@@ -379,7 +396,8 @@ struct NewArgs {
     /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
     #[arg(long)]
     policy: Option<String>,
-    /// Model for the new session (see `acpmux ls` pickers for ids).
+    /// HARNESS[/MODEL]: a family or profile name (`claude`, `codex`, `omp`), optionally with a model
+    /// (`claude/opus`, `codex/gpt-5.5`, `opencode/zai/glm-5.1`). Omitted: the default harness and its defaults.
     #[arg(long, short)]
     model: Option<String>,
     /// Thinking effort: default, low, medium, high, xhigh, max (Codex adds ultra).
@@ -492,7 +510,7 @@ fn flatten(c: Command) -> Command {
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Schema => Command::Schema,
-            DaemonCmd::Models => Command::Models,
+            DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
         Command::Host(pc) => Command::Peer(pc),
         other => other,

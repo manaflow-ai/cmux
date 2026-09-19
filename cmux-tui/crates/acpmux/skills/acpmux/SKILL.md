@@ -21,28 +21,31 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
-## 2. Pick an agent: harness first, model second
+## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
-`-u` (`--harness`) names *which harness*; `-m` refines *which model*. Say the least
-you need and let the configured defaults fill the rest.
+One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,
+`gemini`) or a profile name; a model may follow the first slash and keeps its own
+slashes. Nothing is inferred. A head that is neither is an error, and when it is a
+model id the error tells you the spelling to use.
 
-| You want | Command | What acpmux does |
+| You want | Write | acpmux does |
 | --- | --- | --- |
-| any capable agent | `acpmux run "…"` | the configured default agent and its defaults |
-| a Claude / a Codex | `-u claude`, `-u codex` | family name: the preferred profile (an account pool, a router) plus the family's model, effort, policy |
-| a model class | `-u deepseek`, `-u local` | an alias from `acpmux defaults` (marked `*`): routes to OpenCode or pi with the right `provider/model` id |
-| one exact model | `-m opencode-go/deepseek-v4-flash`, `-m sonnet` | harness inferred from the catalogs; add `-u` when two harnesses know the id |
-| one exact profile | `-u claude-sr`, `-u opencode` | that profile, family defaults still apply |
+| a Claude, a Codex, with defaults | `-m claude`, `-m codex` | the family's preferred profile (an account pool, a router) plus its model, effort, policy |
+| one exact model | `-m claude/opus`, `-m codex/gpt-5.5`, `-m opencode/zai/glm-5.1`, `-m pi/subrouter/gpt-5.6-sol` | that harness, that model |
+| a fork | `-m omp`, `-m prime` | its own family; prime takes no model over ACP |
+| a bundle someone named | `-p deepseek`, `-p omx` | the preset's harness, model, effort, policy, env; `-m`/`-e` still win |
+| nothing in particular | no flag | the default harness and its defaults |
 
-Read the table before choosing, never guess names:
+Read, never guess:
 
 ```bash
-acpmux defaults               # families and aliases: profile chosen, model, effort, policy
-acpmux harnesses                 # profiles with their family and argv
-acpmux --json daemon models   # every model id each harness reports
+acpmux defaults               # per family: profile chosen, model, effort, policy
+acpmux preset                 # named bundles for -p
+acpmux harnesses              # profiles with family and argv
+acpmux --json daemon models   # every model id each harness declares or reports; --refresh re-probes
 ```
 
-Explicit flags always win: `-m MODEL`, `-e low|medium|high|xhigh|max`,
+Explicit flags always win: `-m`, `-e low|medium|high|xhigh|max`,
 `--policy ask|approve-reads|approve-edits|approve-all|deny-all`, `--cwd DIR`,
 `--host PEER`. A model the harness rejects fails the creation with the ids it
 knows; the session is not created.
@@ -50,10 +53,10 @@ knows; the session is not created.
 ## 3. Core loop
 
 ```bash
-acpmux run -u codex --cwd ~/proj --policy approve-edits "fix the failing test"   # create, send, print only the reply
-acpmux --json run -u claude "…"                    # {"sessionId","name","reply","stopReason"}
-acpmux exec -u claude "…"                          # run, then delete the session
-acpmux ensure NAME -u codex --cwd DIR              # get the session, or create it (idempotent)
+acpmux run -m codex --cwd ~/proj --policy approve-edits "fix the failing test"   # create, send, print only the reply
+acpmux --json run -m claude "…"                    # {"sessionId","name","reply","stopReason"}
+acpmux exec -m claude "…"                          # run, then delete the session
+acpmux ensure NAME -m codex --cwd DIR              # get the session, or create it (idempotent)
 acpmux send NAME "next step"                       # stream the reply; -q for the final text only
 acpmux send NAME --no-wait "…"                     # queue and return; says what it is behind
 acpmux send NAME --steer "stop, do X instead"      # interrupt the running turn (when the harness supports it)
@@ -106,8 +109,8 @@ Sessions on peers show as `host/name` and every command takes that form.
 
 ```bash
 acpmux host ls                                   # peers, connected or offline, remote build
-acpmux run -u claude --host HOST "…"             # start there; --cwd is a remote path
-acpmux ensure NAME -u codex --host HOST
+acpmux run -m claude --host HOST "…"             # start there; --cwd is a remote path
+acpmux ensure NAME -m codex --host HOST
 acpmux wait                                      # covers remote sessions too
 ```
 
@@ -129,10 +132,10 @@ turn was denied · 130 interrupted.
 
 - Read ids and names from `--json` output. Never guess them.
 - `wait` with no flags is enough. Add `--until` only for a state-specific step.
-- Harness first (`-u` family or alias), model second (`-m`). Pass `-m`, `-e`,
-  `--policy` only when the task needs something other than the defaults.
+- `-m HARNESS[/MODEL]` is the target. Pass a model, `-e`, or `--policy` only when the
+  task needs something other than the defaults. Prefer a preset when one exists.
 - Name sessions for the task (`ensure review-pr-42`) so a later step or another
   agent can find them. Tag them (`session tag NAME task=review`) when many run.
-- Do not delete sessions you did not create. Do not change defaults or hosts
+- Do not delete sessions you did not create. Do not change defaults, presets, or hosts
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.

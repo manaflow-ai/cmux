@@ -59,7 +59,7 @@ async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
     let mut agents = BTreeMap::new();
     agents.insert(
         "fake".to_owned(),
-        HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None },
+        HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None },
     );
     let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
@@ -337,7 +337,7 @@ async fn restart_marks_unknown_outcome() {
     let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None });
     let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Local;
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
@@ -368,8 +368,8 @@ async fn restart_marks_unknown_outcome() {
 async fn limit_error_fails_over_to_the_fallback_profile() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: Some("fake-pool".into()), family: None });
-    agents.insert("fake-pool".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: Some("fake-pool".into()), family: None, models: vec![], model: None, effort: None, policy: None });
+    agents.insert("fake-pool".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None });
     let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
@@ -416,14 +416,18 @@ async fn process_death_quotes_the_last_stderr_line() {
 }
 
 #[tokio::test]
-async fn family_defaults_pick_the_profile_model_effort_and_policy() {
+async fn family_defaults_presets_and_the_target_grammar() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
-    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
-    agents.insert("fake-pool".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None });
+    agents.insert("fake".to_owned(), HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None });
+    let mut pool = HarnessProfile { kind: Default::default(), argv: vec!["python3".into(), fake.into()], env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None };
+    // A declared model the harness does not report, in provider/model form.
+    // `-m fake/m3` resolves to this profile through the family's prefer list.
+    pool.models = vec![acpmux::config::DeclaredModel::Id("fake/m3".into())];
+    agents.insert("fake-pool".to_owned(), pool);
     let mut cfg = Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
-    cfg.defaults.insert("fake".into(), acpmux::config::SessionDefaults { model: Some("m2".into()), models: BTreeMap::new(), effort: None, policy: Some(PermissionPolicy::ApproveAll), prefer: vec!["fake-pool".into()], env: BTreeMap::new() });
+    cfg.defaults.insert("fake".into(), acpmux::config::SessionDefaults { model: Some("m2".into()), effort: None, policy: Some(PermissionPolicy::ApproveAll), prefer: vec!["fake-pool".into()], env: BTreeMap::new() });
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     let (in_tx, in_rx) = mpsc::channel(64);
@@ -431,55 +435,56 @@ async fn family_defaults_pick_the_profile_model_effort_and_policy() {
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
     c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}})).await.unwrap();
-    // The family name resolves to the preferred profile; defaults apply.
+    // -m fake: the family's prefer list picks the pool; defaults apply.
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "fam"}}})).await.unwrap();
     let sum = &s["_meta"]["acpmux"];
     assert_eq!(sum["harness"], "fake-pool", "{sum}");
     assert_eq!(sum["family"], "fake");
     assert_eq!(sum["policy"], "approve-all");
     assert_eq!(sum["model"], "m2");
-    // An explicit request wins over the defaults.
-    let s2 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "fam2", "model": "m1", "policy": "ask"}}})).await.unwrap();
+    // -m fake-pool/m1 --policy ask: explicit values win.
+    let s2 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake-pool", "name": "fam2", "model": "m1", "policy": "ask"}}})).await.unwrap();
     assert_eq!(s2["_meta"]["acpmux"]["model"], "m1");
     assert_eq!(s2["_meta"]["acpmux"]["policy"], "ask");
-    // A profile name still works and lists its family in the agents view.
+    // -m fake/m3 where the catalog lists `fake/m3`, not `m3`: the full id is used.
+    let s3 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "fam3", "model": "m3"}}})).await.unwrap();
+    assert_eq!(s3["_meta"]["acpmux"]["model"], "fake/m3");
+    // A bare model id is refused with the spelling to use.
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "m2"}}})).await.unwrap_err();
+    assert!(err.contains("unknown harness \"m2\"") && err.contains("is a model id: write fake-pool/m2"), "{err}");
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "gpt"}}})).await.unwrap_err();
+    assert!(err.contains("families: fake") && !err.contains("is a model id"), "{err}");
+    // Harness view lists families, defaults and presets; declared models show first.
     let a = c.request(method::MUX_HARNESSES, json!({})).await.unwrap();
     assert_eq!(a["harnesses"]["fake-pool"]["family"], "fake");
     assert_eq!(a["families"]["fake"], json!(["fake", "fake-pool"]));
-    assert_eq!(a["harnesses"]["fake"]["defaults"]["model"], "m2");
-    // The defaults view resolves the family to its profile.
-    let d = c.request(method::MUX_DEFAULTS, json!({"family": "fake"})).await.unwrap();
-    assert_eq!(d["profile"], "fake-pool");
-    assert_eq!(d["model"], "m2");
-    // Unknown families name what exists.
-    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "gpt"}}})).await.unwrap_err();
-    assert!(err.contains("families: fake"), "{err}");
-    // An alias routes to its preferred profile with its own model id.
-    let set = c.request(method::MUX_DEFAULTS, json!({"family": "fast", "set": {"prefer": ["fake"], "models": {"fake": "m1"}, "policy": "deny-all"}})).await.unwrap();
-    assert_eq!(set["kind"], "alias");
-    assert_eq!(set["model"], "m1");
-    let s3 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fast", "name": "al"}}})).await.unwrap();
-    assert_eq!(s3["_meta"]["acpmux"]["harness"], "fake");
-    assert_eq!(s3["_meta"]["acpmux"]["model"], "m1");
-    assert_eq!(s3["_meta"]["acpmux"]["policy"], "deny-all");
-    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": "gpt"}}})).await.unwrap_err();
-    assert!(err.contains("aliases: fast"), "{err}");
-}
-
-#[tokio::test]
-async fn a_model_alone_picks_the_harness_that_reports_it() {
-    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    // Nothing has reported a catalog yet: an unknown model is refused, not run elsewhere.
-    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"model": "m2"}}})).await.unwrap_err();
-    assert!(err.contains("no harness reports model"), "{err}");
-    // A first session teaches the hub the fake agent's models (m1, m2).
-    c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "seed"}}})).await.unwrap();
-    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"model": "m2", "name": "bymodel"}}})).await.unwrap();
-    assert_eq!(s["_meta"]["acpmux"]["harness"], "fake");
-    assert_eq!(s["_meta"]["acpmux"]["model"], "m2");
-    let cfg = hub.config.read().await;
-    assert_eq!(hub.resolve_by_model(&cfg, "m1").as_deref(), Some("fake"));
-    assert_eq!(hub.resolve_by_model(&cfg, "nope"), None);
+    let models = c.request("_acpmux/models", json!({})).await.unwrap();
+    let fake_models: Vec<&str> = models["harnesses"].as_array().unwrap().iter().find(|h| h["harness"] == "fake-pool").unwrap()["models"].as_array().unwrap().iter().map(|m| m["id"].as_str().unwrap()).collect();
+    assert_eq!(fake_models[0], "fake/m3", "{fake_models:?}");
+    assert!(fake_models.contains(&"m1"));
+    // Presets: one harness, bundled model/effort/policy/env; -m still wins.
+    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "deny-all", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
+    assert_eq!(p["profile"], "fake-pool");
+    let err = c.request(method::MUX_PRESETS, json!({"name": "bad", "set": {"harness": "nope"}})).await.unwrap_err();
+    assert!(err.contains("unknown harness"), "{err}");
+    let s4 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "fast", "name": "pre"}}})).await.unwrap();
+    assert_eq!(s4["_meta"]["acpmux"]["harness"], "fake-pool");
+    assert_eq!(s4["_meta"]["acpmux"]["model"], "m1");
+    assert_eq!(s4["_meta"]["acpmux"]["policy"], "deny-all");
+    // ${model} in the preset env: the model is a spawn parameter the process sees.
+    let id4 = s4["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::MUX_SET_POLICY, json!({"sessionId": id4, "policy": "approve-all"})).await.unwrap();
+    c.request(method::SESSION_PROMPT, json!({"sessionId": id4, "prompt": [{"type": "text", "text": "env: FAKE_MODEL"}]})).await.unwrap();
+    assert_eq!(hub.session_summary(&hub.resolve(&id4).unwrap())["preview"], "FAKE_MODEL=m1");
+    let s5 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "fast", "harness": "fake", "model": "m2", "name": "pre2"}}})).await.unwrap();
+    // `fake` is the family: its prefer list still decides the profile.
+    assert_eq!(s5["_meta"]["acpmux"]["harness"], "fake-pool");
+    assert_eq!(s5["_meta"]["acpmux"]["model"], "m2");
+    assert_eq!(s5["_meta"]["acpmux"]["policy"], "deny-all");
+    let err = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "nope"}}})).await.unwrap_err();
+    assert!(err.contains("unknown preset"), "{err}");
+    let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
+    assert_eq!(list["presets"][0]["name"], "fast");
 }
 
 #[tokio::test]

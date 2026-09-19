@@ -269,6 +269,19 @@ impl Hub {
     }
 
     pub async fn set_model(self: &Arc<Self>, session: &Arc<Session>, model_id: &str) -> Result<Value, RpcError> {
+        // A harness that takes its model on the command line or in env
+        // gets it at the next spawn: record it and drop the current process.
+        let at_spawn = {
+            let cfg = self.config.read().await;
+            cfg.profile(&session.meta().harness).map(super::lifecycle::profile_takes_model_at_spawn).unwrap_or(false)
+        };
+        if at_spawn {
+            session.meta.lock().unwrap().model_request = Some(model_id.to_owned());
+            self.save_meta(session);
+            self.detach_child(session).await;
+            self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
+            return Ok(json!({}));
+        }
         // Prefer the config option named "model" when the agent exposes one.
         let has_model_option = session
             .meta()
@@ -333,6 +346,8 @@ impl Hub {
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
             family: parent_meta.family.clone(),
+            preset: parent_meta.preset.clone(),
+            model_request: parent_meta.model_request.clone(),
             cwd,
             agent_session_id: if is_claude { None } else { Some(new_sid) },
             status: SessionStatus::Idle,

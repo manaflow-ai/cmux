@@ -58,7 +58,7 @@ async fn permission_round_trip() {
 
 #[test]
 fn wrapper_words_come_before_claude_flags() {
-    let profile = crate::config::HarnessProfile { kind: crate::config::HarnessKind::ClaudeStdio, argv: vec!["sr".into(), "claude".into(), "proxy".into()], env: Default::default(), description: None, fallback: None, family: None };
+    let profile = crate::config::HarnessProfile { kind: crate::config::HarnessKind::ClaudeStdio, argv: vec!["sr".into(), "claude".into(), "proxy".into()], env: Default::default(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None };
     let plan = spawn_plan(&profile, Some("abc"), false, None, Some("high"), "default");
     assert_eq!(plan.program, "sr");
     assert_eq!(&plan.args[..3], &["claude", "proxy", "-p"]);

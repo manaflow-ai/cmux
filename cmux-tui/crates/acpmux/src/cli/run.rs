@@ -22,7 +22,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             };
             orchestrate::wait(client, orchestrate::WaitOpts { sessions, until, all, timeout, print, notify, matcher }, json_out).await
         }
-        Command::Ensure { name, harness, host, cwd, policy, model, effort } => orchestrate::ensure(connect(true).await?, &name, harness, host, cwd, policy, model, effort, json_out).await,
+        Command::Ensure { name, model, preset, host, cwd, policy, effort } => orchestrate::ensure(connect(true).await?, &name, model, preset, host, cwd, policy, effort, json_out).await,
         Command::History { session, limit } => orchestrate::history(connect(true).await?, &session, limit, json_out).await,
         Command::TagCmd { session, assignments, remove, ttl } => orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out).await,
         Command::RulesCmd { session, rules, clear } => orchestrate::rules(connect(true).await?, &session, rules, clear, json_out).await,
@@ -30,9 +30,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             let prompt = arg_or_stdin(&prompt)?;
             orchestrate::compare(connect(true).await?, agents, prompt, cwd, policy, timeout, json_out).await
         }
-        Command::Models => {
+        Command::Preset { name, pairs, clear } => orchestrate::preset(connect(true).await?, name, pairs, clear, json_out).await,
+        Command::Models { refresh } => {
             let client = connect(true).await?;
-            let v = client.request("_acpmux/models", json!({})).await?;
+            let v = client.request("_acpmux/models", json!({"refresh": refresh})).await?;
             if json_out { print_json(&v); return Ok(()); }
             for h in v.get("harnesses").and_then(Value::as_array).into_iter().flatten() {
                 let agent = h.get("harness").and_then(Value::as_str).unwrap_or("?");
@@ -167,8 +168,15 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 acpmux::session_name::validate(n).map_err(|e| anyhow!(e))?;
             }
             let mut meta = json!({});
-            if let Some(a) = &args.harness {
-                meta["harness"] = json!(a);
+            if let Some(spec) = &args.model {
+                let (h, m) = orchestrate::split_target(spec);
+                meta["harness"] = json!(h);
+                if let Some(m) = m {
+                    meta["model"] = json!(m);
+                }
+            }
+            if let Some(p) = &args.preset {
+                meta["preset"] = json!(p);
             }
             if let Some(h) = &args.host {
                 meta["peer"] = json!(h);
@@ -184,9 +192,6 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             if let Some(p) = &args.policy {
                 meta["policy"] = json!(p);
-            }
-            if let Some(m) = &args.model {
-                meta["model"] = json!(m);
             }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);

@@ -212,7 +212,18 @@ async fn wait_match(client: Arc<Client>, ids: &[(String, String)], matcher: &Mat
 }
 
 /// `acpmux ensure NAME`: the session if it exists, else create it.
-pub(crate) async fn ensure(client: Arc<Client>, name: &str, agent: Option<String>, host: Option<String>, cwd: Option<std::path::PathBuf>, policy: Option<String>, model: Option<String>, effort: Option<String>, json_out: bool) -> Result<()> {
+/// `HARNESS[/MODEL]` → (harness, model). The first slash splits; the model
+/// keeps its own slashes (`opencode/zai/glm-5.1` → `opencode`, `zai/glm-5.1`).
+pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
+    match spec.split_once('/') {
+        Some((h, m)) if !m.is_empty() => (h.to_owned(), Some(m.to_owned())),
+        Some((h, _)) => (h.to_owned(), None),
+        None => (spec.to_owned(), None),
+    }
+}
+
+pub(crate) async fn ensure(client: Arc<Client>, name: &str, target: Option<String>, preset: Option<String>, host: Option<String>, cwd: Option<std::path::PathBuf>, policy: Option<String>, effort: Option<String>, json_out: bool) -> Result<()> {
+    let (agent, model) = match &target { Some(t) => { let (h, m) = split_target(t); (Some(h), m) } None => (None, None) };
     acpmux::session_name::validate(name).map_err(|e| AppError::usage(e))?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host { Some(h) => format!("{h}/{name}"), None => name.to_owned() };
@@ -223,6 +234,9 @@ pub(crate) async fn ensure(client: Arc<Client>, name: &str, agent: Option<String
             let mut meta = json!({"name": name});
             if let Some(a) = &agent {
                 meta["harness"] = json!(a);
+            }
+            if let Some(p) = &preset {
+                meta["preset"] = json!(p);
             }
             if let Some(p) = &policy {
                 meta["policy"] = json!(p);
@@ -344,16 +358,21 @@ pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt:
     let cwd = cwd.unwrap_or(std::env::current_dir()?);
     let mut rows = Vec::new();
     let mut worst = 0;
-    for agent in &agents {
-        let name = format!("compare-{agent}-{}", &uuid::Uuid::now_v7().to_string()[..8]);
+    for spec in &agents {
+        let (agent, model) = split_target(spec);
+        let agent = &agent;
+        let name = format!("compare-{}-{}", agent.replace('/', "-"), &uuid::Uuid::now_v7().to_string()[..8]);
         let mut meta = json!({"name": name, "harness": agent});
+        if let Some(m) = &model {
+            meta["model"] = json!(m);
+        }
         if let Some(p) = &policy {
             meta["policy"] = json!(p);
         }
         let started = std::time::Instant::now();
         let created = client.request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}})).await;
         let row = match created {
-            Err(e) => json!({"harness": agent, "status": "error", "error": e.to_string()}),
+            Err(e) => json!({"harness": spec, "status": "error", "error": e.to_string()}),
             Ok(v) => {
                 let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
                 let outcome = collect_reply(client.clone(), &id, &prompt, CollectOpts { timeout, on_permission: OnPermission::Wait, stall_secs: 0, retries: 0 }).await;
@@ -361,11 +380,11 @@ pub(crate) async fn compare(client: Arc<Client>, harnesses: Vec<String>, prompt:
                 let stats = turn_stats(&client, &id).await;
                 let _ = client.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await;
                 match outcome {
-                    Ok(r) => json!({"harness": agent, "status": if r.stop_reason == "cancelled" { "cancelled" } else { "ok" }, "stopReason": r.stop_reason, "wallMs": wall, "tokens": stats.0, "toolCalls": stats.1, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "reply": r.reply.chars().take(200).collect::<String>()}),
+                    Ok(r) => json!({"harness": spec, "status": if r.stop_reason == "cancelled" { "cancelled" } else { "ok" }, "stopReason": r.stop_reason, "wallMs": wall, "tokens": stats.0, "toolCalls": stats.1, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "reply": r.reply.chars().take(200).collect::<String>()}),
                     Err(e) => {
                         let app = crate::cli::errors::classify(&e);
                         worst = worst.max(app.code as i32);
-                        json!({"harness": agent, "status": app.code.name(), "wallMs": wall, "error": app.message})
+                        json!({"harness": spec, "status": app.code.name(), "wallMs": wall, "error": app.message})
                     }
                 }
             }
@@ -564,7 +583,6 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
         }
         let mut set = serde_json::Map::new();
         let mut env = serde_json::Map::new();
-        let mut models = serde_json::Map::new();
         for pair in &pairs {
             let (k, v) = pair.split_once('=').ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
             match k {
@@ -577,20 +595,11 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
                 _ if k.starts_with("env.") => {
                     env.insert(k[4..].into(), json!(v));
                 }
-                _ if k.starts_with("models.") => {
-                    models.insert(k[7..].into(), json!(v));
-                }
-                "models" if v.is_empty() => {
-                    set.insert("models".into(), Value::Null);
-                }
-                _ => return Err(AppError::usage(format!("unknown key {k:?}; use model, models.PROFILE, effort, policy, prefer, env.KEY")).into()),
+                _ => return Err(AppError::usage(format!("unknown key {k:?}; use model, effort, policy, prefer, env.KEY")).into()),
             }
         }
         if !env.is_empty() {
             set.insert("env".into(), Value::Object(env));
-        }
-        if !models.is_empty() {
-            set.insert("models".into(), Value::Object(models));
         }
         req["set"] = Value::Object(set);
     }
@@ -603,10 +612,10 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
         let g = |k: &str| d.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
         let prefer = d.get("prefer").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(",")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
         let env = d.get("env").and_then(Value::as_object).map(|o| o.keys().cloned().collect::<Vec<_>>().join(",")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
-        let name = if d.get("kind").and_then(Value::as_str) == Some("alias") { format!("{f} *") } else { f.to_owned() };
-        println!("{name:<12} {:<12} {:<34} {:<8} {:<14} {:<20} {env}", g("profile"), g("model"), g("effort"), g("policy"), prefer);
+        let profile = d.get("profile").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| "? (ambiguous)".into());
+        println!("{f:<12} {:<14} {:<34} {:<8} {:<14} {:<20} {env}", profile, g("model"), g("effort"), g("policy"), prefer);
     };
-    println!("{:<12} {:<12} {:<34} {:<8} {:<14} {:<20} ENV", "NAME", "PROFILE", "MODEL", "EFFORT", "POLICY", "PREFER");
+    println!("{:<12} {:<14} {:<34} {:<8} {:<14} {:<20} ENV", "FAMILY", "PROFILE", "MODEL", "EFFORT", "POLICY", "PREFER");
     match (&family, v.get("families").and_then(Value::as_object)) {
         (Some(f), _) => row(f, &v),
         (None, Some(fams)) => {
@@ -617,4 +626,77 @@ pub(crate) async fn defaults(client: Arc<Client>, family: Option<String>, pairs:
         _ => {}
     }
     Ok(())
+}
+
+/// `acpmux preset [NAME [key=value…]] [--clear]`.
+pub(crate) async fn preset(client: Arc<Client>, name: Option<String>, pairs: Vec<String>, clear: bool, json_out: bool) -> Result<()> {
+    let mut req = json!({});
+    if let Some(n) = &name {
+        req["name"] = json!(n);
+    }
+    if clear {
+        if name.is_none() {
+            return Err(AppError::usage("--clear needs a preset name").into());
+        }
+        req["clear"] = json!(true);
+    }
+    if !pairs.is_empty() {
+        if name.is_none() {
+            return Err(AppError::usage("key=value pairs need a preset name: acpmux preset NAME harness=…").into());
+        }
+        let mut set = serde_json::Map::new();
+        let mut env = serde_json::Map::new();
+        for pair in &pairs {
+            let (k, v) = pair.split_once('=').ok_or_else(|| AppError::usage(format!("expected key=value, got {pair:?}")))?;
+            match k {
+                "harness" | "model" | "effort" | "policy" | "description" => {
+                    set.insert(k.into(), if v.is_empty() { Value::Null } else { json!(v) });
+                }
+                _ if k.starts_with("env.") => {
+                    env.insert(k[4..].into(), if v.is_empty() { Value::Null } else { json!(v) });
+                }
+                "env" if v.is_empty() => {
+                    set.insert("env".into(), Value::Null);
+                }
+                _ => return Err(AppError::usage(format!("unknown key {k:?}; use harness, model, effort, policy, description, env.KEY")).into()),
+            }
+        }
+        if !env.is_empty() {
+            set.insert("env".into(), Value::Object(env));
+        }
+        req["set"] = Value::Object(set);
+    }
+    let v = client.request(method::MUX_PRESETS, req).await?;
+    if json_out {
+        println!("{}", serde_json::to_string_pretty(&v)?);
+        return Ok(());
+    }
+    let row = |p: &Value| {
+        let g = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
+        let env = p.get("env").and_then(Value::as_object).map(|o| o.iter().map(|(k, v)| format!("{k}={}", v.as_str().unwrap_or(""))).collect::<Vec<_>>().join(" ")).filter(|s| !s.is_empty()).unwrap_or_else(|| "-".into());
+        let profile = p.get("profile").and_then(Value::as_str).map(str::to_owned).unwrap_or_else(|| format!("? ({})", p.get("error").and_then(Value::as_str).unwrap_or("unresolved")));
+        println!("{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} {env}", g("name"), g("harness"), profile, g("model"), g("effort"), g("policy"));
+    };
+    println!("{:<12} {:<12} {:<14} {:<34} {:<8} {:<14} ENV", "PRESET", "HARNESS", "PROFILE", "MODEL", "EFFORT", "POLICY");
+    match v.get("presets").and_then(Value::as_array) {
+        Some(list) => {
+            for p in list {
+                row(p);
+            }
+        }
+        None => row(&v),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod target_tests {
+    #[test]
+    fn splits_on_the_first_slash_only() {
+        assert_eq!(super::split_target("claude"), ("claude".into(), None));
+        assert_eq!(super::split_target("claude/opus"), ("claude".into(), Some("opus".into())));
+        assert_eq!(super::split_target("opencode/zai/glm-5.1"), ("opencode".into(), Some("zai/glm-5.1".into())));
+        assert_eq!(super::split_target("pi/openrouter/deepseek/deepseek-v4"), ("pi".into(), Some("openrouter/deepseek/deepseek-v4".into())));
+        assert_eq!(super::split_target("codex/"), ("codex".into(), None));
+    }
 }

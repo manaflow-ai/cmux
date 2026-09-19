@@ -134,42 +134,18 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             }
             let cwd = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default()));
             let meta = mux_meta(&params);
-            let agent = meta
-                .and_then(|m| m.get("harness"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| params.get("harness").and_then(Value::as_str).map(str::to_owned));
-            let model = meta.and_then(|m| m.get("model")).and_then(Value::as_str).map(str::to_owned);
-            let agent = match agent {
-                Some(a) => a,
-                None => {
-                    let cfg = hub.config.read().await;
-                    match model.as_deref().and_then(|m| hub.resolve_by_model(&cfg, m)) {
-                        Some(a) => a,
-                        None => {
-                            if let Some(m) = &model {
-                                // Nothing reports this model: say so instead of running it elsewhere.
-                                let families: Vec<String> = cfg.families().keys().cloned().collect();
-                                return Err(RpcError::invalid_params(format!("no harness reports model {m:?}; pass -u with one of: {}", families.join(", "))));
-                            }
-                            cfg.default_harness.clone().ok_or_else(|| RpcError::invalid_params("no harnesses configured; add one to config.json"))?
-                        }
-                    }
-                }
+            let pick = |key: &str| meta.and_then(|m| m.get(key)).and_then(Value::as_str).map(str::to_owned).or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned));
+            let policy = pick("policy").map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params)).transpose()?;
+            let req = crate::hub::NewRequest {
+                harness: pick("harness"),
+                preset: pick("preset"),
+                name: pick("name"),
+                cwd,
+                policy,
+                model: pick("model"),
+                effort: pick("effort"),
             };
-            let name = meta
-                .and_then(|m| m.get("name"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| params.get("name").and_then(Value::as_str).map(str::to_owned));
-            let policy = meta
-                .and_then(|m| m.get("policy"))
-                .and_then(Value::as_str)
-                .or_else(|| params.get("policy").and_then(Value::as_str))
-                .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
-                .transpose()?;
-            let effort = meta.and_then(|m| m.get("effort")).and_then(Value::as_str).map(str::to_owned);
-            let s = hub.new_session(&agent, name, cwd, policy, model, effort).await?;
+            let s = hub.new_session(req).await?;
             attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
@@ -279,6 +255,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/models" => {
+            if params.get("refresh").and_then(Value::as_bool).unwrap_or(false) {
+                hub.refresh_models().await;
+            }
             let mut cat = hub.models_catalog().await;
             // Remote harnesses, labelled peer/agent, from each connected peer.
             for peer in hub.connected_peers() {
@@ -325,7 +304,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 }
                 agents.insert(name.clone(), v);
             }
-            Ok(json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults}))
+            Ok(json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}))
         }
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {
@@ -350,13 +329,11 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                                 "policy" => merged.policy = None,
                                 "prefer" => merged.prefer.clear(),
                                 "env" => merged.env.clear(),
-                                "models" => merged.models.clear(),
                                 _ => {}
                             }
                         }
                     }
                     if patch.model.is_some() { merged.model = patch.model; }
-                    for (k, v) in patch.models { merged.models.insert(k, v); }
                     if patch.effort.is_some() { merged.effort = patch.effort; }
                     if patch.policy.is_some() { merged.policy = patch.policy; }
                     if !patch.prefer.is_empty() { merged.prefer = patch.prefer; }
@@ -376,15 +353,72 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             let fams = cfg.families();
             for f in fams.keys().chain(cfg.defaults.keys()) {
                 if resolved.contains_key(f) { continue; }
-                let profile = hub.resolve_harness_in(&cfg, f);
-                let d = profile.as_deref().map(|p| cfg.defaults_for_request(f, p)).unwrap_or_default();
-                let model = profile.as_deref().and_then(|p| d.model_for(p));
-                let kind = if fams.contains_key(f) { "family" } else if cfg.harnesses.contains_key(f) { "profile" } else { "alias" };
-                resolved.insert(f.clone(), json!({"kind": kind, "profile": profile, "profiles": fams.get(f).cloned().unwrap_or_default(), "model": model, "models": d.models, "effort": d.effort, "policy": d.policy, "prefer": d.prefer, "env": d.env}));
+                let (profile, error) = match cfg.resolve_harness(f) { Ok(p) => (Some(p), None), Err(e) => (None, Some(e)) };
+                let d = profile.as_deref().map(|p| cfg.defaults_for(p)).unwrap_or_default();
+                let kind = if fams.contains_key(f) { "family" } else if cfg.harnesses.contains_key(f) { "profile" } else { "unused" };
+                resolved.insert(f.clone(), json!({"kind": kind, "profile": profile, "error": error, "profiles": fams.get(f).cloned().unwrap_or_default(), "model": d.model, "effort": d.effort, "policy": d.policy, "prefer": d.prefer, "env": d.env}));
             }
             match family {
                 Some(f) => Ok(resolved.get(&f).cloned().unwrap_or(json!({"profile": null, "profiles": []}))),
                 None => Ok(json!({"families": resolved, "defaults": cfg.defaults})),
+            }
+        }
+        // Read or change presets: {name?, set?: {harness, model, effort, policy, env}, clear?: bool}.
+        method::MUX_PRESETS => {
+            let name = str_param(&params, "name").map(str::to_owned);
+            let set = params.get("set").filter(|v| v.is_object());
+            let clear = params.get("clear").and_then(Value::as_bool).unwrap_or(false);
+            if set.is_some() || clear {
+                let name = name.clone().ok_or_else(|| RpcError::invalid_params("name is required to change a preset"))?;
+                let mut cfg = hub.config.write().await;
+                if clear {
+                    cfg.presets.remove(&name);
+                } else if let Some(set) = set {
+                    let obj = set.as_object().unwrap();
+                    let mut merged = cfg.presets.get(&name).cloned();
+                    let harness = obj.get("harness").and_then(Value::as_str).map(str::to_owned).or_else(|| merged.as_ref().map(|p| p.harness.clone())).ok_or_else(|| RpcError::invalid_params("a preset needs harness=FAMILY-or-PROFILE"))?;
+                    cfg.resolve_harness(&harness).map_err(RpcError::invalid_params)?;
+                    let p = merged.get_or_insert_with(|| crate::config::Preset { harness: harness.clone(), model: None, effort: None, policy: None, env: std::collections::BTreeMap::new(), description: None });
+                    p.harness = harness;
+                    for (k, v) in obj {
+                        match (k.as_str(), v) {
+                            ("harness", _) => {}
+                            ("model", Value::Null) => p.model = None,
+                            ("model", Value::String(m)) => p.model = Some(m.clone()),
+                            ("effort", Value::Null) => p.effort = None,
+                            ("effort", Value::String(e)) => p.effort = Some(e.clone()),
+                            ("policy", Value::Null) => p.policy = None,
+                            ("policy", Value::String(pol)) => p.policy = Some(pol.parse::<PermissionPolicy>().map_err(RpcError::invalid_params)?),
+                            ("description", Value::Null) => p.description = None,
+                            ("description", Value::String(d)) => p.description = Some(d.clone()),
+                            ("env", Value::Null) => p.env.clear(),
+                            ("env", Value::Object(map)) => {
+                                for (ek, ev) in map {
+                                    match ev {
+                                        Value::Null => { p.env.remove(ek); }
+                                        Value::String(s) => { p.env.insert(ek.clone(), s.clone()); }
+                                        _ => return Err(RpcError::invalid_params(format!("env.{ek} must be a string"))),
+                                    }
+                                }
+                            }
+                            (other, _) => return Err(RpcError::invalid_params(format!("unknown preset key {other:?}; use harness, model, effort, policy, env, description"))),
+                        }
+                    }
+                    let p = merged.unwrap();
+                    cfg.presets.insert(name.clone(), p);
+                }
+                if let Err(e) = cfg.save() {
+                    return Err(RpcError::internal(format!("save config: {e}")));
+                }
+            }
+            let cfg = hub.config.read().await;
+            let view = |n: &str, p: &crate::config::Preset| {
+                let (profile, error) = match cfg.resolve_harness(&p.harness) { Ok(x) => (Some(x), None), Err(e) => (None, Some(e)) };
+                json!({"name": n, "harness": p.harness, "profile": profile, "error": error, "model": p.model, "effort": p.effort, "policy": p.policy, "env": p.env, "description": p.description})
+            };
+            match name {
+                Some(n) if !clear => cfg.presets.get(&n).map(|p| view(&n, p)).ok_or_else(|| RpcError::not_found(format!("no preset {n:?}"))),
+                _ => Ok(json!({"presets": cfg.presets.iter().map(|(n, p)| view(n, p)).collect::<Vec<_>>()})),
             }
         }
         method::MUX_INFO => {

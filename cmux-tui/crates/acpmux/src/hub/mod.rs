@@ -6,6 +6,7 @@
 //! (prompt, cancel, config), `transfer` (export, import), `views` (summaries).
 
 mod lifecycle;
+pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
 pub mod rules;
 mod peers;
 mod permissions;
@@ -539,6 +540,9 @@ pub fn resolve_config_id(m: &SessionMeta, id: &str) -> String {
 }
 
 pub fn current_model(m: &SessionMeta) -> Option<String> {
+    if let Some(r) = &m.model_request {
+        return Some(r.clone());
+    }
     if let Some(opts) = m.config_options.as_ref().and_then(Value::as_array) {
         for o in opts {
             if o.get("id").and_then(Value::as_str) == Some("model") {

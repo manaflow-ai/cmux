@@ -212,6 +212,7 @@ pub mod method {
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     pub const MUX_DEFAULTS: &str = "_acpmux/defaults";
+    pub const MUX_PRESETS: &str = "_acpmux/presets";
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";

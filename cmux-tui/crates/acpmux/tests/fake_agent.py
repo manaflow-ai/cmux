@@ -71,6 +71,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "env: NAME" replies with that environment variable, for spawn-time checks.
+    if text.startswith("env:"):
+        name = text[4:].strip()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"{name}={os.environ.get(name, '')}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "fswrite: PATH" and "fsread: PATH" delegate the file operation to the
     # client (ACP fs/write_text_file, fs/read_text_file) and report the result.
     if text.startswith("fswrite:") or text.startswith("fsread:"):

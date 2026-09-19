@@ -73,6 +73,14 @@ pub struct SessionMeta {
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
+    /// Preset the session was created from (`-p NAME`); its env is
+    /// re-applied on every respawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+    /// Model requested for a harness whose argv or env carries `${model}`:
+    /// applied at spawn, not through set_model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_request: Option<String>,
     pub cwd: PathBuf,
     #[serde(default)]
     pub agent_session_id: Option<String>,
@@ -385,6 +393,8 @@ mod tests {
             harness: "codex".into(),
             harness_argv: vec![],
             family: None,
+            preset: None,
+            model_request: None,
             cwd: PathBuf::from("/tmp"),
             agent_session_id: None,
             status: SessionStatus::Idle,

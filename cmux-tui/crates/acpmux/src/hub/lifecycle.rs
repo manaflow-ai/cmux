@@ -5,39 +5,39 @@ use super::*;
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
-    pub async fn new_session(
-        self: &Arc<Self>,
-        agent: &str,
-        name: Option<String>,
-        cwd: PathBuf,
-        policy: Option<PermissionPolicy>,
-        model: Option<String>,
-        effort: Option<String>,
-    ) -> Result<Arc<Session>, RpcError> {
-        // `agent` may be a family (`claude`, `codex`): the family's prefer
-        // list, then an exact profile, then the first profile in the family.
-        let requested = agent;
-        let (agent, profile, defaults) = {
+    pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
+        let NewRequest { harness, preset, name, cwd, policy, model, effort } = req;
+        // Resolution is a lookup, never a guess: preset → head (family or
+        // profile) → defaults chain → explicit values on top.
+        let (agent, profile, defaults, head, preset_name) = {
             let cfg = self.config.read().await;
-            let resolved = self.resolve_harness_in(&cfg, requested).ok_or_else(|| {
-                let fams: Vec<String> = cfg.families().keys().cloned().collect();
-                let aliases = cfg.aliases();
-                RpcError::invalid_params(format!(
-                    "unknown harness {requested:?}; profiles: {}; families: {}{}",
-                    cfg.harnesses.keys().cloned().collect::<Vec<_>>().join(", "),
-                    fams.join(", "),
-                    if aliases.is_empty() { String::new() } else { format!("; aliases: {}", aliases.join(", ")) }
-                ))
-            })?;
+            let preset_cfg = match &preset {
+                Some(n) => Some(cfg.presets.get(n).cloned().ok_or_else(|| {
+                    RpcError::invalid_params(format!("unknown preset {n:?}; presets: {}", if cfg.presets.is_empty() { "none".to_owned() } else { cfg.presets.keys().cloned().collect::<Vec<_>>().join(", ") }))
+                })?),
+                None => None,
+            };
+            let head = harness
+                .clone()
+                .or_else(|| preset_cfg.as_ref().map(|p| p.harness.clone()))
+                .or_else(|| cfg.default_harness.clone())
+                .ok_or_else(|| RpcError::invalid_params("no harnesses configured; add one to config.json"))?;
+            let resolved = cfg.resolve_harness(&head).map_err(|e| RpcError::invalid_params(self.with_model_hint(&cfg, &head, model.as_deref(), e)))?;
             let profile = cfg.harnesses[&resolved].clone();
-            let defaults = cfg.defaults_for_request(requested, &resolved);
-            (resolved, profile, defaults)
+            let mut d = cfg.defaults_for(&resolved);
+            if let Some(p) = &preset_cfg {
+                d.overlay(&crate::config::SessionDefaults { model: p.model.clone(), effort: p.effort.clone(), policy: p.policy, prefer: vec![], env: p.env.clone() });
+            }
+            (resolved, profile, d, head, preset)
         };
         let agent = agent.as_str();
         let family = crate::config::derive_family(agent, &profile);
         let policy = policy.or(defaults.policy);
-        let model = model.or_else(|| defaults.model_for(agent));
+        let model = model.or(defaults.model);
         let effort = effort.or(defaults.effort);
+        // `${model}` in argv or env: the model is a spawn parameter, not a
+        // set_model call.
+        let spawn_model = profile_takes_model_at_spawn(&profile) || defaults.env.values().any(|v| v.contains("${model}"));
         let cwd = if cwd.is_absolute() {
             cwd
         } else {
@@ -62,6 +62,8 @@ impl Hub {
             harness: agent.into(),
             harness_argv: profile.argv.clone(),
             family: Some(family),
+            preset: preset_name.clone(),
+            model_request: if spawn_model { model.clone() } else { None },
             cwd,
             agent_session_id: None,
             status: SessionStatus::Idle,
@@ -94,18 +96,28 @@ impl Hub {
             .lock()
             .unwrap()
             .insert(id.clone(), session.clone());
-        self.append(&session, "mux", "created", json!({"harness": agent}));
-        let cwd_for_env = session.meta().cwd;
-        self.ensure_child(&session, &self.with_default_env(&profile, &defaults.env, &cwd_for_env)).await?;
-        // Family or profile defaults, applied once the harness is up. A bad
-        // default fails creation loudly rather than starting a session that
+        self.append(&session, "mux", "created", json!({"harness": agent, "preset": preset_name}));
+        self.ensure_child(&session, &self.spawn_profile(&session, &profile, &defaults.env).await).await?;
+        // Defaults and explicit values, applied once the harness is up. A bad
+        // value fails creation loudly rather than starting a session that
         // silently runs another model.
         let applied: Result<(), RpcError> = async {
             if let Some(m) = &model {
-                if let Err(e) = self.set_model(&session, m).await {
-                    let known: Vec<String> = self.known_models.lock().unwrap().get(agent).map(|l| l.iter().map(|(id, _)| id.clone()).collect()).unwrap_or_default();
-                    let hint = if known.is_empty() { String::new() } else { format!("; models: {}", known.join(", ")) };
-                    return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
+                if !spawn_model {
+                    // `opencode/big-pickle` was written as `-m opencode/big-pickle`:
+                    // the harness lacks `big-pickle` but lists `opencode/big-pickle`.
+                    let catalog = self.catalog_ids(agent).await;
+                    let full = format!("{head}/{m}");
+                    let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.iter().any(|id| *id == full) { full } else { m.clone() };
+                    if let Err(e) = self.set_model(&session, &m).await {
+                        if e.message.contains("Method not found") {
+                            return Err(RpcError::invalid_params(format!(
+                                "harness {agent} takes no model over ACP (no session/set_model); choose it in the harness's own settings, or give its profile a `${{model}}` argv or env entry in config.json"
+                            )));
+                        }
+                        let hint = if catalog.is_empty() { String::new() } else { format!("; models: {}", catalog.join(", ")) };
+                        return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
+                    }
                 }
             }
             if let Some(e) = &effort {
@@ -120,6 +132,40 @@ impl Hub {
             return Err(e);
         }
         Ok(session)
+    }
+
+    /// "did you mean codex/gpt-5.5": a `-m` head that is no harness may be a
+    /// bare model id, or `HEAD/MODEL` may be a full id such as
+    /// `opencode-go/deepseek-v4-flash`.
+    fn with_model_hint(&self, cfg: &crate::config::Config, head: &str, model: Option<&str>, err: String) -> String {
+        let spec = match model { Some(m) => format!("{head}/{m}"), None => head.to_owned() };
+        let known = self.known_models.lock().unwrap();
+        let mut hits: Vec<String> = Vec::new();
+        for (name, p) in &cfg.harnesses {
+            let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
+            match p.kind {
+                crate::config::HarnessKind::ClaudeStdio => ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string())),
+                crate::config::HarnessKind::Acp => ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone())),
+            }
+            if ids.iter().any(|id| *id == spec) || (p.kind == crate::config::HarnessKind::ClaudeStdio && spec.starts_with("claude")) {
+                hits.push(format!("{name}/{spec}"));
+            }
+        }
+        if hits.is_empty() { err } else { format!("{err}. {spec:?} is a model id: write {}", hits.join(" or ")) }
+    }
+
+    /// Every model id a profile can run: declared in config, then reported
+    /// (Claude's static list for the stdio backend).
+    pub async fn catalog_ids(&self, profile: &str) -> Vec<String> {
+        let cfg = self.config.read().await;
+        let Some(p) = cfg.harnesses.get(profile) else { return vec![] };
+        let mut ids: Vec<String> = p.models.iter().map(|m| m.id().to_owned()).collect();
+        match p.kind {
+            crate::config::HarnessKind::ClaudeStdio => ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string())),
+            crate::config::HarnessKind::Acp => ids.extend(self.known_models.lock().unwrap().get(profile).into_iter().flatten().map(|(id, _)| id.clone())),
+        }
+        ids.dedup();
+        ids
     }
 
     pub(super) fn unique_name(&self, agent: &str) -> String {
@@ -457,24 +503,41 @@ impl Hub {
     /// the background at daemon start so the picker is full before the first
     /// session exists.
     pub async fn probe_models(self: &Arc<Self>) {
+        self.probe_models_with(false, false).await;
+    }
+
+    /// `daemon models --refresh`: forget every reported catalog, probe every
+    /// ACP harness again, and wait for the answers (bounded).
+    pub async fn refresh_models(self: &Arc<Self>) {
+        self.known_models.lock().unwrap().clear();
+        self.probe_models_with(true, true).await;
+    }
+
+    async fn probe_models_with(self: &Arc<Self>, force: bool, wait: bool) {
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
             cfg.harnesses
                 .iter()
-                .filter(|(n, p)| p.kind == crate::config::HarnessKind::Acp && !known.contains_key(*n))
+                .filter(|(n, p)| p.kind == crate::config::HarnessKind::Acp && (force || !known.contains_key(*n)))
                 .map(|(n, p)| (n.clone(), p.clone()))
                 .collect()
         };
+        let mut handles = Vec::new();
         for (name, profile) in agents {
             let hub = self.clone();
-            tokio::spawn(async move {
+            handles.push(tokio::spawn(async move {
                 match tokio::time::timeout(std::time::Duration::from_secs(60), hub.probe_one(&name, &profile)).await {
                     Ok(Ok(n)) => tracing::info!(agent = %name, models = n, "model probe done"),
                     Ok(Err(e)) => tracing::warn!(agent = %name, error = %e, "model probe failed"),
                     Err(_) => tracing::warn!(agent = %name, "model probe timed out"),
                 }
-            });
+            }));
+        }
+        if wait {
+            for h in handles {
+                let _ = h.await;
+            }
         }
     }
 
@@ -509,10 +572,16 @@ impl Hub {
         let known = self.known_models.lock().unwrap().clone();
         let mut out = Vec::new();
         for (name, profile) in &cfg.harnesses {
-            let mut models: Vec<Value> = match profile.kind {
+            let mut models: Vec<Value> = profile.models.iter().map(|m| json!({"id": m.id(), "name": m.name(), "declared": true})).collect();
+            let reported: Vec<Value> = match profile.kind {
                 crate::config::HarnessKind::ClaudeStdio => crate::claude_stdio::models().iter().map(|(v, n)| json!({"id": v, "name": n})).collect(),
                 crate::config::HarnessKind::Acp => known.get(name).map(|l| l.iter().map(|(v, n)| json!({"id": v, "name": n})).collect()).unwrap_or_default(),
             };
+            for r in reported {
+                if !models.iter().any(|m| m["id"] == r["id"]) {
+                    models.push(r);
+                }
+            }
             if models.is_empty() {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
@@ -547,86 +616,62 @@ impl Hub {
             let profile = cfg.profile(&agent).cloned().ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
             (profile, cfg.defaults_for(&agent))
         };
-        let cwd = session.meta().cwd;
-        self.ensure_child(session, &self.with_default_env(&profile, &defaults.env, &cwd)).await
+        let spawn = self.spawn_profile(session, &profile, &defaults.env).await;
+        self.ensure_child(session, &spawn).await
     }
 
-    /// Whether a profile can run a model, judged by the model list it
-    /// reported (Claude and unprobed harnesses accept anything).
-    pub fn knows_model(&self, profile: &str, model: Option<&str>) -> bool {
-        let Some(m) = model else { return true };
-        let known = self.known_models.lock().unwrap();
-        match known.get(profile).filter(|l| !l.is_empty()) {
-            Some(list) => list.iter().any(|(id, _)| id == m),
-            None => true,
+    /// The profile as it is spawned for this session: family and profile
+    /// default env underneath the profile's own, the preset's env on top,
+    /// then `${cwd}`, `${home}`, `${model}` and a leading `~/` expanded in
+    /// every env value and argv word.
+    pub(super) async fn spawn_profile(&self, session: &Session, profile: &HarnessProfile, defaults_env: &std::collections::BTreeMap<String, String>) -> HarnessProfile {
+        let meta = session.meta();
+        let mut p = profile.clone();
+        for (k, v) in defaults_env {
+            p.env.entry(k.clone()).or_insert_with(|| v.clone());
         }
-    }
-
-    /// The profile for a family, profile or alias name, skipping preferred
-    /// profiles whose reported model list lacks the model they would get.
-    pub fn resolve_harness_in(&self, cfg: &crate::config::Config, requested: &str) -> Option<String> {
-        cfg.resolve_harness_where(requested, |p, m| self.knows_model(p, m))
-    }
-
-    /// The profile to run a model when the request named no agent: the
-    /// profiles whose reported catalog lists it (Claude profiles for Claude
-    /// aliases and ids), narrowed to the default agent, then family
-    /// preference, then name order. None when nothing knows the model.
-    pub fn resolve_by_model(&self, cfg: &crate::config::Config, model: &str) -> Option<String> {
-        let known = self.known_models.lock().unwrap();
-        let claude_like = model.starts_with("claude") || crate::claude_stdio::models().iter().any(|(id, _)| *id == model);
-        let candidates: Vec<String> = cfg
-            .harnesses
-            .iter()
-            .filter(|(name, p)| match p.kind {
-                crate::config::HarnessKind::ClaudeStdio => claude_like,
-                crate::config::HarnessKind::Acp => known.get(*name).map(|l| l.iter().any(|(id, _)| id == model)).unwrap_or(false),
-            })
-            .map(|(n, _)| n.clone())
-            .collect();
-        drop(known);
-        if candidates.is_empty() {
-            return None;
-        }
-        if let Some(d) = &cfg.default_harness {
-            if candidates.contains(d) {
-                return Some(d.clone());
-            }
-        }
-        // The family's preferred profile when it is a candidate.
-        for c in &candidates {
-            if let Some(f) = cfg.family(c) {
-                if let Some(p) = cfg.resolve_harness(&f) {
-                    if candidates.contains(&p) {
-                        return Some(p);
-                    }
+        if let Some(name) = &meta.preset {
+            if let Some(preset) = self.config.read().await.presets.get(name) {
+                for (k, v) in &preset.env {
+                    p.env.insert(k.clone(), v.clone());
                 }
             }
         }
-        candidates.into_iter().next()
-    }
-
-    /// The profile with the family's default env underneath its own, and
-    /// `${cwd}`, `${home}` and a leading `~/` expanded in every value, so an
-    /// alias can point a harness at a per-project home
-    /// (`CODEX_HOME=${cwd}/.codex`).
-    fn with_default_env(&self, profile: &HarnessProfile, env: &std::collections::BTreeMap<String, String>, cwd: &std::path::Path) -> HarnessProfile {
-        let mut p = profile.clone();
-        for (k, v) in env {
-            p.env.entry(k.clone()).or_insert_with(|| v.clone());
-        }
         let home = dirs::home_dir().unwrap_or_default();
+        let model = meta.model_request.clone().unwrap_or_default();
         for v in p.env.values_mut() {
-            *v = expand_env_value(v, cwd, &home);
+            *v = expand_env_value(v, &meta.cwd, &home, &model);
+        }
+        for a in p.argv.iter_mut() {
+            *a = expand_env_value(a, &meta.cwd, &home, &model);
         }
         p
     }
 
 }
 
-/// `${cwd}`, `${home}` and a leading `~/` in a profile env value.
-pub fn expand_env_value(value: &str, cwd: &std::path::Path, home: &std::path::Path) -> String {
-    let mut out = value.replace("${cwd}", &cwd.to_string_lossy()).replace("${home}", &home.to_string_lossy());
+/// Whether the harness takes its model on the command line or in env.
+pub fn profile_takes_model_at_spawn(profile: &HarnessProfile) -> bool {
+    profile.argv.iter().any(|a| a.contains("${model}")) || profile.env.values().any(|v| v.contains("${model}"))
+}
+
+/// What `session/new` carries: `harness` is a family or profile name
+/// (the head of `-m HEAD/MODEL`), `preset` a `presets` entry. Explicit
+/// values win over the preset, which wins over the defaults chain.
+#[derive(Debug, Clone, Default)]
+pub struct NewRequest {
+    pub harness: Option<String>,
+    pub preset: Option<String>,
+    pub name: Option<String>,
+    pub cwd: PathBuf,
+    pub policy: Option<PermissionPolicy>,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+/// `${cwd}`, `${home}`, `${model}` and a leading `~/` in a profile env value or argv word.
+pub fn expand_env_value(value: &str, cwd: &std::path::Path, home: &std::path::Path, model: &str) -> String {
+    let mut out = value.replace("${cwd}", &cwd.to_string_lossy()).replace("${home}", &home.to_string_lossy()).replace("${model}", model);
     if let Some(rest) = out.strip_prefix("~/") {
         out = format!("{}/{rest}", home.to_string_lossy());
     }
@@ -639,9 +684,10 @@ mod env_tests {
     fn expands_cwd_and_home() {
         let cwd = std::path::Path::new("/work/proj");
         let home = std::path::Path::new("/Users/me");
-        assert_eq!(super::expand_env_value("${cwd}/.codex", cwd, home), "/work/proj/.codex");
-        assert_eq!(super::expand_env_value("~/.omp", cwd, home), "/Users/me/.omp");
-        assert_eq!(super::expand_env_value("${home}/x:${cwd}", cwd, home), "/Users/me/x:/work/proj");
-        assert_eq!(super::expand_env_value("plain", cwd, home), "plain");
+        assert_eq!(super::expand_env_value("${cwd}/.codex", cwd, home, ""), "/work/proj/.codex");
+        assert_eq!(super::expand_env_value("~/.omp", cwd, home, ""), "/Users/me/.omp");
+        assert_eq!(super::expand_env_value("${home}/x:${cwd}", cwd, home, ""), "/Users/me/x:/work/proj");
+        assert_eq!(super::expand_env_value("--model=${model}", cwd, home, "gpt-5.5"), "--model=gpt-5.5");
+        assert_eq!(super::expand_env_value("plain", cwd, home, ""), "plain");
     }
 }

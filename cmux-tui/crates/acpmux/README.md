@@ -35,7 +35,7 @@ the web dashboard URL.
 
 ```sh
 acpmux web                           # print the dashboard URL and open it in the browser
-acpmux new -u codex -n backend-review   # scripted: create a session and open the TUI on it
+acpmux new -m codex -n backend-review   # scripted: create a session and open the TUI on it
 acpmux send backend-review "inspect the failing tests"
 acpmux ls
 acpmux attach backend-review         # TUI on one session; Ctrl-q leaves, the agent keeps running
@@ -59,7 +59,7 @@ Five everyday commands, three groups for the rest:
 | Command | What it does |
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
-| `new [-u harness] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
+| `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
 | `send NAME "text" [--steer] [--no-wait] [-q]` | Prompt and stream the reply. |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
@@ -81,10 +81,10 @@ printed on stdout. Exit codes are stable: 0 ok, 1 runtime or agent error, 2 usag
 4 no such session, 5 every permission in the turn was denied, 130 interrupted.
 
 ```
-acpmux run -u codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
-acpmux exec -u claude "one-shot"                              # same, and the session is deleted afterwards
-acpmux --json run -u claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
-acpmux ensure NAME -u codex --cwd DIR                         # the session if it exists, else create it
+acpmux run -m codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply
+acpmux exec -m claude "one-shot"                              # same, and the session is deleted afterwards
+acpmux --json run -m claude --policy approve-all "..."       # {"sessionId","name","reply","stopReason","permissions",…}
+acpmux ensure NAME -m codex --cwd DIR                         # the session if it exists, else create it
 acpmux send NAME --no-wait "..."                              # queue and return; prints "queued behind 1 running turn"
 acpmux send NAME --timeout 120 --on-permission deny|fail "…"  # cancel after 120 s (exit 3); answer prompts without a human
 acpmux wait                                                   # until any session on any host resolves (turn ended or needs a permission)
@@ -98,7 +98,7 @@ acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"], "default
 acpmux session tag NAME task=review --ttl 3600; acpmux ls --tag task=review
 acpmux ls --status running | --pending                        # filters; --json for the full records
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
-acpmux compare -u claude -u codex "prompt"                    # one temporary session per harness, run one after another
+acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
 
@@ -240,55 +240,103 @@ there, and a selection covers only the useful text: the gutter, role markers and
 padding are never highlighted or copied. The composer grows to 12 rows before it scrolls; set `"composerMaxRows"` in
 `~/.acpmux/config.json` or `ACPMUX_COMPOSER_ROWS` to change it.
 
-## Defaults per model family
+## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
-An orchestrator asks for "a Claude session" or "a Codex session", not for a profile name, a
-model id, and an effort level every time. `defaults` in `config.json` holds those per family,
-and `-u FAMILY` resolves to a profile:
-
-```sh
-acpmux defaults                                                # one row per family: profile, model, effort, policy
-acpmux defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-sr,claude
-acpmux defaults codex  model=gpt-5-codex effort=high policy=approve-edits
-acpmux defaults claude env.ANTHROPIC_BASE_URL=http://127.0.0.1:4000   # a router for every Claude process
-acpmux defaults claude effort=                                 # clear one key; --clear drops the family
-acpmux run -u claude "…"                                       # goes to claude-sr with those defaults
-acpmux run -u claude -m claude-sonnet-5 "…"                    # flags still win
-```
-
-Open models come through OpenCode and pi, which already talk to Ollama, OpenRouter, LM Studio,
-Kimi, Z.ai, DeepSeek and any OpenAI-compatible endpoint from their own provider configs
-(`opencode.json`, `~/.pi/agent/models.json`). acpmux reads the full catalog each one reports
-over ACP (`provider/model` ids) and lets you name a model class once, as an **alias**: a
-`defaults` entry that is neither a family nor a profile.
+One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,
+`prime`, `gemini`) or a **profile** (`claude-sr`, `claude-acp`); an optional model follows the
+first slash and keeps its own slashes. Nothing is inferred: a head that is neither family nor
+profile is an error, and when it looks like a model id the error says what to write instead.
 
 ```sh
-acpmux defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4 effort=low
-acpmux defaults local    prefer=opencode model=ollama/qwen3-coder policy=approve-all
-acpmux run -u deepseek "…"      # OpenCode with its DeepSeek id; pi with pi's id when OpenCode is not installed
-acpmux run -u local "…"
+acpmux run -m claude "…"                          # the claude family: its preferred profile and defaults
+acpmux run -m claude/opus "…"                     # that harness, that model
+acpmux run -m codex/gpt-5.5 "…"
+acpmux run -m opencode/zai/glm-5.1 "…"            # provider/model ids keep their slashes
+acpmux run -m opencode/big-pickle "…"             # OpenCode lists it as opencode/big-pickle: the full id is used
+acpmux run -m pi/subrouter/gpt-5.6-sol "…"
+acpmux run -m omp "…"; acpmux run -m prime "…"    # forks are their own families
+acpmux run -m gpt-5.5 "…"                         # error: "gpt-5.5" is a model id: write codex/gpt-5.5
+acpmux run "…"                                    # no flag: the default harness and its defaults
 ```
 
-`prefer` skips a harness whose reported model list does not contain the alias's model for it,
-so the same alias works on a laptop with Ollama and on a server with OpenRouter. When no
-preferred harness reports the model, the first installed one is used and the model setting
-fails with the ids it does know. Aliases show in `acpmux defaults` with a `*`.
+| Model id style | Harnesses | Examples |
+| --- | --- | --- |
+| bare id or alias | Claude Code, Codex, Gemini | `claude/opus`, `claude/claude-fable-5-1[1m]`, `codex/gpt-6-astra`, `gemini/gemini-2.5-pro` |
+| `provider/model` | OpenCode, pi, oh-my-pi | `opencode/opencode-go/deepseek-v4-pro`, `pi/anthropic/claude-opus-5`, `omp/openai-codex/gpt-5.6-sol` |
+| none over ACP | prime-agent | `-m prime`; the model comes from its own settings, or from a `${model}` argv entry (below) |
 
-**Convention: harness first, model second.** `-u` (`--harness`) says which harness (a family such as
-`claude`, an alias such as `deepseek`, or a profile); `-m` refines the model and `-e` the
-effort. `-m` alone also works: acpmux picks the harness whose reported catalog lists the id
-(`-m sonnet` is a Claude, `-m opencode-go/deepseek-v4-flash` is OpenCode) and refuses an id
-nobody reports rather than running it elsewhere. Explicit flags always win over defaults.
+`acpmux daemon models` prints every id each harness declares or reports; `--refresh` probes
+again after you change a harness's provider config.
 
-Families are derived from the harness (`claude` for the stdio backend and `sr claude proxy`,
-`codex` for `codex-acp`, `opencode`, `pi`, `gemini`) or set with `"family"` on a profile.
-`prefer` lists the profiles to use for a family in order, so `-u claude` can go to the
-subrouter pool first and the plain login second. Precedence at creation: the request, then a
-`defaults` entry named after the profile, then the family's entry, then the daemon's
-`permissionPolicy`. A default model or effort the harness rejects fails the creation with the
-reason, so a typo never starts a session on the wrong model. `_acpmux/harnesses` reports every
-profile's family and resolved defaults, and `session/new` takes a family name as `harness` plus
-`model` and `effort` in `_meta.acpmux`.
+**A family resolves to exactly one profile, or fails.** Its `prefer` list, else its only
+profile, else the profile named like it. Two profiles and no preference is an error naming
+both, never a guess. Discovery sets `claude` to prefer `claude-sr` then `claude` when
+`sr claude proxy` works, so `-m claude` uses the account pool and falls back to the direct
+login. Write your own with `acpmux defaults claude prefer=claude,claude-sr`.
+
+**Defaults** fill in what the flag leaves out, per family or profile: model, effort, policy,
+env. Precedence: explicit flags, then the preset, then the profile's entry, then the family's.
+
+```sh
+acpmux defaults                                            # one row per family: profile chosen, model, effort, policy
+acpmux defaults claude model=opus effort=high policy=approve-edits
+acpmux defaults codex  effort=high
+acpmux defaults claude env.ANTHROPIC_BASE_URL=http://127.0.0.1:4000
+```
+
+**Presets** are named bundles for `-p`: one harness plus model, effort, policy and env. A preset
+names one harness, so it does the same thing every time; want a different harness on another
+machine, define the preset differently there.
+
+```sh
+acpmux preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low
+acpmux preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'      # oh-my-codex project homes
+acpmux run -p deepseek "…"
+acpmux run -p omx --cwd ~/proj -m codex/gpt-5.5 "…"                 # -m and -e still win over the preset
+acpmux preset                                                        # list; `preset NAME --clear` removes one
+```
+
+### Bring your own ACP harness
+
+Every harness is a `harnesses` entry in `~/.acpmux/config.json`. Discovery fills in the ones on
+PATH (Claude Code, Codex, OpenCode, pi, oh-my-pi, prime-agent, Gemini, `sr claude proxy`); a
+configured entry always wins over a discovered one. A complete entry:
+
+```jsonc
+{
+  "harnesses": {
+    "omp": {
+      "argv": ["/Users/me/.local/bin/omp", "acp"],          // any ACP server on stdio
+      "family": "omp",                                      // optional: derived from argv when absent
+      "env": {"OMP_HOME": "${home}/.omp"},                  // ${cwd}, ${home}, ${model}, ~/ expand
+      "models": [                                           // declared catalog, shown ahead of the reported one
+        "openai-codex/gpt-5.6-sol",
+        {"id": "ollama/qwen3-coder", "name": "Qwen3 Coder (local)"}
+      ],
+      "model": "openai-codex/gpt-5.6-sol",                  // inline defaults, same as a defaults entry
+      "effort": "high",
+      "policy": "approve-edits",
+      "fallback": "pi",                                     // where a session moves on limit or auth errors
+      "description": "oh-my-pi with the local models"
+    },
+    "gemini-flash": {
+      "argv": ["gemini", "--experimental-acp", "--model", "${model}"],   // model as a spawn argument
+      "family": "gemini",
+      "models": ["gemini-2.5-flash", "gemini-2.5-pro"],
+      "model": "gemini-2.5-flash"
+    }
+  },
+  "defaults": {"claude": {"prefer": ["claude-sr", "claude"], "effort": "high"}},
+  "presets": {"deepseek": {"harness": "opencode", "model": "opencode-go/deepseek-v4-pro", "effort": "low"}}
+}
+```
+
+`${model}` in argv or env makes the model a spawn parameter: acpmux passes it at start instead
+of calling `session/set_model`, and `session set NAME model=…` restarts the process with the
+new one. That is how a harness with no model API (prime-agent, or any wrapper script) still
+takes `-m NAME/MODEL`. Declared `models` feed the pickers and `daemon models`; the reported
+catalog is merged after them. `kind: "claude-stdio"` selects the Claude Code stream-json backend
+instead of ACP.
 
 ## Forks and plugins that were dogfooded
 
@@ -297,17 +345,18 @@ Every harness below was run through acpmux end to end (create, prompt, effort, p
 
 | Harness | How acpmux runs it | Works | Notes |
 | --- | --- | --- | --- |
-| [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`) | discovered as `omp acp`, family `pi` | yes | 60+ providers from `~/.omp/agent/models.yml`; `-e` drives its `thinking` option; delegates file writes to acpmux, so `--policy ask` gates edits. omp 17.3.2 repeats the final text of a first turn (`pearpear`); 18.1.18 does not: upgrade. |
-| [prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) | discovered as `prime-agent --mode acp`, profile `prime`, family `pi` | yes | One session per process (acpmux does that anyway). No model list over ACP: pick the model in `~/.prime/agent/settings.json` (`defaultModel`) or `models.json`; `-m` is refused. Writes files itself, so `ask` gates only its shell. |
+| [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`) | discovered as `omp acp`, family `omp` | yes | 60+ providers from `~/.omp/agent/models.yml`; `-e` drives its `thinking` option; delegates file writes to acpmux, so `--policy ask` gates edits. omp 17.3.2 repeats the final text of a first turn (`pearpear`); 18.1.18 does not: upgrade. |
+| [prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) | discovered as `prime-agent --mode acp`, family `prime` | yes | One session per process (acpmux does that anyway). No model API over ACP: `-m prime` only; the model comes from `~/.prime/agent/settings.json`, and `-m prime/x` says so. Writes files itself, so `ask` gates only its shell. |
 | [oh-my-opencode](https://github.com/opensoft/oh-my-opencode) | OpenCode plugin: `"plugin": ["oh-my-opencode@4.19.4"]` in the project's `.opencode/opencode.json` | yes | Its agents (Sisyphus, Oracle, …) arrive as the `mode` config option, so `session set NAME mode=…` and the TUI `/set` pick them. A user-level `"permission": "allow"` in `opencode.json` means OpenCode never asks; acpmux policies then apply only to what it delegates. |
-| [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) (`omx`) | no ACP; Codex is the engine. `omx setup --scope project` writes `<project>/.codex`; run Codex with `CODEX_HOME` there | yes, with two steps | `acpmux defaults omx prefer=codex 'env.CODEX_HOME=${cwd}/.codex'` then `run -u omx --cwd PROJECT`. The project home needs the user's provider lines (`openai_base_url`, …) and an `auth.json` (a symlink to `~/.codex/auth.json` works; a copy breaks on token rotation). `omx setup --scope user` avoids both. |
+| [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) (`omx`) | no ACP; Codex is the engine. `omx setup --scope project` writes `<project>/.codex`; run Codex with `CODEX_HOME` there | yes, with two steps | `acpmux preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'` then `run -p omx --cwd PROJECT`. The project home needs the user's provider lines (`openai_base_url`, …) and an `auth.json` (a symlink to `~/.codex/auth.json` works; a copy breaks on token rotation). `omx setup --scope user` avoids both. |
 
 Two acpmux changes came out of this. Every ACP harness is told acpmux implements the client
 file system (`fs/read_text_file`, `fs/write_text_file`): a harness that delegates writes (omp,
 Zed-style agents) has every edit pass through the permission policy and rules, and reads are
 refused under `deny-all` or a deny rule. Harnesses that write files themselves (pi, OpenCode,
-prime) still gate only what they choose to ask about. And profile or family `env` values expand
-`${cwd}`, `${home}` and a leading `~/`, so one alias can point a harness at a per-project home.
+prime) still gate only what they choose to ask about. And profile, family and preset `env` values
+expand `${cwd}`, `${home}`, `${model}` and a leading `~/`, so one preset can point a harness at a
+per-project home.
 
 ## Peers: every session on every machine, from one Mac
 
@@ -322,7 +371,7 @@ acpmux host setup HOST                 # scp the binary, write config + launchd 
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host update --all               # push the current binary to every ssh peer and restart it
 acpmux ls                              # HOST/session-name next to local sessions
-acpmux new -u claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
+acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
 acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bundles/HOST-<id>
 ```
@@ -392,7 +441,7 @@ is installed, acpmux discovers a `claude-sr` profile that launches Claude throug
 (`sr claude proxy`, which accepts acpmux's stream-json flags, `--session-id` and `--resume`),
 and sets it as the `fallback` of the direct `claude` profile.
 
-- `acpmux run -u claude-sr "…"` always uses the pool; the pool picks the account with the
+- `acpmux run -m claude-sr "…"` always uses the pool; the pool picks the account with the
   most quota and keeps the conversation sticky to it.
 - A direct `claude` session whose account reports a usage or rate limit mid-turn is moved
   onto `claude-sr` automatically: the agent process is replaced by a pooled one that resumes
