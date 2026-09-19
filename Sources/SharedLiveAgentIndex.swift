@@ -58,9 +58,8 @@ final class SharedLiveAgentIndex {
     private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
-    // A synchronous loader cannot be interrupted once it is inside its
-    // process/filesystem scan. Share one detached loader across refresh
-    // wrappers so an ownership timeout never starts an unbounded second scan.
+    // A loader cannot be interrupted once it is inside its
+    // filesystem scan. Share one detached loader across refresh
     private var indexLoaderTask: Task<SharedLiveAgentIndexLoader.LoadResult, Never>?
     private var indexLoaderTaskGeneration: UUID?
     // A timed-out synchronous loader cannot be force-cancelled safely from
@@ -212,7 +211,7 @@ final class SharedLiveAgentIndex {
     // DispatchSource file watching requires a delivery queue; state hops back to MainActor.
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private let indexLoader: @Sendable () -> SharedLiveAgentIndexLoader.LoadResult
+    private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
     private let customForkSupportProvider: (@Sendable (SessionRestorableAgentSnapshot, Bool) async -> Bool)?
@@ -221,8 +220,9 @@ final class SharedLiveAgentIndex {
     private let forkExecutableWatchSourceBudgetProvider: @MainActor (Int) -> Int
 
     init(
-        indexLoader: @escaping @Sendable () -> SharedLiveAgentIndexLoader.LoadResult = {
-            SharedLiveAgentIndexLoader().loadResultSynchronously()
+        indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+            let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            return SharedLiveAgentIndexLoader(processSnapshotProvider: { snapshot }).loadResultSynchronously()
         },
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
@@ -846,7 +846,7 @@ final class SharedLiveAgentIndex {
         let indexLoader = self.indexLoader
         let generation = UUID()
         let task = Task.detached(priority: .utility) {
-            indexLoader()
+            await indexLoader()
         }
         indexLoaderTask = task
         indexLoaderTaskGeneration = generation

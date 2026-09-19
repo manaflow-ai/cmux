@@ -76,7 +76,11 @@ final class MemoryPressureMonitor {
     func start() {
         startMemoryPressureSourceIfNeeded()
         startSampleTimerIfNeeded()
-        initialSamplingTask?.cancel()
+        scheduleSampling()
+    }
+
+    private func scheduleSampling() {
+        guard initialSamplingTask == nil else { return }
         initialSamplingTask = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.samplePhysicalFootprint(at: .now)
@@ -154,7 +158,7 @@ final class MemoryPressureMonitor {
         using sampler: any MemoryPressureAggregateSampling,
         at sampledAt: Date
     ) async -> MemoryPressureAggregateSample {
-        sampler.sample(at: sampledAt)
+        await sampler.sample(at: sampledAt)
     }
 
     private func startMemoryPressureSourceIfNeeded() {
@@ -191,20 +195,10 @@ final class MemoryPressureMonitor {
             repeating: sampleInterval,
             leeway: .seconds(5)
         )
-        let footprintSampler = self.footprintSampler
-        let aggregateSampler = self.aggregateSampler
         timer.setEventHandler { [weak self] in
-            let sampledAt = Date.now
-            let footprintBytes = footprintSampler.physicalFootprintBytes()
-            let aggregateSample = aggregateSampler.sample(at: sampledAt)
-            Task { @MainActor in
-                guard let self else { return }
-                self.apply(
-                    systemSeverity: self.heldSystemSeverity(at: sampledAt),
-                    physicalFootprintBytes: footprintBytes,
-                    aggregateSample: aggregateSample,
-                    sampledAt: sampledAt
-                )
+            Task { @MainActor [weak self] in
+                guard let self, self.sampleTimer != nil else { return }
+                self.scheduleSampling()
             }
         }
         sampleTimer = timer

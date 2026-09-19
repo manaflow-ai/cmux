@@ -165,7 +165,7 @@ extension AgentChatSessionRegistry {
             onlySurfaceIDs: scope.surfaceIDs
         )
         let scanTask = Task.detached {
-            return Self.scanObservedAgentSessions(
+            return await Self.scanObservedAgentSessions(
                 onlySurfaceIDs: scope.surfaceIDs,
                 preferredCodexSessionIDBySurfaceID: preferredCodexSessionIDBySurfaceID
             )
@@ -189,12 +189,17 @@ extension AgentChatSessionRegistry {
 
     /// Off-main: one entry per distinct live codex/claude session under any cmux
     /// surface, identity resolved without hooks.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated static func scanObservedAgentSessions(
         onlySurfaceIDs surfaceIDs: Set<UUID>? = nil,
         preferredCodexSessionIDBySurfaceID: [String: String]
-    ) -> [ObservedAgentSession] {
+    ) async -> [ObservedAgentSession] {
         guard !Task.isCancelled else { return [] }
-        let snapshot = CmuxTopProcessSnapshot.capture(
+        let snapshot = await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
             includeCMUXScope: true
         )

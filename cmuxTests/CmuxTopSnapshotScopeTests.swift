@@ -20,11 +20,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     }
 
     @MainActor
-    func testWindowRollupMatchesPSForApplicationProcessTree() throws {
+    func testWindowRollupMatchesPSForApplicationProcessTree() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         var windows: [[String: Any]] = [[
             "kind": "window",
             "id": UUID().uuidString,
@@ -71,11 +71,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     }
 
     @MainActor
-    func testApplicationProcessDoesNotExpandIntoOtherWindowResources() throws {
+    func testApplicationProcessDoesNotExpandIntoOtherWindowResources() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         var windows: [[String: Any]] = [
             [
                 "kind": "window",
@@ -135,11 +135,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     }
 
     @MainActor
-    func testSharedWebViewResourceRowsAreAttributedAcrossOccurrences() throws {
+    func testSharedWebViewResourceRowsAreAttributedAcrossOccurrences() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         var windows: [[String: Any]] = [[
             "kind": "window",
             "id": UUID().uuidString,
@@ -237,11 +237,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     }
 
     @MainActor
-    func testApplicationProcessTreeIsExposedAtWindowLevel() throws {
+    func testApplicationProcessTreeIsExposedAtWindowLevel() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         var windows: [[String: Any]] = [[
             "kind": "window",
             "id": UUID().uuidString,
@@ -268,14 +268,14 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(intArray(rootResources["pids"]), [fixture.parentPID])
     }
 
-    func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() throws {
+    func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() async throws {
         let pid = Int(Darwin.getpid())
         let expectedFootprintBytes = try XCTUnwrap(
             physicalFootprintBytes(for: pid),
             "proc_pid_rusage did not return physical footprint for current process"
         )
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         let payload = snapshot.summaryPayload(for: [pid])
         let memoryBytes = int64(payload["memory_bytes"])
 
@@ -286,8 +286,8 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         )
     }
 
-    func testSamplePayloadDescribesPhysicalFootprintFallbackSource() {
-        let sample = CmuxTopProcessSnapshot.capture(includeProcessDetails: false).samplePayload()
+    func testSamplePayloadDescribesPhysicalFootprintFallbackSource() async {
+        let sample = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false).samplePayload()
 
         XCTAssertEqual(
             sample["memory_source"] as? String,

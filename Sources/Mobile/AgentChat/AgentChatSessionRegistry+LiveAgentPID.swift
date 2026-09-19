@@ -16,14 +16,19 @@ extension AgentChatSessionRegistry {
     /// classifier is shared with observe-floor detection, so argv-hosted agents
     /// (`node .../claude-code`, `npx .../codex`) rebind the same way they are
     /// first discovered.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func liveAgentPID(
         surfaceID: String,
         kind: ChatAgentKind,
         matchingSessionIDs expectedSessionIDs: Set<String>,
         allowUnidentifiedFallback: Bool = false
-    ) -> Int? {
+    ) async -> Int? {
         guard !expectedSessionIDs.isEmpty else { return nil }
-        let snapshot = CmuxTopProcessSnapshot.capture(
+        let snapshot = await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
             includeCMUXScope: true
         )

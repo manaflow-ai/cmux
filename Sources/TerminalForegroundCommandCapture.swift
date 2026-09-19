@@ -17,9 +17,14 @@ enum TerminalForegroundCommandCapture {
     /// comes from the workspace-owned panel→tty mapping — never from the
     /// child process's ambient CMUX_* environment, which any foreground
     /// process can override or carry stale.
-    static func liveCommands(forTTYDevices ttyDevices: Set<Int64>) -> [Int64: String] {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func liveCommands(forTTYDevices ttyDevices: Set<Int64>) async -> [Int64: String] {
         guard !ttyDevices.isEmpty else { return [:] }
-        let processes = CmuxTopProcessSnapshot.allProcesses(
+        let processes = await CmuxTopProcessSnapshot.allProcesses(
             includeProcessDetails: true,
             includeCMUXScope: false
         )

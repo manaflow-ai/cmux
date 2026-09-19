@@ -167,7 +167,7 @@ extension CmuxTopProcessSnapshot {
     }
 
     // True when `pid` is still the same process (same start time) as the key.
-    private static func processMatchesKey(
+    static func processMatchesKey(
         _ pid: Int,
         _ expectedCacheKey: CmuxTopProcessScopeCacheKey
     ) -> Bool {

@@ -53,70 +53,6 @@ enum CmuxTopProcessMemorySource: String, Sendable {
     case unavailable
 }
 
-struct CmuxTopProcessInfo: Sendable {
-    let pid: Int
-    let parentPID: Int
-    let name: String
-    let path: String?
-    let ttyDevice: Int64?
-    let cmuxWorkspaceID: UUID?
-    let cmuxSurfaceID: UUID?
-    let cmuxAttributionReason: String?
-    let processGroupID: Int?
-    let terminalProcessGroupID: Int?
-    var cpuPercent: Double
-    let memoryBytes: Int64
-    let memorySource: CmuxTopProcessMemorySource
-    let residentBytes: Int64
-    let residentMemorySource: CmuxTopProcessMemorySource
-    let virtualBytes: Int64
-    let threadCount: Int
-
-    init(
-        pid: Int,
-        parentPID: Int,
-        name: String,
-        path: String?,
-        ttyDevice: Int64?,
-        cmuxWorkspaceID: UUID?,
-        cmuxSurfaceID: UUID?,
-        cmuxAttributionReason: String?,
-        processGroupID: Int?,
-        terminalProcessGroupID: Int?,
-        cpuPercent: Double,
-        memoryBytes: Int64? = nil,
-        memorySource: CmuxTopProcessMemorySource? = nil,
-        residentBytes: Int64,
-        residentMemorySource: CmuxTopProcessMemorySource = .residentSize,
-        virtualBytes: Int64,
-        threadCount: Int
-    ) {
-        self.pid = pid
-        self.parentPID = parentPID
-        self.name = name
-        self.path = path
-        self.ttyDevice = ttyDevice
-        self.cmuxWorkspaceID = cmuxWorkspaceID
-        self.cmuxSurfaceID = cmuxSurfaceID
-        self.cmuxAttributionReason = cmuxAttributionReason
-        self.processGroupID = processGroupID
-        self.terminalProcessGroupID = terminalProcessGroupID
-        self.cpuPercent = cpuPercent
-        self.memoryBytes = memoryBytes ?? residentBytes
-        self.memorySource = memorySource
-            ?? (memoryBytes == nil ? .residentSize : .physicalFootprint)
-        self.residentBytes = residentBytes
-        self.residentMemorySource = residentMemorySource
-        self.virtualBytes = virtualBytes
-        self.threadCount = threadCount
-    }
-
-    var isTerminalForegroundProcessGroup: Bool {
-        guard let processGroupID, let terminalProcessGroupID else { return false }
-        return processGroupID == terminalProcessGroupID
-    }
-}
-
 struct CmuxTopProcessScope: Sendable, Equatable {
     let workspaceID: UUID?
     let surfaceID: UUID?
@@ -129,8 +65,10 @@ struct CmuxTopProcessScope: Sendable, Equatable {
     }
 }
 
+// All stored indexes and records are immutable after construction.
 final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let sampledAt: Date
+    let captureIsAvailable: Bool
     let enumerationIsComplete: Bool
     let enumerationMissingProcessCount: Int
     private let includesProcessDetails: Bool
@@ -148,8 +86,10 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         includesProcessDetails: Bool,
         includesCMUXScope: Bool = true,
         enumerationIsComplete: Bool = true,
-        enumerationMissingProcessCount: Int = 0
+        enumerationMissingProcessCount: Int = 0,
+        captureIsAvailable: Bool = true
     ) {
+        self.captureIsAvailable = captureIsAvailable
         self.enumerationIsComplete = enumerationIsComplete && enumerationMissingProcessCount == 0
         self.enumerationMissingProcessCount = max(0, enumerationMissingProcessCount)
         self.sampledAt = sampledAt

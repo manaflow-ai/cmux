@@ -81,9 +81,10 @@ struct SurfaceResumeBindingIndex: Sendable {
     }
 
     static func loadProcessDetectedBindingsSynchronously(
+        processSnapshot: CmuxTopProcessSnapshot,
         fileManager: FileManager = .default
     ) -> SurfaceResumeBindingIndex {
-        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager)
+        let detectedBindings = processDetectedTmuxBindings(fileManager: fileManager, processSnapshot: processSnapshot, capturedAt: processSnapshot.sampledAt.timeIntervalSince1970)
         return SurfaceResumeBindingIndex(bindingsByPanel: detectedBindings.mapValues(\.binding))
     }
 
@@ -91,7 +92,8 @@ struct SurfaceResumeBindingIndex: Sendable {
         fileManager: FileManager = .default
     ) async -> SurfaceResumeBindingIndex {
         await Task.detached(priority: .utility) {
-            loadProcessDetectedBindingsSynchronously(fileManager: fileManager)
+            let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            return loadProcessDetectedBindingsSynchronously(processSnapshot: snapshot, fileManager: fileManager)
         }.value
     }
 }

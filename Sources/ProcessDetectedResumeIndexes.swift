@@ -10,7 +10,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadSynchronously(
+            await loadOnWorker(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
                 maximumSnapshotAge: 5,
@@ -26,7 +26,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadFreshSynchronously(
+            await loadFreshOnWorker(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
                 ttyDeviceBindings: ttyDeviceBindings
@@ -60,7 +60,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         // process/filesystem call. Its owner retains the handle until it
         // finishes so a later recovery pass cannot overlap another scan.
         let worker = Task.detached(priority: .utility) {
-            let result = loadFreshSynchronously(
+            let result = await loadFreshOnWorker(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
                 ttyDeviceBindings: ttyDeviceBindings
@@ -93,14 +93,14 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }
     }
 
-    /// Synchronous implementation for detached loading and focused tests.
+    /// Worker implementation for detached loading and focused tests.
     /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
-    static func loadFreshSynchronously(
+    static func loadFreshOnWorker(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
-    ) -> ProcessDetectedResumeIndexes {
-        loadSynchronously(
+    ) async -> ProcessDetectedResumeIndexes {
+        await loadOnWorker(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             ttyDeviceBindings: ttyDeviceBindings
@@ -120,19 +120,27 @@ struct ProcessDetectedResumeIndexes: Sendable {
         )
     }
 
-    static func loadSynchronously(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func loadOnWorker(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil,
         cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
-    ) -> ProcessDetectedResumeIndexes {
-        let capturedAt = Date().timeIntervalSince1970
+    ) async -> ProcessDetectedResumeIndexes {
         let processSnapshot = if let maximumSnapshotAge {
-            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
+            await CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
         } else {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         }
+        guard processSnapshot.captureIsAvailable, !Task.isCancelled else {
+            return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .empty)
+        }
+        let capturedAt = processSnapshot.sampledAt.timeIntervalSince1970
         let restorableAgentIndex: RestorableAgentSessionIndex
         if let cachedRestorableAgentIndex {
             restorableAgentIndex = cachedRestorableAgentIndex.revalidatingCachedProcesses(

@@ -160,7 +160,7 @@ final class CmuxTopProcessCPUTests: XCTestCase {
         XCTAssertNil(heldParentOnlyPercentages[childKey])
     }
 
-    func testBusyChildProcessReportsNonZeroCPUPercent() throws {
+    func testBusyChildProcessReportsNonZeroCPUPercent() async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", "while :; do :; done"]
@@ -172,19 +172,19 @@ final class CmuxTopProcessCPUTests: XCTestCase {
         defer { terminate(process) }
 
         let pid = Int(process.processIdentifier)
-        _ = CmuxTopProcessSnapshot.capture(includeProcessDetails: false).summary(for: [pid])
+        _ = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false).summary(for: [pid])
 
-        let observedCPU = waitForCPUPercent(pid: pid, timeout: 5)
+        let observedCPU = await waitForCPUPercent(pid: pid, timeout: 5)
 
         XCTAssertGreaterThan(observedCPU, 0.1)
     }
 
-    private func waitForCPUPercent(pid: Int, timeout: TimeInterval) -> Double {
+    private func waitForCPUPercent(pid: Int, timeout: TimeInterval) async -> Double {
         let deadline = Date.now.addingTimeInterval(timeout)
         var maxCPU = 0.0
 
         while Date.now < deadline {
-            let cpu = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+            let cpu = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
                 .summary(for: [pid])
                 .cpuPercent
             maxCPU = max(maxCPU, cpu)
@@ -192,7 +192,8 @@ final class CmuxTopProcessCPUTests: XCTestCase {
                 return cpu
             }
 
-            _ = RunLoop.current.run(mode: .default, before: Date.now.addingTimeInterval(0.2))
+            // A real sampling interval is required for a measurable CPU delta.
+            try? await ContinuousClock().sleep(for: .milliseconds(200))
         }
 
         return maxCPU

@@ -76,7 +76,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
         ttyDevice: Int64?,
         excluding exitedIdentities: Set<AgentPIDProcessIdentity>
     ) async -> AgentHibernationProcessExitEpoch? {
-        guard let snapshot = await nextSnapshot() else { return nil }
+        guard let snapshot = await nextSnapshot(), snapshot.enumerationIsComplete,
+              !Task.isCancelled else { return nil }
         return Self.exitEpoch(
             in: snapshot,
             processGroupLeaders: processGroupLeaders,
@@ -139,7 +140,7 @@ actor AgentHibernationProcessSnapshotCoordinator {
     @concurrent
     #endif
     private nonisolated static func captureFreshSnapshot() async -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot.capture(
+        await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: false,
             includeCMUXScope: false
         )

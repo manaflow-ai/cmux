@@ -874,6 +874,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: true)
+    static let unavailable = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: false)
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -1550,7 +1551,7 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
-    // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
+    // Expensive: reads every agent kind's hook-store file from disk,
     // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
     // live-PID filtering (measured 350ms-1.8s on machines with large agent history).
     // Claude transcript path lookups share a cross-load existence cache validated by
@@ -1571,25 +1572,25 @@ struct RestorableAgentSessionIndex: Sendable {
             detectedSnapshots: [:]
         )
     }
-
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
-            loadIncludingProcessDetectedSnapshotsSynchronously(
-                homeDirectory: homeDirectory,
+            let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            return loadIncludingProcessDetectedSnapshotsSynchronously(
+                processSnapshot: snapshot, homeDirectory: homeDirectory,
                 fileManager: fileManager
             )
         }.value
     }
-
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
+        processSnapshot: CmuxTopProcessSnapshot,
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
+        guard processSnapshot.captureIsAvailable, !Task.isCancelled else { return .unavailable }
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,
             fileManager: fileManager,
@@ -1610,7 +1611,6 @@ struct RestorableAgentSessionIndex: Sendable {
             hibernationProcessScopes: hibernationProcessScopes
         )
     }
-
     static func load(
         homeDirectory: String,
         fileManager: FileManager,
