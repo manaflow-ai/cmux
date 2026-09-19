@@ -15,7 +15,7 @@ struct CloudVMLoadingPanelView: View {
 
     private var baseContent: some View {
         let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
-        TimelineView(schedule) { context in
+        return TimelineView(schedule) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
             VStack(spacing: 14) {
                 switch panel.phase {
