@@ -68,6 +68,15 @@ public protocol SettingsHostActions: AnyObject {
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
 
+    /// Lists the current opt-in local tmux sessions using the host app's bundled CLI.
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary]
+
+    /// Starts and attaches a named opt-in local tmux session.
+    func startLocalTmuxSession(name: String) async throws
+
+    /// Attaches an existing opt-in local tmux session.
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws
+
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
     func openBrowserImportFlow()
@@ -287,6 +296,49 @@ public protocol SettingsHostActions: AnyObject {
     func openCloudMachinesBilling()
 }
 
+/// A local tmux session exposed by the host's authoritative `cmux local-tmux list --json` output.
+public struct LocalTmuxSessionSummary: Identifiable, Equatable, Sendable {
+    /// Stable UI identity. Managed sessions use their logical UUID; unmanaged rows fall back to their tmux name.
+    public let id: String
+    /// The registry-backed logical UUID when the CLI recognizes the session as managed.
+    public let logicalID: UUID?
+    public let name: String
+    public let cwd: String?
+    public let clientCount: Int
+    public let isLive: Bool
+    public let isManaged: Bool
+
+    public init(
+        id: String,
+        logicalID: UUID?,
+        name: String,
+        cwd: String?,
+        clientCount: Int,
+        isLive: Bool,
+        isManaged: Bool
+    ) {
+        self.id = id
+        self.logicalID = logicalID
+        self.name = name
+        self.cwd = cwd
+        self.clientCount = clientCount
+        self.isLive = isLive
+        self.isManaged = isManaged
+    }
+}
+
+/// Error returned by package-only hosts that cannot perform local tmux actions.
+public enum LocalTmuxSettingsActionError: LocalizedError, Sendable {
+    case unavailable
+
+    public var errorDescription: String? {
+        String(
+            localized: "settings.terminal.localTmux.unavailable",
+            defaultValue: "Local session persistence is unavailable in this settings host."
+        )
+    }
+}
+
 /// Snapshot of the caller's Cloud Machines plan for the settings section.
 public struct CloudMachinesPlanSummary: Equatable, Sendable {
     public let planLabel: String
@@ -363,6 +415,15 @@ public extension SettingsHostActions {
 
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
+
+    /// Package-only previews expose no local tmux runtime.
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] { [] }
+    func startLocalTmuxSession(name: String) async throws {
+        throw LocalTmuxSettingsActionError.unavailable
+    }
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
+        throw LocalTmuxSettingsActionError.unavailable
+    }
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
