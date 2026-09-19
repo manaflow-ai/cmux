@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TEAM_ID = "7WLXT3NR37"
 APPSTORE_BUNDLE_ID = "com.cmux.app"
 APPSTORE_APP_ID = f"{TEAM_ID}.{APPSTORE_BUNDLE_ID}"
+APPSTORE_EXTENSION_BUNDLE_ID = f"{APPSTORE_BUNDLE_ID}.NotificationService"
+APPSTORE_EXTENSION_APP_ID = f"{TEAM_ID}.{APPSTORE_EXTENSION_BUNDLE_ID}"
 BETA_BUNDLE_ID = "dev.cmux.app.beta"
 BETA_APP_ID = f"{TEAM_ID}.{BETA_BUNDLE_ID}"
 ASC_APP_ID = "6783338052"
@@ -108,6 +110,7 @@ def write_plist(path, value):
     path.write_bytes(plist_bytes(value))
 
 APPSTORE_PROFILE = {_profile_plist()!r}
+APPSTORE_EXTENSION_PROFILE = {_profile_plist(APPSTORE_EXTENSION_BUNDLE_ID, "cmux App Store Notification Service Distribution Test")!r}
 BETA_PROFILE = {_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test")!r}
 
 def profile_for_bundle(bundle_id):
@@ -471,7 +474,9 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
         source = Path(args[args.index("-i") + 1])
         if source.exists():
             body = source.read_bytes()
-            if b"legacy profile" in body:
+            if b"extension profile" in body:
+                profile = APPSTORE_EXTENSION_PROFILE
+            elif b"legacy profile" in body:
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
@@ -537,6 +542,9 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = (
         "cmux App Store Notification Service Distribution"
     )
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(
+        b"extension profile"
+    ).decode()
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
