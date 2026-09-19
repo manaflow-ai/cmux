@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCloudMachines
 
 /// One create the person started from the sheet, alive from the moment the
 /// CLI run launches until the machine exists (then the real fleet row takes
@@ -7,16 +8,7 @@ import Foundation
 /// waiting for the provider. Rendered by the Machines panel as a pending
 /// machine row.
 struct MachineCreateOperation: Identifiable, Equatable {
-    enum Phase: Equatable {
-        case running
-        /// The provider has returned the machine id, but the authoritative
-        /// fleet/catalog projection has not yet adopted it. The operation keeps
-        /// its request identity so the sidebar can change the same row in place.
-        case reconciling(machineID: String)
-        /// The CLI exited non-zero without creating a machine; `output` is
-        /// its combined stdout/stderr, or a generic line when it said nothing.
-        case failed(output: String)
-    }
+    typealias Phase = CloudMachineCreateOperation.Phase
 
     let id: UUID
     let request: MachineCreateRequest
@@ -62,6 +54,9 @@ struct MachineCreateOperation: Identifiable, Equatable {
         case .reconciling:
             return String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting…")
         case .failed:
+            if !request.isBaseSetup, createdMachineID != nil {
+                return String(format: String(localized: "machines.notification.createdOpenFailed.title", defaultValue: "%@ was created, but opening it failed"), request.displayName)
+            }
             return request.failureLabel
         }
     }

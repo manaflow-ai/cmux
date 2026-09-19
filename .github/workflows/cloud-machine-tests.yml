@@ -1,0 +1,33 @@
+name: Cloud machine lifecycle
+
+on:
+  pull_request:
+    paths:
+      - Packages/macOS/CmuxCloudMachines/**
+      - .github/workflows/cloud-machine-tests.yml
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Source ref to test
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-machine-tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lifecycle:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    container: swift:6.0.3-jammy
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - name: Test the Foundation-only lifecycle with the minimum supported Swift compiler
+        run: swift test --package-path Packages/macOS/CmuxCloudMachines -Xswiftc -warnings-as-errors

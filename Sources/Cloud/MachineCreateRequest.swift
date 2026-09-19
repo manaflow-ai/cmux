@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCloudMachines
 
 /// What the New Machine / Set Up Base sheet asked for, in the form the
 /// background create needs: which flow, the kind and label the person chose,
@@ -40,6 +41,16 @@ struct MachineCreateRequest: Equatable {
         self.selectionWindowID = selectionWindowID
         self.reservedWorkspaceID = reservedWorkspaceID
         self.selectsCreatedWorkspace = selectsCreatedWorkspace
+    }
+
+    /// Domain input without app-specific kind, selection, or localized display values.
+    var lifecycleRequest: CloudMachineCreateRequest {
+        CloudMachineCreateRequest(
+            arguments: arguments,
+            isBaseSetup: isBaseSetup,
+            presentationWorkspaceID: presentationWorkspaceID,
+            retainsPendingProjection: reservedWorkspaceID != nil
+        )
     }
 
     var isBaseSetup: Bool {

@@ -46,6 +46,13 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         return workspace.id
     }
 
+    /// Every entrypoint reserves before launch; inability to reserve is an inline refusal.
+    private func reserving(_ request: MachineCreateRequest, preferredWindow: NSWindow?) -> MachineCreateRequest? {
+        if request.reservedWorkspaceID != nil { return request }
+        guard let workspaceID = reserveNewMachineWorkspace(preferredWindow: preferredWindow) else { return nil }
+        return request.targetingReservedWorkspace(workspaceID)
+    }
+
     /// Removes a reservation after launch refusal or explicit dismissal. A
     /// normal window always has another workspace; if this was the final tab,
     /// the existing close policy keeps the window alive and the caller can
@@ -134,14 +141,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             memoryUpgradePlansByMb: memoryUpgradePlansByMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
-                let effectiveRequest: MachineCreateRequest
-                if request.reservedWorkspaceID != nil {
-                    effectiveRequest = request
-                } else if let workspaceID = self.reserveNewMachineWorkspace(preferredWindow: preferredWindow) {
-                    effectiveRequest = request.targetingReservedWorkspace(workspaceID)
-                } else {
-                    effectiveRequest = request
-                }
+                guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
                 let didStart = coordinator.start(effectiveRequest, cancellableLaunch: { arguments, progress, completion in
                     var cancellation: CloudVMActionLauncher.CancellationHandle?
                     let didStart = MachineRowActions.openNewMachine(
@@ -154,9 +154,6 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     )
                     return didStart ? cancellation : nil
                 })
-                if !didStart, let workspaceID = effectiveRequest.reservedWorkspaceID {
-                    Self.closeReservedWorkspace(workspaceID)
-                }
                 return didStart
             }
         )
@@ -203,14 +200,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
-                        let effectiveRequest: MachineCreateRequest
-                        if request.reservedWorkspaceID != nil {
-                            effectiveRequest = request
-                        } else if let workspaceID = self.reserveNewMachineWorkspace(preferredWindow: preferredWindow) {
-                            effectiveRequest = request.targetingReservedWorkspace(workspaceID)
-                        } else {
-                            effectiveRequest = request
-                        }
+                        guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
                         self.finishSelection(selectionID, request: effectiveRequest)
                         return true
                     }

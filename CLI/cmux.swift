@@ -4203,12 +4203,12 @@ struct CMUXCLI {
         return VMMachineKind.defaultKind
     }
     private static let cloudVMDesktopPort = 6901
-    /// `vm shell <id>` and `vm open <id>`: the shared cloud open path through the
-    /// machine's cmux-tui remote daemon. Desktop panes are opened explicitly.
+    /// Opens the machine shell through cmux-tui, honoring explicit background attachment.
     func openVMWorkspaceShell(
         vmId: String,
         windowRaw: String?,
         targetWorkspaceId: String?,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -4219,7 +4219,7 @@ struct CMUXCLI {
             windowRaw: windowRaw,
             targetWorkspaceId: targetWorkspaceId,
             forceSSH: false,
-            shouldPinWorkspaceToTop: false,
+            shouldPinWorkspaceToTop: false, focus: focus,
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat
@@ -5633,7 +5633,7 @@ struct CMUXCLI {
                     try openVMWorkspaceShell(
                         vmId: vmId,
                         windowRaw: windowOpt ?? windowId,
-                        targetWorkspaceId: workspaceOpt,
+                        targetWorkspaceId: workspaceOpt, focus: focus ?? true,
                         client: client,
                         jsonOutput: jsonOutput,
                         idFormat: idFormat

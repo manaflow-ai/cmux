@@ -117,4 +117,56 @@ struct MachineCreateOptimisticProjectionTests {
             #expect(destroyed == ["late"])
         }
     }
+
+    @Test(arguments: [false, true])
+    func separatePanelsPreserveAdoptedSelectionAcrossCoalescedRefreshes(renderBeforeReconcile: Bool) throws {
+        let (coordinator, launches) = makeCoordinator()
+        let firstPanel = MachinesPanelViewModel(createCoordinator: coordinator)
+        let secondPanel = MachinesPanelViewModel(createCoordinator: coordinator)
+        coordinator.start(
+            MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(UUID()),
+            launch: launches.launch
+        )
+        let selectedID = try #require(CloudTreeNodeBuilder.nodes(
+            machines: [], pendingCreates: firstPanel.pendingCreates, snapshot: .empty, localWorkspaces: []
+        ).first?.id)
+        let machine = MachineSnapshot(
+            id: "adopted", provider: "freestyle", image: "image", isDesktop: true,
+            activity: .ready, createdAt: nil, label: nil
+        )
+        launches.complete(status: 0, output: "OK machine=adopted", machineID: "adopted")
+        if renderBeforeReconcile {
+            #expect(CloudTreeNodeBuilder.nodes(
+                machines: [machine], pendingCreates: firstPanel.pendingCreates,
+                adoptedOperationIDs: firstPanel.adoptedOperationIDs, snapshot: .empty, localWorkspaces: []
+            ).first?.id == selectedID)
+        }
+        coordinator.reconcileAuthoritativeState(machineIDs: ["adopted"], catalogMachineIDs: [])
+        #expect(coordinator.operations.isEmpty)
+        for panel in [secondPanel, firstPanel, secondPanel] {
+            #expect(CloudTreeNodeBuilder.nodes(
+                machines: [machine], pendingCreates: panel.pendingCreates,
+                adoptedOperationIDs: panel.adoptedOperationIDs, snapshot: .empty, localWorkspaces: []
+            ).first?.id == selectedID)
+        }
+    }
+
+    @Test func retryAfterAttachFailureOpensTheExactVMWithoutSelectingIt() throws {
+        let (coordinator, launches) = makeCoordinator()
+        let workspaceID = UUID()
+        coordinator.start(
+            MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(workspaceID),
+            launch: launches.launch
+        )
+        let id = try #require(coordinator.operations.first?.id)
+        launches.complete(status: 1, output: "Error: attach failed", machineID: "already-created")
+        #expect(coordinator.operation(id: id)?.failureOutput == "Error: attach failed")
+        #expect(coordinator.retry(id))
+        #expect(launches.arguments.last == ["vm", "open", "already-created", "--workspace", workspaceID.uuidString, "--focus", "false"])
+        #expect(coordinator.operation(id: id)?.createdMachineID == "already-created")
+        launches.complete(status: 0, output: "", workspaceID: workspaceID)
+        #expect(coordinator.operation(id: id)?.isReconciling == true)
+        #expect(coordinator.lastFinished?.outcome == .created(machineID: "already-created", workspaceID: workspaceID))
+    }
+
 }

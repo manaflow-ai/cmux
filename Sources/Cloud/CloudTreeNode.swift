@@ -542,6 +542,7 @@ enum CloudTreeNodeBuilder {
     static func nodes(
         machines: [MachineSnapshot],
         pendingCreates: [MachineCreateOperation] = [],
+        adoptedOperationIDs: [String: UUID] = [:],
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
@@ -550,13 +551,12 @@ enum CloudTreeNodeBuilder {
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
-        let reconcilingByMachineID = Dictionary(
-            pendingCreates.compactMap { operation -> (String, MachineCreateOperation)? in
-                guard let machineID = operation.reconcilingMachineID else { return nil }
-                return (machineID, operation)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        var identities = adoptedOperationIDs
+        for operation in pendingCreates where !operation.request.isBaseSetup {
+            if let id = operation.createdMachineID ?? operation.reconcilingMachineID, identities[id] == nil {
+                identities[id] = operation.id
+            }
+        }
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(
@@ -570,11 +570,12 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var seen = Set<String>()
-        for machine in machines {
+        let failedIDs = Set(pendingCreates.filter { !$0.request.isBaseSetup && $0.failureOutput != nil }.compactMap(\.createdMachineID))
+        var seen = failedIDs
+        for machine in machines where !failedIDs.contains(machine.id) {
             seen.insert(machine.id)
             let info = infoByMachine[.cloud(machine.id)]
-            let stableID = reconcilingByMachineID[machine.id].map { nodeID(pendingCreate: $0.id) }
+            let stableID = identities[machine.id].map { nodeID(pendingCreate: $0) }
                 ?? nodeID(machine: .cloud(machine.id))
             nodes.append(CloudTreeNode(
                 id: stableID,
@@ -590,8 +591,7 @@ enum CloudTreeNodeBuilder {
                 )
             ))
         }
-        // Machines the catalog knows but the fleet list has not returned yet (or
-        // returned under another name) still get a row so their surfaces are reachable.
+        // Include catalog-only machines so their surfaces remain reachable during fleet refresh.
         for info in snapshot.machines where !info.id.isLocal {
             guard let id = info.id.cloudMachineID, !seen.contains(id) else { continue }
             let placeholderSnapshot = MachineSnapshot(
@@ -604,7 +604,7 @@ enum CloudTreeNodeBuilder {
                 label: info.name == id ? nil : info.name
             )
             nodes.append(CloudTreeNode(
-                id: reconcilingByMachineID[id].map { nodeID(pendingCreate: $0.id) }
+                id: identities[id].map { nodeID(pendingCreate: $0) }
                     ?? nodeID(machine: info.id),
                 kind: .machine(placeholderSnapshot, info),
                 children: cloudChildren(

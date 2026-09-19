@@ -2425,9 +2425,9 @@ class TabManager: ObservableObject {
 
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
-        // Ghostty surfaces, which SIGHUPs the child processes, empties `panels`, and
-        // publishes a workspace-closed event, so running it for a workspace that
-        // lives in another window or was already detached kills terminals nobody
+        // Teardown SIGHUPs child processes and publishes a closed event. Only this
+        // manager may close its own live workspaces; stale or foreign objects must
+        // never tear down terminals or publish a second close.
         guard tabs.contains(where: { $0.id == workspace.id }) else { return }
         MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspace: workspace.id)
         panelTitleUpdateCoalescer.flushNow()
@@ -2505,8 +2505,8 @@ class TabManager: ObservableObject {
         panelTitleUpdateCoalescer.flushNow()
         sidebarGitMetadataService.resetAllWorkspaceGitProbeTracking()
 
+        MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspaces: Set(closingWorkspaces.map(\.id)))
         for workspace in closingWorkspaces {
-            MachineCreateCoordinator.shared.cancelOperations(forPresentationWorkspace: workspace.id)
             finalizeWorkspaceForRemoval(workspace, clearsWorkspaceGitProbes: false)
         }
 
