@@ -54,7 +54,7 @@ export class V2DashboardController {
   private pending = new Map<string, { resolve: (frame: Frame) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(options: DashboardOptions) {
-    if (!ORIGIN_ALLOWED.test(options.origin)) throw new Error("IROH Dashboard origin is not an approved Cloudflare Worker");
+    if (!ORIGIN_ALLOWED.test(options.origin)) throw new Error("Device dashboard origin is not an approved Cloudflare Worker");
     this.options = options;
     const storageKey = "cmux-iroh-v2.dashboard.client-instance";
     const storage = typeof sessionStorage === "undefined" ? null : sessionStorage;
@@ -68,7 +68,12 @@ export class V2DashboardController {
       this.ticket = await this.openSession();
       await this.connect(this.ticket);
       this.scheduleRefresh();
-    } catch (cause) { this.fail(cause); }
+    } catch (cause) {
+      // A first connection can fail on a transient worker error. Surface it
+      // and keep retrying with the same backoff as a dropped connection.
+      this.fail(cause);
+      this.scheduleReconnect();
+    }
   }
 
   async stop(): Promise<void> {
@@ -100,7 +105,7 @@ export class V2DashboardController {
 
   private async openSession(): Promise<Ticket> {
     const stackToken = await this.options.getStackToken();
-    if (!stackToken) throw new Error("Dashboard sign-in expired");
+    if (!stackToken) throw new Error("Sign-in expired");
     const requestId = this.nextRequestId();
     const response = await fetch(`${this.options.origin}/v2/dashboard/session`, {
       method: "POST", mode: "cors", credentials: "omit",
@@ -120,7 +125,7 @@ export class V2DashboardController {
     this.socket = socket;
     try {
       await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => { socket.close(); reject(new Error("Dashboard socket timed out")); }, REQUEST_TIMEOUT_MS);
+      const timeout = setTimeout(() => { socket.close(); reject(new Error("Device service connection timed out")); }, REQUEST_TIMEOUT_MS);
       socket.onopen = () => undefined;
       let connected = false;
       socket.onmessage = event => {
@@ -142,11 +147,11 @@ export class V2DashboardController {
           void this.requestDirectory().catch(cause => this.fail(cause));
         }
       };
-      socket.onerror = () => { clearTimeout(timeout); reject(new Error("Dashboard socket failed")); };
+      socket.onerror = () => { clearTimeout(timeout); reject(new Error("Device service connection failed")); };
       socket.onclose = event => {
         clearTimeout(timeout);
         if (this.stopped || this.socket !== socket) return;
-        if (!connected) reject(new Error(`Dashboard socket closed (${event.code})`));
+        if (!connected) reject(new Error(`Device service connection closed (${event.code})`));
         else this.scheduleReconnect();
       };
       });
@@ -250,12 +255,12 @@ export class V2DashboardController {
     catch (cause) { this.fail(cause); this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
   }
 
-  private fail(cause: unknown) { this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
+  private fail(cause: unknown) { this.options.onError(cause instanceof Error ? cause.message : "Device request failed"); }
   private nextRequestId() { this.requestCounter += 1; return `${this.clientInstanceId}:${this.requestCounter}`; }
   private expectSuccess(frame: Frame, requestId: string) { if (frame.requestId !== requestId || frame.schemaId === "error.v1") throw this.errorFrom(frame); }
   private errorFrom(body: unknown): Error {
     const error = body as Partial<ErrorResponse>;
-    const result = new Error(error.code === "permission_denied" ? "You do not have permission to change this device" : error.code === "team_access_revoked" ? "Team access was removed" : `Dashboard request failed (${error.code ?? "unknown"})`);
+    const result = new Error(error.code === "permission_denied" ? "You do not have permission to change this device" : error.code === "team_access_revoked" ? "Team access was removed" : `Device request failed (${error.code ?? "unknown"})`);
     if (typeof error.code === "string") Object.assign(result, { code: error.code });
     return result;
   }
