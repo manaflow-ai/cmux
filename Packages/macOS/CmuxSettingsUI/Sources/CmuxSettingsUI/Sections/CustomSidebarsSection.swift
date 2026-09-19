@@ -110,7 +110,7 @@ public struct CustomSidebarsSection: View {
                 String(localized: "commandPalette.kind.customSidebar", defaultValue: "Custom Sidebar")
             ) {
                 Button(String(localized: "common.create", defaultValue: "Create")) {
-                    applyOnboardingResult(hostActions.createCustomSidebar(named: "my-sidebar"))
+                    applyOnboardingResult(hostActions.createCustomSidebar())
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -210,7 +210,7 @@ public struct CustomSidebarsSection: View {
             operationMessage = nil
             enabled.set(true)
             refreshDiscoveredSidebars()
-        case .invalidName, .alreadyExists, .templateUnavailable, .writeFailed:
+        case .templateUnavailable, .writeFailed:
             operationMessage = String(localized: "settings.networking.check.failed", defaultValue: "Failed")
         }
     }
