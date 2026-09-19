@@ -3,7 +3,6 @@ import { NextRequest } from "next/server";
 import middleware from "../proxy";
 import {
   TEST_STACK_PROJECT_ID,
-  TEST_STACK_REFRESH_COOKIE,
 } from "./helpers/dashboard-session-mock";
 
 const previousProjectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
@@ -64,5 +63,38 @@ describe("dashboard session middleware", () => {
     );
 
     expect(response.status).not.toBe(307);
+  });
+
+  test("redirects signed-out CLI authorization before the handler shell renders", () => {
+    const response = middleware(
+      new NextRequest(
+        "https://cmux.com/handler/cli-auth-confirm?login_code=test-login-code",
+        { headers: { host: "cmux.com" } },
+      ),
+    );
+
+    expect(response.status).toBe(307);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.pathname).toBe("/handler/sign-in");
+    expect(location.searchParams.get("after_auth_return_to")).toBe(
+      "/handler/cli-auth-confirm?login_code=test-login-code",
+    );
+  });
+
+  test("lets a CLI authorization request with a Stack session reach the handler", () => {
+    const response = middleware(
+      new NextRequest(
+        "https://cmux.com/handler/cli-auth-confirm?login_code=test-login-code",
+        {
+          headers: {
+            host: "cmux.com",
+            cookie: `__Host-hexclave-refresh-${TEST_STACK_PROJECT_ID}--abc=refresh-1`,
+          },
+        },
+      ),
+    );
+
+    expect(response.status).not.toBe(307);
+    expect(response.headers.get("location")).toBeNull();
   });
 });

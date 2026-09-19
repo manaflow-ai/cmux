@@ -41,6 +41,9 @@ function routeRequest(incomingRequest: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
 
+  const cliAuthResponse = handleCliAuthConfirmation(request, pathname);
+  if (cliAuthResponse) return cliAuthResponse;
+
   // A cmux Cloud machine dialing its reflection alias
   // (`https://reflection.cmux.internal/<path>`): the platform edge marks the
   // request with this header while injecting the machine's credential. Serve the
@@ -94,6 +97,31 @@ function routeRequest(incomingRequest: NextRequest) {
   return dashboardReturnPath
     ? dashboardResponse(request, response, dashboardReturnPath)
     : response;
+}
+
+/** Redirect signed-out CLI authorization visits before a partial prerender shell can stream. */
+function handleCliAuthConfirmation(
+  request: NextRequest,
+  pathname: string,
+): NextResponse | undefined {
+  if (
+    pathname !== "/handler/cli-auth-confirm" &&
+    pathname !== "/handler/cli-auth-confirm/"
+  ) {
+    return undefined;
+  }
+  if (hasStackSessionCookie(request)) return undefined;
+
+  const confirmation = new URL("/handler/cli-auth-confirm", request.url);
+  const loginCode = request.nextUrl.searchParams.get("login_code");
+  if (loginCode) confirmation.searchParams.set("login_code", loginCode);
+
+  const signIn = new URL("/handler/sign-in", request.url);
+  signIn.searchParams.set(
+    "after_auth_return_to",
+    `${confirmation.pathname}${confirmation.search}`,
+  );
+  return NextResponse.redirect(signIn, 307);
 }
 
 function handleHostAndMachineRoutes(
@@ -617,6 +645,8 @@ function isCoderouterLandingPath(pathname: string): boolean {
 
 export const config = {
   matcher: [
+    "/handler/cli-auth-confirm",
+    "/handler/cli-auth-confirm/",
     "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler).*)",
   ],
 };
