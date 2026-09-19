@@ -265,6 +265,39 @@ struct BrowserPaneFileDropUploadRegressionTests {
         }
     }
 
+    @Test func dispositionSidebarFileRowDragPreviewsUnlessShiftAsksForPage() {
+        let sidebarTypes: [NSPasteboard.PasteboardType] = [
+            .fileURL,
+            DragOverlayRoutingPolicy.filePreviewTransferType,
+            DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ]
+        for behavior in FileDropDefaultBehavior.allCases {
+            withFileDropDefault(behavior) {
+                #expect(
+                    BrowserPaneFileDropRouting.disposition(
+                        pasteboardTypes: sidebarTypes,
+                        modifierFlags: [],
+                        isDockHosted: false
+                    ) == .previewInWorkspace
+                )
+                #expect(
+                    BrowserPaneFileDropRouting.disposition(
+                        pasteboardTypes: sidebarTypes,
+                        modifierFlags: [.shift],
+                        isDockHosted: false
+                    ) == .forwardToPage
+                )
+            }
+        }
+        #expect(
+            BrowserPaneFileDropRouting.disposition(
+                pasteboardTypes: sidebarTypes,
+                modifierFlags: [],
+                isDockHosted: true
+            ) == .forwardToPage
+        )
+    }
+
     @Test func dispositionDockAlwaysForwardsToPage() {
         #expect(
             BrowserPaneFileDropRouting.disposition(
