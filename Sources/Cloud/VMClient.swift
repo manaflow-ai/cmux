@@ -33,8 +33,6 @@ extension URLError.Code {
     }
 }
 
-
-
 func formattedCloudVMHTTPError(status: Int, body: String) -> String {
     let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let data = trimmedBody.data(using: .utf8),
@@ -2194,7 +2192,6 @@ actor VMClient {
         }
         return traceId
     }
-
     private func performRequest(
         _ method: String,
         path: String,
@@ -2255,6 +2252,9 @@ actor VMClient {
         var retriesLeft = 2
         while true {
             try Task.checkCancellation()
+            guard await auth.resolvedTeamID == requestedTeamID else {
+                throw VMClientError.notSignedIn
+            }
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
             let response: URLResponse
