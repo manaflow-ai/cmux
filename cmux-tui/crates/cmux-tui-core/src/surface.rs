@@ -5490,19 +5490,20 @@ impl Surface {
             }
             Surface::Browser(_) => false,
         };
+        // A hosted terminal's OSC 7 report counts only when it names this host
+        // (the same rule its published directory follows); a local PTY may also
+        // report a hostless URL or a plain path. Anything else falls back to the
+        // authenticated launch directory below.
         let terminal_pwd_to_local_path = if hosted {
             platform::terminal_pwd_to_local_path
         } else {
             platform::local_terminal_pwd_to_local_path
         };
-        let terminal_cwd = if hosted {
-            None
-        } else {
-            self.pwd()
-                .as_deref()
-                .and_then(terminal_pwd_to_local_path)
-                .map(|path| path.to_string_lossy().into_owned())
-        };
+        let terminal_cwd = self
+            .pwd()
+            .as_deref()
+            .and_then(terminal_pwd_to_local_path)
+            .map(|path| path.to_string_lossy().into_owned());
         terminal_cwd.or_else(|| {
             self.spawn_cwd()
                 .as_deref()
