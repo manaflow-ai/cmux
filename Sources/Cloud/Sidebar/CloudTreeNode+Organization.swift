@@ -10,17 +10,13 @@ extension CloudTreeNode {
 
     var hasUnreadAttention: Bool {
         switch kind {
-        case .terminal(let row): return row.hasUnreadNotification
-        case .workspace: return hasUnreadDescendant
+        case .terminal, .workspace, .localWorkspace: return hasUnreadNotification
         default: return false
         }
     }
 
     var hasUnreadDescendant: Bool {
-        children.contains { child in
-            if case .terminal(let row) = child.kind { return row.hasUnreadNotification }
-            return child.hasUnreadDescendant
-        }
+        children.contains { $0.hasUnreadNotification }
     }
 
     /// Cloud folders and their leaf rows can be organized within their owning
