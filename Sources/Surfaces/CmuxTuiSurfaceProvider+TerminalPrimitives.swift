@@ -2,6 +2,21 @@ import Foundation
 
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    /// Binds a reservation's early input to the stable remote terminal before
+    /// its native mirror has resolved a numeric surface id.
+    func bindOptimisticTerminalInput(
+        _ relay: CloudOptimisticInputRelay,
+        terminalID: String
+    ) async {
+        do {
+            _ = try await links.connected(machineID: machineID)
+        } catch {
+            return
+        }
+        guard let link = await links.link(machineID: machineID) else { return }
+        relay.bindRemoteTerminal(terminalID: terminalID, sender: link)
+    }
+
     // MARK: Headless terminal I/O (agent primitives; no pane involved)
 
     /// Type `text` into the remote terminal exactly as given (no newline appended).
