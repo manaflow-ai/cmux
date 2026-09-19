@@ -35,8 +35,6 @@ public struct AccountSection: View {
                        !(accountFlow?.availableTeams.isEmpty ?? true) {
                         Divider()
                         AccountTeamPicker(flow: accountFlow!)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
                     }
                 }
             }
