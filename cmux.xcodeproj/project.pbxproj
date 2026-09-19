@@ -1553,6 +1553,8 @@
 		C0A710050000000000000002 /* ComputerUseStateRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710050000000000000001 /* ComputerUseStateRepository.swift */; };
 		C0A710040000000000000002 /* ComputerUseStateScan.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710040000000000000001 /* ComputerUseStateScan.swift */; };
 		C0A710160000000000000002 /* ComputerUseTargetIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */; };
+		AF8F87181F9AEA5900C3CFF6 /* ComputerUseToolOnboardingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EADE9C46C2344A4DCA31E7C /* ComputerUseToolOnboardingFixture.swift */; };
+		78268843FBE52814D8334200 /* ComputerUseToolOnboardingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A226CED4A4759331F84C9036 /* ComputerUseToolOnboardingTests.swift */; };
 		C0A710130000000000000002 /* ComputerUseUXCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */; };
 		C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710120000000000000001 /* ComputerUseUXTests.swift */; };
 		C0A713010000000000000002 /* ComputerUseWatchTargetActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */; };
@@ -5439,6 +5441,8 @@
 		C0A710050000000000000001 /* ComputerUseStateRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateRepository.swift; sourceTree = "<group>"; };
 		C0A710040000000000000001 /* ComputerUseStateScan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseStateScan.swift; sourceTree = "<group>"; };
 		C0A710160000000000000001 /* ComputerUseTargetIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseTargetIdentity.swift; sourceTree = "<group>"; };
+		9EADE9C46C2344A4DCA31E7C /* ComputerUseToolOnboardingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseToolOnboardingFixture.swift"; sourceTree = "<group>"; };
+		A226CED4A4759331F84C9036 /* ComputerUseToolOnboardingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseToolOnboardingTests.swift"; sourceTree = "<group>"; };
 		C0A710130000000000000001 /* ComputerUseUXCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseUXCoordinator.swift; sourceTree = "<group>"; };
 		C0A710120000000000000001 /* ComputerUseUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseUXTests.swift; sourceTree = "<group>"; };
 		C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetActivity.swift; sourceTree = "<group>"; };
@@ -11383,6 +11387,8 @@
 				C0A716950000000000000001 /* ComputerUseOnboardingWindowTests.swift */,
 				C13049000000000000000701 /* ComputerUseOnboardingFixture.swift */,
 				C13049000000000000000601 /* ComputerUseOnboardingStoreTests.swift */,
+				9EADE9C46C2344A4DCA31E7C /* ComputerUseToolOnboardingFixture.swift */,
+				A226CED4A4759331F84C9036 /* ComputerUseToolOnboardingTests.swift */,
 				C13049000000000000000001 /* ComputerUseOnboardingAdmissionTests.swift */,
 				C0A716940000000000000001 /* ComputerUseCommandPaletteTests.swift */,
 				C0A716900000000000000001 /* ExternalApplicationWindowTrackerTests.swift */,
@@ -15619,6 +15625,8 @@
 				C13049000000000000000702 /* ComputerUseOnboardingFixture.swift in Sources */,
 				C13049000000000000000602 /* ComputerUseOnboardingStoreTests.swift in Sources */,
 				C0A716950000000000000002 /* ComputerUseOnboardingWindowTests.swift in Sources */,
+				AF8F87181F9AEA5900C3CFF6 /* ComputerUseToolOnboardingFixture.swift in Sources */,
+				78268843FBE52814D8334200 /* ComputerUseToolOnboardingTests.swift in Sources */,
 				C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */,
 				B88356000000000000000003 /* ControlledPastePreparationDeadlines.swift in Sources */,
 				B88356000000000000000001 /* ControlledPastePreparationOperation.swift in Sources */,
