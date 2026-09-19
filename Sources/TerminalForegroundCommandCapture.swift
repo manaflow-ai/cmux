@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 /// Resolves the shell command to save for each live terminal when capturing a
@@ -17,12 +18,19 @@ enum TerminalForegroundCommandCapture {
     /// comes from the workspace-owned panel→tty mapping — never from the
     /// child process's ambient CMUX_* environment, which any foreground
     /// process can override or carry stale.
-    static func liveCommands(forTTYDevices ttyDevices: Set<Int64>) -> [Int64: String] {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func liveCommands(forTTYDevices ttyDevices: Set<Int64>) async throws -> [Int64: String] {
         guard !ttyDevices.isEmpty else { return [:] }
-        let processes = CmuxTopProcessSnapshot.allProcesses(
-            includeProcessDetails: true,
-            includeCMUXScope: false
+        try Task.checkCancellation()
+        let snapshot = await CmuxTopProcessSnapshot.capture(
+            includeProcessDetails: true, includeCMUXScope: false, includeResources: false
         )
+        guard snapshot.captureIsAvailable, snapshot.enumerationIsComplete else { throw ProcessSnapshotError.unavailable }
+        let processes = Array(snapshot.processesByPID.values)
         var bestByTTY: [Int64: CmuxTopProcessInfo] = [:]
         for process in processes {
             guard let ttyDevice = process.ttyDevice,

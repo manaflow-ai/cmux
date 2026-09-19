@@ -76,7 +76,8 @@ actor AgentHibernationProcessSnapshotCoordinator {
         ttyDevice: Int64?,
         excluding exitedIdentities: Set<AgentPIDProcessIdentity>
     ) async -> AgentHibernationProcessExitEpoch? {
-        guard let snapshot = await nextSnapshot() else { return nil }
+        guard let snapshot = await nextSnapshot(), snapshot.enumerationIsComplete,
+              !Task.isCancelled else { return nil }
         return Self.exitEpoch(
             in: snapshot,
             processGroupLeaders: processGroupLeaders,
@@ -139,9 +140,9 @@ actor AgentHibernationProcessSnapshotCoordinator {
     @concurrent
     #endif
     private nonisolated static func captureFreshSnapshot() async -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot.capture(
+        await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: false,
-            includeCMUXScope: false
+            includeCMUXScope: false, includeResources: false
         )
     }
 
@@ -208,6 +209,9 @@ actor AgentHibernationProcessSnapshotCoordinator {
             guard let identity = processIdentityProvider(pid_t(processID)) else {
                 return nil
             }
+            // Topology cannot authorize a replacement process that reused a
+            // listed PID between the census and this authoritative probe.
+            if let capturedIdentity = process.processIdentity, capturedIdentity != identity { return nil }
             guard !exitedIdentities.contains(identity) else { continue }
             guard processGroupProvider(pid_t(processID)) == processGroupID else {
                 return nil

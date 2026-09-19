@@ -174,19 +174,22 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
-        presentSaveWorkspaceActionDialog(
-            workspace: workspace,
-            cmuxConfigStore: cmuxConfigStore,
-            window: window
-        )
+        Task {
+            await presentSaveWorkspaceActionDialog(
+                workspace: workspace,
+                cmuxConfigStore: cmuxConfigStore,
+                window: window
+            )
+        }
     }
 
     private func presentSaveWorkspaceActionDialog(
         workspace: Workspace,
         cmuxConfigStore: CmuxConfigStore,
         window: NSWindow
-    ) {
-        let snapshot = workspace.captureConfigActionSnapshot()
+    ) async {
+        guard let snapshot = await workspace.captureConfigActionSnapshot() else { return }
+        guard window.isVisible, !Task.isCancelled else { return }
         let globalConfigPath = cmuxConfigStore.globalConfigPath
         if !snapshot.oversizedCommands.isEmpty {
             presentWorkspaceCommandTooLongAlert(for: window)
