@@ -12,9 +12,16 @@ import OSLog
 import StackAuth
 import os
 
+struct CmxV3AdmittedPeer: Equatable, Sendable {
+    let peerID: String
+    let deviceID: String?
+    init(peerID: String, deviceID: String? = nil) { self.peerID = peerID; self.deviceID = deviceID }
+}
+
 enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case stackBearer
     case irohAdmission(CmxIrohAdmittedPeer)
+    case v3Admission(CmxV3AdmittedPeer)
 }
 
 /// Immutable trust context carried from transport admission into RPC dispatch.
@@ -244,6 +251,7 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var v3Route: CmxAttachRoute?
     private nonisolated(unsafe) static var v2DeviceID: String?
 
     static func updateV2DeviceID(_ deviceID: String?) {
@@ -303,10 +311,27 @@ enum MobileHostPublicStatusCache {
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
+    static func updateV3(peerID: String?, addresses: [String] = []) {
+        lock.lock()
+        if let peerID, !peerID.isEmpty, let identity = try? CmxV3PeerIdentity(peerID: peerID, addresses: addresses) {
+            v3Route = try? CmxAttachRoute(
+                id: CmxAttachTransportKind.v3.rawValue,
+                kind: .v3,
+                endpoint: .v3Peer(identity),
+                priority: 0
+            )
+        } else {
+            v3Route = nil
+        }
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
     static func removeAll() {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        v3Route = nil
         v2DeviceID = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
@@ -359,7 +384,9 @@ enum MobileHostPublicStatusCache {
     }
 
     private static func mergedRoutesLocked() -> [CmxAttachRoute] {
-        let routes = irohRoute.map { [$0] } ?? []
+        var routes: [CmxAttachRoute] = []
+        if let v3Route { routes.append(v3Route) }
+        if let irohRoute { routes.append(irohRoute) }
         return routes + legacyRoutes
     }
 }

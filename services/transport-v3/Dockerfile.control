@@ -1,0 +1,18 @@
+FROM rust:1.98-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates ./crates
+RUN cargo build --release --locked -p cmux-v3-control-server
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --home-dir /nonexistent --shell /usr/sbin/nologin cmux-control
+COPY --from=build /src/target/release/cmux-v3-control-server /usr/local/bin/cmux-v3-control-server
+COPY control-entrypoint.sh /usr/local/bin/control-entrypoint.sh
+USER cmux-control
+EXPOSE 8080
+STOPSIGNAL SIGTERM
+ENV CMUX_V3_CONTROL_HTTP=0.0.0.0:8080
+ENTRYPOINT ["/usr/local/bin/control-entrypoint.sh"]

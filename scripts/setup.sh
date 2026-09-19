@@ -87,6 +87,7 @@ else
 fi
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
+bash "$SCRIPT_DIR/ensure-transport-v3.sh"
 
 "$SCRIPT_DIR/install-git-hooks.sh"
 

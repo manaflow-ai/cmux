@@ -438,6 +438,7 @@ if [[ ! -x "$GHOSTTYKIT_ENSURE" ]]; then
   exit 1
 fi
 "$GHOSTTYKIT_ENSURE"
+bash "$IOS_DIR/../scripts/ensure-transport-v3.sh"
 
 # Best-effort user notification (mirrors the queue script's notify).
 reload_device_notify() {

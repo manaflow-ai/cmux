@@ -27,6 +27,8 @@ struct MobileRPCConnectAttemptKey: Hashable, Sendable {
                 kind: route.kind.rawValue,
                 endpoint: stableURLIdentity(value)
             )
+        case let .v3Peer(identity):
+            endpointIdentity = .v3(peerID: identity.peerID)
         }
     }
 }

@@ -1,0 +1,16 @@
+[package]
+name = "cmux-v3-grants"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ed25519-dalek.workspace = true
+jsonwebtoken.workspace = true
+libp2p-identity.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

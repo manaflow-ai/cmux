@@ -22,6 +22,7 @@ struct MobilePresenceReconnectEvidence: Equatable, Sendable {
         case hostPort(host: String, port: Int)
         case peer(identity: String, hints: [Hint])
         case url(String)
+        case v3Peer(peerID: String, addresses: [String])
     }
 
     struct Route: Equatable, Sendable {
@@ -62,6 +63,8 @@ struct MobilePresenceReconnectEvidence: Equatable, Sendable {
                 )
             case let .url(url):
                 .url(url)
+            case let .v3Peer(identity):
+                .v3Peer(peerID: identity.peerID, addresses: identity.addresses)
             }
             return Route(
                 id: route.id,

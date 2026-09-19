@@ -39,6 +39,9 @@ extension CmxAttachEndpoint {
             // tell two Macs apart in a diagnostic line.
             let id = identity.endpointID
             return id.count > 12 ? "\(id.prefix(12))…" : id
+        case let .v3Peer(identity):
+            let id = identity.peerID
+            return id.count > 12 ? "\(id.prefix(12))…" : id
         case let .url(url):
             return url
         }

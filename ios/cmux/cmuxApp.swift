@@ -43,6 +43,14 @@ struct cmuxApp: App {
         let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
             keychainAccessGroup: auth.keychainAccessGroup)
         Task { await irx.configure(auth: auth.coordinator) }
+        let v3 = makeV3Runtime(auth: auth)
+        if let v3 {
+            Task { await v3.configure(auth: auth.coordinator) }
+        }
+        let v3Catalog = v3.map { _ in MobileIrohRouteCatalog() }
+        let v3Discovery = v3.flatMap { runtime in
+            v3Catalog.map { MobileV3DiscoveryProvider(runtime: runtime, preferredTag: "default", routeCatalog: $0) }
+        }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
@@ -60,12 +68,19 @@ struct cmuxApp: App {
         let fallbackRegistrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
-        let registrations = [
+        var registrations = [
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
                 factory: irx.transportFactory
             ),
-        ] + fallbackRegistrations
+        ]
+        if let v3 {
+            registrations.append(CmxRouteTransportFactoryRegistration(
+                kind: .v3,
+                factory: MobileV3DeferredTransportFactory(runtime: v3)
+            ))
+        }
+        registrations += fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
         do {
             transportFactory = try CmxRouteTransportFactory(registrations)
@@ -79,20 +94,25 @@ struct cmuxApp: App {
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
             independentEventByteStreamProvider: { request in
-                try await irx.serverEventByteStream(for: request)
+                if let v3, request.route.kind == .v3 { return try await v3.eventStream(for: request) }
+                return try await irx.serverEventByteStream(for: request)
             },
             terminalLaneProvider: { request, surfaceID, cursor in
+                if let v3, request.route.kind == .v3 { return try await v3.terminalLane(for: request, surfaceID: surfaceID, cursor: cursor) }
                 guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
                 return try await irx.openTerminalLane(for: request, surfaceID: surfaceUUID, cursor: cursor)
             },
             terminalInputLaneProvider: { request, surfaceID, _ in
+                if let v3, request.route.kind == .v3 { return try await v3.terminalInputLane(for: request, surfaceID: surfaceID) }
                 guard let surfaceUUID = UUID(uuidString: surfaceID) else { throw MobileIrohTerminalLaneError.invalidSurfaceID }
                 return try await irx.openTerminalInputLane(for: request, surfaceID: surfaceUUID)
             },
             artifactLaneProvider: { request, resourceID, offset in
-                try await irx.openArtifactLane(for: request, resourceID: resourceID, offset: offset)
+                if let v3, request.route.kind == .v3 { return try await v3.artifactLane(for: request, resourceID: resourceID, offset: offset) }
+                return try await irx.openArtifactLane(for: request, resourceID: resourceID, offset: offset)
             },
             simulatorStreamLaneProvider: { request, panelID in
+                if let v3, request.route.kind == .v3 { return try await v3.simulatorLane(for: request, panelID: panelID) }
                 guard let panelUUID = UUID(uuidString: panelID) else { throw MobileIrohSimulatorStreamLaneError.invalidPanelID }
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
             }
@@ -102,6 +122,9 @@ struct cmuxApp: App {
             runtime: runtime,
             auth: auth,
             irx: irx,
+            v3: v3,
+            v3Discovery: v3Discovery,
+            v3RouteCatalog: v3Catalog,
             irxDiscovery: MobileIrxDiscoveryProvider(irx: irx, preferredTag: irx.tag,
                 compatibilityPolicy: buildCompatibilityPolicy),
             buildCompatibilityPolicy: buildCompatibilityPolicy,
@@ -109,6 +132,30 @@ struct cmuxApp: App {
             diagnosticLog: diagnosticLog
         )
     }()
+
+    @MainActor
+    private static func makeV3Runtime(auth: MobileAuthComposition) -> MobileV3RuntimeComposition? {
+        let environment = ProcessInfo.processInfo.environment
+        guard let originString = environment["CMUX_V3_CONTROL_ORIGIN"],
+              let origin = URL(string: originString),
+              let rawKeys = environment["CMUX_V3_AUTHORITY_KEYS"],
+              let data = rawKeys.data(using: .utf8),
+              let encoded = try? JSONDecoder().decode([String: String].self, from: data),
+              !encoded.isEmpty else { return nil }
+        let keys = encoded.compactMapValues { value in Data(hexString: value) }
+        guard keys.count == encoded.count else { return nil }
+        guard let configuration = try? MobileV3RuntimeComposition.Configuration(
+            controlOrigin: origin,
+            audience: environment["CMUX_V3_AUDIENCE"] ?? "cmux-v3-\(auth.authEnvironment.rawValue)",
+            authorityKeys: keys,
+            relayAddresses: (environment["CMUX_V3_RELAY_ADDRESSES"] ?? "")
+                .split(separator: ",")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty },
+            keychainAccessGroup: auth.keychainAccessGroup
+        ) else { return nil }
+        return MobileV3RuntimeComposition(configuration: configuration)
+    }
 
     init() {
         Self.root.pushCoordinator.configure(delegate: appDelegate)
@@ -170,14 +217,28 @@ struct cmuxApp: App {
             // First-pair discovery must come from the ACTIVE transport: the
             // dormant one answers "endpoint unavailable" and a fresh install
             // (empty paired-Mac store) then lists zero Macs forever.
-            personalIrohRouteCatalog: Self.root.irxDiscovery.routeCatalog,
-            personalIrohDiscovery: Self.root.irxDiscovery,
-            personalIrohForget: Self.root.irxDiscovery,
+            personalIrohRouteCatalog: Self.root.v3RouteCatalog ?? Self.root.irxDiscovery.routeCatalog,
+            personalIrohDiscovery: Self.root.v3Discovery ?? Self.root.irxDiscovery,
+            personalIrohForget: Self.root.v3Discovery == nil ? Self.root.irxDiscovery : nil,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog,
             appLog: Self.root.appLog,
             v2Configuration: Self.root.irx.configuration
         )
+    }
+}
+
+private extension Data {
+    init?(hexString: String) {
+        guard hexString.count.isMultiple(of: 2), !hexString.isEmpty else { return nil }
+        var value = Data(capacity: hexString.count / 2)
+        for index in stride(from: 0, to: hexString.count, by: 2) {
+            let start = hexString.index(hexString.startIndex, offsetBy: index)
+            let end = hexString.index(start, offsetBy: 2)
+            guard let byte = UInt8(String(hexString[start..<end]), radix: 16) else { return nil }
+            value.append(byte)
+        }
+        self = value
     }
 }

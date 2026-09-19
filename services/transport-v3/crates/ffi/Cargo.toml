@@ -1,0 +1,27 @@
+[package]
+name = "cmux-v3-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[features]
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/bindgen.rs"
+required-features = ["bindgen"]
+
+[dependencies]
+cmux-v3-grants = { path = "../grants" }
+cmux-v3-transport = { path = "../transport" }
+ed25519-dalek.workspace = true
+libp2p.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+uniffi = { version = "=0.31.2", features = ["tokio"] }
