@@ -1015,7 +1015,11 @@ export class FreestyleProvider implements VMProvider {
             // per-machine input it needs is the model-plane env file. The
             // in-VM shim is a separate convenience layer over that daemon and
             // is installed idempotently for agents and peer links.
-            setupTasks.push(this.installGuestCli(vm, vmId, options.promptIdentity));
+            // The resource reporter is advisory and has no bearing on
+            // attach/readiness. Run it as a peer task so its systemd setup
+            // cannot serialize behind the adapter's filesystem write.
+            setupTasks.push(this.installGuestCli(vm, vmId, options.promptIdentity, { installResourceReporter: false }));
+            setupTasks.push(this.ensureResourceReporter(vm, vmId));
             const setupResults = await Promise.allSettled(setupTasks);
             const setupFailure = setupResults.find(
               (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -1744,7 +1748,12 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+  private async installGuestCli(
+    vm: Vm,
+    vmId: string,
+    promptIdentity?: GuestPromptIdentity,
+    options: { readonly installResourceReporter?: boolean } = {},
+  ): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
@@ -1762,7 +1771,7 @@ export class FreestyleProvider implements VMProvider {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
     }
-    await this.ensureResourceReporter(vm, vmId);
+    if (options.installResourceReporter !== false) await this.ensureResourceReporter(vm, vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
