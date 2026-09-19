@@ -587,7 +587,7 @@
     // Effort chip.
     const eff = opts.find((o) => ['effort', 'reasoning_effort', 'thought_level', 'thinking', 'reasoning'].includes(o.id) && o.options);
     const effSel = $('#effort'); effSel.innerHTML = '';
-    if (eff) { for (const o of eff.options) effSel.add(new Option(o.name || o.value, o.value)); effSel.value = eff.currentValue; $('#effort-label').textContent = eff.currentValue === 'default' ? 'effort' : eff.currentValue; effSel.onchange = () => call('session/set_config_option', { sessionId: selected, configId: eff.id, value: effSel.value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); }
+    if (eff) { for (const o of eff.options) effSel.add(new Option(o.name || o.value, o.value)); effSel.value = eff.currentValue; $('#effort-label').textContent = eff.currentValue === 'default' ? 'effort' : effortLabel(eff.currentValue); effSel.onchange = () => call('session/set_config_option', { sessionId: selected, configId: eff.id, value: effSel.value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); }
     $('#chip-effort').hidden = !eff || eff.currentValue === 'default';
     renderPerm(t);
   }
@@ -626,6 +626,8 @@
   }
   // A model id as the chip shows it: no trailing date stamp (-20251001).
   const modelLabel = (m) => m.replace(/-\d{8}$/, '') || m;
+  // Effort as the Codex app words it: "Extra high", "High", "Medium", "Low".
+  const effortLabel = (e) => ({ xhigh: 'Extra high', 'x-high': 'Extra high', extra_high: 'Extra high', 'extra-high': 'Extra high', ultra: 'Ultra', max: 'Max', high: 'High', medium: 'Medium', low: 'Low', minimal: 'Minimal', none: 'None' })[e] || e;
   function hero(text, sub) { return '<div class="hero"><div><h2>' + esc(text) + '</h2>' + esc(sub) + '</div></div>'; }
   function renderLog() {
     const log = $('#log');

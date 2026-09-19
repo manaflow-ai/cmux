@@ -186,7 +186,7 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
     } else {
         model_label(&model_shown)
     };
-    let effort_text = if thinking.is_empty() || thinking == "default" { String::new() } else { thinking.clone() };
+    let effort_text = if thinking.is_empty() || thinking == "default" { String::new() } else { effort_label(&thinking) };
     let mut pieces: Vec<(String, ButtonAction)> = vec![(model_text, ButtonAction::PickModel)];
     if !effort_text.is_empty() {
         pieces.push((effort_text, ButtonAction::PickThinking));

@@ -685,6 +685,22 @@ pub fn model_label(model: &str) -> String {
     }
 }
 
+/// An effort level as the chip shows it, Codex-app style: `xhigh` reads
+/// "Extra high", the rest are capitalized; unknown values pass through.
+pub fn effort_label(effort: &str) -> String {
+    match effort {
+        "xhigh" | "x-high" | "extra_high" | "extra-high" => "Extra high".to_owned(),
+        "ultra" => "Ultra".to_owned(),
+        "max" => "Max".to_owned(),
+        "high" => "High".to_owned(),
+        "medium" => "Medium".to_owned(),
+        "low" => "Low".to_owned(),
+        "minimal" => "Minimal".to_owned(),
+        "none" => "None".to_owned(),
+        other => other.to_owned(),
+    }
+}
+
 pub fn duration_label(ms: u64) -> String {
     let s = ms / 1000;
     if s < 60 {
@@ -1140,6 +1156,13 @@ mod selection_tests {
         let i = rows.iter().position(|r| std::ptr::eq(r, row)).unwrap();
         let sel = Selection { session: "s".into(), anchor: (i, lo + 5), head: (i, lo + 10), mode: SelectMode::Cell };
         assert_eq!(sel.text(&rows.iter().map(|r| r.text.clone()).collect::<Vec<_>>()), "these");
+    }
+
+    #[test]
+    fn effort_label_reads_like_the_codex_app() {
+        assert_eq!(effort_label("xhigh"), "Extra high");
+        assert_eq!(effort_label("high"), "High");
+        assert_eq!(effort_label("think-hard"), "think-hard");
     }
 
     #[test]
