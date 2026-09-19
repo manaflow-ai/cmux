@@ -23,6 +23,26 @@ function install(directory: string, name: string, revision: number, machineId = 
   expect(result.status).toBe(0);
 }
 
+// The prompt hook reports the cwd with OSC 7 (ESC ] 7 ; … BEL) before every
+// prompt; tests about other prompt behavior drop those reports from the output.
+function withoutCwdReports(text: string): string {
+  const start = `${String.fromCharCode(0x1b)}]7;`;
+  const end = String.fromCharCode(0x07);
+  let output = "";
+  let index = 0;
+  while (index < text.length) {
+    const report = text.indexOf(start, index);
+    const reportEnd = report < 0 ? -1 : text.indexOf(end, report + start.length);
+    if (report < 0 || reportEnd < 0) {
+      output += text.slice(index);
+      break;
+    }
+    output += text.slice(index, report);
+    index = reportEnd + 1;
+  }
+  return output;
+}
+
 function bash(directory: string, command: string) {
   const result = spawnSync("bash", ["--noprofile", "--norc", "-c", command], {
     encoding: "utf8",
@@ -107,7 +127,7 @@ describe("Cloud Bash prompt", () => {
   test("preserves existing prompt commands, exit status, and repeated sourcing", () => {
     const directory = fixture();
     install(directory, "brave-blue-otter", 100);
-    expect(bash(directory, `
+    expect(withoutCwdReports(bash(directory, `
       PROMPT_COMMAND=(':' 'printf user-hook')
       . '${directory}/prompt.bash'
       . '${directory}/prompt.bash'
@@ -115,7 +135,7 @@ describe("Cloud Bash prompt", () => {
       __cmux_prompt_name
       printf '%s|' "$?"
       printf '%s|' "\${PROMPT_COMMAND[@]}"
-    `).replace(/\u001b\]7;[^\u0007]*\u0007/g, "")).toBe("1|__cmux_prompt_name|:|printf user-hook|");
+    `))).toBe("1|__cmux_prompt_name|:|printf user-hook|");
   });
 
   test("reports the working directory to the daemon with OSC 7 using only builtins", () => {
