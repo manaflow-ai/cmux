@@ -63,6 +63,7 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
         self.isAvailable = isAvailable
     }
 
+    /// Projects one ordinary boolean catalog descriptor into a palette toggle.
     init(
         userFacing key: DefaultsKey<Bool>,
         isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true },
