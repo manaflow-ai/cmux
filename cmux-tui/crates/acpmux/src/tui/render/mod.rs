@@ -435,13 +435,18 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                         let _ = n;
                         let summary = first_line.trim_matches('*').trim();
                         if live {
+                            // Codex app: one shimmering line with the latest
+                            // sentence while it streams; a click opens the rest.
+                            let latest = text.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().trim_matches('*').trim();
                             let mut spans = vec![Span::raw(GUTTER)];
                             spans.extend(super::shimmer::spans("Thinking", c.shimmer_base, c.shimmer_bright));
-                            if !summary.is_empty() {
-                                spans.push(Span::styled(format!("  {}", truncate(summary, w.saturating_sub(12))), c.dim().add_modifier(Modifier::ITALIC)));
+                            if !latest.is_empty() {
+                                spans.push(Span::styled(format!("  {}", truncate(latest, w.saturating_sub(12))), c.dim().add_modifier(Modifier::ITALIC)));
                             }
-                            rows.push(Row { line: Line::from(spans), text: format!("{GUTTER}Thinking  {summary}"), item: i, toggle: Some(Toggle::Item(i)) });
-                            wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
+                            rows.push(Row { line: Line::from(spans), text: format!("{GUTTER}Thinking  {latest}"), item: i, toggle: Some(Toggle::Item(i)) });
+                            if is_open(Toggle::Item(i), false) {
+                                wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
+                            }
                         } else if open {
                             header_row(&format!("{GUTTER}Thought  ▾"), c.muted_fg, i, Toggle::Item(i), &mut rows);
                             wrap(text, w, c.dim().add_modifier(Modifier::ITALIC), GUTTER, i, &mut rows);
@@ -814,7 +819,7 @@ pub fn content_bounds(line: &str) -> (usize, usize) {
     while lo < chars.len() && chars[lo] == ' ' {
         lo += 1;
     }
-    if lo < chars.len() && matches!(chars[lo], '›' | '•' | '»' | '▸' | '▾' | '⏳' | '❯') {
+    if lo < chars.len() && matches!(chars[lo], '›' | '•' | '»' | '▸' | '▾' | '⏳' | '❯' | '≡' | '✎' | '$' | '⌕' | '↓' | '…' | '⇄' | '?' | '✓' | '✗' | '–') {
         lo += 1;
         while lo < chars.len() && chars[lo] == ' ' {
             lo += 1;
@@ -827,6 +832,13 @@ pub fn content_bounds(line: &str) -> (usize, usize) {
     let mut hi = chars.len();
     while hi > lo && chars[hi - 1] == ' ' {
         hi -= 1;
+    }
+    // A trailing toggle glyph ("  ›", "  ▾") is chrome, not content.
+    if hi >= lo + 3 && matches!(chars[hi - 1], '›' | '▾') && chars[hi - 2] == ' ' {
+        hi -= 1;
+        while hi > lo && chars[hi - 1] == ' ' {
+            hi -= 1;
+        }
     }
     (lo, hi)
 }

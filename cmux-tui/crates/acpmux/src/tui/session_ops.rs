@@ -391,7 +391,20 @@ impl App {
         }
         let current = opt.get("currentValue").and_then(Value::as_str).unwrap_or("").to_owned();
         let rows = choices.into_iter().map(|(v, l)| PickRow { value: v, label: l, header: false, group: String::new(), note: String::new() }).collect();
-        self.overlay = Overlay::Picker(Picker::new(config_id, rows, Some(&current), PickTarget::Config(id, config_id.to_owned()), "type to filter · ↑↓ wheel · Enter or click picks · Esc"));
+        let title = match config_id {
+            "effort" | "reasoning_effort" | "thought_level" | "thinking" | "reasoning" => "Effort".to_owned(),
+            "model" => "Model".to_owned(),
+            "mode" => "Mode".to_owned(),
+            other => {
+                let mut t = other.replace('_', " ");
+                if let Some(f) = t.get(0..1) {
+                    let up = f.to_uppercase();
+                    t.replace_range(0..1, &up);
+                }
+                t
+            }
+        };
+        self.overlay = Overlay::Picker(Picker::new(&title, rows, Some(&current), PickTarget::Config(id, config_id.to_owned()), "type to filter · ↑↓ wheel · Enter or click picks · Esc"));
     }
 
     pub(super) fn apply_pick(&mut self, target: PickTarget, value: String, group: String) {
