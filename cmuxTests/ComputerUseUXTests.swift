@@ -955,10 +955,10 @@ struct ComputerUseUXTests {
         let suiteName = "cmux.tests.directCapture.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let key = ComputerUseOnboardingWindowController.directCaptureReadyDefaultsKey
+        let key = ComputerUseOnboardingStore.legacyCompletionKey
         defaults.set(true, forKey: key)
 
-        ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(in: defaults)
+        ComputerUseOnboardingStore(defaults: defaults, scope: "synthetic-test").invalidateHelper()
 
         #expect(!defaults.bool(forKey: key))
         #expect(

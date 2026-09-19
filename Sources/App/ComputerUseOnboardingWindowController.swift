@@ -97,15 +97,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     static let seenDefaultsKey = "cmux.computerUse.onboarding.seen"
-    static let directCaptureReadyDefaultsKey = "cmux.computerUse.directCapture.ready"
-
-    /// Drops the cached direct-capture verification. Called when the installed
-    /// helper build changes: Tahoe's consent is bound to the helper's code
-    /// signature, so a stale `true` would keep onboarding away while the system
-    /// alert fires at the next capture with no explanation on screen.
-    static func invalidateDirectCaptureReady(in userDefaults: UserDefaults) {
-        userDefaults.removeObject(forKey: directCaptureReadyDefaultsKey)
-    }
     static let completionDismissDelay: Duration = .seconds(2.4)
     nonisolated static let permissionCompanionGlideDuration: TimeInterval = 0.48
     private static let expandedWindowSize = NSSize(width: 600, height: 440)
@@ -121,7 +112,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     private var window: ComputerUseOnboardingWindow?
     private var permissionCompanionWindow: ComputerUseOnboardingWindow?
     private let runtimeService: ComputerUseRuntimeService
-    private let userDefaults: UserDefaults
     private let permissionWindowPlacement = ComputerUseOnboardingWindowPlacement()
     private let externalWindowCompanionPresenter: ExternalWindowCompanionPresenter
     private var systemSettingsWindowTracker: ExternalApplicationWindowTracker?
@@ -132,11 +122,9 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
 
     init(
         runtimeService: ComputerUseRuntimeService,
-        userDefaults: UserDefaults = .standard,
         externalWindowCompanionPresenter: ExternalWindowCompanionPresenter? = nil
     ) {
         self.runtimeService = runtimeService
-        self.userDefaults = userDefaults
         self.externalWindowCompanionPresenter = externalWindowCompanionPresenter
             ?? ExternalWindowCompanionPresenter()
         super.init()
@@ -190,9 +178,6 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
             runtimeService: runtimeService,
             presentationState: presentationState,
             initialStep: startingPoint.step,
-            initialDirectCaptureReady: userDefaults.bool(
-                forKey: Self.directCaptureReadyDefaultsKey
-            ),
             onPermissionSetupStarted: { [weak self] permissionStep in
                 self?.permissionSetupStarted(for: permissionStep)
             },
@@ -431,8 +416,7 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
         completionDismissTask?.cancel()
         completionDismissTask = nil
         stopSystemSettingsObservation()
-        userDefaults.set(true, forKey: Self.directCaptureReadyDefaultsKey)
-        runtimeService.onboardingWasCompleted()
+        guard runtimeService.onboardingIsComplete else { return }
         guard let window else { return }
         revealExpandedOnboarding(
             window,

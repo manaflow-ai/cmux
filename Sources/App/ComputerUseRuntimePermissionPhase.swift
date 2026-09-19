@@ -49,7 +49,7 @@ enum ComputerUseRuntimePermissionPhase: Equatable, Sendable {
         case .onboardingCompleted:
             switch self {
             case .disabled:
-                return .disabled(onboardingComplete: true)
+                return self
             case .onboardingRequired, .onboarding, .ready:
                 return .ready
             }

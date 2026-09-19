@@ -63,7 +63,7 @@ cmux's injection disables the upstream cmux-cua engine's telemetry and self-upda
 checks; cmux manages application updates through Sparkle.
 
 Onboarding is opened only by a deliberate user action in Settings → Computer
-Use (the **Grant…** or **Open System Settings** permission controls). Launch or
+Use (the **Finish Setup…**, **Grant…**, or **Open System Settings** controls). Launch or
 resume, MCP/skill discovery, helper status checks, protected tool calls, and
 prompt or UI text never present it and never establish consent. This keeps a
 model's decision to select a tool separate from the user's decision to grant
@@ -86,7 +86,28 @@ required before setup can complete. Agents must not call a standalone helper's
 permission prompt while onboarding is active, because that creates unrelated
 permission dialogs under the wrong process identity.
 
-The host keeps the helper's readiness phase authoritative. An already attached
+The **Setup** row reports the host's remaining step separately from the two
+TCC grants. If both grants say **Granted**, choose **Finish Setup…** to verify
+direct capture with both helper profiles and approve macOS's capture confirmation
+if it appears. A missing helper is reported as unavailable, not as a denied grant.
+
+The runtime owns completion; closing or completing a window cannot authorize
+tools. Its version-1 completion record is one atomic preferences value scoped
+to the runtime tag and the helper's signing digest. The runtime restores it only
+for an unchanged installed helper, invalidates it before replacement or
+re-provisioning, and rejects stale capture results after disable or replacement.
+The old completion preference migrates only when the installed bundle exactly
+matches the shipped bundle. A corrupt, unknown-version, or mismatched record
+requires setup again. A crash before preferences flush can lose the latest
+completion, requiring verification again; a partial record never authorizes tools.
+
+`runtime/<tag>/state/` contains authenticated activity snapshots written after
+tool actions, not onboarding records. An empty directory is normal before the
+first action. The daemon starts with host readiness false; the host republishes
+verified readiness on each launch through its host-only authenticated socket
+method. `list-tools` and `check_permissions` intentionally work before admission.
+
+An already attached
 but unconfigured proxy can still wait for its external readiness milestone and
 then return the pinned helper's setup-required response, **“Computer Use
 onboarding is still in progress. Finish setup in cmux, then retry.”** That

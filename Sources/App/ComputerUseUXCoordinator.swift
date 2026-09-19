@@ -64,11 +64,6 @@ final class ComputerUseUXCoordinator {
             liveAgentIndex: liveAgentIndex
         )
         self.onboardingCoordinator = onboardingCoordinator
-        runtimeService.helperBuildReplacedHandler = { [userDefaults] in
-            ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(
-                in: userDefaults
-            )
-        }
     }
 
     deinit {
@@ -101,12 +96,6 @@ final class ComputerUseUXCoordinator {
         _ = ensureOnboardingCoordinator()
 
         let initialComputerUseEnabled = configStore.snapshotValue(for: enabledKey)
-        runtimeService.setInitialOnboardingCompletion(
-            userDefaults.bool(
-                forKey: ComputerUseOnboardingWindowController
-                    .directCaptureReadyDefaultsKey
-            )
-        )
         enabledSettingTask = Task { [configStore, enabledKey, liveSettingRepository, runtimeService] in
             await liveSettingRepository.setEnabled(initialComputerUseEnabled)
             await runtimeService.setEnabled(initialComputerUseEnabled)
@@ -306,8 +295,7 @@ final class ComputerUseUXCoordinator {
     ) {
         userDefaults.set(true, forKey: ComputerUseOnboardingWindowController.seenDefaultsKey)
         let controller = onboardingWindowController ?? ComputerUseOnboardingWindowController(
-            runtimeService: runtimeService,
-            userDefaults: userDefaults
+            runtimeService: runtimeService
         )
         onboardingWindowController = controller
         controller.present(startingAt: startingPoint)

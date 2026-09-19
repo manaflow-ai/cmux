@@ -29,7 +29,8 @@ final class ComputerUseRuntimeService {
     let stateAuthenticationKey: Data
 
     private let bundledHelperAppURL: URL?
-    private let transport: SocketTransport
+    private let daemonAdmission: ComputerUseDaemonAdmissionService
+    let transport: SocketTransport
     private var installedHelperURL: URL?
     private var helperLifecycleTask: Task<Void, Never>?
     private var helperLifecycleCancellationActions: [Int: @Sendable () -> Void] = [:]
@@ -39,12 +40,21 @@ final class ComputerUseRuntimeService {
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
-    private(set) var permissionPhase =
-        ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false)
-    private var readinessPublicationTask: Task<Void, Never>?
-    private var readinessPublicationGeneration = 0
-    private var acceptsNewLaunches = true
-    private var desiredEnabled = false
+    let onboarding: ComputerUseOnboardingStore
+    var permissionPhase: ComputerUseRuntimePermissionPhase { onboarding.phase }
+    private var acknowledgedReadiness: [ComputerUseDaemonProfile: Bool] = [:]
+    var setupStatusIsKnown: Bool {
+        permissionStatusIsKnown && ComputerUseDaemonProfile.allCases.allSatisfy {
+            acknowledgedReadiness[$0] != nil
+        }
+    }
+    var onboardingIsComplete: Bool {
+        permissionPhase.isReady && ComputerUseDaemonProfile.allCases.allSatisfy {
+            acknowledgedReadiness[$0] == true
+        }
+    }
+    private(set) var acceptsNewLaunches = true
+    private(set) var desiredEnabled = false
     private var runningHelperProcesses:
         [ComputerUseDaemonProfile: AgentPIDProcessIdentity] = [:]
     private var missedHelperHealthChecks = 0
@@ -57,13 +67,16 @@ final class ComputerUseRuntimeService {
         bundle: Bundle = .main,
         paths: ComputerUseRuntimePaths = ComputerUseRuntimePaths(),
         transport: SocketTransport = SocketTransport(),
+        userDefaults: UserDefaults = .standard,
         isDisabledByPolicy: @escaping () -> Bool = {
             ManagedDevicePolicy().isEnforced(.disableComputerUse)
         }
     ) {
         self.isDisabledByPolicy = isDisabledByPolicy
         self.paths = paths
+        onboarding = ComputerUseOnboardingStore(defaults: userDefaults, scope: paths.scope)
         self.transport = transport
+        daemonAdmission = ComputerUseDaemonAdmissionService(paths: paths, transport: transport)
         stateAuthenticationKey = Self.makeStateAuthenticationKey()
         let nestedURL = bundle.bundleURL
             .appendingPathComponent("Contents/Library/\(Self.helperAppName).app", isDirectory: true)
@@ -84,7 +97,6 @@ final class ComputerUseRuntimeService {
         helperTerminationObservationTask?.cancel()
         helperHealthTask?.cancel()
         recoveryTask?.cancel()
-        readinessPublicationTask?.cancel()
     }
 
     var helperAppURL: URL? {
@@ -164,20 +176,8 @@ final class ComputerUseRuntimeService {
         cachedStatus.isKnown
     }
 
-    /// Seeds the host gate from the capture verification persisted by the last
-    /// completed onboarding run. This is called before the enabled setting is
-    /// reconciled, so starting the helper can publish the correct first value.
-    func setInitialOnboardingCompletion(_ completed: Bool) {
-        guard !desiredEnabled else { return }
-        permissionPhase = .disabled(onboardingComplete: completed)
-    }
-
     func onboardingWasPresented() {
-        transitionPermissionPhase(.onboardingPresented)
-    }
-
-    func onboardingWasCompleted() {
-        transitionPermissionPhase(.onboardingCompleted)
+        onboarding.apply(.onboardingPresented)
     }
 
     /// Emits coalesced filesystem changes from the user's TCC database.
@@ -199,13 +199,13 @@ final class ComputerUseRuntimeService {
         let newValue = requested && !isDisabledByPolicy()
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         permissionRefreshGeneration &+= 1
-        permissionPhase = permissionPhase.applying(.setEnabled(newValue))
+        onboarding.apply(.setEnabled(newValue))
         desiredEnabled = newValue
         if newValue {
             await startIfNeeded()
             startMonitoringHelperHealth()
         } else {
-            cancelReadinessPublication()
+            acknowledgedReadiness.removeAll()
             helperHealthTask?.cancel()
             helperHealthTask = nil
             missedHelperHealthChecks = 0
@@ -272,6 +272,16 @@ final class ComputerUseRuntimeService {
             return status()
         }
         cachedStatus = cachedStatus.applyingProbeResult(latest)
+        if let latest, latest.isKnown,
+           !(latest.accessibility && latest.screenRecording), permissionPhase.isReady {
+            onboarding.permissionsRevoked()
+            await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
+                guard let self else { return }
+                for profile in ComputerUseDaemonProfile.allCases {
+                    _ = await self.publishExternalPermissionReadiness(for: profile)
+                }
+            }
+        }
         return status()
     }
 
@@ -417,118 +427,6 @@ final class ComputerUseRuntimeService {
         status: ComputerUsePermissionStatus?
     ) -> Bool {
         status?.helperOwnsPermissions == true
-    }
-
-    /// Verifies the helper can perform direct ScreenCaptureKit capture now.
-    ///
-    /// On macOS 26 this is the prompt-capable check for the separate private
-    /// window picker bypass consent. It is called only from the Screenshots
-    /// onboarding step after the ordinary Screen Recording grant is present.
-    func verifyDirectScreenCapture() async -> Bool {
-        await verifyDirectScreenCaptureOutcome() == .ready
-    }
-
-    func verifyDirectScreenCaptureOutcome()
-        async -> ComputerUseDirectScreenCaptureVerification
-    {
-        await serializeHelperLifecycle(cancelledResult: .unavailable) { [weak self] in
-            guard
-                let self,
-                self.desiredEnabled,
-                self.acceptsNewLaunches,
-                !Task.isCancelled
-            else {
-                return .unavailable
-            }
-            await self.startIfNeededWithinLifecycle()
-            guard !Task.isCancelled else {
-                return .unavailable
-            }
-            let expectedPeerIdentities = Dictionary(
-                uniqueKeysWithValues: ComputerUseDaemonProfile.allCases
-                    .compactMap { profile in
-                        self.processIdentity(for: profile).map {
-                            (profile, $0)
-                        }
-                    }
-            )
-            return await Self.verifyDirectScreenCaptureOutcomes(
-                paths: self.paths,
-                transport: self.transport,
-                expectedPeerIdentities: expectedPeerIdentities
-            )
-        }
-    }
-
-    /// Verifies every helper profile that can perform a real capture. Tahoe's
-    /// direct-capture consent can be process-generation scoped, so validating
-    /// only the native daemon lets the Codex compatibility daemon prompt later
-    /// during the first actual Computer Use call.
-    nonisolated static func verifyDirectScreenCaptureOutcomes(
-        paths: ComputerUseRuntimePaths,
-        transport: SocketTransport = SocketTransport(),
-        expectedPeerIdentities:
-            [ComputerUseDaemonProfile: AgentPIDProcessIdentity]
-    ) async -> ComputerUseDirectScreenCaptureVerification {
-        for profile in ComputerUseDaemonProfile.allCases {
-            guard
-                let expectedPeerIdentity = expectedPeerIdentities[profile],
-                AgentPIDProcessIdentity(pid: expectedPeerIdentity.pid)
-                    == expectedPeerIdentity
-            else {
-                return .unavailable
-            }
-            let result = await verifyDirectScreenCaptureOutcome(
-                paths: paths,
-                transport: transport,
-                expectedPeerIdentity: expectedPeerIdentity,
-                socketURL: Self.socketURL(for: profile, paths: paths)
-            )
-            guard result == .ready else { return result }
-        }
-        return .ready
-    }
-
-    /// Socket-level host request kept internal for peer/capability regression
-    /// coverage. A normal bearer token cannot invoke this daemon method.
-    nonisolated static func verifyDirectScreenCapture(
-        paths: ComputerUseRuntimePaths,
-        transport: SocketTransport = SocketTransport(),
-        expectedPeerIdentity: AgentPIDProcessIdentity
-    ) async -> Bool {
-        await verifyDirectScreenCaptureOutcome(
-            paths: paths,
-            transport: transport,
-            expectedPeerIdentity: expectedPeerIdentity
-        ) == .ready
-    }
-
-    nonisolated static func verifyDirectScreenCaptureOutcome(
-        paths: ComputerUseRuntimePaths,
-        transport: SocketTransport = SocketTransport(),
-        expectedPeerIdentity: AgentPIDProcessIdentity,
-        socketURL: URL? = nil
-    ) async -> ComputerUseDirectScreenCaptureVerification {
-        guard
-            let response = await sendDaemonRequest(
-                ["method": "verify_screen_capture"],
-                paths: paths,
-                transport: transport,
-                timeout: 60,
-                expectedPeerIdentity: expectedPeerIdentity,
-                socketURL: socketURL ?? paths.daemonSocketURL
-            )
-        else {
-            return .unavailable
-        }
-        guard
-            response["ok"] as? Bool == true,
-            let result = response["result"] as? [String: Any],
-            let capturable = result["capturable"] as? Bool
-        else {
-            return .unavailable
-        }
-        return capturable ? .ready : .notCapturable
     }
 
     /// Ends one exact cmux-managed proxy generation through the authenticated
@@ -859,7 +757,7 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    private func serializeHelperLifecycle<Result: Sendable>(
+    func serializeHelperLifecycle<Result: Sendable>(
         cancelledResult: Result,
         _ operation: @escaping @MainActor @Sendable () async -> Result
     ) async -> Result {
@@ -889,13 +787,6 @@ final class ComputerUseRuntimeService {
         return result
     }
 
-    /// Invoked after an already-installed helper bundle is replaced by a
-    /// different build. Tahoe's direct-capture consent follows the helper's
-    /// code signature, so any cached "capture verified" state is stale the
-    /// moment the installed build changes and must be re-verified through
-    /// onboarding rather than surprising the user mid-session.
-    var helperBuildReplacedHandler: (@MainActor () -> Void)?
-
     private func ensureStandaloneHelperInstalledWithinLifecycle() async -> URL? {
         guard acceptsNewLaunches, !Task.isCancelled, prepareRuntimeForLaunch() else { return nil }
         guard let bundledHelperAppURL else { return nil }
@@ -910,6 +801,11 @@ final class ComputerUseRuntimeService {
         }
         guard acceptsNewLaunches, !Task.isCancelled else { return nil }
         if isCurrent {
+            let identity = await Task.detached(priority: .userInitiated) {
+                ComputerUseHelperIdentity(bundleURL: destination).read()
+            }.value
+            guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+            if let identity { onboarding.restore(for: identity) }
             installedHelperURL = destination
             Self.registerHelperBundle(at: destination)
             NSWorkspace.shared.noteFileSystemChanged(destination.path)
@@ -917,9 +813,7 @@ final class ComputerUseRuntimeService {
         }
 
         guard await stopDaemon(), acceptsNewLaunches, !Task.isCancelled else { return nil }
-        let replacesExistingHelper = FileManager.default.fileExists(
-            atPath: destination.path
-        )
+        onboarding.invalidateHelper()
         let directory = paths.installedHelperDirectoryURL
         let installationTask = Task.detached(priority: .userInitiated) {
             Self.installHelper(
@@ -939,15 +833,17 @@ final class ComputerUseRuntimeService {
             Self.registerHelperBundle(at: result)
             NSWorkspace.shared.noteFileSystemChanged(result.path)
         }
-        if result != nil, replacesExistingHelper {
-            permissionPhase = permissionPhase.applying(.helperReplaced)
-            cancelReadinessPublication()
-            helperBuildReplacedHandler?()
+        if let result {
+            let identity = await Task.detached(priority: .userInitiated) {
+                ComputerUseHelperIdentity(bundleURL: result).read()
+            }.value
+            guard acceptsNewLaunches, !Task.isCancelled else { return nil }
+            if let identity { onboarding.restore(for: identity) }
         }
         return result
     }
 
-    private func startIfNeededWithinLifecycle() async {
+    func startIfNeededWithinLifecycle() async {
         guard !isDisabledByPolicy() else { return }
         guard acceptsNewLaunches, !Task.isCancelled else { return }
         guard let helperURL = await ensureStandaloneHelperInstalledWithinLifecycle() else { return }
@@ -1187,7 +1083,7 @@ final class ComputerUseRuntimeService {
         return await publishExternalPermissionReadiness(for: profile)
     }
 
-    private func publishExternalPermissionReadiness(
+    func publishExternalPermissionReadiness(
         for profile: ComputerUseDaemonProfile
     ) async -> Bool {
         guard
@@ -1195,74 +1091,31 @@ final class ComputerUseRuntimeService {
             AgentPIDProcessIdentity(pid: runningIdentity.pid)
                 == runningIdentity
         else {
+            acknowledgedReadiness.removeValue(forKey: profile)
             return false
         }
-        let ready = desiredEnabled && permissionPhase.isReady
-        guard let response = await Self.sendDaemonRequest(
-            [
-                "method": "set_external_permission_ready",
-                "args": ["ready": ready],
-            ],
-            paths: paths,
-            transport: transport,
-            timeout: 2,
-            expectedPeerIdentity: runningIdentity,
-            socketURL: socketURL(for: profile)
-        ) else {
+        let phase = permissionPhase
+        let enabled = desiredEnabled
+        let published = await daemonAdmission.publish(
+            phase: phase,
+            enabled: enabled,
+            to: socketURL(for: profile),
+            peer: runningIdentity
+        )
+        guard published, phase == permissionPhase, enabled == desiredEnabled,
+              processIdentity(for: profile) == runningIdentity else {
+            acknowledgedReadiness.removeValue(forKey: profile)
             return false
         }
-        return
-            response["ok"] as? Bool == true
-                && (response["result"] as? [String: Any])?[
-                    "external_permission_ready"
-                ] as? Bool == ready
+        acknowledgedReadiness[profile] = enabled && phase.isReady
+        return true
     }
 
-    private func transitionPermissionPhase(
-        _ event: ComputerUseRuntimePermissionPhase.Event
-    ) {
-        let nextPhase = permissionPhase.applying(event)
-        guard nextPhase != permissionPhase else { return }
-        permissionPhase = nextPhase
-        scheduleReadinessPublication()
-    }
-
-    private func scheduleReadinessPublication() {
-        readinessPublicationGeneration &+= 1
-        let generation = readinessPublicationGeneration
-        readinessPublicationTask?.cancel()
-        readinessPublicationTask = Task { @MainActor [weak self] in
-            guard
-                let self,
-                self.desiredEnabled,
-                self.acceptsNewLaunches,
-                !Task.isCancelled,
-                generation == self.readinessPublicationGeneration
-            else {
-                return
-            }
-            await self.startIfNeeded()
-            guard
-                !Task.isCancelled,
-                generation == self.readinessPublicationGeneration
-            else {
-                return
-            }
-            self.readinessPublicationTask = nil
-        }
-    }
-
-    private func cancelReadinessPublication() {
-        readinessPublicationGeneration &+= 1
-        readinessPublicationTask?.cancel()
-        readinessPublicationTask = nil
-    }
-
-    private func socketURL(for profile: ComputerUseDaemonProfile) -> URL {
+    func socketURL(for profile: ComputerUseDaemonProfile) -> URL {
         Self.socketURL(for: profile, paths: paths)
     }
 
-    nonisolated private static func socketURL(
+    nonisolated static func socketURL(
         for profile: ComputerUseDaemonProfile,
         paths: ComputerUseRuntimePaths
     ) -> URL {
@@ -1274,7 +1127,7 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    private func processIdentity(
+    func processIdentity(
         for profile: ComputerUseDaemonProfile
     ) -> AgentPIDProcessIdentity? {
         runningHelperProcesses[profile]
@@ -1337,7 +1190,6 @@ final class ComputerUseRuntimeService {
         missedHelperHealthChecks = 0
         recoveryTask?.cancel()
         recoveryTask = nil
-        cancelReadinessPublication()
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)
@@ -1415,12 +1267,14 @@ final class ComputerUseRuntimeService {
     }
 
     private func clearTrackedHelperProcess() {
+        acknowledgedReadiness.removeAll()
         runningHelperProcesses.removeAll()
     }
 
     private func clearTrackedHelperProcess(
         for profile: ComputerUseDaemonProfile
     ) {
+        acknowledgedReadiness.removeValue(forKey: profile)
         runningHelperProcesses.removeValue(forKey: profile)
     }
 
@@ -1867,7 +1721,7 @@ final class ComputerUseRuntimeService {
         )?["ok"] as? Bool == true
     }
 
-    nonisolated private static func queryPermissionStatus(
+    nonisolated static func queryPermissionStatus(
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,
         expectedPeerIdentity: AgentPIDProcessIdentity? = nil,
@@ -1895,7 +1749,7 @@ final class ComputerUseRuntimeService {
         return ComputerUsePermissionStatus(structuredContent: structured)
     }
 
-    nonisolated private static func sendDaemonRequest(
+    nonisolated static func sendDaemonRequest(
         _ request: [String: Any],
         paths: ComputerUseRuntimePaths,
         transport: SocketTransport,

@@ -10,6 +10,7 @@ public struct ComputerUseSection: View {
     @State private var accessibilityGranted: Bool
     @State private var screenRecordingGranted: Bool
     @State private var permissionStatusIsKnown: Bool
+    @State private var setupStatus: ComputerUseSetupStatus
     @State private var permissionCheckArmed = false
     @State private var permissionRefreshRequest = 0
     /// `DisableComputerUse` (MDM): the toggle locks and says so; re-read on
@@ -45,6 +46,7 @@ public struct ComputerUseSection: View {
         _accessibilityGranted = State(initialValue: hostActions.computerUseAccessibilityGranted())
         _screenRecordingGranted = State(initialValue: hostActions.computerUseScreenRecordingGranted())
         _permissionStatusIsKnown = State(initialValue: hostActions.computerUsePermissionStatusIsKnown())
+        _setupStatus = State(initialValue: hostActions.computerUseSetupStatus())
     }
 
     /// Renders Computer Use enablement, permissions, and menu-bar preferences.
@@ -86,6 +88,19 @@ public struct ComputerUseSection: View {
                 accessibilityRow
                 SettingsCardDivider()
                 screenRecordingRow
+                SettingsCardDivider()
+                SettingsCardRow(
+                    String(localized: "settings.computerUse.setup.title", defaultValue: "Setup"),
+                    subtitle: setupStatus.message
+                ) {
+                    if setupStatus != .ready {
+                        Button(String(localized: "settings.computerUse.setup.finish", defaultValue: "Finish Setup…")) {
+                            beginPermissionFlow(hostActions.finishComputerUseSetup)
+                        }
+                        .disabled(!enabled.current || managedByPolicy)
+                        .accessibilityIdentifier("SettingsComputerUseFinishSetup")
+                    }
+                }
             }
 
             SettingsCard {
@@ -113,6 +128,7 @@ public struct ComputerUseSection: View {
             permissionCheckArmed = false
             permissionRefreshRequest &+= 1
         }
+        .onChange(of: enabled.current) { _, _ in permissionRefreshRequest &+= 1 }
     }
 
     @ViewBuilder
@@ -197,6 +213,7 @@ public struct ComputerUseSection: View {
         accessibilityGranted = hostActions.computerUseAccessibilityGranted()
         screenRecordingGranted = hostActions.computerUseScreenRecordingGranted()
         permissionStatusIsKnown = hostActions.computerUsePermissionStatusIsKnown()
+        setupStatus = hostActions.computerUseSetupStatus()
     }
 
     private func beginPermissionFlow(_ action: () -> Void) {

@@ -13,7 +13,6 @@ struct ComputerUseOnboardingView: View {
     let runtimeService: ComputerUseRuntimeService
     @ObservedObject var presentationState: ComputerUseOnboardingPresentationState
     let initialStep: ComputerUseOnboardingStep
-    let initialDirectCaptureReady: Bool
     let onPermissionSetupStarted: @MainActor (ComputerUseOnboardingStep) -> Void
     let onExpandedRequested: @MainActor () -> Void
     let onOnboardingCompleted: @MainActor () -> Void
@@ -27,7 +26,7 @@ struct ComputerUseOnboardingView: View {
     @State private var helperAppURL: URL?
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
-    @State private var directCaptureReady: Bool
+    private var directCaptureReady: Bool { runtimeService.onboardingIsComplete }
     @State private var directCaptureVerificationInFlight = false
     @State private var directCaptureVerificationAttempted = false
     @State private var settingsOpened: Set<ComputerUseSystemPermission> = []
@@ -36,7 +35,6 @@ struct ComputerUseOnboardingView: View {
         runtimeService: ComputerUseRuntimeService,
         presentationState: ComputerUseOnboardingPresentationState,
         initialStep: ComputerUseOnboardingStep = .overview,
-        initialDirectCaptureReady: Bool = false,
         onPermissionSetupStarted: @escaping @MainActor (ComputerUseOnboardingStep) -> Void = { _ in },
         onExpandedRequested: @escaping @MainActor () -> Void = {},
         onOnboardingCompleted: @escaping @MainActor () -> Void = {}
@@ -44,12 +42,10 @@ struct ComputerUseOnboardingView: View {
         self.runtimeService = runtimeService
         self.presentationState = presentationState
         self.initialStep = initialStep
-        self.initialDirectCaptureReady = initialDirectCaptureReady
         self.onPermissionSetupStarted = onPermissionSetupStarted
         self.onExpandedRequested = onExpandedRequested
         self.onOnboardingCompleted = onOnboardingCompleted
         _step = State(initialValue: initialStep)
-        _directCaptureReady = State(initialValue: initialDirectCaptureReady)
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -574,7 +570,6 @@ struct ComputerUseOnboardingView: View {
         accessibilityGranted = newAccessibilityGranted
         screenRecordingGranted = newScreenRecordingGranted
         if !newScreenRecordingGranted {
-            directCaptureReady = false
             directCaptureVerificationAttempted = false
         }
 
@@ -624,7 +619,6 @@ struct ComputerUseOnboardingView: View {
             directCaptureVerificationInFlight = false
             presentationState.endScreenCaptureConsent()
             guard !Task.isCancelled else { return }
-            directCaptureReady = verification == .ready
             if verification == .ready {
                 applyPermissions(
                     statusIsKnown: permissionStatusIsKnown,
