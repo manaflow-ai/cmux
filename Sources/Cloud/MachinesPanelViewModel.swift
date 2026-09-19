@@ -593,9 +593,12 @@ final class MachinesPanelViewModel: ObservableObject {
         let snapshot = catalogProvider()
         guard awaitingCatalogScope else { return snapshot }
         let allowed = Set(machines.map { SurfaceMachineID.cloud($0.id) }).union([.local])
-        return SurfaceCatalogSnapshot(machines: snapshot.machines.filter { allowed.contains($0.id) },
-            resources: snapshot.resources.filter { allowed.contains($0.machine) },
-            projections: snapshot.projections.filter { allowed.contains($0.resource.machine) })
+        var scoped = snapshot
+        scoped.machines.removeAll { !allowed.contains($0.id) }
+        scoped.resources.removeAll { !allowed.contains($0.machine) }
+        scoped.projections.removeAll { !allowed.contains($0.resource.machine) }
+        scoped.pendingWorkspaceDeletions = scoped.pendingWorkspaceDeletions?.filter { allowed.contains($0.key) }
+        return scoped
     }
 
     private func performRefresh() async {
