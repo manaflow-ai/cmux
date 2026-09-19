@@ -729,6 +729,8 @@
 		010CCC9F785F4023BAE36375 /* CloudDiagnosticFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA7706F1C9AA61982A48AAA /* CloudDiagnosticFailure.swift */; };
 		E60073D256A0581591C1DC89 /* CloudDiagnosticReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A67E6985DCC6DB34736D74 /* CloudDiagnosticReport.swift */; };
 		32E508E45F3E7B0832FB99EA /* CloudDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B0EDC90EFCD3A415400895 /* CloudDiagnosticsView.swift */; };
+		5910F6B0C9704B8DB8607318 /* CloudDirectoryLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EFB28A7B5DF48ED8EF9CFB6 /* CloudDirectoryLifecycleTests.swift */; };
+		F3FAB983EE90414CAA90F970 /* CloudDirectoryTestFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC7BA3C7C834D20B3173D36 /* CloudDirectoryTestFixture.swift */; };
 		C10D0A200000000000000001 /* CloudDomainsCLIIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10D0A200000000000000002 /* CloudDomainsCLIIntegrationTests.swift */; };
 		9D231969015CF81D75332F5E /* CloudEnvDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD9E59E46A6A91958EE22451 /* CloudEnvDelivery.swift */; };
 		674394DB769239AFBC7BCC09 /* CloudEnvDeliveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52233C6D60C4E409CDF7E321 /* CloudEnvDeliveryTests.swift */; };
@@ -4691,6 +4693,8 @@
 		FAA7706F1C9AA61982A48AAA /* CloudDiagnosticFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticFailure.swift"; sourceTree = "<group>"; };
 		F2A67E6985DCC6DB34736D74 /* CloudDiagnosticReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticReport.swift"; sourceTree = "<group>"; };
 		E6B0EDC90EFCD3A415400895 /* CloudDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticsView.swift"; sourceTree = "<group>"; };
+		9EFB28A7B5DF48ED8EF9CFB6 /* CloudDirectoryLifecycleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudDirectoryLifecycleTests.swift; sourceTree = "<group>"; };
+		FFC7BA3C7C834D20B3173D36 /* CloudDirectoryTestFixture.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudDirectoryTestFixture.swift; sourceTree = "<group>"; };
 		C10D0A200000000000000002 /* CloudDomainsCLIIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDomainsCLIIntegrationTests.swift; sourceTree = "<group>"; };
 		DD9E59E46A6A91958EE22451 /* CloudEnvDelivery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudEnvDelivery.swift; sourceTree = "<group>"; };
 		52233C6D60C4E409CDF7E321 /* CloudEnvDeliveryTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudEnvDeliveryTests.swift; sourceTree = "<group>"; };
@@ -11246,6 +11250,8 @@
 				D12439010000000000000002 /* CloudWorkspaceBindingRegressionTests.swift */,
 				F11347000000000000000004 /* CloudPortOpenRegressionTests.swift */,
 				F3E5958FB85E4B97957D4F73 /* CloudSidebarSurfaceRegressionTests.swift */,
+				9EFB28A7B5DF48ED8EF9CFB6 /* CloudDirectoryLifecycleTests.swift */,
+				FFC7BA3C7C834D20B3173D36 /* CloudDirectoryTestFixture.swift */,
 				64C68B378B6071B213B4AA57 /* LocalSurfaceProviderTests.swift */,
 				BC427A4C642EBC36E600FA7F /* CmuxTuiSurfaceProviderTests.swift */,
 				F8FED5F6485C390988555CDA /* CloudFileDeliveryTests.swift */,
@@ -15350,6 +15356,8 @@
 				D01100800000000000000006 /* CloudCatalogQueryTestProvider.swift in Sources */,
 				9A1261600000000000000004 /* CloudDesktopAccessTests.swift in Sources */,
 				9A1261600000000000000006 /* CloudDesktopWebSocketTests.swift in Sources */,
+				5910F6B0C9704B8DB8607318 /* CloudDirectoryLifecycleTests.swift in Sources */,
+				F3FAB983EE90414CAA90F970 /* CloudDirectoryTestFixture.swift in Sources */,
 				C10D0A200000000000000001 /* CloudDomainsCLIIntegrationTests.swift in Sources */,
 				674394DB769239AFBC7BCC09 /* CloudEnvDeliveryTests.swift in Sources */,
 				C3CD2FF9F6F1489C8EDD0C7B /* CloudFeatureFlagTests.swift in Sources */,

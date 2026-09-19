@@ -1009,6 +1009,24 @@ mod tests {
     }
 
     #[test]
+    fn cloud_cwd_snapshot_follows_reported_directory_instead_of_launch_directory() {
+        let mux = Mux::new_for_test("cloud-cwd", SurfaceOptions {
+            cwd: Some("/tmp".into()),
+            ..SurfaceOptions::default()
+        });
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        for directory in ["/srv/first", "/srv/second"] {
+            surface.set_test_pwd(Some(format!("file://localhost{directory}")));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let terminal = snapshot["terminals"].as_array().unwrap().iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str()).unwrap();
+            assert_eq!(terminal["cwd"], directory);
+        }
+        mux.shutdown();
+    }
+
+    #[test]
     fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
         let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("restoring".into()), None).unwrap();

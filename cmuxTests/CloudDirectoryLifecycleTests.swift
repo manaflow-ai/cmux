@@ -1,0 +1,120 @@
+import Foundation
+import Testing
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("Cloud cwd and machine identity", .serialized)
+@MainActor
+struct CloudDirectoryLifecycleTests {
+    @Test("Terminal-only cd deltas update focused and background panels without title changes")
+    func liveDirectoryDelta() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let first = fixture.panels[0]
+        let second = fixture.panels[1]
+        try fixture.changeDirectory("/srv/focused", terminal: 0)
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/focused")
+        #expect(fixture.workspace.reportedPanelDirectory(panelId: first) == "/srv/focused")
+        #expect(fixture.catalog.resources[fixture.resourceID(0)]?.detail == "/srv/focused")
+        #expect(try fixture.sidebarText().contains("focused"))
+
+        try fixture.changeDirectory("/srv/background", terminal: 1)
+        #expect(fixture.workspace.reportedPanelDirectory(panelId: second) == "/srv/background")
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/focused")
+        #expect(try fixture.sidebarText().contains("background"))
+        fixture.workspace.focusPanel(second)
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/background")
+        #expect(fixture.workspace.title == "My explicit task title")
+        #expect(fixture.workspace.currentDirectory == "/Users/alice/local-checkout")
+    }
+
+    @Test("Missing remote cwd is explicit and cannot resurrect launch, git or PR metadata")
+    func missingDirectory() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.changeDirectory(nil, terminal: 0)
+        try fixture.changeDirectory(nil, terminal: 1)
+        let workspace = fixture.workspace
+        #expect(workspace.presentedCurrentDirectory == nil)
+        #expect(!workspace.updatePanelDirectory(panelId: fixture.panels[0], directory: "/Users/alice/local-checkout"))
+        workspace.updatePanelGitBranch(panelId: fixture.panels[0], branch: "local-only", isDirty: true)
+        workspace.updatePanelPullRequest(panelId: fixture.panels[0], number: 4, label: "PR", url: try #require(URL(string: "https://github.com/example/local/pull/4")), status: .open)
+        let sidebar = try fixture.sidebar()
+        #expect(sidebar.finderDirectoryPath == nil)
+        #expect(sidebar.compactGitBranchSummaryText == nil)
+        #expect(sidebar.pullRequestRows.isEmpty)
+        let text = try fixture.sidebarText()
+        #expect(text.contains("Directory unavailable"))
+        #expect(!text.contains("local-checkout"))
+        #expect(!text.contains("first"))
+    }
+
+    @Test("A stale graph loses cwd trust until a fresh snapshot confirms it")
+    func reconnectAndStalePublication() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let old = try #require(fixture.provider.cloudState)
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
+        #expect(fixture.workspace.presentedCurrentDirectory == nil)
+        #expect(try fixture.sidebarText().contains("Directory unavailable"))
+        let current = try fixture.install(paths: ["/srv/reconnected", nil], revision: 1, generation: "replacement")
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/reconnected")
+        #expect(!fixture.provider.installSnapshotIfNewer(old))
+        fixture.provider.publish(old, ports: [])
+        fixture.provider.publishDelta(old, impact: CloudVMStateDeltaImpact(resourceIDs: [fixture.resourceID(0)], requiresFullResourceRebuild: false), ports: [], reconcileTitles: false)
+        #expect(fixture.catalog.cloudStates[fixture.machine] == current)
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/reconnected")
+    }
+
+    @Test("Older and equal-cursor conflicting snapshots cannot overwrite a live cd")
+    func outOfOrderReports() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let old = try #require(fixture.provider.cloudState)
+        try fixture.changeDirectory("/srv/newest", terminal: 0)
+        #expect(!fixture.provider.installSnapshotIfNewer(old))
+        let conflict = try fixture.state(paths: ["/srv/old", nil], revision: 2)
+        #expect(!fixture.provider.installSnapshotIfNewer(conflict))
+        fixture.provider.publish(conflict, ports: [])
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/newest")
+        #expect(CloudVMStateSyncDecision.forDelta(generation: "daemon", previousRevision: 1, revision: 2, current: fixture.provider.cloudState?.cursor) == .ignoreStale)
+    }
+
+    @Test("Machine names and stable IDs survive refresh and invalidate the immutable sidebar snapshot")
+    func machineRename() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let revision = fixture.workspace.cloudBindingState.revision
+        var info = fixture.provider.info
+        info.name = "Build server"
+        fixture.catalog.updateMachine(info, from: fixture.provider)
+        let sidebar = try fixture.sidebar()
+        #expect(sidebar.cloudWorkspaceLabel?.contains("Build server") == true)
+        #expect(sidebar.cloudWorkspaceLabel?.contains("cwd-machine") == true)
+        #expect(try fixture.sidebarText().contains("cwd-machine"))
+        #expect(fixture.workspace.cloudBindingState.revision > revision)
+        #expect(sidebar.accessibilityLabel(index: 0, workspaceCount: 1).contains("Build server"))
+        info.name = "Renamed server"
+        fixture.catalog.updateMachine(info, from: fixture.provider)
+        #expect(try fixture.sidebar().cloudWorkspaceLabel?.contains("Renamed server") == true)
+        #expect(try fixture.sidebar().cloudWorkspaceLabel?.contains("Build server") == false)
+        #expect(fixture.workspace.title == "My explicit task title")
+    }
+
+    @Test("Saved Cloud paths require fresh remote confirmation after restore")
+    func sessionRestore() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let saved = fixture.workspace.sessionSnapshot(includeScrollback: false)
+        let restored = Workspace(workingDirectory: "/Users/alice/launch")
+        defer { for panel in restored.panels.values { panel.close() } }
+        _ = restored.restoreSessionSnapshot(saved)
+        #expect(restored.cloudVMID == "cwd-machine")
+        #expect(restored.title == "My explicit task title")
+        #expect(restored.presentedCurrentDirectory == nil)
+        #expect(restored.sidebarGitBranchesInDisplayOrder().isEmpty)
+    }
+}
