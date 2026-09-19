@@ -37,7 +37,8 @@ async function mount(autoStart: boolean, write: (request: Request) => Promise<un
         }; break;
         case "provider.list": value = providers.map((provider) => ({ ...provider, autoStart })); break;
         case "provider.start": value = { sessionId: "session-1" }; break;
-        case "provider.writeLine": value = await write(request); break;
+        case "provider.writeLine":
+        case "guiMode.executeTerminal": value = await write(request); break;
       }
       return { ok: true, value };
     },
@@ -75,6 +76,24 @@ test("fresh GUI send button starts the provider and submits once it is ready", a
     app.start();
     await waitFor(() => app.sends().length === 1);
     expect(app.sends()[0].params).toMatchObject({ text: "1+1", modelId: "custom-model", reasoningEffort: "high" });
+  } finally { await app.cleanup(); }
+});
+
+test("Terminal mode runs inline, updates the GUI directory and keeps a separate chat draft", async () => {
+  const app = await mount(false, async () => ({ workingDirectory: "/tmp/Project One", output: "/tmp/Project One\n", exitCode: 0 }));
+  try {
+    app.type("Chat draft");
+    const mode = (name: string) => [...dom.window.document.querySelectorAll<HTMLButtonElement>("[role=tab]")].find((tab) => tab.textContent === name)!;
+    act(() => mode("Terminal").click());
+    expect(dom.window.document.querySelector(".ProseMirror")?.textContent).toBe("");
+    expect(dom.window.document.querySelector(".gui-mode-agent-model-trigger") === null).toBe(true);
+    expect(dom.window.document.querySelector(".permissions-root") === null).toBe(true);
+    app.type("cd '/tmp/Project One' && pwd"); app.enter(); app.enter();
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-agent-context-strip")?.textContent?.includes("Project One") === true);
+    expect(app.requests.filter((request) => request.method === "guiMode.executeTerminal").length).toBe(1);
+    expect(dom.window.document.querySelector(".gui-mode-terminal-result")?.textContent).toContain("/tmp/Project One");
+    act(() => mode("Chat").click());
+    expect(dom.window.document.querySelector(".ProseMirror")?.textContent).toBe("Chat draft");
   } finally { await app.cleanup(); }
 });
 
