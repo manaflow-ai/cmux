@@ -115,6 +115,12 @@ and the app's production naming caller in a small Foundation-only fixture.
 Swift Testing separately checks the existing label format and bounds. No
 production debug hook, permission bypass, or privacy reset is added.
 
+The fixed app caller's isolated fixture measured **0.082 ms cold / 0.016 ms
+warm** on the reporting Mac, with `NSHost.name` intercepted. A separate
+sandboxed API probe confirms `NSHost.localizedName` (used for the friendly
+enrollment name) does not call that resolver; the problematic API is
+`NSProcessInfo.hostName` used to label the daemon connection.
+
 Commands:
 
 ```sh

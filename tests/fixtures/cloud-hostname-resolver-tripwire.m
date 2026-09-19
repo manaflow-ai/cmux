@@ -13,5 +13,7 @@ __attribute__((constructor)) static void installTripwire(void) {
     @autoreleasepool {
         Method method = class_getInstanceMethod([NSHost class], @selector(name));
         method_setImplementation(method, (IMP)resolverTripwire);
+        const char note[] = "CMUX_TEST_HOSTNAME_TRIPWIRE_INSTALLED\n";
+        write(STDERR_FILENO, note, sizeof(note) - 1);
     }
 }

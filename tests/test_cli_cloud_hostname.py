@@ -59,6 +59,7 @@ class CloudHostnameTests(unittest.TestCase):
         self.assertEqual([sample["phase"] for sample in samples], ["cold", "warm"])
         self.assertEqual(samples[0]["name"], samples[1]["name"])
         self.assertTrue(samples[0]["name"].startswith("cmux-"))
+        self.assertIn("CMUX_TEST_HOSTNAME_TRIPWIRE_INSTALLED", result.stderr)
         self.assertNotIn("CMUX_TEST_HOSTNAME_RESOLVER_CALLED", result.stderr)
         print("app_hostname_timing=" + json.dumps([
             {key: sample[key] for key in ("phase", "duration_ms")} for sample in samples
@@ -75,7 +76,7 @@ class CloudHostnameTests(unittest.TestCase):
         }
         with ResizeSocket(result) as server:
             environment = {key: value for key, value in os.environ.items()
-                           if not key.startswith(("CMUX", "DYLD_"))}
+                           if not key.startswith("CMUX") and key != "DYLD_INSERT_LIBRARIES"}
             environment.update({
                 "CFFIXED_USER_HOME": server.root.name,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
@@ -101,6 +102,7 @@ class CloudHostnameTests(unittest.TestCase):
                         config_path = Path(command[command.index("--config") + 1])
                         configs.append(config_path)
                 self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn("CMUX_TEST_HOSTNAME_TRIPWIRE_INSTALLED", completed.stderr)
                 self.assertEqual(len(configs), 1, server.requests)
                 config = json.loads(configs[0].read_text())
                 raw = socket.gethostname().split(".")[0] or "mac"
