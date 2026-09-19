@@ -1648,6 +1648,7 @@
 		D81390020000000000000001 /* DockSplitStore+ShortcutCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = D81390020000000000000002 /* DockSplitStore+ShortcutCommands.swift */; };
 		A6AA9A6B9ED345A19DA4E7A1 /* DockSplitStore+SurfaceOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A8A18F1C9A2400897AD6699 /* DockSplitStore+SurfaceOwnership.swift */; };
 		D8684000000000000000000D /* DockSplitStore+SurfaceResume.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */; };
+		DC512CDB91A11AE20E156662 /* DockSplitStore+SurfaceResumeBindingObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4295C82200717ECAABCB0107 /* DockSplitStore+SurfaceResumeBindingObservation.swift */; };
 		DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */; };
 		986900060000000000000001 /* DockSplitStore+TabContextActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900060000000000000002 /* DockSplitStore+TabContextActions.swift */; };
 		859110000000000000000003 /* DockSplitStore+TerminalLinkOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000004 /* DockSplitStore+TerminalLinkOpening.swift */; };
@@ -2641,9 +2642,10 @@
 		F6572052A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572053A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift */; };
 		C7C5FAF2145342F395DB4C40 /* RestoredAgentLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */; };
 		C12793000000000000000002 /* RestoredAgentLifecycleProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12793000000000000000001 /* RestoredAgentLifecycleProjectionTests.swift */; };
-		C12793100000000000000002 /* RestoredProcessDetectedBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */; };
 		F6572072A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572073A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift */; };
 		F6572042A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572043A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift */; };
+		37B246E29A9DA46389840482 /* RestoredProcessDetectedBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 094318CA3A8CD64E6C445AA9 /* RestoredProcessDetectedBinding.swift */; };
+		C12793100000000000000002 /* RestoredProcessDetectedBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */; };
 		A54730000000000000000004 /* RestoredStartupInputResendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54730000000000000000003 /* RestoredStartupInputResendTests.swift */; };
 		9200B0019200B0019200B001 /* ResumeLauncherCwdConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */; };
 		B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */; };
@@ -3720,6 +3722,7 @@
 		F9219DE12AF2E4D9CFFC66CF /* Workspace+SurfaceCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */; };
 		CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */; };
 		7DD5BF8AB5B84491BC89EEE9 /* Workspace+SurfaceOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7305B43543CF4AF29D9966C8 /* Workspace+SurfaceOwnership.swift */; };
+		701962C52D3CE66871876081 /* Workspace+SurfaceResumeBindingObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CE7F2921E15B7A423AAA862 /* Workspace+SurfaceResumeBindingObservation.swift */; };
 		85911000000000000000000B /* Workspace+TerminalLinkOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85911000000000000000000C /* Workspace+TerminalLinkOpening.swift */; };
 		822900000000000000000001 /* Workspace+TerminalResizeInteraction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 822900000000000000000002 /* Workspace+TerminalResizeInteraction.swift */; };
 		26EA95250C2D46BCAD9B5CE6 /* Workspace+TerminalRespawn.swift in Sources */ = {isa = PBXBuildFile; fileRef = F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */; };
@@ -5510,6 +5513,7 @@
 		D81390020000000000000002 /* DockSplitStore+ShortcutCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+ShortcutCommands.swift"; sourceTree = "<group>"; };
 		4A8A18F1C9A2400897AD6699 /* DockSplitStore+SurfaceOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceOwnership.swift"; sourceTree = "<group>"; };
 		D8684000000000000000000E /* DockSplitStore+SurfaceResume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceResume.swift"; sourceTree = "<group>"; };
+		4295C82200717ECAABCB0107 /* DockSplitStore+SurfaceResumeBindingObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceResumeBindingObservation.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000C011 /* DockSplitStore+SurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+SurfaceTransfer.swift"; sourceTree = "<group>"; };
 		986900060000000000000002 /* DockSplitStore+TabContextActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+TabContextActions.swift"; sourceTree = "<group>"; };
 		859110000000000000000004 /* DockSplitStore+TerminalLinkOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DockSplitStore+TerminalLinkOpening.swift"; sourceTree = "<group>"; };
@@ -6489,9 +6493,10 @@
 		F6572053A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentForegroundProcess.swift; sourceTree = "<group>"; };
 		9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLifecycleCoordinator.swift; sourceTree = "<group>"; };
 		C12793000000000000000001 /* RestoredAgentLifecycleProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLifecycleProjectionTests.swift; sourceTree = "<group>"; };
-		C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredProcessDetectedBindingTests.swift; sourceTree = "<group>"; };
 		F6572073A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLiveness.swift; sourceTree = "<group>"; };
 		F6572043A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentShellActivityLivenessTests.swift; sourceTree = "<group>"; };
+		094318CA3A8CD64E6C445AA9 /* RestoredProcessDetectedBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredProcessDetectedBinding.swift; sourceTree = "<group>"; };
+		C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredProcessDetectedBindingTests.swift; sourceTree = "<group>"; };
 		A54730000000000000000003 /* RestoredStartupInputResendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredStartupInputResendTests.swift; sourceTree = "<group>"; };
 		9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResumeLauncherCwdConsistencyTests.swift; sourceTree = "<group>"; };
 		B7F9A601B7F9A601B7F9A601 /* RightSidebarChromeGeometryReporting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeGeometryReporting.swift; sourceTree = "<group>"; };
@@ -7555,6 +7560,7 @@
 		47BBA1A8703756FDDFD53CF3 /* Workspace+SurfaceCatalog.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceCatalog.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceNavigation.swift"; sourceTree = "<group>"; };
 		7305B43543CF4AF29D9966C8 /* Workspace+SurfaceOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceOwnership.swift"; sourceTree = "<group>"; };
+		7CE7F2921E15B7A423AAA862 /* Workspace+SurfaceResumeBindingObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceResumeBindingObservation.swift"; sourceTree = "<group>"; };
 		85911000000000000000000C /* Workspace+TerminalLinkOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalLinkOpening.swift"; sourceTree = "<group>"; };
 		822900000000000000000002 /* Workspace+TerminalResizeInteraction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalResizeInteraction.swift"; sourceTree = "<group>"; };
 		F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+TerminalRespawn.swift"; sourceTree = "<group>"; };
@@ -9111,7 +9117,9 @@
 				11295000000000000000000F /* Workspace+ForkStartupInput.swift */,
 				A4D77F29235F487C9276ED6A /* TerminalController+SurfaceResumeBindings.swift */,
 				6BAC6DCC5DA64C5FBA16A6AD /* DockSplitStore+AgentResumeOwnership.swift */,
+				4295C82200717ECAABCB0107 /* DockSplitStore+SurfaceResumeBindingObservation.swift */,
 				5F89ED4F392842F08A685C41 /* Workspace+AgentResumeOwnership.swift */,
+				7CE7F2921E15B7A423AAA862 /* Workspace+SurfaceResumeBindingObservation.swift */,
 				C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */,
 				2DABDC3327C24142A1EF2518 /* Workspace+RemoteTerminalRetirement.swift */,
 				F42B6D13319C42CFBF4628B5 /* Workspace+TerminalRespawn.swift */,
@@ -9124,6 +9132,7 @@
 				992300019923000199230009 /* WorkspaceTerminalStartupRestoreCommitOwner.swift */,
 				9864510B84F2428BB83568CF /* RestoredAgentCompletedGeneration.swift */,
 				9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */,
+				094318CA3A8CD64E6C445AA9 /* RestoredProcessDetectedBinding.swift */,
 				9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */,
 				42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */,
 				C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */,
@@ -13267,6 +13276,7 @@
 				D81390020000000000000001 /* DockSplitStore+ShortcutCommands.swift in Sources */,
 				A6AA9A6B9ED345A19DA4E7A1 /* DockSplitStore+SurfaceOwnership.swift in Sources */,
 				D8684000000000000000000D /* DockSplitStore+SurfaceResume.swift in Sources */,
+				DC512CDB91A11AE20E156662 /* DockSplitStore+SurfaceResumeBindingObservation.swift in Sources */,
 				DCDC1000000000000000C010 /* DockSplitStore+SurfaceTransfer.swift in Sources */,
 				986900060000000000000001 /* DockSplitStore+TabContextActions.swift in Sources */,
 				859110000000000000000003 /* DockSplitStore+TerminalLinkOpening.swift in Sources */,
@@ -13922,6 +13932,7 @@
 				F6572052A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift in Sources */,
 				C7C5FAF2145342F395DB4C40 /* RestoredAgentLifecycleCoordinator.swift in Sources */,
 				F6572072A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift in Sources */,
+				37B246E29A9DA46389840482 /* RestoredProcessDetectedBinding.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
@@ -14721,6 +14732,7 @@
 				F9219DE12AF2E4D9CFFC66CF /* Workspace+SurfaceCatalog.swift in Sources */,
 				CA52B0170000000000000000 /* Workspace+SurfaceNavigation.swift in Sources */,
 				7DD5BF8AB5B84491BC89EEE9 /* Workspace+SurfaceOwnership.swift in Sources */,
+				701962C52D3CE66871876081 /* Workspace+SurfaceResumeBindingObservation.swift in Sources */,
 				85911000000000000000000B /* Workspace+TerminalLinkOpening.swift in Sources */,
 				822900000000000000000001 /* Workspace+TerminalResizeInteraction.swift in Sources */,
 				26EA95250C2D46BCAD9B5CE6 /* Workspace+TerminalRespawn.swift in Sources */,
@@ -15830,8 +15842,8 @@
 					F54100B0A1B2C3D4E5F60718 /* RestorableCodexForkTagTests.swift in Sources */,
 				F6572062A1B2C3D4E5F60718 /* RestoreAdmissionRetryTests.swift in Sources */,
 				C12793000000000000000002 /* RestoredAgentLifecycleProjectionTests.swift in Sources */,
-				C12793100000000000000002 /* RestoredProcessDetectedBindingTests.swift in Sources */,
 				F6572042A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift in Sources */,
+				C12793100000000000000002 /* RestoredProcessDetectedBindingTests.swift in Sources */,
 				A54730000000000000000004 /* RestoredStartupInputResendTests.swift in Sources */,
 				9200B0019200B0019200B001 /* ResumeLauncherCwdConsistencyTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,

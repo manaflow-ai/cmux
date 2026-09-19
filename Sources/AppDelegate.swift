@@ -4143,11 +4143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         flushPendingStartupNavigationURLRequests()
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
-            // Auto-resume input can be queued before tmux has spawned; preserve
-            // restored process-detected bindings until a later live scan.
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
-                includeScrollback: false, preserveRestoredProcessDetectedBindings: true
-            )
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }
 
@@ -5176,8 +5172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
-        preserveManualRestoreBackupOnMissingPrimary: Bool = false,
-        preserveRestoredProcessDetectedBindings: Bool = false
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         let ttyDeviceBindings = currentSurfaceTTYDeviceBindings()
@@ -5193,7 +5188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 removeWhenEmpty: removeWhenEmpty,
                 preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary,
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                surfaceResumeBindingIndex: preserveRestoredProcessDetectedBindings ? nil : resumeIndexes.surfaceResumeBindingIndex
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
         }
     }
