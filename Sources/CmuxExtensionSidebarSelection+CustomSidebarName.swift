@@ -82,6 +82,17 @@ extension CmuxExtensionSidebarSelection {
         do {
             try ensureCustomSidebarsDirectory(sidebarsDirectory, fileManager: fileManager)
             let validator = CustomSidebarValidator(fileManager: fileManager)
+            // Snapshot occupied names once. This includes entries the
+            // validator cannot render (including dangling symlinks), so a
+            // suffix candidate can never replace another process's path.
+            let occupiedNames: Set<String> = Set(
+                (try? fileManager.contentsOfDirectory(at: sidebarsDirectory, includingPropertiesForKeys: nil) ?? [])
+                    .compactMap { url in
+                        let ext = url.pathExtension.lowercased()
+                        guard ["js", "swift", "json"].contains(ext) else { return nil }
+                        return url.deletingPathExtension().lastPathComponent.lowercased()
+                    }
+            )
             // Validate a private, complete file before publishing it. Never validate
             // or remove a destination that another process might have replaced.
             let stagingDirectory = sidebarsDirectory.appendingPathComponent(".cmux-create-\(UUID().uuidString)")
@@ -97,9 +108,7 @@ extension CmuxExtensionSidebarSelection {
             var suffix = 2
             while true {
                 let fileURL = sidebarsDirectory.appendingPathComponent("\(destinationName).\(normalizedExtension)")
-                let nameExists = validator.discover(in: sidebarsDirectory).contains {
-                    $0.deletingPathExtension().lastPathComponent.caseInsensitiveCompare(destinationName) == .orderedSame
-                }
+                let nameExists = occupiedNames.contains(destinationName.lowercased())
                 if !nameExists {
                     // link(2) publishes complete bytes atomically and fails with
                     // EEXIST for any occupied path, including dangling symlinks.
