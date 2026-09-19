@@ -1,5 +1,5 @@
 use super::*;
-use crate::resource_api::public_terminal_snapshot;
+use crate::resource_api::{public_terminal_snapshot, terminal_tab_ids_in_canonical_order};
 
 impl Mux {
     /// Commit terminal cwd under the same registry -> state fence as topology.
@@ -29,10 +29,17 @@ impl Mux {
         }
         let topology = registry.resource_topology_snapshot()?;
         let content_id = ContentPublicId::Terminal(id.clone());
-        let tabs = topology.tabs.iter().filter(|tab| tab.content_id == content_id)
-            .map(|tab| tab.public_id.clone()).collect();
+        let tabs = terminal_tab_ids_in_canonical_order(
+            topology.tabs.iter().filter(|tab| tab.content_id == content_id)
+                .map(|tab| (id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())),
+        ).remove(id).unwrap_or_default();
         let mut value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
-        value["cwd"] = serde_json::json!(directory);
+        let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
+        if let Some(directory) = &directory {
+            fields.insert("cwd".into(), serde_json::json!(directory));
+        } else {
+            fields.remove("cwd");
+        }
         let deltas = serde_json::json!([{
             "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);

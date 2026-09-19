@@ -1044,6 +1044,7 @@ mod tests {
             assert_eq!(batch.revision, revision + 1);
             assert_eq!(batch.changes[0]["resource"], "terminal");
             assert_eq!(batch.changes[0]["value"]["cwd"], snapshot["terminals"][0]["cwd"]);
+            assert_eq!(batch.changes[0]["value"], snapshot["terminals"][0]);
             assert_eq!(snapshot["tabs"], initial["tabs"]);
             revision = batch.revision;
             let _ = public_session_snapshot(&mux).unwrap();
