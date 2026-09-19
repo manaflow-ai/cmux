@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -284,6 +285,153 @@ class LocalizeChangesTests(unittest.TestCase):
             self.assertEqual(result.stale, 12)
             for record in json.loads(path.read_text())["strings"].values():
                 self.assertEqual(record["localizations"]["de"], unit("Alt", "needs_review"))
+
+    def test_conflicting_default_at_unchanged_call_site_is_reported_not_picked(self):
+        changed = 'let a = String(localized: "shared", defaultValue: "First")\n'
+        untouched = 'let b = String(localized: "shared", defaultValue: "Second")\n'
+        for paths in (["Sources/A.swift"], ["Sources/A.swift", "Sources/B.swift"]):
+            with self.subTest(paths=paths), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                subprocess.run(["git", "init", "-q", str(root)], check=True)
+                (root / "Sources").mkdir()
+                (root / "Sources/A.swift").write_text(changed, encoding="utf-8")
+                (root / "Sources/B.swift").write_text(untouched, encoding="utf-8")
+                base = {"Sources/B.swift": untouched}
+                with patch.object(MODULE, "base_text", side_effect=lambda _root, _base, path: base.get(path, "")):
+                    messages, attention = MODULE.changed_swift_messages(root, "base", paths)
+                self.assertEqual([message for message in messages if message.key == "shared"], [])
+                conflicts = [item for item in attention if "multiple default values" in item]
+                self.assertEqual(len(conflicts), 1)
+                self.assertIn("Sources/A.swift", conflicts[0])
+                self.assertIn("Sources/B.swift", conflicts[0])
+
+    def test_same_file_conflicting_defaults_are_not_prepared(self):
+        text = ('String(localized: "shared", defaultValue: "First")\n'
+                'String(localized: "shared", defaultValue: "Second")\n'
+                'String(localized: "shared", defaultValue: "First")\n'
+                'String(localized: "other", defaultValue: "Other")\n')
+        messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text)
+        self.assertEqual(sorted(messages), ["other"])
+        self.assertEqual(attention, ["Sources/View.swift: localization key 'shared' has multiple default values"])
+
+    def test_repeated_key_with_same_default_needs_no_attention(self):
+        text = ('String(localized: "shared", defaultValue: "Same")\n'
+                'LocalizedStringResource("shared", defaultValue: "Same")\n')
+        messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text)
+        self.assertEqual(sorted(messages), ["shared"])
+        self.assertEqual(attention, [])
+        _, attention = MODULE.parse_swift_messages("Sources/View.swift", text + 'String(localized: "bare")\n')
+        self.assertEqual(len(attention), 1)
+        self.assertIn("1 localized call(s)", attention[0])
+
+    def test_web_parity_covers_non_string_messages(self):
+        english = {"title": "Title", "jobs": {"items": ["One", {"label": "Two"}]}}
+        cases = [
+            ({"title": "題名"}, english, "missing message key"),
+            ({"title": "題名", "jobs": {"items": ["古い"]}}, {"title": "Title", "jobs": {"items": ["Old"]}}, "unchanged"),
+        ]
+        for japanese, previous_english, issue in cases:
+            with self.subTest(issue=issue), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "web/messages").mkdir(parents=True)
+                (root / "web/messages/en.json").write_text(json.dumps(english), encoding="utf-8")
+                (root / "web/messages/ja.json").write_text(json.dumps(japanese, ensure_ascii=False), encoding="utf-8")
+                old = {
+                    "web/messages/en.json": json.dumps(previous_english),
+                    "web/messages/ja.json": json.dumps({"title": "題名", "jobs": {"items": ["古い"]}}, ensure_ascii=False),
+                }
+                with patch.object(MODULE, "base_text", side_effect=lambda _root, _base, path: old.get(path, "")):
+                    rows, attention, _ = MODULE.web_work(root, "base", ["web/messages/ja.json"], ("en", "ja"))
+                self.assertEqual(attention, [])
+                self.assertEqual([(row["key"], row["source"]) for row in rows], [("jobs.items", english["jobs"]["items"])])
+                self.assertIn(issue, rows[0]["issues"][0])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "web/messages").mkdir(parents=True)
+            (root / "web/messages/en.json").write_text(json.dumps({"title": "Title"}), encoding="utf-8")
+            (root / "web/messages/ja.json").write_text(json.dumps({"title": "題名", "items": ["余分"]}, ensure_ascii=False), encoding="utf-8")
+            with patch.object(MODULE, "base_text", return_value=""):
+                _, attention, _ = MODULE.web_work(root, "base", ["web/messages/ja.json"], ("en", "ja"))
+            self.assertTrue(any("extra message key 'items'" in item for item in attention))
+
+    def test_confirmed_unchanged_translation_is_not_marked_stale_again(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            relative = "Resources/Localizable.xcstrings"
+            localizations = {locale: unit("Opne" if locale == "en" else f"Öffnen {locale}") for locale in CATALOG.LOCALES}
+            path = write_catalog(root, {"open": {"localizations": localizations}})
+            old = path.read_text(encoding="utf-8")
+            write_catalog(root, {"open": {"localizations": {**localizations, "en": unit("Open")}}})
+            (root / "web/messages").mkdir(parents=True)
+            (root / "web/messages/en.json").write_text("{}", encoding="utf-8")
+            work = root / "work.json"
+            patches = [
+                patch.object(MODULE, "resolve_root", return_value=root),
+                patch.object(MODULE, "resolve_base", return_value="abc123"),
+                patch.object(MODULE, "changed_files", return_value=[relative]),
+                patch.object(MODULE, "base_text", side_effect=lambda _root, _base, name: old if name == relative else ""),
+                patch.object(MODULE.CATALOG, "load_metadata", return_value={}),
+                patch.object(MODULE, "discover_web_locales", return_value=("en",)),
+                patch.object(MODULE, "run_validator", return_value=(0, "", "")),
+            ]
+
+            def run():
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    return MODULE.main(["--work-file", str(work)])
+
+            def states():
+                record = json.loads(path.read_text(encoding="utf-8"))["strings"]["open"]["localizations"]
+                return {locale: value["stringUnit"]["state"] for locale, value in record.items()}
+
+            for manager in patches:
+                manager.start()
+            try:
+                self.assertEqual(run(), 1)
+                self.assertEqual(states()["de"], "needs_review")
+                packet = json.loads(work.read_text(encoding="utf-8"))
+                self.assertEqual(len(packet["entries"]), len(CATALOG.LOCALES) - 1)
+                for row in packet["entries"]:
+                    current = row["currentLocalization"]["stringUnit"]["value"]
+                    # German stays correct after the English typo fix; the others are retranslated.
+                    row["value"] = current if row["locale"] == "de" else current + " neu"
+                work.write_text(json.dumps(packet, ensure_ascii=False), encoding="utf-8")
+                self.assertEqual(run(), 0)
+                self.assertEqual(set(states().values()), {"translated"})
+                self.assertEqual(run(), 0)
+                self.assertEqual(set(states().values()), {"translated"})
+
+                # A confirmation covers only the confirmed value: restoring the base text stales it again.
+                write_catalog(root, {"open": {"localizations": {**localizations, "en": unit("Open")}}})
+                self.assertEqual(run(), 1)
+                self.assertEqual({locale for locale, state in states().items() if state == "translated"}, {"en", "de"})
+            finally:
+                for manager in reversed(patches):
+                    manager.stop()
+
+    def test_prepare_and_extract_parse_each_catalog_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_catalog(root, {f"old.{i}": {"localizations": {"en": unit("Old"), "de": unit("Alt")}} for i in range(12)})
+            messages = [MODULE.SwiftMessage("Sources/View.swift", f"old.{i}", "Changed") for i in range(12)]
+            messages += [MODULE.SwiftMessage("Sources/View.swift", f"new.{i}", f"New {i}", f"Comment {i}") for i in range(12)]
+            with patch.object(CATALOG, "catalog_entries", wraps=CATALOG.catalog_entries) as parse:
+                prepared = MODULE.prepare_macos(root, messages, None, {})
+            self.assertLessEqual(parse.call_count, 2)  # one index parse, one validation of the batched write
+            self.assertEqual(prepared.attention, [])
+            self.assertEqual(prepared.prepared, 12)
+            self.assertEqual(sorted(prepared.changed_keys), sorted((path, message.key) for message in messages))
+            strings = json.loads(path.read_text(encoding="utf-8"))["strings"]
+            self.assertEqual(list(strings), [f"old.{i}" for i in range(12)] + [f"new.{i}" for i in range(12)])
+            for i in range(12):
+                self.assertEqual(strings[f"old.{i}"]["localizations"], {"en": unit("Changed"), "de": unit("Alt")})
+                self.assertEqual(strings[f"new.{i}"], {
+                    "comment": f"Comment {i}", "extractionState": "manual", "localizations": {"en": unit(f"New {i}")},
+                })
+            with patch.object(CATALOG, "catalog_entries", wraps=CATALOG.catalog_entries) as parse:
+                rows = MODULE.extract_changed(root, prepared.changed_keys, {}, {}, {})
+            self.assertEqual(parse.call_count, 1)
+            self.assertEqual({row["key"] for row in rows}, {message.key for message in messages})
 
     def test_end_to_end_reports_failure_and_success(self):
         with tempfile.TemporaryDirectory() as directory:
