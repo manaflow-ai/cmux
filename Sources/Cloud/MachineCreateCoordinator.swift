@@ -110,7 +110,12 @@ final class MachineCreateCoordinator {
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 workspaceWaiters[id] = continuation
-                guard !Task.isCancelled else { cancel(id); return }
+                guard !Task.isCancelled else {
+                    cancel(id)
+                    apply(lifecycle.refuse(attempt))
+                    resumeWaiter(id, workspaceID: nil)
+                    return
+                }
                 if !run(attempt, launch: cancellableLaunch) { resumeWaiter(id, workspaceID: nil) }
             }
         }, onCancel: {

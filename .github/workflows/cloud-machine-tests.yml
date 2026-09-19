@@ -22,12 +22,13 @@ concurrency:
 
 jobs:
   lifecycle:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    container: swift:6.0.3-jammy
+    runs-on: macos-15
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.ref || github.ref }}
-      - name: Test the Foundation-only lifecycle with the minimum supported Swift compiler
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Test the package without launching the app
         run: swift test --package-path Packages/macOS/CmuxCloudMachines -Xswiftc -warnings-as-errors

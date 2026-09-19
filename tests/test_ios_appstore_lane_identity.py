@@ -89,6 +89,7 @@ def _write_executable(path: Path, body: str) -> None:
 def _install_fake_tools(fakebin: Path) -> None:
     fakebin.mkdir(parents=True, exist_ok=True)
     common = f"""
+import datetime
 import os
 import plistlib
 from pathlib import Path
@@ -109,6 +110,9 @@ def write_plist(path, value):
 
 APPSTORE_PROFILE = {_profile_plist()!r}
 BETA_PROFILE = {_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test")!r}
+EXTENSION_PROFILE = {_profile_plist(APPSTORE_BUNDLE_ID + ".NotificationService", "cmux NotificationService Distribution Test")!r}
+EXTENSION_PROFILE["UUID"] = "00000000-0000-0000-0000-000000000002"
+EXTENSION_PROFILE["ExpirationDate"] = datetime.datetime(2099, 1, 1)
 
 def profile_for_bundle(bundle_id):
     source = BETA_PROFILE if bundle_id == BETA_BUNDLE_ID else APPSTORE_PROFILE
@@ -343,7 +347,7 @@ def setting(prefix):
 
 if "archive" in args:
     archive = Path(after("-archivePath"))
-    bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
+    bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
@@ -467,7 +471,9 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
         source = Path(args[args.index("-i") + 1])
         if source.exists():
             body = source.read_bytes()
-            if b"legacy profile" in body:
+            if b"extension profile" in body:
+                profile = EXTENSION_PROFILE
+            elif b"legacy profile" in body:
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
@@ -530,6 +536,8 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux NotificationService Distribution"
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
@@ -753,7 +761,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
         "beta archive command stamps the beta bundle id",
     )
     _check(
@@ -1089,7 +1097,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
         "archive command stamps com.cmux.app",
     )
     _check(
@@ -1176,6 +1184,8 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
 
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # Profile-only validation; this fixture does not install a signing certificate.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
@@ -1192,10 +1202,16 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
         "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=cmux App Store Distribution Test" in github_env,
         "profile installer exports the resolved App Store profile name",
     )
+    _check(
+        "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=cmux NotificationService Distribution Test" in github_env,
+        "profile installer exports the notification extension profile name",
+    )
 
 
 def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # Profile-only validation; this fixture does not install a signing certificate.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
