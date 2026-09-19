@@ -45,6 +45,7 @@ export class V2DashboardController {
   private readonly clientInstanceId: string;
   private socket: WebSocket | null = null;
   private stopped = false;
+  private connectionAttempt: Promise<void> | null = null;
   private revision: number | undefined;
   private ticket: Ticket | null = null;
   private readonly retries: DashboardRetryScheduler;
@@ -118,7 +119,7 @@ export class V2DashboardController {
       socket.onopen = () => undefined;
       let connected = false;
       socket.onmessage = event => {
-        if (this.stopped) return;
+        if (this.stopped || this.socket !== socket) return;
         const frame = parseFrame(event.data);
         if (!frame) return;
         if (frame.deliveryReceipt && Number.isSafeInteger(frame.deliveryReceipt.sequence) && typeof frame.deliveryReceipt.token === "string") {
@@ -206,7 +207,7 @@ export class V2DashboardController {
   private scheduleRefresh(delayMs?: number) {
     if (this.stopped) return;
     const delay = delayMs ?? Math.max(10_000, ((this.ticket?.refreshAfter ?? 0) * 1000) - this.retries.now());
-    this.retries.schedule("refresh", delay, () => this.refreshTicketMakeBeforeBreak());
+    this.retries.schedule("refresh", delay, () => this.reconnect());
   }
 
   private scheduleReconnect() {
@@ -216,30 +217,33 @@ export class V2DashboardController {
     this.retries.schedule("reconnect", delay, () => this.reconnect());
   }
 
-  private async reconnect() {
-    if (this.stopped) return;
+  private reconnect(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    // A socket closing during ticket refresh joins the same attempt. Only one
+    // owner can install a replacement and decide the next retry deadline.
+    if (this.connectionAttempt) return this.connectionAttempt;
+    this.retries.cancel("refresh");
+    this.retries.cancel("reconnect");
+    const attempt = this.replaceConnection().finally(() => {
+      this.connectionAttempt = null;
+    });
+    this.connectionAttempt = attempt;
+    return attempt;
+  }
+
+  private async replaceConnection() {
     try {
       const replacement = await this.openSession();
+      if (this.stopped) return;
       await this.connect(replacement);
+      if (this.stopped) return;
       this.ticket = replacement;
+      this.retries.cancel("reconnect");
       this.scheduleRefresh();
     } catch (cause) {
       this.fail(cause);
-      this.scheduleReconnect();
-    }
-  }
-
-  private async refreshTicketMakeBeforeBreak() {
-    if (this.stopped) return;
-    try {
-      const replacement = await this.openSession();
-      await this.connect(replacement);
-      this.ticket = replacement;
-      this.scheduleRefresh();
-    }
-    catch (cause) {
-      this.fail(cause);
-      this.scheduleRefresh(60_000);
+      if (this.socket?.readyState === WebSocket.OPEN) this.scheduleRefresh(60_000);
+      else this.scheduleReconnect();
     }
   }
 
@@ -285,6 +289,10 @@ class DashboardRetryScheduler {
       await action();
     });
     this.tasks.set(key, cancel);
+  }
+  cancel(key: string) {
+    this.tasks.get(key)?.();
+    this.tasks.delete(key);
   }
   stop() {
     this.stopped = true;
