@@ -11,6 +11,54 @@ import Testing
 @MainActor
 @Suite("Compact Cloud outline", .serialized)
 struct CloudTreeCompactLayoutTests {
+    @Test("Machine, folder and terminal ink retain equal label gaps across sidebar sizes",
+          arguments: [220.0, 380.0], [75, 100, 150, 200])
+    func iconLabelSpacing(width: Double, percent: Int) throws {
+        let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
+        UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
+        defer {
+            if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
+            else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
+        }
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 620))
+        fixture.coordinator.apply(style: .compact)
+        let template = try #require(fixture.nodes(titles: ["workspace-1"]).first)
+        let machine = MachineSnapshot(
+            id: fixture.machine.rawValue, provider: "fixture", image: "fixture", isDesktop: false,
+            activity: .ready, createdAt: nil, label: "early-plum-alpaca", isDefault: true
+        )
+        let root = CloudTreeNode(id: template.id, kind: .machine(machine, nil), children: template.children)
+        fixture.coordinator.apply(nodes: [root])
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(nil, expandChildren: true)
+        let folder = try #require(root.children.first { $0.structureTag == "workspacesGroup" }?.children.first)
+        let terminal = try #require(folder.children.first { $0.structureTag == "terminal" })
+        let rows = [root, folder, terminal]
+        let scale = CGFloat(percent) / 100
+
+        for pinned in [false, true] {
+            for node in rows { node.isPinned = pinned }
+            outline.reloadData()
+            fixture.container.layoutSubtreeIfNeeded()
+            try fixture.attachScreenshot(named: "icon-spacing-\(Int(width))-\(percent)-pinned-\(pinned)")
+            let gaps = try rows.map { node in
+                let row = outline.row(forItem: node)
+                let cell = try #require(outline.view(atColumn: 0, row: row, makeIfNecessary: true))
+                return try iconLabelGap(in: cell, pinned: pinned)
+            }
+            #expect(abs(gaps[0] - gaps[1]) <= 1.25 * scale,
+                    "Machine and folder glyph side bearings may differ slightly, not their spacing: \(gaps)")
+            #expect(abs(gaps[0] - gaps[2]) <= 1.25 * scale,
+                    "Machine and terminal must have comparable visible gaps: \(gaps)")
+            #if compiler(>=6.2)
+            Attachment.record("machine/folder/terminal gaps in points: \(gaps)",
+                              named: "icon-spacing-\(Int(width))-\(percent)-pinned-\(pinned).txt")
+            #endif
+        }
+    }
+
     @Test("Folders start as close to their carets as plain section headings",
           arguments: [220.0, 360.0], [100, 150])
     func compactRows(width: Double, percent: Int) throws {
@@ -66,6 +114,31 @@ struct CloudTreeCompactLayoutTests {
 
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    /// Measure the actual empty columns between glyph ink and title ink, not
+    /// the layout constants: SF Symbol side bearings and scaling matter here.
+    private func iconLabelGap(in view: NSView, pinned: Bool) throws -> CGFloat {
+        view.layoutSubtreeIfNeeded()
+        let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / view.bounds.width
+        var runs: [Range<Int>] = []
+        var start: Int?
+        for x in 0..<bitmap.pixelsWide {
+            let occupied = (0..<bitmap.pixelsHigh).contains { y in
+                (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.2
+            }
+            if occupied {
+                if start == nil { start = x }
+            } else if let first = start {
+                runs.append(first..<x)
+                start = nil
+            }
+        }
+        let icon = pinned ? 1 : 0
+        try #require(runs.count > icon + 1, "Expected visible icon and title ink")
+        return CGFloat(runs[icon + 1].lowerBound - runs[icon].upperBound) / scale
     }
 
     private func leadingGap(_ node: CloudTreeNode, in outline: CloudTreeNSOutlineView) throws -> CGFloat {
