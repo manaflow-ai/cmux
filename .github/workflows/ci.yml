@@ -1891,6 +1891,7 @@ jobs:
             CMUXAuthCore
             CmuxBrowser
             CmuxCanvasUI
+            CmuxCloudMachines
             CmuxCore
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
@@ -2727,6 +2728,10 @@ jobs:
           path: ghostty-cli-helper
 
       - name: Install universal Ghostty CLI helper
+        env:
+          # install-cmux-tui-client.sh verifies the manifest's build-provenance
+          # attestation with gh before trusting it.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           /bin/bash ./tests/test_install_cmux_tui_client.sh

@@ -70,7 +70,6 @@ private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
         return NSString(string: explicit).expandingTildeInPath
     }
-
     if let socketPath {
         let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
         if socketName.hasPrefix("cmux-debug-"), socketName.hasSuffix(".sock") {
@@ -4204,12 +4203,12 @@ struct CMUXCLI {
         return VMMachineKind.defaultKind
     }
     private static let cloudVMDesktopPort = 6901
-    /// `vm shell <id>` and `vm open <id>`: the shared cloud open path through the
-    /// machine's cmux-tui remote daemon. Desktop panes are opened explicitly.
+    /// Opens the machine shell through cmux-tui, honoring explicit background attachment.
     func openVMWorkspaceShell(
         vmId: String,
         windowRaw: String?,
         targetWorkspaceId: String?,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -4220,7 +4219,7 @@ struct CMUXCLI {
             windowRaw: windowRaw,
             targetWorkspaceId: targetWorkspaceId,
             forceSSH: false,
-            shouldPinWorkspaceToTop: false,
+            shouldPinWorkspaceToTop: false, focus: focus,
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat
@@ -4452,14 +4451,17 @@ struct CMUXCLI {
         return directAgentKeys.contains { normalizedEnvValue(environment[$0]) != nil }
     }
 
-    private static func vmCreateIdempotencySignature(image: String?, provider: String?) -> String {
+    private static func vmCreateIdempotencySignature(image: String?, provider: String?, workspace: String?) -> String {
         let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedProvider = provider?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        return "image=\(normalizedImage)\u{1f}provider=\(normalizedProvider)"
+        let normalizedWorkspace = workspace?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        if normalizedWorkspace.isEmpty { return "image=\(normalizedImage)\u{1f}provider=\(normalizedProvider)" }
+        return "image=\(normalizedImage)\u{1f}provider=\(normalizedProvider)\u{1f}workspace=\(normalizedWorkspace)"
     }
-
     private static func normalizedVMProvider(_ provider: String?) throws -> String? {
         guard let trimmed = provider?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -4474,11 +4476,8 @@ struct CMUXCLI {
         }
         return normalized
     }
-
     private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
-
     private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
-
     private static func validatedVMSessionIdentifier(_ value: String?, flag: String) throws -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -4517,9 +4516,9 @@ struct CMUXCLI {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
+    private static func activeVMCreateIdempotency(image: String?, provider: String?, workspace: String? = nil) throws -> ActiveVMCreateIdempotency {
         let url = vmCreateIdempotencyStoreURL()
-        let signature = vmCreateIdempotencySignature(image: image, provider: provider)
+        let signature = vmCreateIdempotencySignature(image: image, provider: provider, workspace: workspace)
         let now = Date().timeIntervalSince1970
         var store = loadVMCreateIdempotencyStore(from: url)
         store.records = store.records.filter { _, record in
@@ -5634,7 +5633,7 @@ struct CMUXCLI {
                     try openVMWorkspaceShell(
                         vmId: vmId,
                         windowRaw: windowOpt ?? windowId,
-                        targetWorkspaceId: workspaceOpt,
+                        targetWorkspaceId: workspaceOpt, focus: focus ?? true,
                         client: client,
                         jsonOutput: jsonOutput,
                         idFormat: idFormat
@@ -5791,8 +5790,7 @@ struct CMUXCLI {
                     memoryMb = nil
                 }
                 let remaining = rem3.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
-                // The kind is what the CLI asks for; the backend picks the image. The
-                // machine gets its screen streamed into a browser split beside the shell.
+                // The backend resolves the machine kind to its image.
                 let machineName = nameOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
@@ -5841,6 +5839,7 @@ struct CMUXCLI {
                 // not expose sizing ignore this optional field; providers that do use it
                 // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
+                if let machineName, !machineName.isEmpty { params["display_name"] = machineName }
                 // Freestyle is the default and only deployed provider. It does not support
                 // persistent home volumes, so leave both volume flags out of this request.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
@@ -5848,7 +5847,8 @@ struct CMUXCLI {
                 // successful create clears it, so the next `vm new` makes a new machine.
                 let idempotency = try Self.activeVMCreateIdempotency(
                     image: imageOptRaw ?? "kind=\(machineKind.rawValue)",
-                    provider: normalizedProvider
+                    provider: normalizedProvider,
+                    workspace: targetWorkspaceOpt
                 )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
@@ -5885,8 +5885,8 @@ struct CMUXCLI {
                 let id = (response["id"] as? String) ?? "?"
                 let provider = (response["provider"] as? String) ?? "?"
                 let image = (response["image"] as? String) ?? "?"
-                // The label is display-only and best-effort: the machine exists either way.
-                if let machineName, !machineName.isEmpty {
+                // Older backends ignore create-time naming; preserve their rename behavior.
+                if let machineName, !machineName.isEmpty, response["displayName"] as? String != machineName {
                     _ = try? client.sendV2(
                         method: "vm.rename",
                         params: ["id": id, "display_name": machineName],
