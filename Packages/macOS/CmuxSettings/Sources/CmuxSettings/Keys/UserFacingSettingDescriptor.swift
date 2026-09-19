@@ -15,6 +15,7 @@ public struct UserFacingSettingDescriptor: Sendable, Equatable {
         public let id: String
         public let keywords: [String]
 
+        /// Creates palette metadata for one ordinary toggle setting.
         public init(id: String, keywords: [String]) {
             self.id = id
             self.keywords = keywords
@@ -28,6 +29,7 @@ public struct UserFacingSettingDescriptor: Sendable, Equatable {
     public let controlKind: ControlKind
     public let commandPaletteToggle: CommandPaletteToggle?
 
+    /// Creates shared presentation metadata for one catalog-backed setting.
     public init(
         title: String,
         sectionID: String,
