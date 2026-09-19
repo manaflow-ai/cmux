@@ -69,15 +69,6 @@ extension Workspace {
             attachment: attachment
         )
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
-        // The tab strip stays quiet throughout optimistic creation; attachment only
-        // wires the remote session into the already-visible terminal pane.
-        let panelID = reservation.panelID
-        attachment.onStateChange = { [weak self, weak attachment] state in
-            guard state == .attached || state == .ended else { return }
-            attachment?.onStateChange = nil
-            self?.setCloudManualMirrorTabLoading(panelID: panelID, false)
-        }
-        if attachment.state == .attached { attachment.onStateChange?(.attached) }
         panel.surface.flushPendingManualSizeReportIfAttached()
         return (id, panel.id, panel.surface)
     }

@@ -16,7 +16,7 @@ import GhosttyKit
 @MainActor
 extension Workspace {
     private static var cloudManualMirrorTabTitle: String {
-        String(localized: "panel.cloudTerminal.title", defaultValue: "terminal")
+        String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal")
     }
 
     /// Inserts a manual-mirror terminal in `destination` and returns its native surface.
@@ -188,14 +188,6 @@ extension Workspace {
             panel.unfocus()
         }
         return panel.id
-    }
-
-    /// Cloud terminal creation stays quiet in the tab strip while the remote pane arrives.
-    /// Keep this seam for callers that bracket creation/retry state without exposing a
-    /// transient loading indicator to the user.
-    func setCloudManualMirrorTabLoading(panelID: UUID, _ isLoading: Bool) {
-        _ = panelID
-        _ = isLoading
     }
 
     /// The live workspace with `id` in any window, or nil once it was retired.
