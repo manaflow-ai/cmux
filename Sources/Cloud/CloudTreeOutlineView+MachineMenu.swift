@@ -65,16 +65,16 @@ extension CloudTreeOutlineView.Coordinator {
         let nodeActions = nodeActions
         let id = operation.id
         var items: [NSMenuItem] = []
-        if operation.isRunning {
+        if operation.isCancellable {
             items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
-        } else {
+        } else if !operation.isReconciling {
             items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
             items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
             items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
             items.append(.separator())
         }
         items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
-        if !operation.isRunning {
+        if operation.failureOutput != nil {
             items.append(.separator())
             items.append(item(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) { create.dismiss(id) })
         }

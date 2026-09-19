@@ -1,7 +1,6 @@
 import CmuxCloudMachines
 import Foundation
 import SwiftUI
-
 extension Notification.Name {
     static let cmuxCloudVMAccessDidEnd = Notification.Name("cmux.cloudVM.accessDidEnd")
 }
@@ -158,6 +157,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
+    var adoptedOperationIDs: [String: UUID] { createCoordinator.adoptedOperationIDs }
 
     func setDefaultMachine(id: String) {
         guard machines.contains(where: { $0.id == id }) else { return }
@@ -232,8 +232,7 @@ final class MachinesPanelViewModel: ObservableObject {
         self.defaultMachineStore = defaultMachineStore
         self.machinePinStore = machinePinStore
         self.catalogProvider = catalogProvider
-        // `.shared` is main-actor-isolated, so it cannot be a default argument
-        // (default values evaluate in a nonisolated context); resolve it here.
+        // Resolve the main-actor-isolated default here, not in a default argument.
         let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator
         let finishedUserInfoKey = MachineCreateCoordinator.finishedUserInfoKey
@@ -250,9 +249,7 @@ final class MachinesPanelViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.resetForAuthTransition()
-            }
+            MainActor.assumeIsolated { self?.resetForAuthTransition() }
         }
         featureFlagObserver = CloudFeatureAvailabilityObserver(
             isEnabled: { CloudMachinesFeature.isEnabled },
@@ -347,6 +344,10 @@ final class MachinesPanelViewModel: ObservableObject {
         // Catalog discoveries join the remembered fleet order as they appear, so a
         // machine the list endpoint has not returned yet still has a stable slot.
         machinePinStore?.remember(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: catalog).map(\.id))
+        createCoordinator.reconcileAuthoritativeState(
+            machineIDs: Set(machines.map(\.id)),
+            catalogMachineIDs: Set(catalog.machines.compactMap { $0.id.cloudMachineID })
+        )
         localWorkspaces = localWorkspacesProvider()
         // The unread index and the catalog change on the same accepted daemon
         // state, so a catalog read also refreshes it. Cheap: a dictionary read.
@@ -654,10 +655,6 @@ final class MachinesPanelViewModel: ObservableObject {
         } catch let error as VMClientError {
             guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier else { return }
             if case .notSignedIn = error {
-                // A request can race sign-out before the auth observation or
-                // notification arrives. Clear the authoritative-looking
-                // snapshot immediately; signed-out users must never see the
-                // previous account's machines during that race.
                 machines = []
                 plan = nil
                 activeOperation = nil

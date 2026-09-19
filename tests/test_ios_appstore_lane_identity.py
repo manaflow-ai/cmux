@@ -32,6 +32,9 @@ ASC_APP_ID = "6783338052"
 ASC_VERSION_ID = "version-1.0.0"
 ASC_BUILD_ID = "build-1.0.0"
 IDENTITY = f"Apple Distribution: Manaflow, Inc. ({TEAM_ID})"
+# The extension profile fixture expires on 2099-01-01; validate it against a
+# fixed instant so the test never reads the real clock.
+PROFILE_VALIDATION_TIME = "2026-09-19T00:00:00Z"
 APPSTORE_MARKETING_VERSION = "1.0.0"
 BETA_MARKETING_VERSION = "1.0.4"
 PRODUCTION_RUNTIME_ORIGINS = {
@@ -553,6 +556,8 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     # A manual App Store export maps the notification extension to its own
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
+    # Profile expiry is validated against this fixed instant, not the real clock.
+    env["IOS_APPSTORE_PROFILE_VALIDATION_TIME"] = PROFILE_VALIDATION_TIME
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 

@@ -1,15 +1,18 @@
 import Foundation
 
 extension SurfaceCatalog {
-    /// The unmodified provider rows, used to enumerate destructive operations.
+    /// The provider rows without any deletion or rename intent applied, used to
+    /// enumerate destructive operations. Presentation still withholds a stale
+    /// graph's cwd, and stale machines are flagged, exactly as `snapshot` does.
     var authoritativeSnapshot: SurfaceCatalogSnapshot {
         SurfaceCatalogSnapshot(
             machines: machines.values.sorted {
                 if $0.id.isLocal != $1.id.isLocal { return $0.id.isLocal }
                 return $0.name.localizedStandardCompare($1.name) == .orderedAscending
             },
-            resources: resources.values.sorted { $0.catalogPrecedes($1) },
-            projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+            resources: resources.values.map(resourceForPresentation).sorted { $0.catalogPrecedes($1) },
+            projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
+            staleMachineIDs: Set(cloudStateObservations.filter { $0.value.freshness != .current }.keys)
         )
     }
 
