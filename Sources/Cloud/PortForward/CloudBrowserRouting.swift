@@ -47,16 +47,16 @@ struct CloudBrowserRouting {
             return parsed.href;
           };
           window.__cmuxCloudWebSocketBridgeRewrite = rewrite;
-          const CmuxWebSocket = function(input, protocols) {
+          const CmuxWebSocket = class extends NativeWebSocket {
+            constructor(input, protocols) {
             const rewritten = rewrite(input);
-            if (!rewritten) return protocols === undefined ? new NativeWebSocket(input) : new NativeWebSocket(input, protocols);
+            if (!rewritten) { super(input, protocols); return; }
             const values = protocols === undefined ? [] : (Array.isArray(protocols) ? protocols.slice() : [protocols]);
             const auth = 'cmux-proxy-' + token;
             if (!values.includes(auth)) values.push(auth);
-            return new NativeWebSocket(rewritten, values);
+            super(rewritten, values);
+            }
           };
-          CmuxWebSocket.prototype = NativeWebSocket.prototype;
-          Object.setPrototypeOf(CmuxWebSocket, NativeWebSocket);
           window.WebSocket = CmuxWebSocket;
         })();
         """

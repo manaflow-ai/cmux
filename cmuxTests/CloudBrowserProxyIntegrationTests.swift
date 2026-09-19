@@ -473,10 +473,10 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
             var buffered = Data(first)
             if first[0] == UInt8(ascii: "G") {
                 let bridge = try await readRequest(connection, buffered: &buffered)
+                lock.withLock { capturedBridgeRequests.append(bridge.target + " | " + (bridge.headers["sec-websocket-protocol"] ?? "")) }
                 guard bridge.target.hasPrefix("/__cmux_ws__/") else { return }
                 guard bridge.headers["sec-websocket-protocol"]?.contains("cmux-proxy-ws-token") == true,
                       let key = bridge.headers["sec-websocket-key"] else { return }
-                lock.withLock { capturedBridgeRequests.append(bridge.target + " | " + (bridge.headers["sec-websocket-protocol"] ?? "")) }
                 let acceptInput = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
                 let accept = Data(Insecure.SHA1.hash(data: acceptInput)).base64EncodedString()
                 try await connection.sendAll(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: cmux-proxy-ws-token\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8))
