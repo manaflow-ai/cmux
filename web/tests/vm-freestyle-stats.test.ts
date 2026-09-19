@@ -10,8 +10,15 @@ import { VM_RESOURCE_USAGE_KEY, applyVmResourceUsage, parseVmResourceUsage } fro
 
 const gauges = { cpuPercent: 37.5, memoryUsedMb: 1234, diskUsedMb: 5678 };
 
-async function readStats(state: string, sample: Record<string, unknown> | undefined) {
+type ReadStatsOptions = { readonly directBackend?: boolean };
+
+async function readStats(
+  state: string,
+  sample: Record<string, unknown> | undefined,
+  options: ReadStatsOptions = {},
+) {
   const calls: string[] = [];
+  const execCalls: string[] = [];
   const client = new Freestyle({
     apiKey: "test-only",
     fetch: (async (input, init) => {
@@ -28,25 +35,57 @@ async function readStats(state: string, sample: Record<string, unknown> | undefi
   } as unknown as VmRepositoryShape;
   const providers = {
     getStats: () => Effect.promise(() => provider.getStats("vm-stats")),
+    exec: (_provider: string, _vmId: string, command: string) => {
+      execCalls.push(command);
+      return Effect.succeed({ exitCode: 0, stdout: JSON.stringify(gauges), stderr: "" });
+    },
   } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(
     Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers),
     Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
   );
-  const result = await Effect.runPromise(getVmStats({ userId: "user", providerVmId: "vm-stats" }).pipe(Effect.provide(layer)));
-  expect(calls).toEqual(["/v5/vms/vm-stats"]);
-  return result;
+  const envKeys = [
+    "CMUX_DEV_RESOURCE_STATS_DIRECT",
+    "CMUX_DEV_BACKEND_TRANSPORT",
+    "CMUX_DEV_BACKEND_TAILSCALE_HOST",
+    "CMUX_WWW_ORIGIN",
+  ] as const;
+  const previousEnvironment = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  for (const key of envKeys) delete process.env[key];
+  if (options.directBackend) {
+    process.env.CMUX_DEV_BACKEND_TRANSPORT = "direct";
+    process.env.CMUX_DEV_BACKEND_TAILSCALE_HOST = "cmux-dev-backend-1.tail137216.ts.net";
+    process.env.CMUX_WWW_ORIGIN = "https://cmux-dev-backend-1.tail137216.ts.net:4635/";
+  }
+  try {
+    const result = await Effect.runPromise(getVmStats({ userId: "user", providerVmId: "vm-stats" }).pipe(Effect.provide(layer)));
+    expect(calls).toEqual(["/v5/vms/vm-stats"]);
+    return { result, execCalls };
+  } finally {
+    for (const key of envKeys) {
+      const value = previousEnvironment[key];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 }
 
 describe("Freestyle live machine stats", () => {
   test("existing stats workflow returns the guest sample without executing in the VM", async () => {
     const receivedAt = Date.now();
-    const result = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
+    const { result, execCalls } = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
+    expect(execCalls).toHaveLength(0);
     expect(result).toEqual({ state: "awake", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
   });
 
+  test("direct dev backends sample an awake guest when callback telemetry is unavailable", async () => {
+    const { result, execCalls } = await readStats("running", undefined, { directBackend: true });
+    expect(execCalls).toHaveLength(1);
+    expect(result).toMatchObject({ state: "awake", resourceSampledAt: expect.any(Number), ...gauges });
+  });
+
   test.each(["paused", "pausing", "stopped", "starting"])("a %s machine never exposes an old reading or touches the guest", async (state) => {
-    const result = await readStats(state, { ...gauges, receivedAt: Date.now(), providerVmId: "vm-stats" });
+    const { result } = await readStats(state, { ...gauges, receivedAt: Date.now(), providerVmId: "vm-stats" });
     expect(result.state).toBe(state === "starting" ? "unknown" : "asleep");
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
@@ -55,13 +94,13 @@ describe("Freestyle live machine stats", () => {
 
   test.each([undefined, { ...gauges, receivedAt: 0, providerVmId: "vm-stats" },
     { ...gauges, receivedAt: Date.now(), providerVmId: "replaced-vm" }])("missing, stale, and replaced-VM samples remain unavailable", async (sample) => {
-    const result = await readStats("running", sample);
+    const { result } = await readStats("running", sample);
     expect(result.cpuPercent).toBeUndefined();
     expect(result.diskTotalMb).toBe(16384);
   });
 
   test("a stale guest sample keeps its timestamp without exposing old gauges", async () => {
-    const result = await readStats("running", { ...gauges, receivedAt: Date.now() - 90_001, providerVmId: "vm-stats" });
+    const { result } = await readStats("running", { ...gauges, receivedAt: Date.now() - 90_001, providerVmId: "vm-stats" });
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
     expect(result.resourceSampledAt).toBeDefined();
