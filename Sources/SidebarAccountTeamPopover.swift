@@ -281,7 +281,7 @@ private struct SidebarAccountPopover: View {
                 Spacer(minLength: 8)
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -291,7 +291,7 @@ private struct SidebarAccountPopover: View {
             team.displayName,
             isSelected ? String(localized: "sidebar.account.activeSuffix", defaultValue: ", active") : ""
         ))
-        .accessibilityIdentifier("SidebarAccountTeam_(team.id)")
+        .accessibilityIdentifier("SidebarAccountTeam_\(team.id)")
     }
 
     private var createTeamEditor: some View {
