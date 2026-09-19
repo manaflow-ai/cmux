@@ -321,6 +321,26 @@ def main() -> int:
             )
 
         config_path.write_text(
+            json.dumps({"app": {"appearance": "neon"}}) + "\n",
+            encoding="utf-8",
+        )
+        helper_validate_result = subprocess.run(
+            [sys.executable, str(helper), "--file", str(config_path), "validate"],
+            text=True,
+            capture_output=True,
+            env=helper_env,
+            timeout=5,
+            check=False,
+        )
+        if helper_validate_result.returncode == 0:
+            failures.append("cmux-settings validate accepted an invalid enum value")
+        if "$.app.appearance" not in helper_validate_result.stderr:
+            failures.append(
+                "cmux-settings validate did not report the config path: "
+                + helper_validate_result.stderr
+            )
+
+        config_path.write_text(
             """
             {
               // JSONC comments and trailing commas are valid in cmux.json.
