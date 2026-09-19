@@ -9,10 +9,8 @@ on:
       - .github/workflows/relay-tls.yml
   workflow_dispatch:
 
-# Cancel the run for the previous push to the same pull request. Without this
-# every push leaves a run queued for a macOS runner that nothing will read.
-# Pushes to main and manual runs key on the run id, so they never cancel or
-# replace each other.
+# A new push cancels the previous run for the same pull request. Other events
+# key on the run id, so they never cancel each other.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

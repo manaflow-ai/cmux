@@ -1293,11 +1293,8 @@ check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
 check_pr_macos_workflows_cancel_superseded_runs() {
-  # A pull request workflow without a concurrency group never cancels the run
-  # for the previous push. On a macOS runner pool with a fixed slot count those
-  # runs stay queued behind everything else: on 2026-09-19, 58 of 72 queued
-  # "Agent notification semantics" runs were for commits that were no longer
-  # their pull request's head or whose pull request was closed.
+  # Without a concurrency group a push never cancels the previous run, and on
+  # a fixed pool of macOS runners those dead runs queue ahead of live ones.
   local file failed=0
   for file in "$ROOT_DIR"/.github/workflows/*.yml; do
     grep -qE '^  pull_request(_target)?:' "$file" || continue
