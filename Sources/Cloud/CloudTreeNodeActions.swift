@@ -46,6 +46,8 @@ struct CloudTreeNodeActions {
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
     let refresh: @MainActor () -> Void
+    /// Open the Cloud VPN onboarding guide in an in-app browser surface.
+    var openVPNOnboarding: @MainActor () -> Void = { }
     var refreshMachine: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     var organize: @MainActor (CloudSidebarOrganizationAction, String, [CloudTreeNode]) -> Bool = { _, _, _ in false }
     /// Navigates a nested terminal through its owning Cloud workspace.
@@ -60,7 +62,9 @@ struct CloudTreeNodeActions {
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
         refresh: @escaping @MainActor () -> Void,
-        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil
+        refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in },
+        openVPNOnboarding: @escaping @MainActor () -> Void = { },
+        operationController: CloudWorkspaceOperationController? = nil
     ) -> CloudTreeNodeActions {
         @MainActor @discardableResult
         func run(
@@ -380,6 +384,7 @@ struct CloudTreeNodeActions {
         )
         actions.organize = { action, id, _ in catalog().organizeSidebar(action, nodeID: id) }
         actions.refreshMachine = refreshMachine
+        actions.openVPNOnboarding = openVPNOnboarding
         let navigationRun: CloudTreeTerminalNavigationCoordinator.Run = run
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: machineName,
