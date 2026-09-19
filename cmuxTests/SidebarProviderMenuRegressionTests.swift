@@ -281,7 +281,7 @@ struct SidebarProviderMenuRegressionTests {
         let directory = root.appendingPathComponent("sidebars", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let template = try #require(CustomSidebarOnboardingAssets.starterTemplate())
+        let template = try #require(CustomSidebarOnboardingAssets().starterTemplate())
         let first = CmuxExtensionSidebarSelection.writeCustomSidebar(
             named: "my-sidebar.swift",
             fileExtension: template.fileExtension,
@@ -330,7 +330,7 @@ struct SidebarProviderMenuRegressionTests {
         let directory = root.appendingPathComponent("sidebars", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let template = try #require(CustomSidebarOnboardingAssets.exampleTemplate(id: "focus"))
+        let template = try #require(CustomSidebarOnboardingAssets().exampleTemplate(id: "focus"))
         let first = CmuxExtensionSidebarSelection.writeCustomSidebar(
             named: template.suggestedName,
             fileExtension: template.fileExtension,
