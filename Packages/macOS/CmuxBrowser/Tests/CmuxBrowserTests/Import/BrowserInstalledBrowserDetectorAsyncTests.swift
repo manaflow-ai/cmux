@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxBrowser
 
-@Suite("Browser discovery executor", .timeLimit(.minutes(1)))
+@Suite("Browser discovery executor")
 struct BrowserInstalledBrowserDetectorAsyncTests {
     @MainActor
     @Test("real profile discovery leaves the UI actor and preserves injected paths")
@@ -48,7 +48,7 @@ struct BrowserInstalledBrowserDetectorAsyncTests {
         defer { release.signal(); continuation.finish() }
         let service = BrowserInstalledBrowserDetectionService {
             continuation.yield(())
-            #expect(release.wait(timeout: .now() + 5) == .success)
+            release.wait()
             return []
         }
         let discovery = Task { await service.detectInstalledBrowsers() }

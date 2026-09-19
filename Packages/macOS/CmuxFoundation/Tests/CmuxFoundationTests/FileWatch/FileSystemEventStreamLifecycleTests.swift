@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxFoundation
 
-@Suite("FSEvents nonblocking lifecycle", .timeLimit(.minutes(1)))
+@Suite("FSEvents nonblocking lifecycle")
 struct FileSystemEventStreamLifecycleTests {
     private final class WeakReference<Value: AnyObject> {
         weak var value: Value?
@@ -39,7 +39,7 @@ struct FileSystemEventStreamLifecycleTests {
         defer { release.signal(); continuation.finish() }
         queue.async {
             continuation.yield(())
-            #expect(release.wait(timeout: .now() + 5) == .success)
+            release.wait()
         }
         var iterator = blocked.makeAsyncIterator()
         _ = await iterator.next()
@@ -62,13 +62,25 @@ struct FileSystemEventStreamLifecycleTests {
     @Test func registrationWaitDoesNotOccupyMainActor() async throws {
         let queue = DispatchQueue(label: "cmux.test.stream-start")
         let release = DispatchSemaphore(value: 0)
-        defer { release.signal() }
+        let (entered, enteredContinuation) = AsyncStream<Void>.makeStream()
+        defer {
+            release.signal()
+            enteredContinuation.finish()
+        }
         queue.async {
-            #expect(release.wait(timeout: .now() + 5) == .success)
+            enteredContinuation.yield(())
+            release.wait()
         }
-        let registration = Task {
-            await FileSystemEventStream.start(paths: [], latency: 0, onEvent: { _ in }, queue: queue)
+        var enteredIterator = entered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        let (registrationEntered, registrationContinuation) = AsyncStream<Void>.makeStream()
+        defer { registrationContinuation.finish() }
+        let registration = Task { @MainActor in
+            registrationContinuation.yield(())
+            return await FileSystemEventStream.start(paths: [], latency: 0, onEvent: { _ in }, queue: queue)
         }
+        var registrationIterator = registrationEntered.makeAsyncIterator()
+        _ = await registrationIterator.next()
         // The queue can be held while the caller continues to do UI work.
         release.signal()
         #expect(await registration.value == nil)

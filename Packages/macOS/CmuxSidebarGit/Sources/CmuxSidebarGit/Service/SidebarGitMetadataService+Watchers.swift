@@ -86,20 +86,23 @@ extension SidebarGitMetadataService {
         request: WorkspaceGitMetadataWatcherDescriptorRequest
     ) {
         guard acceptWorkspaceGitMetadataWatcherRequest(for: key, request: request) else { return }
-        finishWorkspaceGitMetadataWatcherRequest(for: key)
         let watchedPathsKey = watchedPathsKey(for: descriptor)
         if workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] != nil {
             // Another panel completed the same registration while this one was
             // suspended. Preserve its one event consumer and discard our duplicate.
+            finishWorkspaceGitMetadataWatcherRequest(for: key)
             setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
             moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
             return
         }
         guard let watcher else {
-            stopWorkspaceGitMetadataWatcher(for: key)
-            setWorkspaceGitMetadataWatcherSourceDirectory(request.directory, for: key)
+            // A failed replacement must leave the currently installed watcher
+            // and its event consumer authoritative until a later registration
+            // succeeds. Only retire the pending request itself.
+            finishWorkspaceGitMetadataWatcherRequest(for: key)
             return
         }
+        finishWorkspaceGitMetadataWatcherRequest(for: key)
         workspaceGitMetadataWatchersByWatchedPathsKey[watchedPathsKey] = watcher
         setWorkspaceGitMetadataWatcherWatchedPathsKey(watchedPathsKey, for: key)
         moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)

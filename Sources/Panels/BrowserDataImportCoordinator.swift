@@ -1,16 +1,20 @@
 import AppKit
 import CmuxBrowser
 import Foundation
+import Observation
 
 /// Owns admission, asynchronous discovery, and presentation for browser imports.
 @MainActor
+@Observable
 final class BrowserDataImportCoordinator {
-    static let shared = BrowserDataImportCoordinator()
+    private let browserDetection: BrowserInstalledBrowserDetectionService
+    @ObservationIgnored private var presentationTask: Task<Void, Never>?
 
-    private let browserDetection = BrowserInstalledBrowserDetectionService()
-    private var presentationTask: Task<Void, Never>?
+    init(browserDetection: BrowserInstalledBrowserDetectionService = .init()) {
+        self.browserDetection = browserDetection
+    }
 
-    private init() {}
+    deinit { presentationTask?.cancel() }
 
     func presentImportDialog(
         defaultDestinationProfileID: UUID? = nil,

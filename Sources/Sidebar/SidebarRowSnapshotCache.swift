@@ -10,6 +10,8 @@ final class SidebarRowSnapshotCache {
     @ObservationIgnored private(set) var snapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
     private(set) var revision: UInt64 = 0
 
+    deinit {}
+
     func value(for id: UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot? {
         _ = revision
         return snapshotsById[id]
