@@ -340,20 +340,25 @@ final class HostSettingsActions: SettingsHostActions {
             process.standardError = stderr
             try process.run()
 
-            let output = stdout.fileHandleForReading.readDataToEndOfFile()
-            let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+            let outputTask = Task.detached(priority: .userInitiated) {
+                stdout.fileHandleForReading.readDataToEndOfFile()
+            }
+            let errorTask = Task.detached(priority: .userInitiated) {
+                stderr.fileHandleForReading.readDataToEndOfFile()
+            }
             process.waitUntilExit()
+            let output = await outputTask.value
+            let errorData = await errorTask.value
 
             guard process.terminationStatus == 0 else {
                 let message = String(data: errorData, encoding: .utf8)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
+                let fallback = String(
+                    localized: "settings.terminal.localTmux.commandFailed",
+                    defaultValue: "cmux local-tmux could not complete the requested action."
+                )
                 throw LocalTmuxSettingsCLIError(
-                    message: (message?.isEmpty == false)
-                        ? message!
-                        : String(
-                            localized: "settings.terminal.localTmux.commandFailed",
-                            defaultValue: "cmux local-tmux could not complete the requested action."
-                        )
+                    message: message.flatMap { $0.isEmpty ? nil : $0 } ?? fallback
                 )
             }
             return output
