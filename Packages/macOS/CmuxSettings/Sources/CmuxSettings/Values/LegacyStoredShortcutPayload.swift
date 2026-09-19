@@ -1,6 +1,6 @@
 import Foundation
 
-/// The flat Codable representation written by the app's legacy shortcut store.
+/// The flat Codable representation written by cmux 0.64.10 and earlier.
 struct LegacyStoredShortcutPayload: Decodable {
     let key: String
     let command: Bool
