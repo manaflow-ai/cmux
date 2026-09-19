@@ -4,5 +4,8 @@ import AppKit
 @MainActor
 final class TerminalPaneMetricsWindow: NSWindow {
     var testBackingScale: CGFloat = 1
+
+    deinit {}
+
     override var backingScaleFactor: CGFloat { testBackingScale }
 }

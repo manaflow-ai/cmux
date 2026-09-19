@@ -20,6 +20,8 @@ final class TerminalPaneMetricsFixture {
     let surface: TerminalSurface
     var hosted: GhosttySurfaceScrollView { surface.hostedView }
 
+    deinit {}
+
     init(backingScale: CGFloat = 1) async throws {
         _ = NSApplication.shared
         let metricsWindow = TerminalPaneMetricsWindow(
