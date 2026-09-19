@@ -154,6 +154,18 @@ class PublicationTests(unittest.TestCase):
         self.publish([asset])
         self.assertEqual(self.client.events, [])
 
+    def test_null_digest_uses_the_authenticated_api_asset_url(self):
+        client = publisher.GitHub("owner/repo", "fake-token")
+        remote_asset = {"name": "draft.bin", "url": "https://api.github.com/assets/1", "browser_download_url": "https://github.com/draft.bin"}
+        with patch("publisher.urllib.request.urlopen") as urlopen:
+            response = urlopen.return_value.__enter__.return_value
+            response.read.side_effect = [b"draft-content", b""]
+            response.__iter__ = lambda self: iter([b"draft-content"])
+            response.__enter__.return_value.read.side_effect = [b"draft-content", b""]
+            client.asset_digest(remote_asset)
+            request = urlopen.call_args.args[0]
+            self.assertEqual(request.full_url, "https://api.github.com/assets/1")
+
     def test_failed_alias_rename_restores_the_current_asset(self):
         asset = self.asset("latest.dmg", True)
         old = {**remote(asset), "digest": "sha256:old"}

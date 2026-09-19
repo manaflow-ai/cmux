@@ -5,6 +5,7 @@ import UserNotifications
 final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var deliveredContent: UNMutableNotificationContent?
+    private var suppressOnExpiration = false
 
     override func didReceive(
         _ request: UNNotificationRequest,
@@ -15,12 +16,16 @@ final class NotificationService: UNNotificationServiceExtension {
             UNMutableNotificationContent()
         deliveredContent = content
         guard let cmux = request.content.userInfo["cmux"] as? [String: Any],
-              let raw = cmux["encryptedPayloads"] as? [[String: Any]],
-              let installation = try? PhonePushKeyStore.current(
-                  bundleID: Bundle.main.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String ?? "dev.cmux.ios",
-                  accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
-              ) else {
+              let raw = cmux["encryptedPayloads"] as? [[String: Any]] else {
             finish(content)
+            return
+        }
+        suppressOnExpiration = true
+        guard let installation = try? PhonePushKeyStore.current(
+            bundleID: Bundle.main.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String ?? "dev.cmux.ios",
+            accessGroup: Bundle.main.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
+        ) else {
+            finishSuppressed(content)
             return
         }
         let candidates = raw.compactMap { try? JSONSerialization.data(withJSONObject: $0) }
@@ -30,13 +35,13 @@ final class NotificationService: UNNotificationServiceExtension {
                 && $0.tuple.iosInstallationID == installation.installationID
                 && $0.tuple.iosBuildID == (Bundle.main.object(forInfoDictionaryKey: "CMUXHostBundleIdentifier") as? String ?? "dev.cmux.ios")
         }) else {
-            finish(request.content)
+            finishSuppressed(content)
             return
         }
         guard PhonePushActiveAccountStore.current() == envelope.tuple.accountID,
               let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: envelope.tuple),
               let senderPublicKey = Optional(sender.publicKey) else {
-            finish(request.content)
+            finishSuppressed(content)
             return
         }
         guard let data = try? PhonePushCrypto.decrypt(
@@ -48,12 +53,12 @@ final class NotificationService: UNNotificationServiceExtension {
             senderPublicKey: senderPublicKey,
             privateKey: installation.privateKey
         ), let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            finish(request.content)
+            finishSuppressed(content)
             return
         }
         guard let expiration = object["expirationEpochSeconds"] as? NSNumber,
               expiration.doubleValue > Date().timeIntervalSince1970 else {
-            finish(request.content)
+            finishSuppressed(content)
             return
         }
         if let title = object["title"] as? String { content.title = title }
@@ -67,17 +72,34 @@ final class NotificationService: UNNotificationServiceExtension {
             payload: object,
             macPushPublicKey: object["macPushPublicKey"] as? String
         )
+        suppressOnExpiration = false
         finish(content)
     }
 
     override func serviceExtensionTimeWillExpire() {
-        finish(deliveredContent ?? UNMutableNotificationContent())
+        if suppressOnExpiration {
+            finishSuppressed(deliveredContent ?? UNMutableNotificationContent())
+        } else {
+            finish(deliveredContent ?? UNMutableNotificationContent())
+        }
     }
 
     private func finish(_ content: UNNotificationContent) {
         guard let contentHandler else { return }
         self.contentHandler = nil
         contentHandler(content)
+    }
+
+    private func finishSuppressed(_ content: UNMutableNotificationContent) {
+        content.title = ""
+        content.subtitle = ""
+        content.body = ""
+        content.sound = nil
+        content.badge = nil
+        content.categoryIdentifier = ""
+        content.userInfo = [:]
+        suppressOnExpiration = false
+        finish(content)
     }
 
     private static func mergedUserInfo(

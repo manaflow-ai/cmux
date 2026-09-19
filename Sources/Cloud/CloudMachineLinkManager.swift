@@ -42,7 +42,7 @@ actor CloudMachineLinkManager {
     private let isCloudEnabled: @Sendable () -> Bool
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
-    private var cachedClientCapabilities: [URL: [String]] = [:]
+    private var cachedClientCapabilities: [String]?
     /// The app's in-process WireGuard hub; nil in tests that never touch the network.
     /// A machine whose route points into the private network is linked through it when
     /// the bundled client advertises `wireguard-hub`. Public routes are refused.
@@ -531,17 +531,17 @@ actor CloudMachineLinkManager {
         links[machineID] = link
     }
 
-    /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
-    /// them (a client that sends a User-Agent earns the branded host).
-    /// Cache successful probes per executable URL, while allowing a failed
-    /// probe to be retried by later connection attempts.
+    /// The cached capability probe, else a fresh probe cached on success; a
+    /// failed probe reports none and leaves the cache for a later retry.
     private func resolvedClientCapabilities(clientURL: URL) -> [String] {
-        if let cached = cachedClientCapabilities[clientURL] { return cached }
+        if let cached = cachedClientCapabilities { return cached }
         guard let probed = Self.clientCapabilities(clientURL: clientURL) else { return [] }
-        cachedClientCapabilities[clientURL] = probed
+        cachedClientCapabilities = probed
         return probed
     }
 
+    /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
+    /// them (a client that sends a User-Agent earns the branded host).
     nonisolated static func clientCapabilities(clientURL: URL) -> [String]? {
         let process = Process()
         process.executableURL = clientURL

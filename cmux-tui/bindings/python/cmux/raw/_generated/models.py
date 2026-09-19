@@ -1660,6 +1660,13 @@ class MoveTabRequest:
 
 
 @dataclass(frozen=True)
+class MoveTabToWorkspaceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-workspace/request'
+    surface: Id
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MoveTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-terminal/request'
     terminal_id: str
@@ -2913,6 +2920,7 @@ __all__ = [
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
+    'MoveTabToWorkspaceRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
     'NewBrowserTabRequest',

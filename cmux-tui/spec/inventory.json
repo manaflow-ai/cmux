@@ -167,6 +167,7 @@
       "machine-listening-tcp",
       "machine-usage",
       "move-tab",
+      "move-tab-to-workspace",
       "move-terminal",
       "move-workspace",
       "new-browser-tab",
@@ -1134,6 +1135,11 @@
       "variant": "RunConfigured",
       "classification": "composite",
       "route": "frontend configured menu + the referenced action's own route"
+    },
+    {
+      "variant": "MoveTabToWorkspace",
+      "classification": "direct",
+      "route": "move-tab-to-workspace"
     }
   ],
   "feature_families": [
