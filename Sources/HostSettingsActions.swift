@@ -110,6 +110,45 @@ final class HostSettingsActions: SettingsHostActions {
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
     }
 
+    func openTerminalThemePicker() {
+        let cliURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            hostSettingsLogger.error(
+                "Theme picker unavailable: bundled cmux CLI missing at \(cliURL.path, privacy: .public)"
+            )
+            return
+        }
+
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.activeTabManagerForCommands(),
+              let workspace = manager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        let initialCommand = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes; exit"
+        do {
+            let picker = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: initialCommand,
+                workingDirectory: nil,
+                at: .workspace(id: workspace.id, placement: .tab),
+                focus: true
+            )
+            if let windowID = appDelegate.windowId(for: manager) {
+                _ = appDelegate.focusMainWindow(windowId: windowID)
+            }
+            SurfacePaneFactory.focus(
+                panelID: picker.panelID,
+                in: picker.workspaceID
+            )
+        } catch {
+            hostSettingsLogger.error(
+                "Failed to open terminal theme picker: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
     func notifyShortcutSettingsDidChange() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every
