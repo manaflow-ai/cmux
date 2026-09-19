@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Network
 import Testing
@@ -10,11 +11,26 @@ import WebKit
 @testable import cmux
 #endif
 
-/// Real WebKit requests through the production per-panel proxy configuration.
-/// The loopback fixtures replace the remote carrier, not WebKit or URL routing.
+/// Real WebKit requests through the production per-panel userspace proxy configuration.
+/// The fixtures replace the remote carrier, not WebKit or URL routing.
 @MainActor
-@Suite("Cloud browser CONNECT integration", .serialized, .timeLimit(.minutes(2)))
+@Suite("Cloud browser proxy integration", .serialized, .timeLimit(.minutes(2)))
 struct CloudBrowserProxyIntegrationTests {
+    @Test("Desktop readiness uses the authenticated carrier and closes on failure")
+    func desktopReadinessThroughCarrier() async throws {
+        let server = try CloudBrowserProxyTestServer(address: "10.16.0.10", marker: "desktop-probe")
+        try await server.start()
+        defer { server.stop() }
+        #expect(try await CloudBrowserRouting.desktopIsReachable(endpoint: server.endpoint, address: server.address, port: 8000))
+        #expect(server.requests.count == 1)
+        #expect(server.requests.first?.method == "HEAD")
+        #expect(server.requests.first?.target == "/vnc.html")
+        let rejected = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: server.port, username: "wrong", password: "wrong")
+        #expect(try await !CloudBrowserRouting.desktopIsReachable(endpoint: rejected, address: server.address, port: 8000))
+        #expect(server.requests.count == 1, "Failed proxy auth must not reach the service")
+        #expect(try await !CloudBrowserRouting.desktopIsReachable(endpoint: server.endpoint, address: server.address, port: 6901))
+    }
+
     @Test("the browser carrier does not inherit app credentials")
     func browserCarrierSanitizesInheritedCredentials() {
         let environment = CloudBrowserProxyProcess.sanitizedEnvironment([
@@ -55,6 +71,7 @@ struct CloudBrowserProxyIntegrationTests {
         panel.cloudAccess.configure(model: model, url: remote)
         panel.prepareCloudBrowserStore(machineID: server.marker)
         panel.showCloudAddress(remote)
+        let startedAt = Date()
         model.connect()
         #expect(panel.cloudAccess.nextURL() == nil)
         #expect(server.requests.isEmpty)
@@ -64,8 +81,8 @@ struct CloudBrowserProxyIntegrationTests {
         let destination = try #require(panel.cloudAccess.nextURL())
         _ = panel.navigate(to: destination)
 
-        // The native card intentionally withholds the visible browser until
-        // completion. The replacement WebView must still have a loading host.
+        // The browser is visible immediately without a connection card. The replacement
+        // WebView must still have a loading host while the userspace route starts.
         #expect(panel.webView.window != nil, "Cloud loading must not orphan the replacement WebView")
         #expect(panel.webView.configuration.websiteDataStore.proxyConfigurations.count == 1)
         let loadedDeadline = ContinuousClock.now.advanced(by: .seconds(10))
@@ -73,8 +90,20 @@ struct CloudBrowserProxyIntegrationTests {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(panel.cloudAccess.showsPage, "The initial navigation must complete without Reload")
+        #expect(Date().timeIntervalSince(startedAt) < 2, "The browser route should be ready before a visible loading card is needed")
         #expect(panel.webView.url == remote)
         #expect(try await panel.webView.evaluateJavaScript("document.body.dataset.machine") as? String == "cold")
+        #expect(try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeInstalled === true") as? Bool == true, "Cloud WebSocket bridge script must run before page JavaScript")
+        #expect(try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeConstructor === window.WebSocket") as? Bool == true, "Cloud WebSocket bridge must remain the active constructor")
+        #expect((try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeRewrite('ws://10.16.0.10:8000/_next/hmr?id=fixture')") as? String)?.contains("/__cmux_ws__/") == true, "Cloud WebSocket URLs must be rewritten to the authenticated bridge")
+        let websocketDeadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while (try await panel.webView.evaluateJavaScript("window.cloudWebSocketState") as? String) != "open",
+              ContinuousClock.now < websocketDeadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(!server.bridgeRequests.isEmpty, "The Cloud WebSocket bridge must receive the page upgrade")
+        let websocketState = try await panel.webView.evaluateJavaScript("JSON.stringify({state:window.cloudWebSocketState,error:window.cloudWebSocketError || null})") as? String
+        #expect(websocketState == "{\"state\":\"open\",\"error\":null}", "WebSocket traffic must use the same Cloud browser route: \(websocketState ?? "missing")")
         await model.retire()
     }
 
@@ -207,7 +236,9 @@ struct CloudBrowserProxyIntegrationTests {
             #expect(server.requests.contains { $0.target == "/echo?source=browser" && $0.method == "POST" })
             #expect(server.requests.allSatisfy { $0.host == "\(server.address):8000" })
             #expect(!server.authorizedTargets.isEmpty)
-            #expect(server.authorizedTargets.allSatisfy { $0 == "\(server.address):8000" })
+            let remoteTargets = server.authorizedTargets.filter { $0.hasSuffix(":8000") }
+            #expect(!remoteTargets.isEmpty)
+            #expect(remoteTargets.allSatisfy { $0 == "\(server.address):8000" })
         }
 
         // A second load of A after B's requests verifies that its route remains owned by A.
@@ -390,8 +421,10 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
     private(set) var port: UInt16 = 0
     var requests: [Request] { lock.withLock { capturedRequests } }
     var authorizedTargets: [String] { lock.withLock { capturedTargets } }
+    private var capturedBridgeRequests: [String] = []
+    var bridgeRequests: [String] { lock.withLock { capturedBridgeRequests } }
     var endpoint: CloudBrowserProxyEndpoint {
-        CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)")
+        CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
 
     init(address: String, marker: String) throws {
@@ -455,7 +488,20 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
         }
         do {
             try await connection.startAndWaitUntilReady(queue: queue)
-            var buffered = Data()
+            let first = try await connection.receiveExactly(1)
+            var buffered = Data(first)
+            if first[0] == UInt8(ascii: "G") {
+                let bridge = try await readRequest(connection, buffered: &buffered)
+                lock.withLock { capturedBridgeRequests.append(bridge.target + " | " + (bridge.headers["sec-websocket-protocol"] ?? "")) }
+                guard bridge.target.hasPrefix("/__cmux_ws__/") else { return }
+                guard bridge.headers["sec-websocket-protocol"]?.contains("cmux-proxy-ws-token") == true,
+                      let key = bridge.headers["sec-websocket-key"] else { return }
+                let acceptInput = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
+                let accept = Data(Insecure.SHA1.hash(data: acceptInput)).base64EncodedString()
+                try await connection.sendAll(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: cmux-proxy-ws-token\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8))
+                try await Task.sleep(for: .seconds(5))
+                return
+            }
             let connect = try await readRequest(connection, buffered: &buffered)
             let expected = "Basic " + Data("\(marker):fixture-\(marker)".utf8).base64EncodedString()
             guard connect.headers["proxy-authorization"] == expected else {
@@ -463,13 +509,26 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 try await connection.finishSending()
                 return
             }
-            guard connect.method == "CONNECT", connect.target == "\(address):8000" else {
+            guard connect.method == "CONNECT" else {
                 try await connection.sendAll(Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
                 try await connection.finishSending()
                 return
             }
             lock.withLock { capturedTargets.append(connect.target) }
             try await connection.sendAll(Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8))
+            if connect.target.hasSuffix(":\(port)") {
+                let bridge = try await readRequest(connection, buffered: &buffered)
+                lock.withLock { capturedBridgeRequests.append(bridge.target + " | " + (bridge.headers["sec-websocket-protocol"] ?? "")) }
+                guard bridge.target.hasPrefix("/__cmux_ws__/"),
+                      bridge.headers["sec-websocket-protocol"]?.contains("cmux-proxy-ws-token") == true,
+                      let key = bridge.headers["sec-websocket-key"] else { return }
+                let acceptInput = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
+                let accept = Data(Insecure.SHA1.hash(data: acceptInput)).base64EncodedString()
+                try await connection.sendAll(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: cmux-proxy-ws-token\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8))
+                try await Task.sleep(for: .seconds(5))
+                return
+            }
+            guard connect.target == "\(address):8000" else { return }
             var request = try await readRequest(connection, buffered: &buffered)
             if request.method == "OPTIONS" {
                 try await connection.sendAll(Data("HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n".utf8))
@@ -487,7 +546,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 data = try JSONSerialization.data(withJSONObject: ["machine": marker, "host": record.host, "body": record.body])
             } else {
                 contentType = "text/html; charset=utf-8"
-                data = Data("<!doctype html><html><head><script src='/asset.js'></script></head><body data-machine='\(marker)'>\(marker)</body></html>".utf8)
+                data = Data("<!doctype html><html><head><script src='/asset.js'></script><script>window.cloudWebSocketState='connecting';window.cloudWebSocket=new WebSocket('ws://'+location.host+'/_next/hmr?id=fixture');window.cloudWebSocket.onopen=()=>window.cloudWebSocketState='open';window.cloudWebSocket.onerror=(e)=>{window.cloudWebSocketState='error';window.cloudWebSocketError=String(e)};</script></head><body data-machine='\(marker)'>\(marker)</body></html>".utf8)
             }
             try await connection.sendAll(Data("HTTP/1.1 200 OK\r\nContent-Type: \(contentType)\r\nContent-Length: \(data.count)\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n".utf8) + data)
             try await connection.finishSending()
