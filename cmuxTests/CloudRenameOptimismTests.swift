@@ -75,7 +75,7 @@ struct CloudRenameOptimismTests {
         gate.open()
         try await tab.value
         try await clear.value
-        #expect(provider.tabRenames.map(\.name) == ["renamed-two"])
+        #expect(provider.tabRenames.map { $0.name } == ["renamed-two"])
         // This provider does not re-sync, so the released intents fall back to
         // the accepted rows: nothing invented, nothing stuck.
         #expect(names() == [["one", "two"], ["three"]])
