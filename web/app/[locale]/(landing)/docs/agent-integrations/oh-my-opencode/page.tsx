@@ -27,6 +27,7 @@ export default function OhMyOpenCodePage() {
         src="/blog/cmux-omo-demo.mp4"
         width={1824}
         height={1080}
+        aria-label={t("title")}
         autoPlay
         loop
         muted
