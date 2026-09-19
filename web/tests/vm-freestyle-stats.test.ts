@@ -12,6 +12,7 @@ const gauges = { cpuPercent: 37.5, memoryUsedMb: 1234, diskUsedMb: 5678 };
 
 type ReadStatsOptions = {
   readonly directBackend?: boolean;
+  readonly concurrent?: boolean;
   readonly execExitCode?: number;
   readonly execOutput?: unknown;
 };
@@ -23,6 +24,7 @@ async function readStats(
 ) {
   const calls: string[] = [];
   const execCalls: string[] = [];
+  const execOptions: unknown[] = [];
   const client = new Freestyle({
     apiKey: "test-only",
     fetch: (async (input, init) => {
@@ -39,8 +41,9 @@ async function readStats(
   } as unknown as VmRepositoryShape;
   const providers = {
     getStats: () => Effect.promise(() => provider.getStats("vm-stats")),
-    exec: (_provider: string, _vmId: string, command: string) => {
+    exec: (_provider: string, _vmId: string, command: string, providerOptions?: unknown) => {
       execCalls.push(command);
+      execOptions.push(providerOptions);
       return Effect.succeed({
         exitCode: options.execExitCode ?? 0,
         stdout: typeof options.execOutput === "string"
@@ -68,9 +71,13 @@ async function readStats(
     process.env.CMUX_WWW_ORIGIN = "https://cmux-dev-backend-1.tail137216.ts.net:4635/";
   }
   try {
-    const result = await Effect.runPromise(getVmStats({ userId: "user", providerVmId: "vm-stats" }).pipe(Effect.provide(layer)));
-    expect(calls).toEqual(["/v5/vms/vm-stats"]);
-    return { result, execCalls };
+    const run = () => Effect.runPromise(getVmStats({ userId: "user", providerVmId: "vm-stats" }).pipe(Effect.provide(layer)));
+    const results = options.concurrent ? await Promise.all([run(), run()]) : [await run()];
+    const result = results[0]!;
+    expect(calls).toEqual(options.concurrent
+      ? ["/v5/vms/vm-stats", "/v5/vms/vm-stats"]
+      : ["/v5/vms/vm-stats"]);
+    return { result, results, execCalls, execOptions };
   } finally {
     for (const key of envKeys) {
       const value = previousEnvironment[key];
@@ -89,10 +96,19 @@ describe("Freestyle live machine stats", () => {
   });
 
   test("direct dev backends sample an awake guest when callback telemetry is unavailable", async () => {
-    const { result, execCalls } = await readStats("running", undefined, { directBackend: true });
+    const { result, execCalls, execOptions } = await readStats("running", undefined, { directBackend: true });
     expect(execCalls).toHaveLength(1);
+    expect(execOptions[0]).toMatchObject({ timeoutMs: 5_000 });
     expect(result).toMatchObject({ state: "awake", ...gauges });
     expect(typeof result.resourceSampledAt).toBe("number");
+  });
+
+  test("coalesces concurrent direct probes for one VM", async () => {
+    const { results, execCalls } = await readStats("running", undefined, { directBackend: true, concurrent: true });
+    expect(execCalls).toHaveLength(1);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.cpuPercent).toBe(gauges.cpuPercent);
+    expect(results[1]?.diskUsedMb).toBe(gauges.diskUsedMb);
   });
 
   test.each([

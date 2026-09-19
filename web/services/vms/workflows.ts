@@ -2927,6 +2927,41 @@ function boundedAccountDeletionIdentityRevokeLimit(limit: number | undefined): n
   return Math.max(1, Math.min(Math.floor(limit), ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH));
 }
 
+const DIRECT_RESOURCE_STATS_TIMEOUT_MS = 5_000;
+const directResourceStatsInFlight = new Map<string, Promise<ExecResult | null>>();
+
+/** Keep one bounded guest probe per VM while concurrent stats requests overlap. */
+function directResourceStatsExec(
+  providers: VmProviderGatewayShape,
+  provider: ProviderId,
+  providerVmId: string,
+  command: string,
+  providerMetadata: Readonly<Record<string, unknown>>,
+): Effect.Effect<ExecResult | null> {
+  const key = `${provider}:${providerVmId}`;
+  const existing = directResourceStatsInFlight.get(key);
+  if (existing) return Effect.promise(() => existing);
+
+  const execution = Effect.runPromise(providers.exec(provider, providerVmId, command, {
+    timeoutMs: DIRECT_RESOURCE_STATS_TIMEOUT_MS,
+    providerMetadata: { ...providerMetadata },
+  })).catch(() => null);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), DIRECT_RESOURCE_STATS_TIMEOUT_MS);
+  });
+  const bounded = Promise.race([execution, deadline]).then((result) => {
+    if (timer !== undefined) clearTimeout(timer);
+    return result;
+  });
+  directResourceStatsInFlight.set(key, bounded);
+  void bounded.then(
+    () => { if (directResourceStatsInFlight.get(key) === bounded) directResourceStatsInFlight.delete(key); },
+    () => { if (directResourceStatsInFlight.get(key) === bounded) directResourceStatsInFlight.delete(key); },
+  );
+  return Effect.promise(() => bounded);
+}
+
 export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -3002,9 +3037,15 @@ export function getVmStats(input: {
           return Effect.succeed(reported);
         }
         const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
-        return providers.exec(vm.provider, input.providerVmId, command).pipe(
+        return directResourceStatsExec(
+          providers,
+          vm.provider,
+          input.providerVmId,
+          command,
+          vm.providerMetadata,
+        ).pipe(
           Effect.map((result) => {
-            if (result.exitCode !== 0) return reported;
+            if (!result || result.exitCode !== 0) return reported;
             try {
               const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
               if (!usage) return reported;
