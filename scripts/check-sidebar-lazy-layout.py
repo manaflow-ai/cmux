@@ -612,7 +612,8 @@ def default_targets():
     """(path, require_functions, required_row_types, required_row_functions,
     scan_all_rows, required_markers) per scanned file.
 
-    ContentView.swift holds the container functions and TabItemView; the group
+    VerticalTabsSidebar.swift holds the container functions and TabItemView.swift
+    the workspace row view; the group
     header row view lives in its own file with neither container function; the
     group-header row builder (`sidebarWorkspaceGroupRow(...)`) lives in a
     third file whose modifier sites wrap the header before it enters the
@@ -622,10 +623,18 @@ def default_targets():
     root = repo_root_dir()
     return (
         (
-            os.path.join(root, "Sources", "ContentView.swift"),
+            os.path.join(root, "Sources", "VerticalTabsSidebar.swift"),
             True,
-            ("TabItemView",),
+            (),
             ("workspaceRow",),
+            False,
+            (),
+        ),
+        (
+            os.path.join(root, "Sources", "TabItemView.swift"),
+            False,
+            ("TabItemView",),
+            (),
             False,
             (),
         ),
