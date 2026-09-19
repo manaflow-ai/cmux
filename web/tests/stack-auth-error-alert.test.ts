@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   KnownErrors,
-} from "@stackframe/stack-shared";
-import { runAsynchronouslyWithAlert } from "@stackframe/stack-shared/dist/utils/promises";
+} from "@hexclave/shared";
+import { runAsynchronouslyWithAlert } from "@hexclave/shared/dist/utils/promises";
 
 const originalNodeEnv = process.env.NODE_ENV;
 const originalAlert = globalThis.alert;
@@ -74,7 +74,7 @@ describe("Stack Auth async error alerts", () => {
     const source = await readFile(
       fileURLToPath(
         new URL(
-          "../node_modules/@stackframe/stack/dist/esm/components/credential-sign-up.js",
+          "../node_modules/@hexclave/next/dist/esm/components/credential-sign-up.js",
           import.meta.url,
         ),
       ),
