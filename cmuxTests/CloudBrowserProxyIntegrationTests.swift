@@ -475,7 +475,8 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 try await Task.sleep(for: .seconds(5))
                 return
             }
-            let greeting = [first[0]] + try await connection.receiveExactly(2)
+            let rest = try await connection.receiveExactly(2)
+            let greeting = [first[0]] + rest
             guard greeting[0] == 0x05, greeting[2] == 0x02 else { return }
             try await connection.sendAll(Data([0x05, 0x02]))
             let authHeader = try await connection.receiveExactly(2)
