@@ -214,7 +214,9 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {
       const driver = getProvider(provider);
-      if (!driver.getStatus) return "running" as const;
+      if (!driver.getStatus) {
+        throw new VmOperationUnsupportedError({ provider, operation: "getStatus" });
+      }
       return await driver.getStatus(vmId);
     }),
   resume: (provider, vmId) =>
