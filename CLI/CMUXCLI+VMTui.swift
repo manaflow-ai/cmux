@@ -1466,7 +1466,7 @@ extension CMUXCLI {
             for group in groups {
                 lines.append("    \(group.label)")
                 for terminal in group.items {
-                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: vmTreeTerminalOpenHint(terminal, "cmux surface open")))
                 }
             }
             if !browsers.isEmpty {
@@ -1543,6 +1543,8 @@ extension CMUXCLI {
                 }
             } else if let workspace = resource["remote_workspace"] as? [String: Any] {
                 // An explicit empty `remote_views` overrides this legacy field.
+                // Retained non-running legacy terminals belong only in the pool.
+                if kind == "terminal", !vmTreeTerminalIsRunning(resource) { continue }
                 placements.append((workspace, nil))
             }
             for placement in placements {
@@ -1666,12 +1668,12 @@ extension CMUXCLI {
                 }
             }
             for terminal in attached {
-                lines.append("    " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                lines.append("    " + vmTreeResourceCell(terminal, openHint: vmTreeTerminalOpenHint(terminal, "cmux surface open")))
             }
             if !detached.isEmpty {
                 lines.append("    " + String(localized: "cli.vm.tree.detached", defaultValue: "(detached — no tab on the machine shows these)"))
                 for terminal in detached {
-                    lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux surface open"))
+                    lines.append("      " + vmTreeResourceCell(terminal, openHint: vmTreeTerminalOpenHint(terminal, "cmux surface open")))
                 }
             }
         }
@@ -1690,6 +1692,27 @@ extension CMUXCLI {
             return viewCount == 0
         }
         return terminal["remote_workspace"] == nil
+    }
+
+    /// Legacy payloads expose `running` without a lifecycle string. Keep their
+    /// grouping semantics aligned with lifecycle-aware payloads.
+    private static func vmTreeTerminalIsRunning(_ terminal: [String: Any]) -> Bool {
+        if let lifecycle = terminal["lifecycle"] as? String {
+            return lifecycle == "running"
+        }
+        return (terminal["running"] as? Bool) == true
+    }
+
+    /// Returns an open command only for terminals that can still be projected.
+    /// Exited records remain visible for lifecycle inspection but cannot be reopened.
+    private static func vmTreeTerminalOpenHint(_ terminal: [String: Any], _ hint: String) -> String? {
+        if let lifecycle = terminal["lifecycle"] as? String {
+            return lifecycle == "exited" ? nil : hint
+        }
+        if let running = terminal["running"] as? Bool, !running {
+            return nil
+        }
+        return hint
     }
 
     /// One workspace placement as the catalog payload describes it: the resource and the
@@ -1738,14 +1761,14 @@ extension CMUXCLI {
             } else {
                 command = "cmux vm open \(machineID)/\(workspaceID)/\(key)"
             }
-            return vmTreeResourceCell(resource, openHint: command, addressKey: "key", command: command)
+            return vmTreeResourceCell(resource, openHint: vmTreeTerminalOpenHint(resource, command), addressKey: "key", command: command)
         }
         return vmTreeResourceCell(resource, openHint: "cmux surface open", showFullKey: true)
     }
 
     private static func vmTreeResourceCell(
         _ terminal: [String: Any],
-        openHint: String,
+        openHint: String?,
         addressKey: String = "id",
         showFullKey: Bool = false,
         command: String? = nil
@@ -1773,8 +1796,10 @@ extension CMUXCLI {
         if let open = (terminal["open_surface_ids"] as? [String])?.first, !open.isEmpty {
             cell += "  " + String(format: String(localized: "cli.vm.tree.open", defaultValue: "(open: %@)"), String(open.prefix(8)))
         }
-        let address = command ?? (addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)")
-        cell += "  (\(address))"
+        if let openHint {
+            let address = command ?? (addressKey == "key" ? "\(openHint)/\(key)" : "\(openHint) \(resourceId)")
+            cell += "  (\(address))"
+        }
         return cell
     }
 
