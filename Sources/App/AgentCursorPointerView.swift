@@ -1,8 +1,12 @@
 import AppKit
 
-/// The exact Sky cursor geometry and cmux brand fill shared by the live pointer
-/// and the standalone Computer Use helper icon.
-private enum ComputerUseCursorArtwork {
+/// The kite shape and cmux gradient shared by Computer Use and cloud presence.
+enum ComputerUseCursorArtwork {
+    /// Draws the standard 17-point pointer with its white outline.
+    static func drawPointer(in context: CGContext) {
+        draw(in: context, scale: 1.5, outlineColor: NSColor.white.cgColor, outlineWidth: 1.7)
+    }
+
     static func path() -> CGPath {
         let kite = CGMutablePath()
         kite.move(to: CGPoint(x: 0.68, y: 1.83))
@@ -143,20 +147,8 @@ final class AgentCursorPointerView: NSView {
         nil
     }
 
-    /// Scale from the Sky asset's 18.59-unit viewBox to view points. The kite
-    /// silhouette occupies ~11.2 units of that box, so this renders a ~17pt cursor.
-    private static let skyScale: CGFloat = 1.5
-
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-
-        // The icon renderer calls this same path/gradient without an outline;
-        // the live pointer keeps the upstream white stroke for contrast over apps.
-        ComputerUseCursorArtwork.draw(
-            in: context,
-            scale: Self.skyScale,
-            outlineColor: NSColor.white.cgColor,
-            outlineWidth: 1.7
-        )
+        ComputerUseCursorArtwork.drawPointer(in: context)
     }
 }

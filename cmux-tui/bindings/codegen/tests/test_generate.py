@@ -177,6 +177,12 @@ class GenerateTests(unittest.TestCase):
                 "pub enum TerminalKey {",
                 "pub enum LayoutUndoResult {",
             ),
+            "swift": (
+                "struct ClearHistoryRequest:",
+                "case clearHistory(id: UInt64, request: ClearHistoryRequest)",
+                "enum TerminalKey: String",
+                "indirect enum LayoutUndoResult:",
+            ),
             "typescript": (
                 "export interface ClearHistoryRequest",
                 "export interface NewPaneRightRequest",

@@ -23,6 +23,8 @@ struct MuxEventSubscriber {
 enum MuxEventFilter {
     All,
     ConfigReload,
+    /// Only `PresenceChanged`; nothing else reaches the mailbox.
+    Presence,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -62,6 +64,7 @@ enum CoalescedEventKey {
     Title(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
+    Presence(u64),
 }
 
 impl MuxEventBroadcaster {
@@ -71,6 +74,10 @@ impl MuxEventBroadcaster {
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::ConfigReload)
+    }
+
+    pub fn subscribe_presence(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Presence)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -137,6 +144,7 @@ impl MuxEventFilter {
         match self {
             Self::All => true,
             Self::ConfigReload => matches!(event, MuxEvent::ConfigReloadRequested),
+            Self::Presence => matches!(event, MuxEvent::PresenceChanged(_)),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -160,6 +168,7 @@ impl SurfaceSessionScope {
             | MuxEvent::AgentChanged { surface, .. }
             | MuxEvent::TitleChanged { surface, .. }
             | MuxEvent::ScrollChanged { surface, .. } => *surface == self.surface,
+            MuxEvent::PresenceChanged(entry) => entry.surface.is_none_or(|s| s == self.surface),
             MuxEvent::Notification(notification) => {
                 notification.surface.is_none_or(|surface| surface == self.surface)
             }
@@ -246,6 +255,10 @@ impl MuxEventMailbox {
             event @ MuxEvent::ScrollChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
             }
+            MuxEvent::PresenceChanged(entry) => {
+                let key = CoalescedEventKey::Presence(entry.client);
+                state.push_coalesced(sequence, key, MuxEvent::PresenceChanged(entry))
+            }
             MuxEvent::ConfigReloadRequested => state.push_coalesced(
                 sequence,
                 CoalescedEventKey::ConfigReload,
@@ -331,6 +344,21 @@ impl MuxEventMailboxState {
         self.discard_coalesced(CoalescedEventKey::Title(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+        let sequences = self
+            .coalesced
+            .iter()
+            .filter_map(|(sequence, (_, event))| match event {
+                MuxEvent::PresenceChanged(entry) if entry.surface == Some(surface) => {
+                    Some(*sequence)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for sequence in sequences {
+            if let Some((key, _)) = self.coalesced.remove(&sequence) {
+                self.coalesced_sequences.remove(&key);
+            }
+        }
     }
 
     fn reserve_pending_slot(&mut self) -> bool {
@@ -545,6 +573,26 @@ mod tests {
         broadcaster.emit(MuxEvent::TitleChanged { surface: 4, title: "gone".into() });
         broadcaster.emit(MuxEvent::SurfaceExited(4));
 
+        assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
+        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn surface_exit_discards_its_pending_presence() {
+        let broadcaster = MuxEventBroadcaster::default();
+        let events = broadcaster.subscribe();
+        broadcaster.emit(MuxEvent::PresenceChanged(crate::PresenceEntry {
+            client: 7,
+            name: Some("ada".into()),
+            kind: Some("mac".into()),
+            color: 0,
+            surface: Some(4),
+            pointer: Some(crate::PresenceAnchor::Cell { row: 1, col: 2, scroll_offset: 0 }),
+            highlight: None,
+            updated_at_ms: 1,
+            generation: 1,
+        }));
+        broadcaster.emit(MuxEvent::SurfaceExited(4));
         assert!(matches!(events.recv().unwrap(), MuxEvent::SurfaceExited(4)));
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
     }

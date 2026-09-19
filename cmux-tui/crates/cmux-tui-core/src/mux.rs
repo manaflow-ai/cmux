@@ -975,6 +975,9 @@ pub enum MuxEvent {
     /// The daemon's machine-level model spend readout changed. `None` means
     /// the readout is unavailable and frontends must hide it.
     MachineUsageChanged(Option<MachineUsage>),
+    /// One client's collaboration presence (pointer/highlight) changed.
+    /// `surface: None` means the client cleared it or went away.
+    PresenceChanged(crate::PresenceEntry),
     /// Every workspace is gone.
     Empty,
 }
@@ -2362,6 +2365,7 @@ pub struct Mux {
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     pairing: PairingBroker,
+    pub(crate) presence: crate::PresenceHub,
     #[cfg(test)]
     test_surface_runtime: bool,
     pub session: String,
@@ -2762,6 +2766,7 @@ impl Mux {
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
             pairing: PairingBroker::new(),
+            presence: crate::PresenceHub::default(),
             #[cfg(test)]
             test_surface_runtime,
             session,
@@ -6447,7 +6452,17 @@ impl Mux {
         Some(self.subscribers.subscribe_surface_session(surface, workspace.id, screen.id, pane))
     }
 
+    /// Subscribe to presence changes only (`subscribe` with `presence_only`).
+    pub fn subscribe_presence(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_presence()
+    }
+
     pub fn emit(&self, event: MuxEvent) {
+        if let MuxEvent::SurfaceExited(surface) = &event {
+            for entry in self.presence.forget_surface(*surface) {
+                self.subscribers.emit(MuxEvent::PresenceChanged(entry));
+            }
+        }
         self.subscribers.emit(event);
     }
 
