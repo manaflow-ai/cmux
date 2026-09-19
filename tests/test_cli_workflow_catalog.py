@@ -12,15 +12,13 @@ import uuid
 from pathlib import Path
 
 
-EXPECTED_EXAMPLES = {
-    "worktree-agents",
-    "full-stack-dev",
-    "ssh-devbox",
-    "review-pr",
-    "docs-workspace",
-    "quick-agent-buttons",
-    "ci-watch",
-}
+RECIPE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "skills"
+    / "cmux-customization"
+    / "references"
+    / "examples.md"
+)
 
 EXPECTED_LAYOUT_COMMANDS = {
     "cmux layout list --json",
@@ -97,6 +95,16 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def recipe_example_ids() -> set[str]:
+    text = RECIPE_PATH.read_text(encoding="utf-8")
+    headings = re.findall(r"^## (.+)$", text, flags=re.MULTILINE)
+    headings = [heading for heading in headings if heading != "Validation checklist"]
+    return {
+        re.sub(r"[^a-z0-9]+", "-", heading.lower()).strip("-")
+        for heading in headings
+    }
+
+
 def load_json(proc: subprocess.CompletedProcess[str], label: str) -> dict:
     require(proc.returncode == 0, f"{label}: exit {proc.returncode}: {proc.stderr!r}")
     require(not proc.stderr.strip(), f"{label}: unexpected stderr: {proc.stderr!r}")
@@ -134,7 +142,11 @@ def main() -> int:
         examples = canonical.get("examples")
         require(isinstance(examples, list), "examples must be a list")
         ids = {example.get("id") for example in examples if isinstance(example, dict)}
-        require(ids == EXPECTED_EXAMPLES, f"unexpected workflow example ids: {sorted(ids)}")
+        recipe_ids = recipe_example_ids()
+        require(
+            ids == recipe_ids,
+            f"catalog ids must match shipped recipe headings: catalog={sorted(str(x) for x in ids)} recipes={sorted(recipe_ids)}",
+        )
         require(len(examples) == len(ids), "workflow example ids must be unique")
         for example in examples:
             require(isinstance(example, dict), "each workflow example must be an object")
@@ -162,11 +174,13 @@ def main() -> int:
                 f"{example['id']}: requires must be a list",
             )
             require(
-                example["source"].startswith(
+                example["source"]
+                == (
                     "https://github.com/manaflow-ai/cmux/blob/main/"
                     "skills/cmux-customization/references/examples.md#"
+                    f"{example['id']}"
                 ),
-                f"{example['id']}: source must point at its shipped recipe",
+                f"{example['id']}: source must point at its matching shipped recipe",
             )
 
         saved_layouts = canonical.get("saved_layouts")
