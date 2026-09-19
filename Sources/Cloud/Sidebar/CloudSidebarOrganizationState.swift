@@ -5,12 +5,38 @@ import Foundation
 struct CloudSidebarOrganizationState: Codable, Equatable {
     var groups: [String: CloudSidebarOrganizationGroup] = [:]
 
+    init() {}
+
+    private enum CodingKeys: String, CodingKey { case groups, orders, pins }
+
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        if values.contains(.groups) {
+            groups = try values.decode([String: CloudSidebarOrganizationGroup].self, forKey: .groups)
+        } else {
+            // Early organization drafts used the same preference key. Import
+            // their stable IDs once; all subsequent writes use the current schema.
+            let orders = try values.decode([String: [String]].self, forKey: .orders)
+            let pins = try values.decode(Set<String>.self, forKey: .pins)
+            groups = orders.mapValues { CloudSidebarOrganizationGroup(order: $0, pinned: pins.intersection($0)) }
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(groups, forKey: .groups)
+    }
+
     func ordered(_ ids: [String], parent: String) -> [String] {
         guard let group = groups[parent] else { return ids }
         let present = Set(ids)
         let remembered = Set(group.order)
         var seen = Set<String>()
-        let order = group.order.filter { present.contains($0) && seen.insert($0).inserted } + ids.filter { !remembered.contains($0) }
+        let saved = group.order.filter { present.contains($0) && seen.insert($0).inserted }
+        let discovered = ids.filter { !remembered.contains($0) }
+        // At the outline root every eligible row is a Cloud machine. Newly
+        // discovered machines replace pending rows ahead of ordinary saved rows.
+        let order = parent.isEmpty ? discovered + saved : saved + discovered
         return order.filter { group.pinned.contains($0) } + order.filter { !group.pinned.contains($0) }
     }
 

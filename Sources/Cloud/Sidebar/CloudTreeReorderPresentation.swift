@@ -34,7 +34,7 @@ final class CloudTreeReorderPresentation {
     func layout() {
         guard let outline, let destination else { return }
         let drop = destination.drop
-        let children = drop.parent.children
+        let children = drop.siblings
         let y: CGFloat
         if drop.childIndex < children.count {
             let row = outline.row(forItem: children[drop.childIndex])

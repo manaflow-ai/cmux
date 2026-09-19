@@ -11,6 +11,125 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar organization")
 struct CloudSidebarOrderingTests {
+    // BEGIN standalone organization state tests
+    @Test("Root machines keep pins and saved order while newly discovered machines lead")
+    func rootMachineOrdering() throws {
+        var state = CloudSidebarOrganizationState()
+        let movedMachine = state.apply(.up, id: "machine:c", siblings: ["machine:a", "machine:b", "machine:c"], parent: "")
+        #expect(movedMachine)
+        #expect(state.ordered(["machine:a", "machine:b", "machine:c"], parent: "") == ["machine:a", "machine:c", "machine:b"])
+        let pinnedMachine = state.apply(.pin, id: "machine:b", siblings: ["machine:a", "machine:b", "machine:c"], parent: "")
+        #expect(pinnedMachine)
+        #expect(state.ordered(["machine:a", "machine:new", "machine:b", "machine:c"], parent: "") == ["machine:b", "machine:new", "machine:a", "machine:c"])
+        let crossedPinBoundary = state.apply(.before("machine:b"), id: "machine:a", siblings: ["machine:a", "machine:b", "machine:c"], parent: "")
+        #expect(!crossedPinBoundary)
+        let restored = try JSONDecoder().decode(CloudSidebarOrganizationState.self, from: JSONEncoder().encode(state))
+        #expect(restored == state)
+        #expect(restored.ordered(["machine:c", "machine:b"], parent: "") == ["machine:b", "machine:c"])
+        #expect(restored.ordered(["machine:c", "machine:b", "machine:a"], parent: "") == ["machine:b", "machine:a", "machine:c"])
+    }
+
+    @Test("Draft preferences migrate to groups without replacing current-format preferences")
+    func draftPreferencesMigrate() throws {
+        let draft = Data(#"{"orders":{"": ["machine:b","machine:a"],"machine:a":["ports","workspaces"]},"pins":["machine:b","ports"]}"#.utf8)
+        let migrated = try JSONDecoder().decode(CloudSidebarOrganizationState.self, from: draft)
+        #expect(migrated.ordered(["machine:a", "machine:b"], parent: "") == ["machine:b", "machine:a"])
+        #expect(migrated.isPinned("ports", parent: "machine:a"))
+        #expect(!migrated.isPinned("ports", parent: ""))
+        let encoded = try JSONEncoder().encode(migrated)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(Set(object.keys) == ["groups"])
+        #expect(try JSONDecoder().decode(CloudSidebarOrganizationState.self, from: encoded) == migrated)
+        let current = Data(#"{"groups":{"machine:a":{"order":["workspaces","ports"],"pinned":["workspaces"]}},"orders":{"machine:a":["ports","workspaces"]},"pins":["ports"]}"#.utf8)
+        let state = try JSONDecoder().decode(CloudSidebarOrganizationState.self, from: current)
+        #expect(state.isPinned("workspaces", parent: "machine:a"))
+        #expect(!state.isPinned("ports", parent: "machine:a"))
+    }
+
+    @Test("Category preferences retain absent sibling slots and never cross parents")
+    func categoryMissingRowsStayInTheirSlots() {
+        var state = CloudSidebarOrganizationState()
+        let movedTerminals = state.apply(.up, id: "terminals", siblings: ["workspaces", "ports", "terminals"], parent: "machine:a")
+        #expect(movedTerminals)
+        let movedPorts = state.apply(.up, id: "ports", siblings: ["workspaces", "ports"], parent: "machine:a")
+        #expect(movedPorts)
+        #expect(state.ordered(["workspaces", "ports", "terminals"], parent: "machine:a") == ["ports", "terminals", "workspaces"])
+        let crossedParentBoundary = state.apply(.before("elsewhere"), id: "ports", siblings: ["workspaces", "ports"], parent: "machine:a")
+        #expect(!crossedParentBoundary)
+        #expect(state.ordered(["workspaces", "ports"], parent: "machine:b") == ["workspaces", "ports"])
+    }
+    // END standalone organization state tests
+
+    @Test("Machines and category groups share native organization without changing remote identities")
+    func machinesAndCategoriesUseSharedOwner() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let nodes = fixture.nodes()
+        let machine = try #require(nodes.first)
+        let categories = machine.children.filter(\.canOrganize)
+        let first = try #require(categories.first)
+        let last = try #require(categories.last)
+        let owner = fixture.catalog.sidebarOrganization
+        #expect(fixture.catalog.organizeSidebar(.pin, nodeID: last.id))
+        fixture.coordinator.apply(nodes: fixture.nodes())
+        let outline = try #require(fixture.coordinator.outlineView)
+        let current = try #require(CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).first { $0.id == last.id })
+        #expect(current.isPinned)
+        let menu = try #require(fixture.coordinator.contextMenu(forRow: outline.row(forItem: current)))
+        #expect(menu.items.contains { $0.title == String(localized: "cloudTree.menu.unpin", defaultValue: "Unpin") })
+        let writer = try #require(fixture.coordinator.outlineView(outline, pasteboardWriterForItem: current) as? NSPasteboardItem)
+        #expect(writer.string(forType: .cloudSidebarRow) == last.id)
+        #expect(writer.types == [.cloudSidebarRow])
+        #expect(fixture.catalog.organizeSidebar(.pin, nodeID: machine.id))
+        #expect(owner.state.isPinned(machine.id, parent: ""))
+        #expect(!owner.perform(.before(machine.id), id: first.id, nodes: nodes))
+        let restored = CloudSidebarOrganizationStore(defaults: fixture.defaults)
+        #expect(restored.state == owner.state)
+        #expect(fixture.provider.moved.isEmpty && fixture.provider.closedTabs.isEmpty)
+        owner.forget(machine: fixture.machine)
+        #expect(owner.state.groups[machine.id] == nil)
+        #expect(!owner.state.isPinned(machine.id, parent: ""))
+    }
+
+    @Test("Native root drops reorder machines and keep pending rows fixed")
+    func machineRootDrop() throws {
+        func machine(_ id: String) -> CloudTreeNode {
+            CloudTreeNode(id: "machine:" + id, kind: .machine(MachineSnapshot(
+                id: id, provider: "freestyle", image: "test", isDesktop: false,
+                activity: .ready, createdAt: nil, label: id
+            ), nil))
+        }
+        let pending = CloudTreeNode(id: "pending", kind: .pendingMachine(MachineCreateOperation(
+            id: UUID(), request: MachineCreateRequest(mode: .newMachine, kind: .base, name: nil, arguments: []),
+            startedAt: Date()
+        )))
+        let a = machine("a"), b = machine("b")
+        let nodes = [pending, a, b]
+        let state = CloudSidebarOrganizationState()
+        let drop = try #require(CloudSidebarOrganizationDrop(
+            sourceID: b.id, nodes: nodes, state: state, proposedItem: nil,
+            proposedChildIndex: 1, dropAfterItem: false
+        ))
+        #expect(drop.parent == nil)
+        #expect(drop.action == .before(a.id))
+        let hover = try #require(CloudSidebarOrganizationDrop(
+            sourceID: b.id, nodes: nodes, state: state, proposedItem: a,
+            proposedChildIndex: NSOutlineViewDropOnItemIndex, dropAfterItem: false
+        ))
+        #expect(hover.parent == nil)
+        #expect(hover.action == drop.action)
+        var moved = state
+        let appliedDrop = moved.apply(drop.action, id: b.id, siblings: [a.id, b.id], parent: "")
+        #expect(appliedDrop)
+        let arranged = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: moved)
+        #expect(arranged.map(\.id) == [pending.id, b.id, a.id])
+        #expect(arranged[0] === pending)
+        #expect(!pending.canOrganize)
+        #expect(CloudSidebarOrganizationDrop(sourceID: pending.id, nodes: nodes, state: moved,
+            proposedItem: nil, proposedChildIndex: 3, dropAfterItem: false) == nil)
+    }
+
+
     @Test("Remote folders offer working move and pin actions in the real outline")
     func folderMenuMovesWithoutChangingIdentity() throws {
         let fixture = CloudSidebarOrderingFixture()

@@ -31,7 +31,7 @@ struct CloudTreeMachineMenuTests {
         #expect(!workspaceGroup.kind.refreshesOnExpansion)
     }
 
-    @Test("Ports menu contains refresh without a VPN setup action")
+    @Test("Ports menu contains organization and refresh without a VPN setup action")
     func portsMenuHasOnlyRefresh() throws {
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
@@ -52,7 +52,12 @@ struct CloudTreeMachineMenuTests {
         )])
 
         let menu = try #require(coordinator.contextMenu(forRow: 0))
-        #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [Self.title("cloudTree.menu.refresh", "Refresh")])
+        #expect(menu.items.filter { !$0.isSeparatorItem }.map(\.title) == [
+            Self.title("cloudTree.menu.pin", "Pin"),
+            Self.title("contextMenu.moveUp", "Move Up"),
+            Self.title("contextMenu.moveDown", "Move Down"),
+            Self.title("cloudTree.menu.refresh", "Refresh")
+        ])
     }
 
     @Test("A machine's menu exposes grow-only resource resize and wires its targets")
@@ -77,6 +82,9 @@ struct CloudTreeMachineMenuTests {
         let menu = try #require(coordinator.contextMenu(forRow: 0))
         let titles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         #expect(titles == [
+            Self.title("cloudTree.menu.pin", "Pin"),
+            Self.title("contextMenu.moveUp", "Move Up"),
+            Self.title("contextMenu.moveDown", "Move Down"),
             Self.title("machines.menu.setDefaultMachine", "Set as Default Machine"),
             Self.title("machines.menu.openShell", "Open Shell"),
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
