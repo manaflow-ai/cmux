@@ -82,6 +82,7 @@ import {
   isPaidVmPlan,
   isVmFreeAccessExpired,
   maxActiveVmsForPlan,
+  maxResumeActiveVmsForPlan,
   maxDiskMbForPlan,
   maxMemoryMbForPlan,
   maxVcpusForPlan,
@@ -2451,7 +2452,7 @@ function reservePausedResumeIfTeam(
   repo: VmRepositoryShape,
   vm: CloudVmRow,
   providerVmId: string,
-  maxActiveVms: number | null = maxActiveVmsForPlan(vm.billingPlanId),
+  maxActiveVms: number | null = maxResumeActiveVmsForPlan(vm.billingPlanId),
 ): Effect.Effect<boolean, VmWorkflowError> {
   if (!vm.billingTeamId) return Effect.succeed(false);
   return Effect.gen(function* () {
