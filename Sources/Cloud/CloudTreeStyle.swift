@@ -89,7 +89,9 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
     func machineRowHeight(hasStats: Bool, hasUsage: Bool = false) -> CGFloat {
         switch machineRowLayout {
         case .singleLine:
-            return rowHeight + 2 * machineBandVerticalPadding
+            let identityHeight = machineNameLineHeight
+                + 2 * (machineVerticalPadding + machineBandVerticalPadding)
+            return max(rowHeight + 2 * machineBandVerticalPadding, identityHeight)
         case .twoLine:
             let statsHeight = hasStats && showsMachineStats ? 1 + machineResourceHeight : 0
             let usageHeight = hasUsage ? 1 + machineResourceHeight : 0
