@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect";
 
 export type VmTimingStage =
   | "auth"
+  /** Time until the request passes validation and durable create admission. */
+  | "admission"
   | "request_parse"
   | "entitlements"
   | "begin_create"
