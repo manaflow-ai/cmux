@@ -1203,6 +1203,7 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
 
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    env["IOS_DISTRIBUTION_IDENTITY"] = ""
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
@@ -1223,6 +1224,7 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
 
 def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    env["IOS_DISTRIBUTION_IDENTITY"] = ""
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
