@@ -9,7 +9,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "web" / "data" / "cmux.schema.json"
-OUTPUT = ROOT / "Packages" / "macOS" / "CmuxFoundation" / "Sources" / "CmuxFoundation" / "ConfigValidation" / "CmuxConfigSchema.generated.swift"
+OUTPUT = (
+    ROOT
+    / "Packages"
+    / "macOS"
+    / "CmuxFoundation"
+    / "Sources"
+    / "CmuxFoundation"
+    / "ConfigValidation"
+    / "CmuxConfigSchema.generated.swift"
+)
 
 
 def generated_source() -> str:
