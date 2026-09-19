@@ -158,7 +158,8 @@ struct CloudDirectoryLifecycleTests {
         let sidebar = try fixture.sidebar()
         #expect(sidebar.cloudWorkspaceLabel?.contains("Build server") == true)
         #expect(sidebar.cloudWorkspaceLabel?.contains("cwd-machine") == true)
-        #expect(try fixture.sidebarText().contains("cwd-machine"))
+        #expect(try fixture.sidebarText().contains("Build server ·"))
+        #expect(try !fixture.sidebarText().contains("cwd-machine"))
         #expect(fixture.workspace.cloudBindingState.revision > revision)
         #expect(sidebar.accessibilityLabel(index: 0, workspaceCount: 1).contains("Build server"))
         info.name = "Renamed server"
@@ -166,6 +167,67 @@ struct CloudDirectoryLifecycleTests {
         #expect(try fixture.sidebar().cloudWorkspaceLabel?.contains("Renamed server") == true)
         #expect(try fixture.sidebar().cloudWorkspaceLabel?.contains("Build server") == false)
         #expect(fixture.workspace.title == "My explicit task title")
+    }
+
+    @Test("Every sidebar width uses the Cloud tree name, with IDs reserved for help", arguments: [
+        (nil as String?, "early-plum-alpaca" as String?, "early-plum-alpaca"),
+        ("Build server", "early-plum-alpaca", "Build server"),
+        ("", "early-plum-alpaca", "early-plum-alpaca"),
+        (nil, nil, "cwd-machine"),
+        ("", "", "cwd-machine")
+    ])
+    func machineNamePresentation(label: String?, slug: String?, expected: String) throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let binding = fixture.workspace.cloudVMBinding
+        let projections = fixture.catalog.projections
+        var summary = fixture.provider.summary
+        summary.displayName = label
+        summary.slug = slug
+        fixture.provider.update(summary: summary)
+        try fixture.changeDirectory("/home/cmux/a", terminal: 0)
+        try fixture.changeDirectory("/home/cmux/a", terminal: 1)
+
+        #expect(MachineSnapshotBuilder.snapshot(from: summary).displayName == expected)
+        #expect(fixture.provider.info.name == expected)
+        for usesLastSegmentPath in [false, true] {
+            let presentation = try #require(CloudWorkspaceSidebarPresentation(
+                workspace: fixture.workspace, orderedPanelIDs: fixture.panels,
+                usesLastSegmentPath: usesLastSegmentPath
+            ))
+            let full = "\(expected) · /home/cmux/a"
+            #expect(presentation.directoryCandidates == (usesLastSegmentPath
+                ? [full, "\(expected) · …/a"] : [full]))
+            #expect(presentation.machineLabel.contains(expected))
+            #expect(presentation.machineLabel.contains(fixture.machine.rawValue))
+        }
+        let snapshot = try fixture.sidebar()
+        let candidates = snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)
+        #expect(!candidates.isEmpty)
+        #expect(candidates.allSatisfy { $0.hasPrefix("\(expected) · ") })
+        #expect(snapshot.accessibilityLabel(index: 0, workspaceCount: 1).contains(fixture.machine.rawValue))
+        #expect(fixture.workspace.cloudVMBinding == binding)
+        #expect(fixture.catalog.projections == projections)
+    }
+
+    @Test("A renamed machine keeps its name while cwd is unavailable and safely falls back when cleared")
+    func unavailableDirectoryMachineName() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.changeDirectory(nil, terminal: 0)
+        try fixture.changeDirectory(nil, terminal: 1)
+        for name in ["Build server", "Renamed server", "", " \n "] {
+            var info = fixture.provider.info
+            info.name = name
+            fixture.catalog.updateMachine(info, from: fixture.provider)
+            let expected = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? fixture.machine.rawValue : name
+            let presentation = try #require(CloudWorkspaceSidebarPresentation(
+                workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true
+            ))
+            #expect(presentation.directoryCandidates == ["\(expected) · \(CloudWorkspaceSidebarPresentation.unavailableDirectory)"])
+            #expect(fixture.workspace.cloudVMID == fixture.machine.rawValue)
+        }
     }
 
     @Test("Saved Cloud paths require fresh remote confirmation after restore")
@@ -206,7 +268,7 @@ struct CloudDirectoryLifecycleTests {
         ))
         #expect(workspace.reportedPanelDirectory(panelId: fixture.panels[0]) == "/srv/other")
         #expect(try fixture.sidebar().cloudWorkspaceLabel?.contains("other-machine") == true)
-        #expect(try fixture.sidebarText().contains("other-machine ·"))
+        #expect(try fixture.sidebarText().contains("Other machine ·"))
         #expect(workspace.title == "My explicit task title")
     }
 
