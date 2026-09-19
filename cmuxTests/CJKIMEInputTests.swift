@@ -2139,7 +2139,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
 
 @MainActor
 final class DeadKeyCompositionRegressionTests: XCTestCase {
-    func testOptionDeadKeyUsesGhosttyTranslationInsteadOfStartingComposition() {
+    func testOptionDeadKeyPreservesAppKitComposition() {
         _ = NSApplication.shared
 
         let surface = TerminalSurface(
@@ -2192,9 +2192,9 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if [14, 32, 34, 45, 50].contains(Int(event.keyCode)) {
                 interpretedKeyCodes.append(event.keyCode)
-                XCTAssertFalse(
+                XCTAssertTrue(
                     flags.contains(.option),
-                    "A claimed Option side must show AppKit Ghostty's translated event"
+                    "Dead-key input must preserve Option for AppKit composition"
                 )
             }
             return false
@@ -2243,9 +2243,8 @@ final class DeadKeyCompositionRegressionTests: XCTestCase {
             deadKeyEvents.map(\.keyCode),
             "Every claimed dead-key event must be interpreted through AppKit"
         )
-        XCTAssertEqual(pressedText, deadKeyEvents.map(\.character))
-        XCTAssertEqual(pressedKeycodes, [], "The translated text path should not leak raw key events")
-        XCTAssertFalse(view.hasMarkedText(), "Claimed Option dead keys must not start marked-text composition")
+        XCTAssertEqual(pressedText, [], "AppKit-owned dead keys must not be sent as translated text")
+        XCTAssertEqual(pressedKeycodes, [], "Dead-key composition must not leak raw key events")
     }
 }
 
