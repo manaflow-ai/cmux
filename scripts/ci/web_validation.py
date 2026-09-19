@@ -14,7 +14,17 @@ from detect_ci_change_areas import classify_files
 
 def requires_web(paths: list[str]) -> bool:
     return classify_files(paths).web or any(
-        path in {".vercelignore", "vercel.json", "bunfig.toml", ".npmrc", "tests/test_web_validation.py"}
+        path
+        in {
+            ".vercelignore",
+            "vercel.json",
+            "bunfig.toml",
+            ".npmrc",
+            "tests/test_web_validation.py",
+            # The CI router treats other workflow files as neutral, so this
+            # gate names its own.
+            ".github/workflows/web-validation.yml",
+        }
         or path.startswith(("config/", "workers/"))
         for path in paths
     )

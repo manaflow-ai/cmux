@@ -1237,6 +1237,16 @@ def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> N
     assert "if: ${{ needs.changes.outputs.agent_session_web == 'true' }}" in block
 
 
+def test_perf_activation_runs_for_its_own_workflow_and_not_for_others() -> None:
+    _, outputs = run_detect_step_for_paths([".github/workflows/relay-tls.yml"], PERF_ACTIVATION_WORKFLOW)
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false"]
+
+    for path in (".github/workflows/perf-activation.yml", "scripts/ci/subprocess.py"):
+        result, outputs = run_detect_step_for_paths([path], PERF_ACTIVATION_WORKFLOW)
+        assert "CI router changed; running activation benchmark." in result.stdout, path
+        assert outputs[0] == "macos=true", (path, outputs)
+
+
 def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark() -> None:
     result, outputs = run_detect_step_for_paths(["docs/ci-runners.md"], PERF_ACTIVATION_WORKFLOW)
 
