@@ -301,7 +301,9 @@ final class MobilePairingModel {
     ) -> State {
         guard status.isRunning else { return .failed(preparationFailureMessage) }
         guard status.isPairingReady else {
-            return status.lastErrorDescription?.isEmpty == false ? .failed(preparationFailureMessage) : .preparing
+            return status.lastErrorDescription?.isEmpty == false
+                ? .failed(preparationFailureMessage)
+                : .preparing
         }
         let ready = State.ready(Ready(
             attachURL: "", tailscaleLines: [], manualEntry: nil,
@@ -318,8 +320,10 @@ final class MobilePairingModel {
     }
 
     private static var preparationFailureMessage: String {
-        String(localized: "mobile.pairing.error.preparationFailed",
-               defaultValue: "Pairing could not finish. Check your connection and try again.")
+        String(
+            localized: "mobile.pairing.error.preparationFailed",
+            defaultValue: "Pairing could not finish. Check your connection and try again."
+        )
     }
 
     private func updatePreparationDeadline() {
