@@ -12,7 +12,7 @@ final class CloudTreeDevicesEmptyCell: NSTableCellView {
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
         NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: leadingAnchor, constant: CloudTreeRowGrid.disclosureGap - CloudTreeNSOutlineView.cellShift),
+            host.leadingAnchor.constraint(equalTo: leadingAnchor),
             host.trailingAnchor.constraint(equalTo: trailingAnchor),
             host.topAnchor.constraint(equalTo: topAnchor),
             host.bottomAnchor.constraint(equalTo: bottomAnchor)
