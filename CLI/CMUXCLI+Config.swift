@@ -373,7 +373,7 @@ extension CMUXCLI {
 
     private struct ConfigDoctorOptions {
         let paths: [String]
-        let scope: CMUXConfigSemanticScope?
+        let scope: CmuxConfigSemanticScope?
     }
 
     private struct ConfigDoctorTarget {
@@ -381,7 +381,7 @@ extension CMUXCLI {
         let displayPath: String
         let path: String
         let missingIsError: Bool
-        let scope: CMUXConfigSemanticScope
+        let scope: CmuxConfigSemanticScope
     }
 
     private struct ConfigDoctorFinding {
@@ -392,7 +392,7 @@ extension CMUXCLI {
         let message: String?
         let keys: [String]
         let byteCount: Int?
-        let issues: [CMUXConfigSemanticIssue]
+        let issues: [CmuxConfigSemanticIssue]
 
         init(
             label: String,
@@ -402,7 +402,7 @@ extension CMUXCLI {
             message: String?,
             keys: [String],
             byteCount: Int?,
-            issues: [CMUXConfigSemanticIssue] = []
+            issues: [CmuxConfigSemanticIssue] = []
         ) {
             self.label = label
             self.displayPath = displayPath
@@ -432,7 +432,7 @@ extension CMUXCLI {
                 result["bytes"] = byteCount
             }
             if !issues.isEmpty {
-                result["issues"] = issues.map(\.payload)
+                result["issues"] = issues.map { ["path": $0.path, "message": $0.message] }
             }
             return result
         }
@@ -491,7 +491,7 @@ extension CMUXCLI {
         commandName: String
     ) throws -> ConfigDoctorOptions {
         var paths: [String] = []
-        var scope: CMUXConfigSemanticScope?
+        var scope: CmuxConfigSemanticScope?
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
@@ -516,7 +516,7 @@ extension CMUXCLI {
             if argument == "--scope" {
                 let nextIndex = index + 1
                 guard nextIndex < arguments.count,
-                      let parsedScope = CMUXConfigSemanticScope(rawValue: arguments[nextIndex].lowercased()) else {
+                      let parsedScope = CmuxConfigSemanticScope(rawValue: arguments[nextIndex].lowercased()) else {
                     throw CLIError(message: "cmux config \(commandName) --scope requires global or project")
                 }
                 scope = parsedScope
@@ -525,7 +525,7 @@ extension CMUXCLI {
             }
             if argument.hasPrefix("--scope=") {
                 let rawScope = String(argument.dropFirst("--scope=".count)).lowercased()
-                guard let parsedScope = CMUXConfigSemanticScope(rawValue: rawScope) else {
+                guard let parsedScope = CmuxConfigSemanticScope(rawValue: rawScope) else {
                     throw CLIError(message: "cmux config \(commandName) --scope requires global or project")
                 }
                 scope = parsedScope
@@ -672,8 +672,8 @@ extension CMUXCLI {
                     byteCount: data.count
                 )
             }
-            let validator = try CMUXConfigSemanticValidator(scope: target.scope)
-            let issues = try validator.validate(data: data)
+            let validator = CmuxConfigSemanticValidator(scope: target.scope)
+            let issues = try validator.validate(jsonData: sanitized)
             if !issues.isEmpty {
                 return ConfigDoctorFinding(
                     label: target.label,
@@ -732,7 +732,7 @@ extension CMUXCLI {
         print("Reload: cmux reload-config")
     }
 
-    private func configSemanticScope(for path: String) -> CMUXConfigSemanticScope {
+    private func configSemanticScope(for path: String) -> CmuxConfigSemanticScope {
         let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
         let globalPaths = [
             Self.primarySettingsDisplayPath,
