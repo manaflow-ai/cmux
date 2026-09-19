@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCommandPalette
 import Foundation
 import Testing
 
@@ -505,4 +506,109 @@ struct CmuxAgentChatConfigTests {
             }
         }
     }
+
+    @MainActor
+    @Test func commandPaletteAgentLauncherContributionsFollowAvailabilityAndWorkspaceKind() throws {
+        let both = ContentView.commandPaletteAgentLauncherContributions(
+            claudeTeamsAvailable: true,
+            codexTeamsAvailable: true
+        )
+        #expect(both.map(\.commandId) == [
+            ContentView.commandPaletteLaunchClaudeTeamsCommandID,
+            ContentView.commandPaletteLaunchCodexTeamsCommandID,
+        ])
+
+        var localContext = CommandPaletteContextSnapshot()
+        localContext.setBool(CommandPaletteContextKeys.hasWorkspace, true)
+        localContext.setBool(ContentView.commandPaletteWorkspaceIsRemoteKey, false)
+        #expect(both.allSatisfy { $0.when(localContext) })
+
+        var remoteContext = localContext
+        remoteContext.setBool(ContentView.commandPaletteWorkspaceIsRemoteKey, true)
+        #expect(both.allSatisfy { !$0.when(remoteContext) })
+
+        let codexOnly = ContentView.commandPaletteAgentLauncherContributions(
+            claudeTeamsAvailable: false,
+            codexTeamsAvailable: true
+        )
+        #expect(codexOnly.map(\.commandId) == [
+            ContentView.commandPaletteLaunchCodexTeamsCommandID,
+        ])
+    }
+
+    @MainActor
+    @Test func commandPaletteAgentLauncherAvailabilityRequiresProviderAndBundledCLI() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-agent-launcher-palette-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let providerBin = root.appendingPathComponent("provider-bin", isDirectory: true)
+        let bundleResources = root.appendingPathComponent("Resources", isDirectory: true)
+        let bundleBin = bundleResources.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: providerBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: bundleBin, withIntermediateDirectories: true)
+
+        let claudeURL = providerBin.appendingPathComponent("claude", isDirectory: false)
+        let cliURL = bundleBin.appendingPathComponent("cmux", isDirectory: false)
+        try writeAgentLauncherExecutable(at: claudeURL)
+        try writeAgentLauncherExecutable(at: cliURL)
+
+        let resolver = AgentExecutableResolver(
+            environment: [
+                "PATH": providerBin.path,
+                "HOME": root.path,
+            ],
+            fileManager: fileManager,
+            bundleResourceURL: bundleResources,
+            includeStandardSearchDirectories: false
+        )
+
+        #expect(ContentView.commandPaletteAgentLauncherIsAvailable(
+            provider: .claude,
+            resolver: resolver,
+            bundleResourceURL: bundleResources,
+            fileManager: fileManager
+        ))
+        #expect(!ContentView.commandPaletteAgentLauncherIsAvailable(
+            provider: .codex,
+            resolver: resolver,
+            bundleResourceURL: bundleResources,
+            fileManager: fileManager
+        ))
+
+        try fileManager.removeItem(at: cliURL)
+        #expect(!ContentView.commandPaletteAgentLauncherIsAvailable(
+            provider: .claude,
+            resolver: resolver,
+            bundleResourceURL: bundleResources,
+            fileManager: fileManager
+        ))
+    }
+
+    @MainActor
+    @Test func commandPaletteAgentLauncherShellInputDelegatesToBundledCLI() {
+        let cliURL = URL(
+            fileURLWithPath: "/Applications/cmux DEV.app/Contents/Resources/bin/cmux",
+            isDirectory: false
+        )
+        #expect(
+            ContentView.commandPaletteAgentLauncherShellInput(
+                cliURL: cliURL,
+                subcommand: "claude-teams"
+            )
+                == "/Applications/cmux\\ DEV.app/Contents/Resources/bin/cmux claude-teams\n"
+        )
+    }
+
+    private func writeAgentLauncherExecutable(at url: URL) throws {
+        try Data("#!/bin/sh\nexit 0\n".utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: url.path
+        )
+    }
+
 }
