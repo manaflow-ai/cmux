@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxSettingsUI",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -28,6 +29,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/CustomSidebars"),
+                .process("Resources/Localizable.xcstrings"),
             ]
         ),
         .testTarget(
