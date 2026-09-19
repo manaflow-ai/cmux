@@ -532,10 +532,14 @@ def _sort_list_entries(block_text: str, key: str) -> str:
     entries = [line for line in lines if line.strip()]
     blanks = [line for line in lines if not line.strip()]
     entries.sort(key=_entry_sort_key)
+    # normalize-pbxproj.py sorts every line of a build phase `files` list,
+    # blank ones included, and a blank line sorts first. Flat sections are the
+    # other way round (see _sort_flat_section), matching sort_flat_section
+    # there. Emit the same order or the result fails check-pbxproj.sh.
     return (
         block_text[:body_start]
         + leading_newline
-        + "".join(entries + blanks)
+        + "".join(blanks + entries)
         + block_text[body_end:]
     )
 
