@@ -167,9 +167,11 @@ extension Workspace {
                 else { direction = splitDirection }
                 if let sourceTabID = source?.remoteTabID,
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
+                    let workingDirectory = await provider.currentWorkingDirectory(of: resource)
                     return try await layoutProvider.createTerminal(
                         nearTabID: sourceTabID,
                         splitDirection: direction,
+                        cwd: workingDirectory,
                         request: request
                     )
                 }

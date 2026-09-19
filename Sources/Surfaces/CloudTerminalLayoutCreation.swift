@@ -22,6 +22,7 @@ struct CloudTerminalLayoutCreation: Sendable {
     nonisolated func run(
         nearTabID: String,
         splitDirection: SurfaceSplitDirection?,
+        cwd: String? = nil,
         idempotencyKey: String = "cmux-cloud-create-\(UUID().uuidString.lowercased())",
         correlationKey: String? = nil
     ) async throws -> CloudTerminalLayoutCreationResult {
@@ -42,7 +43,7 @@ struct CloudTerminalLayoutCreation: Sendable {
             }
             let arguments = CloudTuiRequests.paneCreate(
                 paneID: pane.id, direction: splitDirection?.rawValue,
-                command: CloudTuiCommandLine.defaultTerminalCommand, revision: state.cursor?.revision,
+                command: CloudTuiCommandLine.defaultTerminalCommand, cwd: cwd, revision: state.cursor?.revision,
                 key: idempotencyKey, correlationKey: correlationKey
             )
             do {

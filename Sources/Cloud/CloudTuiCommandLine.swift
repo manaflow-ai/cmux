@@ -222,8 +222,7 @@ struct CloudTuiCommandLine: Sendable {
     /// directory and is stale after the shell changes directory.
     static func foregroundWorkingDirectory(fromProcessInfo result: [String: Any]) -> String? {
         guard let cwd = result["foreground_cwd"] as? String else { return nil }
-        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        return cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : cwd
     }
 
     /// `terminal <term_id> output read [--after <offset>] [--max-bytes <n>]` (spec

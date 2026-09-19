@@ -18,7 +18,7 @@ struct CloudTerminalLayoutCreationTests {
             .success(try Self.snapshot()), .success(try Self.created())
         ])
         let result = try await operation(runner).run(
-            nearTabID: "tab_source", splitDirection: direction, idempotencyKey: "request-one"
+            nearTabID: "tab_source", splitDirection: direction, cwd: "/remote/project", idempotencyKey: "request-one"
         )
 
         #expect(result.created.terminalID == "term_created")
@@ -29,6 +29,7 @@ struct CloudTerminalLayoutCreationTests {
         #expect(commands[1].operation == "pane.split")
         #expect(commands[1].params["pane"] as? String == "pane_target")
         #expect(commands[1].params["direction"] as? String == direction.rawValue)
+        #expect(commands[1].params["cwd"] as? String == "/remote/project")
         #expect(commands[1].params["expected_revision"] as? String == "10")
         #expect(commands[1].idempotencyKey == "request-one")
     }
@@ -39,13 +40,49 @@ struct CloudTerminalLayoutCreationTests {
             .success(try Self.snapshot()), .success(try Self.created())
         ])
         _ = try await operation(runner).run(
-            nearTabID: "tab_source", splitDirection: nil, idempotencyKey: "request-tab"
+            nearTabID: "tab_source", splitDirection: nil, cwd: "/remote/project", idempotencyKey: "request-tab"
         )
         let command = try #require(await runner.commands.last)
         #expect(command.operation == "pane.run")
         #expect(command.params["pane"] as? String == "pane_target")
+        #expect(command.params["cwd"] as? String == "/remote/project")
         #expect(command.params["argv"] as? [String] == CloudTuiCommandLine.defaultTerminalCommand)
         #expect(command.idempotencyKey == "request-tab")
+    }
+
+    @Test
+    func cwdPreservesPathWhitespaceButRejectsBlankValues() {
+        let request = CloudTuiRequests.paneCreate(
+            paneID: "pane_target",
+            direction: "right",
+            command: CloudTuiCommandLine.defaultTerminalCommand,
+            cwd: " /remote/project ",
+            revision: nil,
+            key: "request-whitespace",
+            correlationKey: nil
+        )
+        #expect(request.params["cwd"] as? String == " /remote/project ")
+
+        let blank = CloudTuiRequests.paneCreate(
+            paneID: "pane_target",
+            direction: "right",
+            command: CloudTuiCommandLine.defaultTerminalCommand,
+            cwd: " \n\t",
+            revision: nil,
+            key: "request-blank",
+            correlationKey: nil
+        )
+        #expect(blank.params["cwd"] == nil)
+    }
+
+    @Test
+    func foregroundCwdPreservesPathWhitespaceButRejectsBlankValues() {
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "foreground_cwd": " /remote/project "
+        ]) == " /remote/project ")
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "foreground_cwd": " \n\t"
+        ]) == nil)
     }
 
     @Test
