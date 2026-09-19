@@ -12098,6 +12098,7 @@
 			);
 			mainGroup = A5001040;
 			packageReferences = (
+				DFE866B3CCA3DBF418ED030A /* XCLocalSwiftPackageReference "PathKit" */,
 				3915DFE5FE794CDF87D746C9 /* XCLocalSwiftPackageReference "CmuxCloudMachines" */,
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
@@ -16683,6 +16684,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		DFE866B3CCA3DBF418ED030A /* XCLocalSwiftPackageReference "PathKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = vendor/PathKit;
+		};
 		D96972000000000000000001 /* XCLocalSwiftPackageReference "CmuxSudoBroker" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxSudoBroker;
