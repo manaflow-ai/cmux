@@ -155,7 +155,10 @@ def swift_call_suffix(text: str, start: int) -> str:
 def parse_swift_messages(path: str, text: str) -> tuple[dict[str, SwiftMessage], list[str]]:
     messages: dict[str, SwiftMessage] = {}
     attention: list[str] = []
+    conflicts: set[str] = set()
+    handled = 0
     for match in SWIFT_CALL.finditer(text):
+        handled += 1
         try:
             key = decode_swift_string(match.group("key"))
             source = decode_swift_string(match.group("value"))
@@ -164,23 +167,37 @@ def parse_swift_messages(path: str, text: str) -> tuple[dict[str, SwiftMessage],
         except ValueError as error:
             attention.append(f"{path}: {error}")
             continue
+        if key in conflicts:
+            continue
         previous = messages.get(key)
         candidate = SwiftMessage(path=path, key=key, source=source, comment=comment)
         if previous and previous.source != candidate.source:
+            # Never pick one of the defaults: the key stays unprepared until the call sites agree.
             attention.append(f"{path}: localization key {key!r} has multiple default values")
+            conflicts.add(key)
+            del messages[key]
             continue
         messages[key] = candidate
     markers = text.count("String(localized:") + text.count("LocalizedStringResource(")
-    if markers > len(messages):
+    if markers > handled:
         attention.append(
-            f"{path}: {markers - len(messages)} localized call(s) use a form this helper cannot safely prepare; review them manually"
+            f"{path}: {markers - handled} localized call(s) use a form this helper cannot safely prepare; review them manually"
         )
     return messages, attention
+
+
+def swift_paths_using_keys(root: Path, keys: Iterable[str]) -> list[str]:
+    """List tracked and untracked Swift files that mention any key, in one repository search."""
+    patterns = [argument for key in sorted(set(keys)) for argument in ("-e", json.dumps(key, ensure_ascii=False))]
+    if not patterns:
+        return []
+    return run_git(root, "grep", "-l", "--untracked", "-F", *patterns, "--", "*.swift", check=False).splitlines()
 
 
 def changed_swift_messages(root: Path, base: str, paths: Iterable[str]) -> tuple[list[SwiftMessage], list[str]]:
     changed: list[SwiftMessage] = []
     attention: list[str] = []
+    parsed: dict[str, dict[str, SwiftMessage]] = {}
     for path in paths:
         if not path.endswith(".swift"):
             continue
@@ -190,10 +207,25 @@ def changed_swift_messages(root: Path, base: str, paths: Iterable[str]) -> tuple
         current, current_attention = parse_swift_messages(path, current_path.read_text(encoding="utf-8"))
         previous, _ = parse_swift_messages(path, base_text(root, base, path))
         attention.extend(current_attention)
+        parsed[path] = current
         for key, message in sorted(current.items()):
             if key not in previous or previous[key].source != message.source:
                 changed.append(message)
-    return changed, attention
+    # A changed default must agree with every other call site of the key, including
+    # unchanged calls and untouched files, or the catalog would silently pick one.
+    keys = {message.key for message in changed}
+    for path in swift_paths_using_keys(root, keys):
+        if path not in parsed and (root / path).is_file():
+            parsed[path], _ = parse_swift_messages(path, (root / path).read_text(encoding="utf-8"))
+    sources: dict[str, dict[str, set[str]]] = {}
+    for path, current in parsed.items():
+        for key in keys & current.keys():
+            sources.setdefault(key, {}).setdefault(current[key].source, set()).add(path)
+    conflicts = {key for key, by_source in sources.items() if len(by_source) > 1}
+    for key in sorted(conflicts):
+        locations = sorted(set().union(*sources[key].values()))
+        attention.append(f"{', '.join(locations)}: localization key {key!r} has multiple default values")
+    return [message for message in changed if message.key not in conflicts], attention
 
 
 def discover_web_locales(root: Path) -> tuple[str, ...]:
@@ -211,13 +243,16 @@ def macos_locales() -> tuple[str, ...]:
     return tuple(CATALOG.LOCALES)
 
 
-def catalog_index(root: Path) -> tuple[list[Path], dict[str, list[tuple[Path, object]]]]:
+def catalog_index(root: Path) -> tuple[list[Path], dict[str, list[tuple[Path, object]]], dict[Path, str]]:
+    """Parse every catalog once; entry offsets refer to the returned texts."""
     paths = CATALOG.discover(root)
     index: dict[str, list[tuple[Path, object]]] = {}
+    texts: dict[Path, str] = {}
     for path in paths:
-        for entry in CATALOG.catalog_entries(path.read_text(encoding="utf-8")):
+        texts[path] = path.read_text(encoding="utf-8")
+        for entry in CATALOG.catalog_entries(texts[path]):
             index.setdefault(entry.key, []).append((path, entry))
-    return paths, index
+    return paths, index, texts
 
 
 def choose_catalog(root: Path, message: SwiftMessage, paths: list[Path], index: dict[str, list[tuple[Path, object]]], override: Path | None) -> Path:
@@ -252,19 +287,29 @@ def string_unit(value: str, state: str = "translated") -> dict:
     return {"stringUnit": {"state": state, "value": value}}
 
 
+def new_entry_text(key: str, source: str, comment: str | None) -> str:
+    record: dict = {"extractionState": "manual", "localizations": {"en": string_unit(source)}}
+    if comment:
+        record = {"comment": comment, **record}
+    return f"\n    {json.dumps(key, ensure_ascii=False)}: " + CATALOG.render(record, 4)
+
+
+def insertion_change(text: str, last_end: int | None, additions: list[str]) -> tuple[int, int, str]:
+    """Append rendered entries after the last existing entry (or into an empty strings object)."""
+    if last_end is None:
+        root_members = CATALOG.members(text, len(text) - len(text.lstrip()))
+        insertion = next(item for item in root_members if item.key == "strings").start + 1
+        return insertion, insertion, ",".join(additions)
+    return last_end, last_end, "".join("," + addition for addition in additions)
+
+
 def insert_catalog_entry(path: Path, key: str, source: str, comment: str | None) -> None:
     text = path.read_text(encoding="utf-8")
     entries = CATALOG.catalog_entries(text)
     if any(entry.key == key for entry in entries):
         return
-    root_members = CATALOG.members(text, len(text) - len(text.lstrip()))
-    strings = next(item for item in root_members if item.key == "strings")
-    record: dict = {"extractionState": "manual", "localizations": {"en": string_unit(source)}}
-    if comment:
-        record = {"comment": comment, **record}
-    insertion = entries[-1].end if entries else strings.start + 1
-    addition = ("," if entries else "") + f"\n    {json.dumps(key, ensure_ascii=False)}: " + CATALOG.render(record, 4)
-    updated = CATALOG.apply_changes(text, [(insertion, insertion, addition)])
+    last_end = max(entry.end for entry in entries) if entries else None
+    updated = CATALOG.apply_changes(text, [insertion_change(text, last_end, [new_entry_text(key, source, comment)])])
     CATALOG.catalog_entries(updated)
     CATALOG.atomic_write(path, updated)
 
@@ -289,32 +334,31 @@ def mark_needs_review(localization: dict) -> dict:
     return value if touched else localization
 
 
-def update_simple_source(path: Path, key: str, new_source: str) -> tuple[bool, str | None]:
-    text = path.read_text(encoding="utf-8")
-    matches = [entry for entry in CATALOG.catalog_entries(text) if entry.key == key]
+def simple_source_change(path: Path, text: str, matches: list, key: str, new_source: str) -> tuple[tuple[int, int, str] | None, str | None]:
+    """Return the English edit for an already parsed entry, or the reason it needs a human."""
     if len(matches) != 1:
-        return False, f"{path}: key {key!r} is duplicated; update it manually"
+        return None, f"{path}: key {key!r} is duplicated; update it manually"
     entry = matches[0]
     current_source = CATALOG.source(entry.value)
     if CATALOG.canonical_text(current_source) == CATALOG.canonical_text(new_source):
-        return False, None
+        return None, None
     english = entry.value.get("localizations", {}).get("en", {})
     if "variations" in english or "substitutions" in english:
-        return False, f"{path}: key {key!r} has plural/variant English; update its source manually to preserve plural semantics"
+        return None, f"{path}: key {key!r} has plural/variant English; update its source manually to preserve plural semantics"
     # The base-aware catalog diff pass stales only untouched translations.
-    changes = [CATALOG.replace_locale(text, entry, "en", string_unit(new_source))]
-    updated = CATALOG.apply_changes(text, changes)
-    CATALOG.catalog_entries(updated)
-    CATALOG.atomic_write(path, updated)
-    return True, None
+    return CATALOG.replace_locale(text, entry, "en", string_unit(new_source)), None
 
 
 def prepare_macos(root: Path, messages: list[SwiftMessage], override: Path | None, counts: dict) -> PreparationResult:
-    paths, index = catalog_index(root)
+    paths, index, texts = catalog_index(root)
     attention: list[str] = []
     changed_keys: list[tuple[Path, str]] = []
     prepared = stale = 0
     seen: set[tuple[Path, str]] = set()
+    # Edits are collected per catalog so each catalog is parsed and written once, not once per key.
+    changes: dict[Path, list[tuple[int, int, str]]] = {}
+    additions: dict[Path, list[str]] = {}
+    pending: dict[str, Path] = {}
     sources: dict[str, set[str]] = {}
     for message in messages:
         sources.setdefault(message.key, set()).add(message.source)
@@ -326,7 +370,7 @@ def prepare_macos(root: Path, messages: list[SwiftMessage], override: Path | Non
         if message.key in conflicts:
             continue
         try:
-            path = choose_catalog(root, message, paths, index, override)
+            path = pending.get(message.key) or choose_catalog(root, message, paths, index, override)
         except ValueError as error:
             attention.append(str(error))
             continue
@@ -341,21 +385,44 @@ def prepare_macos(root: Path, messages: list[SwiftMessage], override: Path | Non
                     f"{message.path}: new count-like key {message.key!r} needs an explicit plural catalog entry and localization-plurals metadata"
                 )
                 continue
-            insert_catalog_entry(path, message.key, message.source, message.comment)
+            additions.setdefault(path, []).append(new_entry_text(message.key, message.source, message.comment))
+            pending[message.key] = path
             prepared += 1
-            index.setdefault(message.key, []).append((path, next(entry for entry in CATALOG.catalog_entries(path.read_text(encoding="utf-8")) if entry.key == message.key)))
         else:
-            changed, problem = update_simple_source(path, message.key, message.source)
+            matches = [entry for entry_path, entry in existing if entry_path == path]
+            change, problem = simple_source_change(path, texts[path], matches, message.key, message.source)
             if problem:
                 attention.append(problem)
                 continue
+            if change:
+                changes.setdefault(path, []).append(change)
             # Stale counts are reported by changed_catalog_keys after comparison to base.
         changed_keys.append(identity)
+    for path in sorted(changes.keys() | additions.keys()):
+        edits = changes.get(path, [])
+        if path in additions:
+            ends = [entry.end for entries in index.values() for entry_path, entry in entries if entry_path == path]
+            edits.append(insertion_change(texts[path], max(ends) if ends else None, additions[path]))
+        updated = CATALOG.apply_changes(texts[path], edits)
+        CATALOG.catalog_entries(updated)
+        CATALOG.atomic_write(path, updated)
     return PreparationResult(changed_keys=changed_keys, prepared=prepared, stale=stale, attention=attention)
 
 
-def changed_catalog_keys(root: Path, base: str, paths: Iterable[str]) -> PreparationResult:
-    """Find English catalog source changes and stale only untouched translations."""
+def confirms(row: dict | None, localization: dict) -> bool:
+    """True when a completed packet row supplied exactly this localization."""
+    if row is None:
+        return False
+    if "localization" in row:
+        return row["localization"] == localization
+    unit = localization.get("stringUnit")
+    return isinstance(unit, dict) and unit.get("value") == row.get("value")
+
+
+def changed_catalog_keys(root: Path, base: str, paths: Iterable[str],
+                         confirmed: dict[tuple[str, str, str, str], dict] | None = None) -> PreparationResult:
+    """Find English catalog source changes and stale only untouched, unconfirmed translations."""
+    confirmed = confirmed or {}
     changed_keys: list[tuple[Path, str]] = []
     attention: list[str] = []
     stale = 0
@@ -408,6 +475,10 @@ def changed_catalog_keys(root: Path, base: str, paths: Iterable[str]) -> Prepara
             for locale, localization in current_localizations.items():
                 if locale == "en" or old_localizations.get(locale) != localization:
                     continue
+                # A translation completed through the packet for this English source was reviewed,
+                # even when it matches the base text; marking it again would never let the run finish.
+                if confirms(confirmed.get((relative, key, CATALOG.canonical_text(current_source), locale)), localization):
+                    continue
                 reviewed = mark_needs_review(localization)
                 if reviewed != localization:
                     changes.append(CATALOG.replace_locale(current_text, entry, locale, reviewed))
@@ -437,6 +508,23 @@ def translation_index(work: dict) -> dict[tuple[str, str, str, str], dict]:
         identity = (row.get("catalog"), row.get("key"), row.get("source"), row.get("locale"))
         if all(isinstance(part, str) for part in identity):
             result[identity] = row
+    return result
+
+
+def confirmed_translations(work: dict) -> dict[tuple[str, str, str, str], dict]:
+    """Completed packet rows, remembered across runs, keyed by catalog, key, English source, and locale."""
+    result = {}
+    for row in [*work.get("confirmed", []), *work.get("entries", [])]:
+        if not isinstance(row, dict):
+            continue
+        identity = tuple(row.get(name) for name in ("catalog", "key", "source", "locale"))
+        if not all(isinstance(part, str) for part in identity):
+            continue
+        if isinstance(row.get("localization"), dict) or (isinstance(row.get("value"), str) and row["value"].strip()):
+            catalog, key, source, locale = identity
+            result[(catalog, key, CATALOG.canonical_text(source), locale)] = {
+                name: row[name] for name in ("catalog", "key", "source", "locale", "value", "localization") if name in row
+            }
     return result
 
 
@@ -482,10 +570,13 @@ def apply_completed(root: Path, work: dict, omissions: dict) -> int:
 def extract_changed(root: Path, changed_keys: list[tuple[Path, str]], omissions: dict, counts: dict, prior: dict) -> list[dict]:
     preserved = translation_index(prior)
     rows: list[dict] = []
+    parsed: dict[Path, dict[str, list]] = {}
     for path, key in sorted(changed_keys, key=lambda item: (str(item[0]), item[1])):
-        text = path.read_text(encoding="utf-8")
-        entries = [entry for entry in CATALOG.catalog_entries(text) if entry.key == key]
-        for entry in entries:
+        if path not in parsed:
+            parsed[path] = {}
+            for entry in CATALOG.catalog_entries(path.read_text(encoding="utf-8")):
+                parsed[path].setdefault(entry.key, []).append(entry)
+        for entry in parsed[path].get(key, []):
             english = CATALOG.source(entry.value)
             for locale in macos_locales():
                 errors = CATALOG.check_entry(entry, locale, omissions, counts)
@@ -512,14 +603,15 @@ def extract_changed(root: Path, changed_keys: list[tuple[Path, str]], omissions:
     return rows
 
 
-def flatten_messages(value: object, prefix: str = "") -> dict[str, str]:
-    result: dict[str, str] = {}
-    if isinstance(value, str):
-        result[prefix] = value
-    elif isinstance(value, dict):
+def flatten_messages(value: object, prefix: str = "") -> dict[str, object]:
+    """Flatten nested message objects; strings and list-valued messages are leaves."""
+    result: dict[str, object] = {}
+    if isinstance(value, dict):
         for key, child in value.items():
             child_prefix = f"{prefix}.{key}" if prefix else str(key)
             result.update(flatten_messages(child, child_prefix))
+    elif prefix:
+        result[prefix] = value
     return result
 
 
@@ -569,7 +661,7 @@ def web_work(root: Path, base: str, paths: Iterable[str], locales: tuple[str, ..
             issues: list[str] = []
             if value is None:
                 issues.append("missing message key")
-            elif not value.strip():
+            elif value in ("", []) or (isinstance(value, str) and not value.strip()):
                 issues.append("empty translation")
             elif key in previous_en and previous_en[key] != source and previous_localized.get(key) == value:
                 issues.append("translation was unchanged after the English source changed; review it")
@@ -587,7 +679,8 @@ def default_work_path(root: Path) -> Path:
     return path if path.is_absolute() else root / path
 
 
-def write_work(path: Path, base: str, entries: list[dict], web_entries: list[dict], attention: list[str], web_locales: tuple[str, ...]) -> None:
+def write_work(path: Path, base: str, entries: list[dict], web_entries: list[dict], attention: list[str],
+               web_locales: tuple[str, ...], confirmed: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,
@@ -595,6 +688,7 @@ def write_work(path: Path, base: str, entries: list[dict], web_entries: list[dic
         "macOSLocales": list(macos_locales()),
         "webLocales": list(web_locales),
         "entries": entries,
+        "confirmed": confirmed,
         "webEntries": web_entries,
         "attention": sorted(dict.fromkeys(attention)),
     }
@@ -631,12 +725,13 @@ def main(argv: list[str] | None = None) -> int:
     counts = CATALOG.load_metadata("localization-plurals.json")
 
     imported = apply_completed(root, prior, omissions)
+    confirmed = confirmed_translations(prior)
     messages, attention = changed_swift_messages(root, base, paths)
     prepared = prepare_macos(root, messages, args.catalog, counts)
     attention.extend(prepared.attention)
     catalog_paths = set(paths)
     catalog_paths.update(str(path.relative_to(root)) for path, _ in prepared.changed_keys)
-    catalog_changes = changed_catalog_keys(root, base, catalog_paths)
+    catalog_changes = changed_catalog_keys(root, base, catalog_paths, confirmed)
     attention.extend(catalog_changes.attention)
     changed_keys = sorted(set(prepared.changed_keys + catalog_changes.changed_keys), key=lambda item: (str(item[0]), item[1]))
     entries = extract_changed(root, changed_keys, omissions, counts, prior)
@@ -644,7 +739,10 @@ def main(argv: list[str] | None = None) -> int:
     web_locales = discover_web_locales(root)
     web_entries, web_attention, web_changed = web_work(root, base, paths, web_locales)
     attention.extend(web_attention)
-    write_work(work_path, base, entries, web_entries, attention, web_locales)
+    # Confirmations stay relevant only while their key still differs from the base.
+    still_changed = {(str(path.relative_to(root)), key) for path, key in changed_keys}
+    kept = [row for identity, row in sorted(confirmed.items()) if identity[:2] in still_changed]
+    write_work(work_path, base, entries, web_entries, attention, web_locales, kept)
 
     validator_code, validator_out, validator_err = run_validator(root)
     outstanding = len(entries) + len(web_entries) + len(set(attention))
