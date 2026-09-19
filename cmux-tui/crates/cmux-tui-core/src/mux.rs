@@ -29912,6 +29912,54 @@ mod tests {
     }
 
     #[test]
+    fn new_terminal_inherits_the_selected_hosted_terminals_reported_cwd() {
+        let mux = test_mux();
+        let workspace = mux.create_empty_workspace(Some("cwd".into()), None, None).unwrap();
+        let (first, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                Some("/tmp".into()),
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert!(first.terminal_runtime_id().is_some(), "the selected terminal is hosted");
+
+        // The shell reported a `cd` on this host with OSC 7. A terminal created
+        // from the selected pane starts there, not in the launch directory.
+        first.set_test_pwd(Some("file://localhost/usr".into()));
+        let (second, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(second.spawn_cwd().as_deref(), Some("/usr"));
+
+        // A report naming another host cannot choose a spawn directory here;
+        // the selected terminal's authenticated launch directory stays the fallback.
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        mux.focus_pane(pane);
+        mux.select_tab(Some(pane), Some(0), None);
+        first.set_test_pwd(Some("file://other-host/etc".into()));
+        let (third, _) = mux
+            .create_terminal_surface_in_workspace(
+                workspace.workspace,
+                None,
+                None,
+                None,
+                Some((80, 24)),
+            )
+            .unwrap();
+        assert_eq!(third.spawn_cwd().as_deref(), Some("/tmp"));
+        mux.shutdown();
+    }
+
+    #[test]
     fn workspace_mutation_close_waits_for_targeted_terminal_commit_and_replays() {
         let mux = test_mux();
         let workspace = mux.create_empty_workspace(Some("target".into()), None, None).unwrap();
