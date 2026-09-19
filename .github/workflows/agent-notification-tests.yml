@@ -21,6 +21,12 @@ on:
       - cmuxTests/FeedWaiterRegistry*.swift
       - cmuxTests/ClaudeBackgroundWorkNotify*.swift
       - cmuxTests/OpenCodeHookRegression*.swift
+      # Shared helpers those suite files use.
+      - cmuxTests/AgentJournalTestSupport.swift
+      - cmuxTests/BundledCLILinkageTests.swift
+      - cmuxTests/ClaudeHookLiveDeliveryTargetTestSupport.swift
+      - cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
+      - cmuxTests/TerminalControllingTTYWaiter.swift
       - Packages/macOS/CMUXAgentLaunch/**
       - .github/workflows/test-depot.yml
       - scripts/ci/classify-app-host-test-output.py

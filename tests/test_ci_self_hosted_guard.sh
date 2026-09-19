@@ -1295,7 +1295,8 @@ check_sentry_cli_helper_behavior
 check_agent_notification_paths_cover_its_suites() {
   # The workflow reruns suites that ci.yml's shards already run, so it should
   # start only for changes that can affect them: every file that defines one of
-  # its suites must match a path trigger, and cmuxTests/** must not be one.
+  # its suites, and every helper file those name, must match a path trigger,
+  # and cmuxTests/** must not be one.
   ROOT_DIR="$ROOT_DIR" python3 - <<'PY'
 import fnmatch, os, re, sys
 from pathlib import Path
@@ -1307,20 +1308,35 @@ suites = re.search(r"^\s*unit_test_suites:\s*(\S+)", text, flags=re.M).group(1).
 errors = []
 if "cmuxTests/**" in paths:
     errors.append("must not trigger on all of cmuxTests/**")
+sources = {f: f.read_text(encoding="utf-8", errors="ignore") for f in sorted((root / "cmuxTests").glob("*.swift"))}
+suite_files = set()
 for suite in suites:
     decl = re.compile(rf"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:\w+\s+)*(?:class|struct|actor|extension)\s+{re.escape(suite)}\b", re.M)
-    files = [f for f in sorted((root / "cmuxTests").glob("*.swift")) if decl.search(f.read_text(encoding="utf-8", errors="ignore"))]
+    files = [f for f, source in sources.items() if decl.search(source)]
     if not files:
         errors.append(f"runs {suite}, which no file in cmuxTests defines")
+    suite_files.update(files)
     for f in files:
         rel = f"cmuxTests/{f.name}"
         if not any(fnmatch.fnmatchcase(rel, p) for p in paths):
             errors.append(f"runs {suite} but {rel} matches no path trigger")
+# A helper is a file whose top-level type the suite files name. Nested and
+# private types are skipped: another file cannot reach them, and several test
+# files declare a private type of the same name.
+suite_text = "\n".join(sources[f] for f in suite_files)
+top_level = re.compile(r"^(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:final|internal|public|open)\s+)*(?:class|struct|enum|actor|protocol)\s+(\w+)", re.M)
+for f, source in sources.items():
+    if f in suite_files:
+        continue
+    used = sorted(n for n in set(top_level.findall(source)) if re.search(rf"\b{re.escape(n)}\b", suite_text))
+    rel = f"cmuxTests/{f.name}"
+    if used and not any(fnmatch.fnmatchcase(rel, p) for p in paths):
+        errors.append(f"suites use {', '.join(used)} from {rel}, which matches no path trigger")
 for e in errors:
     print(f"FAIL: agent-notification-tests.yml {e}")
 sys.exit(1 if errors else 0)
 PY
-  echo "PASS: agent notification paths cover every file of the suites the workflow runs"
+  echo "PASS: agent notification paths cover every suite file and helper the workflow runs"
 }
 
 check_dmg_signing_uses_build_keychain
