@@ -30,6 +30,14 @@ struct MobileAuthenticatedShellPresentationTests {
         ) == .workspace)
     }
 
+    @Test func offlineKnownMacKeepsWorkspaceShellNavigationMounted() {
+        #expect(MobileAuthenticatedShellPresentation.resolve(
+            connectionState: .disconnected,
+            hasKnownPairedMac: true,
+            hasHiddenComputers: false
+        ) == .workspace)
+    }
+
     @Test func connectedSessionUsesWorkspaceShellWithoutPersistedHints() {
         #expect(MobileAuthenticatedShellPresentation.resolve(
             connectionState: .connected,

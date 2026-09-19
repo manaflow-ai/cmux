@@ -27,6 +27,21 @@ import Testing
         #expect(!store.didFinishStoredMacReconnectAttempt)
     }
 
+    @Test func forcedRetryMarksOnePendingAttemptWhileReconnectIsInFlight() async {
+        let store = MobileShellComposite.preview()
+        store.isReconnectingStoredMac = true
+        store.pendingForcedStoredMacReconnect = false
+
+        let retryStarted = await store.retryActiveMacReconnect(
+            stackUserID: "user-1",
+            force: true
+        )
+
+        #expect(!retryStarted)
+        #expect(store.isReconnectingStoredMac)
+        #expect(store.pendingForcedStoredMacReconnect)
+    }
+
     @Test func explicitPairingReleasesSupersededStoredReconnectState() {
         let store = MobileShellComposite.preview()
         store.isReconnectingStoredMac = true

@@ -929,6 +929,7 @@ import UIKit
             isInitialConnectionLoading: false,
             initialConnectionTitle: nil,
             initialConnectionDescription: nil,
+            setupGuideURL: nil,
             enablesReorder: enablesReorder,
             moveRows: nil,
             canDropIntoGroup: nil,
@@ -952,7 +953,6 @@ import UIKit
             signOut: nil,
             retryInitialConnection: nil,
             showAddDevice: nil,
-            reconnect: nil,
             refresh: nil
         )
     }

@@ -105,15 +105,9 @@ extension WorkspaceListView {
             connectionError: store?.connectionError,
             host: host,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTitle: initialConnectionTimedOut
-                ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
-                : nil,
-            initialConnectionDescription: initialConnectionTimedOut
-                ? L10n.string(
-                    "mobile.loading.timeout.message",
-                    defaultValue: "cmux could not finish restoring this session. Check that the selected cmux build is running, then retry."
-                )
-                : nil,
+            initialConnectionTitle: connectionStatusTitleOverride,
+            initialConnectionDescription: connectionStatusDescriptionOverride,
+            setupGuideURL: connectionSetupGuideURL,
             enablesReorder: enablesReorder,
             moveRows: enablesReorder ? { sourceOffsets, destination in
                 if grouped {
@@ -154,9 +148,8 @@ extension WorkspaceListView {
                 macSelection = .all
             },
             signOut: signOut,
-            retryInitialConnection: initialConnectionTimedOut ? retryInitialConnection : nil,
+            retryInitialConnection: connectionRetryAction,
             showAddDevice: initialConnectionTimedOut ? showAddDevice : nil,
-            reconnect: reconnect,
             refresh: refresh
         )
     }

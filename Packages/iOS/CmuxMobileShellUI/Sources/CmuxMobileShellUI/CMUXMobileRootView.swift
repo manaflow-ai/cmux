@@ -588,7 +588,7 @@ struct CMUXMobileRootView: View {
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
-                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    retryConnection: retryAutomaticConnection,
                     workspaceListDidBecomeVisible: {
                         await pushCoordinator.workspaceListDidBecomeVisible()
                     }
@@ -1174,7 +1174,11 @@ struct CMUXMobileRootView: View {
     private func retryAutomaticConnection() {
         let stackUserID = authManager.currentUser?.id
         Task {
-            _ = await store.retryActiveMacReconnect(stackUserID: stackUserID)
+            await authManager.revalidateSession()
+            _ = await store.retryActiveMacReconnect(
+                stackUserID: stackUserID,
+                force: true
+            )
         }
     }
 

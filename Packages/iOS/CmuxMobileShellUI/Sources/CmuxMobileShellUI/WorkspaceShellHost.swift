@@ -1,4 +1,3 @@
-import CmuxAuthRuntime
 import CmuxMobileShell
 import SwiftUI
 
@@ -24,10 +23,9 @@ struct WorkspaceShellHost: View {
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
     var taskComposerPresentation = MobileChildSheetPresentation()
-    let reconnectStoredMac: () -> Void
+    let retryConnection: () -> Void
     let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
 
-    @Environment(AuthCoordinator.self) private var authManager
     @State private var loadingTimedOut = false
     @State private var retryGeneration = 0
 
@@ -83,9 +81,6 @@ struct WorkspaceShellHost: View {
         loadingTimedOut = false
         retryGeneration &+= 1
         store.resumeForegroundRefresh()
-        Task {
-            await authManager.revalidateSession()
-            reconnectStoredMac()
-        }
+        retryConnection()
     }
 }
