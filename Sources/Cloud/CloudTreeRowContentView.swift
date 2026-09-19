@@ -2,21 +2,21 @@ import CmuxFoundation
 import SwiftUI
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
-    static let disclosureSlot: CGFloat = 16
+    static var disclosureSlot: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.disclosureSlot) }
     /// Small separation between a disclosure control and its row content.
     /// Keeping this below the tree indent makes group headers read as one
     /// shared outline rather than disconnected columns.
-    static let disclosureGap: CGFloat = 4
+    static var disclosureGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.disclosureGap) }
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
-    static let dotSlot: CGFloat = 10
-    static let dotGap: CGFloat = 8
+    static var dotSlot: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.dotSlot) }
+    static var dotGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.dotGap) }
     /// Space between a title and its dim detail text.
-    static let detailGap: CGFloat = 6
+    static var detailGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.detailGap) }
     /// Trailing accessories (open marker): gap after the text, a fixed slot, then padding.
-    static let trailingGap: CGFloat = 10
+    static var trailingGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.trailingGap) }
     static let trailingSlot: CGFloat = 16
-    static let trailingPadding: CGFloat = CloudTreeLayoutMetrics().referenceInset
-    static let machineLineSpacing: CGFloat = 1
+    static var trailingPadding: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.referenceInset) }
+    static var machineLineSpacing: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.machineLineSpacing) }
 }
 
 enum CloudTreeIconPalette {
