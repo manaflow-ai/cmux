@@ -36,6 +36,21 @@ public protocol SettingsHostActions: AnyObject {
     /// editor.
     func openConfigInExternalEditor()
 
+    /// Names of custom sidebar files currently discovered by the host.
+    func customSidebarNames() -> [String]
+
+    /// Creates a starter custom sidebar and opens it in the preferred editor.
+    func createCustomSidebar(named name: String) -> CustomSidebarOnboardingResult
+
+    /// Copies one bundled example into the custom-sidebar directory and opens it.
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
+
+    /// Opens an existing discovered custom sidebar in the preferred editor.
+    func openCustomSidebarInExternalEditor(named name: String)
+
+    /// Creates the custom-sidebar directory when needed, then reveals it in Finder.
+    func openCustomSidebarsFolder()
+
     /// Launches the host's feedback flow (typically a "Send Feedback"
     /// URL or in-app form).
     func sendFeedback()
@@ -376,6 +391,19 @@ public extension SettingsHostActions {
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
+
+    /// Custom-sidebar defaults for package previews and tests without a live host.
+    func customSidebarNames() -> [String] { [] }
+    func createCustomSidebar(named name: String) -> CustomSidebarOnboardingResult {
+        _ = name
+        return .writeFailed
+    }
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func openCustomSidebarInExternalEditor(named name: String) { _ = name }
+    func openCustomSidebarsFolder() {}
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
