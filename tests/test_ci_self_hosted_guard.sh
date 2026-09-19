@@ -1292,6 +1292,23 @@ check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
+check_no_paid_overflow_fallbacks() {
+  # `vars.X || 'label'` resolves to the label whenever the variable is missing,
+  # and repository variables are not exposed to pull requests from forks. So a
+  # fallback is where every fork pull request runs. Warp is the paid overflow
+  # provider: on 2026-09-19 fork pull requests put 13 runner-hours on it in one
+  # day through these fallbacks while main ran on Blacksmith. Warp stays
+  # available as an explicit workflow_dispatch choice; it must not be a default.
+  local hits
+  hits="$(grep -rnE "\\|\\|[[:space:]]*'warp-" "$ROOT_DIR/.github/workflows" || true)"
+  if [ -n "$hits" ]; then
+    echo "FAIL: workflows must not fall back to a Warp runner; use the Blacksmith label the rest of CI falls back to"
+    echo "$hits" | sed "s|$ROOT_DIR/||" | cut -c1-160
+    exit 1
+  fi
+  echo "PASS: no workflow falls back to a Warp runner"
+}
+
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
 check_gui_smoke_unsupported_launch_handling
@@ -1300,3 +1317,4 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
+check_no_paid_overflow_fallbacks
