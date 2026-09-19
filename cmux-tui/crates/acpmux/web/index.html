@@ -117,10 +117,10 @@
   .act-detail { margin: -2px 0 4px 25px; padding: 8px 12px; background: var(--code); border: 1px solid var(--rule); border-radius: 8px; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-x: auto; max-height: 320px; }
   .act-detail .a { color: var(--add); } .act-detail .d { color: var(--del); } .act-detail .h { color: var(--muted); }
   .thought { color: var(--muted); font-size: 13.5px; }
-  .thought > summary { list-style: none; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
-  .thought > summary::-webkit-details-marker { display: none; }
-  .thought > summary .lbl { color: var(--muted); } .thought > summary .sum { font-style: italic; color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-  .thought > summary:hover .sum { color: var(--muted); }
+  .thought summary { list-style: none; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  .thought summary::-webkit-details-marker { display: none; }
+  .thought summary .lbl { color: var(--muted); flex: none; } .thought summary .sum { font-style: italic; color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .thought summary:hover .sum { color: var(--muted); }
   .thought .body { font-style: italic; color: var(--dim); white-space: pre-wrap; padding: 6px 0 2px 0; }
   .plan { font-size: 13.5px; color: var(--muted); padding-left: 25px; }
   .plan div::before { content: "○ "; color: var(--dim); } .plan div.completed::before { content: "✓ "; color: var(--ok); } .plan div.in_progress::before { content: "▶ "; color: var(--warm); }
@@ -343,7 +343,7 @@
       case 'turn_started': t.turnStartAt = ev.at || Date.now(); break;
       case 'turn_result': push({ type: 'turn_result', status: msg.status || '', at: ev.at, startAt: t.turnStartAt }); break;
       case 'status': t.status = msg.status || ''; if (t.status === 'running') { if (!t.runningSince) t.runningSince = Date.now(); } else t.runningSince = 0; break;
-      case 'turn_end': push({ type: 'turn_end', stop: msg.stopReason || 'end_turn', at: ev.at }); break;
+      case 'turn_end': push({ type: 'turn_end', stop: msg.stopReason || 'end_turn', at: ev.at, startAt: t.turnStartAt }); break;
       case 'turn_error': push({ type: 'error', text: msg.error || 'turn failed' }); break;
       case 'permission_request': { const r = msg.request || {}; push({ type: 'permission', id: msg.permissionId, title: (r.toolCall && r.toolCall.title) || 'permission', options: (r.options || []).map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })), decided: null }); break; }
       case 'permission_decision': case 'permission_auto': { const d = (msg.outcome && (msg.outcome.optionId || msg.outcome.outcome)) || msg.optionId || 'cancelled'; let found = false; for (let i = t.items.length - 1; i >= 0; i--) { const it = t.items[i]; if (it.type === 'permission' && it.id === msg.permissionId) { it.decided = d; found = true; touch(t, i); break; } } if (!found && kind === 'permission_auto') push({ type: 'permission', id: msg.permissionId, title: (msg.request && msg.request.toolCall && msg.request.toolCall.title) || 'permission', options: [], decided: d + ' (policy)' }); break; }
@@ -457,7 +457,8 @@
     const curMode = (t && t.mode) || (d.modes && d.modes.currentModeId) || '';
     modeSel.value = curMode; $('#mode-label').textContent = (modes.find((m) => m.id === curMode) || {}).name || curMode;
     // The plain default mode carries no information; other modes (plan, accept edits) do.
-    $('#chip-mode').hidden = modes.length < 2 || ['default', 'normal', 'agent', 'build', ''].includes(curMode);
+    const modeName = ((modes.find((m) => m.id === curMode) || {}).name || '').toLowerCase();
+    $('#chip-mode').hidden = modes.length < 2 || ['default', 'normal', 'agent', 'build', ''].includes(curMode) || ['normal', 'default'].includes(modeName);
     // Model chip.
     const modelSel = $('#model'); modelSel.innerHTML = '';
     const opts = d.configOptions || []; const modelOpt = opts.find((o) => o.id === 'model');
@@ -471,7 +472,7 @@
     const eff = opts.find((o) => ['effort', 'reasoning_effort', 'thought_level', 'thinking', 'reasoning'].includes(o.id) && o.options);
     const effSel = $('#effort'); effSel.innerHTML = '';
     if (eff) { for (const o of eff.options) effSel.add(new Option(o.name || o.value, o.value)); effSel.value = eff.currentValue; $('#effort-label').textContent = eff.currentValue === 'default' ? 'effort' : eff.currentValue; effSel.onchange = () => call('session/set_config_option', { sessionId: selected, configId: eff.id, value: effSel.value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); }
-    $('#chip-effort').hidden = !eff;
+    $('#chip-effort').hidden = !eff || eff.currentValue === 'default';
     renderPerm(t);
   }
   function renderPerm(t) {
