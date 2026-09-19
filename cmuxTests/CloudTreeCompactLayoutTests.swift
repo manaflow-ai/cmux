@@ -60,7 +60,7 @@ struct CloudTreeCompactLayoutTests {
     }
 
     @Test("Cloud, locked, local and pending machine titles share the folder icon column",
-          arguments: [CloudTreeStyle.compact, .chips, .ledger, .aero], [75, 100, 150, 200])
+          arguments: CloudTreeStyle.presets, [75, 100, 150, 200])
     func machineVariants(style: CloudTreeStyle, percent: Int) throws {
         let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
         UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
@@ -100,8 +100,11 @@ struct CloudTreeCompactLayoutTests {
             try #require(ink.runs.count >= 2)
             return CGFloat(ink.runs[1].lowerBound) / ink.scale
         }
+        // Sections insets the whole machine identity 6pt inside its band.
+        // Preserve that decoration while comparing the shared icon column.
+        let bandInset: CGFloat = style.machineBand ? 6 : 0
         for start in starts.dropFirst() {
-            #expect(abs(start - starts[0]) <= CGFloat(percent) / 100,
+            #expect(abs(start - starts[0] - bandInset) <= CGFloat(percent) / 100,
                     "Every machine state reserves the same title column as a folder: \(starts)")
         }
     }
