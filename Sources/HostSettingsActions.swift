@@ -19,6 +19,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
     private let computerUseRuntimeService: ComputerUseRuntimeService
+    private let agentIntegrationSettingsController: AgentIntegrationSettingsController
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
@@ -53,10 +54,12 @@ final class HostSettingsActions: SettingsHostActions {
 
     init(
         configFileURL: URL,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        agentIntegrationSettingsController: AgentIntegrationSettingsController = AgentIntegrationSettingsController()
     ) {
         self.configFileURL = configFileURL
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.agentIntegrationSettingsController = agentIntegrationSettingsController
         startObservingAppIconMode()
     }
 
@@ -108,6 +111,41 @@ final class HostSettingsActions: SettingsHostActions {
 
     func terminalAdaptiveDefaultThemeDidChange() {
         TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+    }
+
+    func agentIntegrationInstallState(
+        _ integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationInstallState {
+        await agentIntegrationSettingsController.installState(integration)
+    }
+
+    func performAgentIntegrationAction(
+        _ action: AgentIntegrationInstallAction,
+        for integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationActionResult {
+        if action == .openInstructions {
+            guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/agent-hooks.md") else {
+                return AgentIntegrationActionResult(
+                    succeeded: false,
+                    message: String(
+                        localized: "settings.automation.integration.instructions.invalidURL",
+                        defaultValue: "The integration instructions URL is unavailable."
+                    )
+                )
+            }
+            let opened = NSWorkspace.shared.open(url)
+            return AgentIntegrationActionResult(
+                succeeded: opened,
+                message: opened
+                    ? nil
+                    : String(
+                        localized: "settings.automation.integration.instructions.openFailed",
+                        defaultValue: "The integration instructions could not be opened."
+                    )
+            )
+        }
+
+        return await agentIntegrationSettingsController.perform(action, for: integration)
     }
 
     func notifyShortcutSettingsDidChange() {
