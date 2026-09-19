@@ -16,8 +16,8 @@ class DeployTests(unittest.TestCase):
     def test_control_entrypoint_requires_a_32_byte_base64_signer_seed(self):
         script = (Path(__file__).resolve().parents[2] / 'control-entrypoint.sh').read_text()
         self.assertIn('${CMUX_V3_SIGNER_SEED_B64:?CMUX_V3_SIGNER_SEED_B64 is required}', script)
-        self.assertIn('test "$(wc -c < /run/cmux-v3/signer-seed', script)
-        self.assertIn('CMUX_V3_SIGNER_SEED_FILE=/run/cmux-v3/signer-seed', script)
+        self.assertIn('test "$(wc -c < "$seed_file"', script)
+        self.assertIn('CMUX_V3_SIGNER_SEED_FILE="$seed_file"', script)
         self.assertIn('exec /usr/local/bin/cmux-v3-control-server', script)
 
     def test_successful_azure_action_can_return_no_json_body(self):
@@ -44,5 +44,13 @@ class DeployTests(unittest.TestCase):
     def test_labels_reject_shell_and_resource_scope_injection(self):
         for value in ['foo/bar','x;bad','../old','A','x'*26]:
             with self.assertRaises(Exception): deploy.label(value)
+
+    def test_stack_team_ids_accept_uuid_shape_but_reject_shell(self):
+        self.assertEqual(
+            deploy.stack_identifier('18d136b0-497a-45e1-918c-6f20f54451a0'),
+            '18d136b0-497a-45e1-918c-6f20f54451a0',
+        )
+        for value in ['team;bad', '../team', 'x' * 257]:
+            with self.assertRaises(Exception): deploy.stack_identifier(value)
 
 if __name__=='__main__': unittest.main()

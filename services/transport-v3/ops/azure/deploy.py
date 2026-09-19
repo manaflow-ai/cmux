@@ -33,6 +33,11 @@ def label(value):
         raise argparse.ArgumentTypeError('use 1..25 lowercase letters/digits/hyphens')
     return value
 
+def stack_identifier(value):
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,255}', value):
+        raise argparse.ArgumentTypeError('use 1..256 Stack identifier characters')
+    return value
+
 def script_on_vm(group, node, script):
     with tempfile.NamedTemporaryFile('w', suffix='.sh') as f:
         f.write(script); f.flush()
@@ -233,7 +238,7 @@ if __name__=='__main__':
     parser.add_argument('--receipt',required=True,type=Path)
     parser.add_argument('--control-url', help='HTTPS v3 control service URL; registers relay feed credentials')
     parser.add_argument('--control-token-file', type=Path, help='Stack admin bearer used with --control-url')
-    parser.add_argument('--control-team', type=label, help='Stack team whose admin is allowed to register relays')
+    parser.add_argument('--control-team', type=stack_identifier, help='Stack team whose admin is allowed to register relays')
     ARGS=parser.parse_args()
     if bool(ARGS.control_url) != bool(ARGS.control_token_file):
         parser.error('--control-url and --control-token-file must be supplied together')
