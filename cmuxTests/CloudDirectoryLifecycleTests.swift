@@ -33,6 +33,24 @@ struct CloudDirectoryLifecycleTests {
         #expect(fixture.workspace.currentDirectory == "/Users/alice/local-checkout")
     }
 
+    @Test("Remote cd updates an unselected workspace without changing selection")
+    func unselectedWorkspace() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        let selected = Workspace()
+        manager.tabs = [fixture.workspace, selected]
+        manager.selectedTabId = selected.id
+        defer {
+            fixture.close()
+            for panel in selected.panels.values { panel.close() }
+            manager.tabs = []
+        }
+        try fixture.changeDirectory("/srv/unselected", terminal: 0)
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/unselected")
+        #expect(try fixture.sidebarText().contains("unselected"))
+        #expect(manager.selectedTabId == selected.id)
+    }
+
     @Test("Missing remote cwd is explicit and cannot resurrect launch, git or PR metadata")
     func missingDirectory() throws {
         let fixture = try CloudDirectoryTestFixture()
