@@ -18,7 +18,7 @@ struct CloudTerminalLayoutCreationTests {
             .success(try Self.snapshot()), .success(try Self.created())
         ])
         let result = try await operation(runner).run(
-            nearTabID: "tab_source", splitDirection: direction, idempotencyKey: "request-one"
+            nearTabID: "tab_source", splitDirection: direction, cwd: "/remote/project", idempotencyKey: "request-one"
         )
 
         #expect(result.created.terminalID == "term_created")
@@ -27,7 +27,7 @@ struct CloudTerminalLayoutCreationTests {
         #expect(commands == [
             CloudTuiCommandLine.snapshotArguments(socketPath: Self.socketPath),
             ["--socket", Self.socketPath, "--json", "pane", "pane_target", "split",
-             "--" + direction.rawValue, "--idempotency-key", "request-one", "--expected-revision", "10"]
+             "--" + direction.rawValue, "--cwd", "/remote/project", "--idempotency-key", "request-one", "--expected-revision", "10"]
         ])
     }
 
@@ -37,11 +37,11 @@ struct CloudTerminalLayoutCreationTests {
             .success(try Self.snapshot()), .success(try Self.created())
         ])
         _ = try await operation(runner).run(
-            nearTabID: "tab_source", splitDirection: nil, idempotencyKey: "request-tab"
+            nearTabID: "tab_source", splitDirection: nil, cwd: "/remote/project", idempotencyKey: "request-tab"
         )
         let command = try #require(await runner.commands.last)
         #expect(command == ["--socket", Self.socketPath, "--json", "pane", "pane_target", "run",
-                            "--idempotency-key", "request-tab", "--expected-revision", "10", "--"]
+                            "--cwd", "/remote/project", "--idempotency-key", "request-tab", "--expected-revision", "10", "--"]
             + CloudTuiCommandLine.defaultTerminalCommand)
     }
 

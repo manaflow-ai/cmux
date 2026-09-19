@@ -7,6 +7,7 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         try await createTerminal(
             nearTabID: nearTabID,
             splitDirection: splitDirection,
+            cwd: nil,
             request: CloudTerminalCreationRequest()
         )
     }
@@ -17,6 +18,7 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
     func createTerminal(
         nearTabID: String,
         splitDirection: SurfaceSplitDirection?,
+        cwd: String?,
         request: CloudTerminalCreationRequest
     ) async throws -> SurfaceResource {
         var retried = false
@@ -34,6 +36,7 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             var arguments = ["--socket", connected.socketPath, "--json", "pane", pane.id]
             if let splitDirection { arguments += ["split", "--" + splitDirection.rawValue] }
             else { arguments.append("run") }
+            if let cwd, !cwd.isEmpty { arguments += ["--cwd", cwd] }
             arguments += ["--idempotency-key", request.attemptKey]
             if let correlationKey = request.correlationArgument {
                 arguments += ["--correlation-key", correlationKey]
