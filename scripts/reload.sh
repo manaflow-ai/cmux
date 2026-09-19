@@ -891,6 +891,9 @@ Options:
                          Sets app name, bundle id, and derived data path unless overridden.
                          After a successful build, terminates any running app with this tag
                          so macOS launches the freshly-built binary on cmd-click or --launch.
+                         Tagged builds use the shared dev backend, which needs a
+                         cmuxterm-hq checkout. Without one, set
+                         CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
   --prod-auth            Point this tagged Debug build at production Stack auth,
@@ -1277,8 +1280,11 @@ CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_R
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 if [[ -n "$TAG" && "$PROD_AUTH" -eq 0 ]]; then
   source "$PWD/scripts/lib/dev-backend-origin.sh"
-  CMUX_DEV_ORIGIN="$(cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD")" || exit 1
-  export CMUX_DEV_BACKEND_URL="$CMUX_DEV_ORIGIN"
+  CMUX_DEV_ORIGIN="$(cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD" "$CMUX_DEV_ORIGIN")" || exit 1
+  # Local mode has no shared backend to bake into the app or the Iroh broker default.
+  if [[ "${CMUX_DEV_BACKEND_MODE:-remote}" != "local" ]]; then
+    export CMUX_DEV_BACKEND_URL="$CMUX_DEV_ORIGIN"
+  fi
 fi
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_DEV_BACKEND_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
