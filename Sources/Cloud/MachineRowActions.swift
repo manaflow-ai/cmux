@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import CmuxSettings
 
 /// Closure bundle handed to rows. Bound above the lazy boundary; rows never
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
