@@ -1736,7 +1736,9 @@ fi
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
-  if [[ -d "$TAG_APP_FINAL_PATH" ]] && validate_app_bundle "$TAG_APP_FINAL_PATH" "$BASE_APP_NAME" && ! reload_incremental_needs_update "$RELOAD_RECEIPT_DIR/tagged-app" "$RELOAD_INPUT_DIGEST" "$TAG_APP_FINAL_PATH"; then
+  if [[ -d "$TAG_APP_FINAL_PATH" ]] && validate_app_bundle "$TAG_APP_FINAL_PATH" "$BASE_APP_NAME" \
+      && /usr/bin/codesign --verify --deep --strict "$TAG_APP_FINAL_PATH" >/dev/null 2>&1 \
+      && ! reload_incremental_needs_update "$RELOAD_RECEIPT_DIR/tagged-app" "$RELOAD_INPUT_DIGEST" "$TAG_APP_FINAL_PATH"; then
     APP_PATH="$TAG_APP_FINAL_PATH"; TAG_APP_STAGING_PATH=""; RELOAD_POSTBUILD_NOOP=1
     echo "Reusing unchanged tagged app output at $APP_PATH"
   else

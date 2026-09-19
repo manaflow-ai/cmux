@@ -61,9 +61,18 @@ reload_incremental_output_digest() {
   local output="$1"
   if [[ -f "$output" ]]; then
     reload_incremental_sha256_file "$output"
-  else
-    reload_incremental_tree_digest "$output"
+    return
   fi
+  if [[ "$output" == *.app && -d "$output/Contents" ]]; then
+    local digest_inputs=()
+    digest_inputs+=("$output/Contents/Info.plist")
+    while IFS= read -r -d '' path; do
+      digest_inputs+=("$path")
+    done < <(find "$output/Contents/MacOS" "$output/Contents/Resources/bin" -type f -print0 2>/dev/null)
+    reload_incremental_tree_digest "${digest_inputs[@]}"
+    return
+  fi
+  reload_incremental_tree_digest "$output"
 }
 
 reload_incremental_needs_update() {
