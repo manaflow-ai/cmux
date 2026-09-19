@@ -10269,7 +10269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // this seed, the first-frame layout can mispaint in the new window until
         // ContentView.onAppear eventually runs syncTrafficLightInset (#2737).
         let initialTabBarLeadingInset: CGFloat =
-            (WorkspacePresentationModeSettings.isMinimal() && !sidebarState.isVisible)
+            (WorkspaceTitlebarSettings().isHidden && !sidebarState.isVisible)
                 ? MinimalModeTitlebarDebugSettings.trafficLightTabBarLeadingInset()
                 : 0
         tabManager.syncWorkspaceTabBarLeadingInset(initialTabBarLeadingInset)

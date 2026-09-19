@@ -458,6 +458,12 @@
           "default": true,
           "description": "When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead."
         },
+        "showWorkspaceTitleBar": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.app.showWorkspaceTitleBar",
+          "description": "Show the workspace title row independently of pane tabs. Set false with app.minimalMode false to reclaim the row while keeping pane tabs and standard sidebar controls. Window controls use the compact sidebar area, or sit beside the tabs in fullscreen when the sidebar is hidden. Minimal Mode always hides the title row and otherwise keeps its existing behavior; leaving it restores this preference. Changes apply immediately and persist across restarts."
+        },
         "minimalMode": {
           "type": "boolean",
           "default": false,

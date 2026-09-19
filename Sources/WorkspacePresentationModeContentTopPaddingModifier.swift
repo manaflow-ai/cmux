@@ -5,16 +5,12 @@ struct WorkspacePresentationModeContentTopPaddingModifier: ViewModifier {
     let titlebarPadding: CGFloat
     let hostingSafeAreaTop: CGFloat
 
-    @AppStorage(WorkspacePresentationModeSettings.modeKey)
-    private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
-
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
+    @WorkspaceTitlebarConfiguration private var titlebarSettings
 
     func body(content: Content) -> some View {
         content.padding(.top, ContentView.effectiveTitlebarPadding(
-            isMinimalMode: isMinimalMode,
+            isMinimalMode: titlebarSettings.isMinimalMode,
+            showWorkspaceTitleBar: titlebarSettings.showTitlebar,
             isFullScreen: isFullScreen,
             titlebarPadding: titlebarPadding,
             hostingSafeAreaTop: hostingSafeAreaTop

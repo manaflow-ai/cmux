@@ -14,7 +14,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private var layoutModeControls: [ObjectIdentifier: NSSegmentedControl] = [:]
     private var observers: [NSObjectProtocol] = []
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
-    private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
+    private var lastKnownTitlebarHidden = WorkspaceTitlebarSettings().isHidden
 
     override init() {
         super.init()
@@ -129,12 +129,11 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
     }
 
     private func updateToolbarVisibilityIfNeeded() {
-        let currentMode = WorkspacePresentationModeSettings.mode()
-        guard currentMode != lastKnownPresentationMode else { return }
-        lastKnownPresentationMode = currentMode
-        let isMinimal = currentMode == .minimal
+        let isTitlebarHidden = WorkspaceTitlebarSettings().isHidden
+        guard isTitlebarHidden != lastKnownTitlebarHidden else { return }
+        lastKnownTitlebarHidden = isTitlebarHidden
         for window in NSApp.windows {
-            if isMinimal {
+            if isTitlebarHidden {
                 window.toolbar = nil
             } else {
                 attach(to: window)
@@ -143,7 +142,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         // After toolbar changes, force titlebar accessories to recalculate.
         // Toolbar removal/re-addition changes the titlebar geometry, and
         // accessories hidden via isHidden need a layout pass to reappear.
-        if !isMinimal {
+        if !isTitlebarHidden {
             DispatchQueue.main.async {
                 for window in NSApp.windows {
                     for accessory in window.titlebarAccessoryViewControllers {
@@ -168,7 +167,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private func attach(to window: NSWindow) {
         guard window.toolbar == nil else { return }
-        guard !WorkspacePresentationModeSettings.isMinimal() else { return }
+        guard !WorkspaceTitlebarSettings().isHidden else { return }
         let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.toolbar"))
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly

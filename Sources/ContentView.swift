@@ -1787,17 +1787,6 @@ struct ContentView: View {
         workspacePresentationModeRuntimeCache.isMinimalMode
     }
 
-    static func effectiveTitlebarPadding(
-        isMinimalMode: Bool,
-        isFullScreen: Bool,
-        titlebarPadding: CGFloat,
-        hostingSafeAreaTop: CGFloat
-    ) -> CGFloat {
-        guard isMinimalMode else { return WindowChromeMetrics.appTitlebarHeight }
-        guard !isFullScreen else { return 0 }
-        return -max(0, min(titlebarPadding, hostingSafeAreaTop))
-    }
-
     nonisolated static func customTitlebarLeadingPadding(
         isFullScreen: Bool,
         isSidebarVisible: Bool,
@@ -2243,42 +2232,40 @@ struct ContentView: View {
                     .padding(.trailing, rightSidebarWidth)
                     .animation(nil, value: rightSidebarWidth)
             }
-            .overlay(alignment: .topLeading) {
-                if let placement = Self.fullscreenControlsPlacement(
-                    isFullScreen: isFullScreen,
-                    isSidebarVisible: sidebarState.isVisible
-                ) {
-                    fullscreenControls
-                        .environment(
-                            \.colorScheme,
-                            sidebarState.isVisible
-                                ? appearance.sidebarContentColorScheme
-                                : appearance.chromeColorScheme
-                        )
-                        // Same vertical frame as the title row (`customTitlebar`)
-                        // so the controls' center matches the folder icon / title.
-                        .frame(height: max(1, WindowChromeMetrics.appTitlebarHeight - 2), alignment: .center)
-                        .padding(.top, placement.topPadding)
-                        .padding(.leading, placement.leadingPadding)
-                }
-            }
+            .overlay(alignment: .topLeading) { workspaceFullscreenControls(appearance: appearance) }
     }
 
-    private func syncTrafficLightInset(isMinimalMode: Bool? = nil) {
-        let resolvedIsMinimalMode = isMinimalMode ?? currentIsMinimalMode
-        let inset: CGFloat = (resolvedIsMinimalMode && !sidebarState.isVisible && !isFullScreen)
-            ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
-            : 0
+    @ViewBuilder
+    private func workspaceFullscreenControls(appearance: WindowAppearanceSnapshot) -> some View {
+        if let placement = Self.fullscreenControlsPlacement(
+            isFullScreen: isFullScreen,
+            isSidebarVisible: sidebarState.isVisible
+        ) {
+            fullscreenControls
+                .environment(\.colorScheme, sidebarState.isVisible ? appearance.sidebarContentColorScheme : appearance.chromeColorScheme)
+                .frame(width: fullscreenControlsWidth, height: max(1, WindowChromeMetrics.appTitlebarHeight - 2))
+                .padding(.top, placement.topPadding)
+                .padding(.leading, placement.leadingPadding)
+        }
+    }
+
+    private func syncTrafficLightInset() {
+        let inset = workspacePresentationModeRuntimeCache.titlebarSettings.tabBarLeadingInset(
+            isSidebarVisible: sidebarState.isVisible,
+            isFullScreen: isFullScreen,
+            trafficLightInset: CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset),
+            fullscreenControlsWidth: fullscreenControlsWidth
+        )
         tabManager.syncWorkspaceTabBarLeadingInset(inset)
     }
 
-    private func handleWorkspacePresentationModeChange(isMinimalMode: Bool) {
-        workspacePresentationModeRuntimeCache.isMinimalMode = isMinimalMode
+    private func handleWorkspacePresentationModeChange(_ settings: WorkspaceTitlebarSettings) {
+        workspacePresentationModeRuntimeCache.titlebarSettings = settings
         if let observedWindow {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 isFullScreen,
                 in: observedWindow,
-                isMinimalMode: isMinimalMode
+                isMinimalMode: settings.isHidden
             )
             AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             refreshWindowChromeMetrics(for: observedWindow)
@@ -2288,7 +2275,7 @@ struct ContentView: View {
         }
         schedulePortalGeometrySynchronize()
         updateSidebarResizerBandState()
-        syncTrafficLightInset(isMinimalMode: isMinimalMode)
+        syncTrafficLightInset()
     }
 
     private func applyTitlebarDebugChromeChange() {
@@ -2698,6 +2685,8 @@ struct ContentView: View {
                 WorkspaceTitlebarModeLayer {
                     workspaceTitlebarBand(appearance: appearance)
                         .zIndex(100)
+                } compactControls: {
+                    if !sidebarState.isVisible { workspaceFullscreenControls(appearance: appearance).zIndex(100) }
                 }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -2707,9 +2696,7 @@ struct ContentView: View {
                     MinimalModeTitlebarEventSurfaceLayer(isFullScreen: isFullScreen)
                 )
                 .background(
-                    WorkspacePresentationModeChangeObserver { isMinimalMode in
-                        handleWorkspacePresentationModeChange(isMinimalMode: isMinimalMode)
-                    }
+                    WorkspacePresentationModeChangeObserver(onChange: handleWorkspacePresentationModeChange)
                 )
         )
 
@@ -3333,7 +3320,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 true,
                 in: window,
-                isMinimalMode: currentIsMinimalMode
+                isMinimalMode: workspacePresentationModeRuntimeCache.titlebarSettings.isHidden
             )
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
             syncTrafficLightInset()
@@ -3346,7 +3333,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 false,
                 in: window,
-                isMinimalMode: currentIsMinimalMode
+                isMinimalMode: workspacePresentationModeRuntimeCache.titlebarSettings.isHidden
             )
             AppDelegate.shared?.fullscreenControlsViewModel = nil
             syncTrafficLightInset()

@@ -299767,6 +299767,65 @@
         }
       }
     },
+    "settings.app.minimalMode.subtitleStandardControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام عناصر التحكم القياسية لمساحة العمل مع تفضيلك لشريط العنوان."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Steuerelemente des Arbeitsbereichs mit Ihrer Titelleisten-Einstellung verwenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use standard workspace controls with your title bar preference."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar los controles estándar del espacio de trabajo con tu preferencia de barra de título."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les commandes standard de l’espace de travail selon votre préférence de barre de titre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーの設定に従って、標準のワークスペース操作を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 표시줄 설정에 따라 표준 작업 공간 컨트롤을 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用标准工作区控件，并遵循您的标题栏偏好设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用標準工作區控制項，並遵循您的標題列偏好設定。"
+          }
+        }
+      }
+    },
     "settings.app.newWorkspacePlacement": {
       "extractionState": "manual",
       "localizations": {
@@ -304754,6 +304813,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "작업 공간 제목 아래에 맞춤 작업 공간 설명을 표시합니다."
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitleBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار شريط عنوان مساحة العمل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich-Titelleiste anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Title Bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la barra de título del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la barre de titre de l’espace de travail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルバーを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 제목 표시줄 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示工作区标题栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示工作區標題列"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitleBar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى علامات تبويب اللوحات ظاهرة. يخفي الوضع المصغّر شريط العنوان دائمًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich-Tabs bleiben sichtbar. Der Minimalmodus blendet die Titelleiste immer aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane tabs stay visible. Minimal Mode always hides the title bar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas de los paneles siguen visibles. El modo mínimo siempre oculta la barra de título."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets des volets restent visibles. Le mode minimal masque toujours la barre de titre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのタブは表示されたままです。ミニマルモードでは常にタイトルバーが非表示になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 탭은 계속 표시됩니다. 최소 모드에서는 제목 표시줄이 항상 숨겨집니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格标签页会保持可见。极简模式始终隐藏标题栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格分頁會保持可見。極簡模式一律隱藏標題列。"
           }
         }
       }
@@ -358216,6 +358393,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.workspaceInheritWorkingDirectory 작업 공간 cwd 디렉토리 상속 현재 포커스 ghostty 작업 디렉토리 app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.workspace-title-bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar إخفاء إظهار مساحة العمل نافذة مجلد مجموعة شريط عنوان لوحة علامات تبويب"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar ausblenden anzeigen Arbeitsbereich Fenster Ordner Gruppe Titelleiste Bereich Tabs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar hide show workspace window folder group title bar pane tabs chrome"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar ocultar mostrar espacio de trabajo ventana carpeta grupo barra título panel pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar masquer afficher espace de travail fenêtre dossier groupe barre de titre volet onglets"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 非表示 表示 ワークスペース ウインドウ フォルダ グループ タイトルバー ペイン タブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 숨기기 표시 작업 공간 창 폴더 그룹 제목 표시줄 창 탭"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 隐藏 显示 工作区 窗口 文件夹 分组 标题栏 窗格 标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 隱藏 顯示 工作區 視窗 資料夾 群組 標題列 窗格 分頁"
           }
         }
       }

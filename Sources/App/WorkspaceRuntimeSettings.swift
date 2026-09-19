@@ -3,16 +3,6 @@ import CmuxFoundation
 import CmuxTerminal
 import Foundation
 import CmuxSettings
-enum WorkspaceTitlebarSettings {
-    static let showTitlebarKey = "workspaceTitlebarVisible"
-    static let defaultShowTitlebar = true
-    static func isVisible(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: showTitlebarKey) == nil {
-            return defaultShowTitlebar
-        }
-        return defaults.bool(forKey: showTitlebarKey)
-    }
-}
 enum WorkspacePresentationModeSettings {
     static let modeKey = "workspacePresentationMode"
     enum Mode: String {
@@ -63,7 +53,7 @@ enum WorkspaceButtonFadeSettings {
             return
         }
 
-        let initialMode: Mode = WorkspaceTitlebarSettings.isVisible(defaults: defaults) ? .disabled : .enabled
+        let initialMode: Mode = WorkspaceTitlebarSettings(defaults: defaults).showTitlebar ? .disabled : .enabled
         defaults.set(initialMode.rawValue, forKey: modeKey)
     }
 

@@ -937,7 +937,7 @@ func isMinimalModeSidebarChromeHoverCandidate(
         width: window.frame.width,
         height: window.frame.height
     )
-    let isMinimalMode = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    let isMinimalMode = WorkspaceTitlebarSettings(defaults: defaults).isHidden
     let isFullScreen = window.styleMask.contains(.fullScreen)
     let isMainWindow = isMainWorkspaceWindow(window)
     guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
@@ -982,7 +982,7 @@ func minimalModeSidebarControlActionSlot(
         width: window.frame.width,
         height: window.frame.height
     )
-    let isMinimalMode = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    let isMinimalMode = WorkspaceTitlebarSettings(defaults: defaults).isHidden
     let isFullScreen = window.styleMask.contains(.fullScreen)
     let isMainWindow = isMainWorkspaceWindow(window)
     guard isMinimalMode, !isFullScreen, isMainWindow, contentBounds.contains(locationInWindow) else {
@@ -1039,7 +1039,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
     let env = ProcessInfo.processInfo.environment
     guard env["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
     let defaults = UserDefaults.standard
-    let isMinimal = WorkspacePresentationModeSettings.isMinimal(defaults: defaults)
+    let isMinimal = WorkspaceTitlebarSettings(defaults: defaults).isHidden
     let isFullScreen = window.styleMask.contains(.fullScreen)
     let isMainWindow = isMainWorkspaceWindow(window)
     let sidebarControlsAvailable = minimalModeSidebarTitlebarControlsAreAvailable(in: window)
@@ -1572,7 +1572,7 @@ func shouldHandleMinimalModeWindowTitlebarDoubleClick(
         height: window.frame.height
     )
     return shouldHandleMinimalModeWindowTitlebarDoubleClick(
-        isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
+        isMinimalMode: WorkspaceTitlebarSettings(defaults: defaults).isHidden,
         isFullScreen: window.styleMask.contains(.fullScreen),
         isMainWindow: isMainWorkspaceWindow(window),
         clickCount: event.clickCount,
@@ -1594,7 +1594,7 @@ func isMinimalModeWindowTitlebarClickCandidate(
         height: window.frame.height
     )
     return isMinimalModeWindowTitlebarClickCandidate(
-        isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
+        isMinimalMode: WorkspaceTitlebarSettings(defaults: defaults).isHidden,
         isFullScreen: window.styleMask.contains(.fullScreen),
         isMainWindow: isMainWorkspaceWindow(window),
         locationInWindow: event.locationInWindow,
@@ -1682,7 +1682,7 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 height: window.frame.height
             )
             guard isMinimalModeWindowTitlebarClickCandidate(
-                isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
+                isMinimalMode: WorkspaceTitlebarSettings().isHidden,
                 isFullScreen: window.styleMask.contains(.fullScreen),
                 isMainWindow: isMainWorkspaceWindow(window),
                 locationInWindow: locationInWindow,

@@ -131,6 +131,7 @@ enum AppSettingsFileMapping {
     private static let app = AppCatalogSection()
 
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(jsonKey: "showWorkspaceTitleBar", defaultsKey: app.workspaceTitlebarVisibility.userDefaultsKey),
         .init(
             jsonKey: "workspaceInheritWorkingDirectory",
             defaultsKey: app.workspaceInheritWorkingDirectory.userDefaultsKey,
