@@ -1292,20 +1292,47 @@ check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
+pr_concurrency_cancels_superseded_runs() {
+  # The group must be the same for every push to one pull request, and
+  # cancel-in-progress must be true for pull request events.
+  awk '
+    /^concurrency:/ { in_block=1; next }
+    in_block && /^[^[:space:]]/ { in_block=0 }
+    in_block && /^[[:space:]]+group:/ \
+      && /github\.(event\.pull_request\.number|ref|head_ref)([^_a-z]|$)/ { group_ok=1 }
+    in_block && /^[[:space:]]+cancel-in-progress:[[:space:]]*true[[:space:]]*$/ { cancel_ok=1 }
+    in_block && /^[[:space:]]+cancel-in-progress:/ \
+      && /github\.event_name[[:space:]]*==[[:space:]]*\047pull_request(_target)?\047/ { cancel_ok=1 }
+    END { exit !(group_ok && cancel_ok) }
+  ' "$1"
+}
+
 check_pr_macos_workflows_cancel_superseded_runs() {
   # Without a concurrency group a push never cancels the previous run, and on
   # a fixed pool of macOS runners those dead runs queue ahead of live ones.
-  local file failed=0
+  local file failed=0 probe
+  probe="$(mktemp)"
+  for bad in \
+    'group: ci-${{ github.sha }}|cancel-in-progress: true' \
+    'group: ci-${{ github.run_id }}|cancel-in-progress: true' \
+    'group: ci-${{ github.ref }}|cancel-in-progress: ${{ false }}' \
+    "group: ci-\${{ github.ref }}|cancel-in-progress: \${{ github.event_name == 'push' }}" \
+    "group: ci-\${{ github.ref }}|cancel-in-progress: \${{ github.event_name != 'pull_request' }}"
+  do
+    printf 'concurrency:\n  %s\n  %s\njobs:\n' "${bad%%|*}" "${bad##*|}" > "$probe"
+    if pr_concurrency_cancels_superseded_runs "$probe"; then
+      echo "FAIL: superseded-run guard self-test accepted an ineffective block: $bad"
+      rm -f "$probe"
+      exit 1
+    fi
+  done
+  rm -f "$probe"
+
   for file in "$ROOT_DIR"/.github/workflows/*.yml; do
     grep -qE '^  pull_request(_target)?:' "$file" || continue
     grep -qE 'runs-on:.*(macos|MACOS_RUNNER)' "$file" || continue
-    if ! awk '
-      /^concurrency:/ { in_block=1; next }
-      in_block && /^[^[:space:]]/ { in_block=0 }
-      in_block && /cancel-in-progress:[[:space:]]*(true|\$\{\{)/ { ok=1 }
-      END { exit !ok }
-    ' "$file"; then
-      echo "FAIL: $(basename "$file") runs macOS jobs on pull requests but never cancels a superseded run; add a concurrency group with cancel-in-progress"
+    if ! pr_concurrency_cancels_superseded_runs "$file"; then
+      echo "FAIL: $(basename "$file") runs macOS jobs on pull requests but a new push does not cancel the previous run; key the concurrency group on the pull request and set cancel-in-progress for pull_request events"
       failed=1
     fi
   done
