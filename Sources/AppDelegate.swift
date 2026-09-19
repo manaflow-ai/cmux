@@ -851,6 +851,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
     weak var sidebarSelectionState: SidebarSelectionState?
     var shortcutLayoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    private var shortcutMatcher: ConfiguredShortcutMatcher {
+        ConfiguredShortcutMatcher(layoutCharacterProvider: shortcutLayoutCharacterProvider)
+    }
     private var workspaceObserver: NSObjectProtocol?
     private var lifecycleSnapshotObservers: [NSObjectProtocol] = []
     private var windowKeyObservers: [NSObjectProtocol] = []
@@ -17266,16 +17269,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func matchConfiguredShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.isUnbound else { return false }
-        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
-            guard let secondStroke = shortcut.secondStroke,
-                  shortcut.firstStroke == prefix else {
-                return false
-            }
-            return matchShortcutStroke(event: event, stroke: secondStroke)
-        }
-        guard !shortcut.hasChord else { return false }
-        return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        shortcutMatcher.matches(
+            event: event,
+            shortcut: shortcut,
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+        )
     }
 
     func matchConfiguredShortcut(event: NSEvent, action: KeyboardShortcutSettings.Action) -> Bool {
@@ -17325,16 +17323,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         action: KeyboardShortcutSettings.Action
     ) -> Int? {
         let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound else { return nil }
         if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == prefix else {
                 return nil
             }
-            return numberedShortcutDigit(event: event, stroke: secondStroke)
+            return shortcutMatcher.numberedDigit(event: event, stroke: secondStroke)
         }
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
+        return shortcutMatcher.numberedDigit(event: event, shortcut: shortcut)
     }
 
     func routableNumberedConfiguredShortcutDigit(
@@ -17365,17 +17361,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   shortcut.firstStroke == prefix else {
                 return false
             }
-            return matchDirectionalShortcut(
+            return shortcutMatcher.matchesDirectional(
                 event: event,
                 stroke: secondStroke,
                 arrowGlyph: arrowGlyph,
                 arrowKeyCode: arrowKeyCode
             )
         }
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
+        return shortcutMatcher.matchesDirectional(
             event: event,
-            stroke: shortcut.firstStroke,
+            shortcut: shortcut,
             arrowGlyph: arrowGlyph,
             arrowKeyCode: arrowKeyCode
         )
@@ -17707,11 +17702,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Match a shortcut stroke against an event, handling normal keys.
     func matchShortcutStroke(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        stroke.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+        shortcutMatcher.matches(event: event, stroke: stroke)
     }
 
     private func matchShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        shortcut.matches(event: event, layoutCharacterProvider: shortcutLayoutCharacterProvider)
+        shortcutMatcher.matches(event: event, shortcut: shortcut)
     }
 
     fileprivate func shouldRouteGhosttyGotoSplitCycleShortcutToTerminal(_ event: NSEvent) -> Bool {
@@ -17829,148 +17824,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard flags == stroke.modifierFlags else { return nil }
-        let numberKeyDigit = digitForNumberKeyCode(event.keyCode)
-
-        if let digit = numberedShortcutDigit(
-            eventCharacter: event.charactersIgnoringModifiers,
-            applyShiftSymbolNormalization: flags.contains(.shift),
-            eventKeyCode: event.keyCode
-        ) {
-            return digit
-        }
-
-        let eventCharsIgnoringModifiers = event.charactersIgnoringModifiers
-        let hasUsableASCIIEventChars = !(eventCharsIgnoringModifiers?.isEmpty ?? true)
-            && (eventCharsIgnoringModifiers?.allSatisfy(\.isASCII) ?? true)
-        if !hasUsableASCIIEventChars || numberKeyDigit != nil {
-            let layoutCharacter = shortcutLayoutCharacterProvider(event.keyCode, event.modifierFlags)
-            if let digit = numberedShortcutDigit(
-                eventCharacter: layoutCharacter,
-                applyShiftSymbolNormalization: false,
-                eventKeyCode: event.keyCode
-            ) {
-                return digit
-            }
-        }
-
-        return numberKeyDigit
+        shortcutMatcher.numberedDigit(event: event, stroke: stroke)
     }
 
     private func numberedShortcutDigit(event: NSEvent, shortcut: StoredShortcut) -> Int? {
-        guard !shortcut.isUnbound, !shortcut.hasChord else { return nil }
-        return numberedShortcutDigit(event: event, stroke: shortcut.firstStroke)
-    }
-
-    private func numberedShortcutDigit(
-        eventCharacter: String?,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> Int? {
-        guard let eventCharacter, !eventCharacter.isEmpty else { return nil }
-        let normalized = normalizedShortcutEventCharacter(
-            eventCharacter,
-            applyShiftSymbolNormalization: applyShiftSymbolNormalization,
-            eventKeyCode: eventKeyCode
-        )
-        guard let digit = Int(normalized), (1...9).contains(digit) else { return nil }
-        return digit
+        shortcutMatcher.numberedDigit(event: event, shortcut: shortcut)
     }
 
     private func eventCouldMatchNumberedShortcutDigit(_ event: NSEvent) -> Bool {
-        if digitForNumberKeyCode(event.keyCode) != nil {
-            return true
-        }
-        return numberedShortcutDigit(
-            eventCharacter: event.charactersIgnoringModifiers,
-            applyShiftSymbolNormalization: false,
-            eventKeyCode: event.keyCode
-        ) != nil
-    }
-
-    private func normalizedShortcutEventCharacter(
-        _ eventCharacter: String,
-        applyShiftSymbolNormalization: Bool,
-        eventKeyCode: UInt16
-    ) -> String {
-        let lowered = eventCharacter.lowercased()
-        guard applyShiftSymbolNormalization else { return lowered }
-
-        switch lowered {
-        case "{": return "["
-        case "}": return "]"
-        case "<": return eventKeyCode == 43 ? "," : lowered // kVK_ANSI_Comma
-        case ">": return eventKeyCode == 47 ? "." : lowered // kVK_ANSI_Period
-        case "?": return "/"
-        case ":": return ";"
-        case "\"": return "'"
-        case "|": return "\\"
-        case "~": return "`"
-        case "+": return "="
-        case "_": return "-"
-        case "!": return eventKeyCode == 18 ? "1" : lowered // kVK_ANSI_1
-        case "@": return eventKeyCode == 19 ? "2" : lowered // kVK_ANSI_2
-        case "#": return eventKeyCode == 20 ? "3" : lowered // kVK_ANSI_3
-        case "$": return eventKeyCode == 21 ? "4" : lowered // kVK_ANSI_4
-        case "%": return eventKeyCode == 23 ? "5" : lowered // kVK_ANSI_5
-        case "^": return eventKeyCode == 22 ? "6" : lowered // kVK_ANSI_6
-        case "&": return eventKeyCode == 26 ? "7" : lowered // kVK_ANSI_7
-        case "*": return eventKeyCode == 28 ? "8" : lowered // kVK_ANSI_8
-        case "(": return eventKeyCode == 25 ? "9" : lowered // kVK_ANSI_9
-        case ")": return eventKeyCode == 29 ? "0" : lowered // kVK_ANSI_0
-        default: return lowered
-        }
-    }
-
-    private func digitForNumberKeyCode(_ keyCode: UInt16) -> Int? {
-        switch keyCode {
-        case 18: return 1 // kVK_ANSI_1
-        case 19: return 2 // kVK_ANSI_2
-        case 20: return 3 // kVK_ANSI_3
-        case 21: return 4 // kVK_ANSI_4
-        case 23: return 5 // kVK_ANSI_5
-        case 22: return 6 // kVK_ANSI_6
-        case 26: return 7 // kVK_ANSI_7
-        case 28: return 8 // kVK_ANSI_8
-        case 25: return 9 // kVK_ANSI_9
-        default:
-            return nil
-        }
-    }
-
-    /// Match arrow key shortcuts using keyCode
-    /// Arrow keys include .numericPad and .function in their modifierFlags, so strip those before comparing.
-    private func matchArrowShortcut(event: NSEvent, stroke: ShortcutStroke, keyCode: UInt16) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function])
-        return event.keyCode == keyCode && flags == stroke.modifierFlags
-    }
-
-    /// Match tab key shortcuts using keyCode 48
-    private func matchTabShortcut(event: NSEvent, stroke: ShortcutStroke) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        return event.keyCode == 48 && flags == stroke.modifierFlags
+        shortcutMatcher.eventCouldMatchNumberedDigit(event)
     }
 
     func matchTabShortcut(event: NSEvent, shortcut: StoredShortcut) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchTabShortcut(event: event, stroke: shortcut.firstStroke)
-    }
-
-    /// Directional shortcuts default to arrow keys, but the shortcut recorder only supports letter/number keys.
-    /// Support both so users can customize pane navigation (e.g. Cmd+Ctrl+H/J/K/L).
-    private func matchDirectionalShortcut(
-        event: NSEvent,
-        stroke: ShortcutStroke,
-        arrowGlyph: String,
-        arrowKeyCode: UInt16
-    ) -> Bool {
-        if stroke.key == arrowGlyph {
-            return matchArrowShortcut(event: event, stroke: stroke, keyCode: arrowKeyCode)
-        }
-        return matchShortcutStroke(event: event, stroke: stroke)
+        shortcutMatcher.matchesTab(event: event, shortcut: shortcut)
     }
 
     func matchDirectionalShortcut(
@@ -17979,10 +17845,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         arrowGlyph: String,
         arrowKeyCode: UInt16
     ) -> Bool {
-        guard !shortcut.hasChord else { return false }
-        return matchDirectionalShortcut(
+        shortcutMatcher.matchesDirectional(
             event: event,
-            stroke: shortcut.firstStroke,
+            shortcut: shortcut,
             arrowGlyph: arrowGlyph,
             arrowKeyCode: arrowKeyCode
         )

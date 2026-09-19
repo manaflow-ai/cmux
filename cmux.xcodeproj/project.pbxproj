@@ -1551,6 +1551,7 @@
 		C0A710190000000000000002 /* ComputerUseWindowDragRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
+		C0DE77770000000000000001 /* ConfiguredShortcutMatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE77770000000000000002 /* ConfiguredShortcutMatcherTests.swift */; };
 		D1F0A01100000000000000B1 /* ConnectivityInvalidationSubscriberCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A01100000000000000B2 /* ConnectivityInvalidationSubscriberCoordinator.swift */; };
 		C0DE43000000000000000005 /* ContentView+AgentChatCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE43000000000000000006 /* ContentView+AgentChatCommandPalette.swift */; };
 		C0DEA7710000000000000001 /* ContentView+AuthCommandPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */; };
@@ -5427,6 +5428,7 @@
 		C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWindowDragRegion.swift; sourceTree = "<group>"; };
 		3023B1013023B1013023B101 /* ConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSettingsView.swift; sourceTree = "<group>"; };
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
+		C0DE77770000000000000002 /* ConfiguredShortcutMatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfiguredShortcutMatcherTests.swift; sourceTree = "<group>"; };
 		D1F0A01100000000000000B2 /* ConnectivityInvalidationSubscriberCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConnectivityInvalidationSubscriberCoordinator.swift; sourceTree = "<group>"; };
 		C0DE43000000000000000006 /* ContentView+AgentChatCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AgentChatCommandPalette.swift"; sourceTree = "<group>"; };
 		C0DEA7710000000000000002 /* ContentView+AuthCommandPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ContentView+AuthCommandPalette.swift"; sourceTree = "<group>"; };
@@ -11264,6 +11266,7 @@
 				D15AB1ED000000000000A005 /* ManagedCapabilityPolicyGateTests.swift */,
 				D15AB1ED000000000000A003 /* ManagedPolicyCloudGateTests.swift */,
 				6083A7DAD962E287FC2FFE94 /* ShortcutAndCommandPaletteTests.swift */,
+				C0DE77770000000000000002 /* ConfiguredShortcutMatcherTests.swift */,
 				F17F00000000000000000004 /* FullWidthTabCommandTests.swift */,
 				A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */,
 				B7758A020000000000000002 /* TerminationWatchdogTests.swift */,
@@ -15580,6 +15583,7 @@
 				C0A716940000000000000002 /* ComputerUseCommandPaletteTests.swift in Sources */,
 				C0A716950000000000000002 /* ComputerUseOnboardingWindowTests.swift in Sources */,
 				C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */,
+				C0DE77770000000000000001 /* ConfiguredShortcutMatcherTests.swift in Sources */,
 				B88356000000000000000003 /* ControlledPastePreparationDeadlines.swift in Sources */,
 				B88356000000000000000001 /* ControlledPastePreparationOperation.swift in Sources */,
 				C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */,
