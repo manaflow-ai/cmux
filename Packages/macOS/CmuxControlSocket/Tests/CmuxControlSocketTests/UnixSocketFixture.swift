@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import CmuxControlSocket
 
 /// Test helpers for creating real Unix-domain sockets under temporary paths.
 enum UnixSocketFixture {
@@ -152,49 +151,5 @@ enum UnixSocketFixture {
             code: Int(errno),
             userInfo: [NSLocalizedDescriptionKey: "\(operation) failed"]
         )
-    }
-}
-
-extension AsyncStream where Element == ControlConnection {
-    private enum WaitTimeoutError: Error {
-        case timedOut
-    }
-
-    /// Returns the next accepted connection, or throws after the test timeout.
-    func nextControlConnection(timeout: TimeInterval = 5.0) async throws -> ControlConnection {
-        let resumed = OSAllocatedUnfairLock(initialState: false)
-        return try await withCheckedThrowingContinuation { continuation in
-            Task {
-                var iterator = self.makeAsyncIterator()
-                guard let connection = await iterator.next() else {
-                    let shouldResume = resumed.withLock { state in
-                        guard !state else { return false }
-                        state = true
-                        return true
-                    }
-                    if shouldResume { continuation.resume(throwing: WaitTimeoutError.timedOut) }
-                    return
-                }
-                let shouldResume = resumed.withLock { state in
-                    guard !state else { return false }
-                    state = true
-                    return true
-                }
-                if shouldResume { continuation.resume(returning: connection) }
-            }
-            Task {
-                do {
-                    try await Task.sleep(for: .seconds(timeout))
-                } catch {
-                    return
-                }
-                let shouldResume = resumed.withLock { state in
-                    guard !state else { return false }
-                    state = true
-                    return true
-                }
-                if shouldResume { continuation.resume(throwing: WaitTimeoutError.timedOut) }
-            }
-        }
     }
 }

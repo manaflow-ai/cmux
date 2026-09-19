@@ -49,7 +49,6 @@ extension TerminalController {
             tabManager = routingFallbackTabManager
         }
         let previousMode = socketServer.accessMode
-        socketAccessModeCache.update(configuration.accessMode)
         let wasRunning = socketServer.isRunning
         let hadPendingRearm = socketServer.hasPendingAcceptLoopRearm
         let pathChanged = socketServer.updateConfiguredPreferredSocketPath(
@@ -108,7 +107,6 @@ extension TerminalController {
         routingFallbackTabManager: TabManager? = nil,
         preserveAcceptFailureStreak: Bool = false
     ) {
-        socketAccessModeCache.update(configuration.accessMode)
         if let manager = tabManager ?? routingFallbackTabManager {
             start(
                 tabManager: manager,

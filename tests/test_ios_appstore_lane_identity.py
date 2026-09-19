@@ -12,6 +12,7 @@ import plistlib
 import re
 import shutil
 import stat
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -74,7 +75,7 @@ def _profile_plist(
     return {
         "Name": name,
         "UUID": uuid,
-        "ExpirationDate": datetime.now(timezone.utc) + timedelta(days=365),
+        "ExpirationDate": (datetime.now(timezone.utc) + timedelta(days=365)).replace(tzinfo=None),
         "DeveloperCertificates": [FIXTURE_CERTIFICATE_DER],
         "Entitlements": {
             "application-identifier": app_id,
@@ -98,8 +99,6 @@ def _install_fake_tools(fakebin: Path) -> None:
     common = f"""
 import os
 import plistlib
-import datetime
-from datetime import timedelta, timezone
 from pathlib import Path
 
 TEAM_ID = {TEAM_ID!r}
@@ -116,29 +115,10 @@ def write_plist(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(plist_bytes(value))
 
-APPSTORE_PROFILE = {_profile_plist()!r}
-BETA_PROFILE = {_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002")!r}
-EXTENSION_PROFILE = {_profile_plist(APPSTORE_BUNDLE_ID + ".NotificationService", "cmux App Store Notification Distribution Test", "00000000-0000-0000-0000-000000000003")!r}
-FIXTURE_CERTIFICATE = '''-----BEGIN CERTIFICATE-----
-MIIDKTCCAhGgAwIBAgIUEv3LISQuuT8OjxfV//zjFyQ+TzEwDQYJKoZIhvcNAQEL
-BQAwJDEiMCAGA1UEAwwZY211eCBmaXh0dXJlIGRpc3RyaWJ1dGlvbjAeFw0yNjA5
-MTkwMDI2NDRaFw0zNjA5MTYwMDI2NDRaMCQxIjAgBgNVBAMMGWNtdXggZml4dHVy
-ZSBkaXN0cmlidXRpb24wggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCq
-2ClWbIuXTvS8Wm8d0LhDZZO494nA3XaVzYi3iutZDsuHCio6GslN9cGuDwI3thY7
-1rCE5D+81bECHdK8yoKt5/rYhRySYXSxbqROO9ZgX8DxN++ewqr/yhG26rKczv0e
-4t09L26WKhlazM6Cyy5SkAOXcI34YcE3bXpTWjcvlf7QxikBNSTfuqRNYTaffBZg
-twoocwlmhsOPjTwqbdWwUv2qEUChQ+N6Ucc4b2FI+4tFXIwiNlsQ/xZR5DxdxUj4
-GlzuD3V8yZpNSbkIaG5iosSLb3GN5KqTCBpfv95BLoi1lTCckTbp7gRGfeYaat/j
-2dQjyMRm1S1x9j85pCVxAgMBAAGjUzBRMB0GA1UdDgQWBBSV62e0TWExHARtKtzP
-1un//R8/BTAfBgNVHSMEGDAWgBSV62e0TWExHARtKtzP1un//R8/BTAPBgNVHRMB
-Af8EBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQB1VIgPD8AydYQYK/u7vcYT2ThT
-bINE7IAqIReBd5mO71HhRIYb9zGKPULLRUFXEdCVUt8dujiLDzNtwz4tWsOvftKD
-0K1anjCQIg/jJNt5nwFjhfyGq99Uf9WsQuyaq6cLpHopz55awc8N0vjnCYBTzhjn
-VUgcZLErIOGtVs0VAB9+NyjIQwOMEFcNZZPBiaeen3Sac3aw1yTS69CYgH7hwBEl
-NcTqH25yFRszd792HnJj/cPVqCmqQ77rxNOkS1EXtb8cAADG7IfI3iwQaqOFkY1J
-XpZ+HkBJS2ZHskeN54QEBeM0N4hGveK/8BhILfcJe7hbHxf19v+ecEpu9Bft
------END CERTIFICATE-----
-'''
+APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
+BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
+EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(APPSTORE_BUNDLE_ID + ".NotificationService", "cmux App Store Notification Distribution Test", "00000000-0000-0000-0000-000000000003"))!r})
+FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
 
 def profile_for_bundle(bundle_id):
     source = BETA_PROFILE if bundle_id == BETA_BUNDLE_ID else APPSTORE_PROFILE

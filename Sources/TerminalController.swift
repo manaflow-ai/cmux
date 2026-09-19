@@ -182,8 +182,6 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
-    /// Cached authoritative mode used by socket workers for bounded admission reads.
-    nonisolated let socketAccessModeCache: SocketControlAccessModeCache
     /// App-owned discovery marker store injected into the listener event seam.
     nonisolated let socketPathMarkerStore: SocketPathMarkerStore
     // Accepted-connection consumer; runs until process exit (singleton).
@@ -477,9 +475,6 @@ class TerminalController {
         self.panelArtifactAuthorizationStore =
             panelArtifactAuthorizationStore ?? PanelArtifactAuthorizationStore()
         self.transport = transport
-        let initialSocketAccessMode = CmuxSettingsFileStore.socketControlPolicyResolution().mode
-        let socketAccessModeCache = SocketControlAccessModeCache(initialMode: initialSocketAccessMode)
-        self.socketAccessModeCache = socketAccessModeCache
         let socketMarkerFileManager = FileManager.default
         let socketMarkerBundleIdentifier = Bundle.main.bundleIdentifier
         let socketMarkerEnvironment = ProcessInfo.processInfo.environment
@@ -551,9 +546,6 @@ class TerminalController {
             listenerPolicy: listenerPolicy, notificationCenter: .default,
             effectivePasswordProvider: {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
-            },
-            effectiveAccessModeProvider: {
-                socketAccessModeCache.current
             },
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
             events: Self.makeSocketServerEvents(
@@ -1081,7 +1073,6 @@ class TerminalController {
         preserveAcceptFailureStreak: Bool = false
     ) {
         self.tabManager = tabManager
-        socketAccessModeCache.update(accessMode)
         socketServer.start(
             socketPath: socketPath,
             accessMode: accessMode,

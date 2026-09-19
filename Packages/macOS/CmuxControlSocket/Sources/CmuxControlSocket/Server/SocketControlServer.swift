@@ -135,7 +135,6 @@ public final class SocketControlServer {
     private let authorizationObserverBag: SocketAuthorizationObserverBag
     private nonisolated let connectionAuthorizationState: SocketConnectionAuthorizationState
     private nonisolated let effectivePasswordProvider: @Sendable () -> String?
-    private nonisolated let effectiveAccessModeProvider: (@Sendable () -> SocketControlMode)?
 
     /// Accepted, configured client connections, in accept order.
     ///
@@ -170,10 +169,6 @@ public final class SocketControlServer {
     ///     center; tests can inject an isolated center.
     ///   - effectivePasswordProvider: Reads the password currently enforced by
     ///     password mode. Called outside authorization-state lock sections.
-    ///   - effectiveAccessModeProvider: Optional cached mode provider used by
-    ///     the app composition root before admission and continuation checks.
-    ///     When omitted, the mode passed to ``start``/``reconfigure`` remains
-    ///     authoritative for package consumers and tests.
     ///   - authorizationChangeSignals: Out-of-band signals for authoritative
     ///     password-file changes that do not post an in-process notification.
     ///   - events: Host callback seam.
@@ -185,7 +180,6 @@ public final class SocketControlServer {
         maximumBufferedConnections: Int = 32,
         notificationCenter: NotificationCenter,
         effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
-        effectiveAccessModeProvider: (@Sendable () -> SocketControlMode)? = nil,
         authorizationChangeSignals: AsyncStream<Void>? = nil,
         events: SocketControlServerEvents
     ) {
@@ -201,7 +195,6 @@ public final class SocketControlServer {
         )
         self.connectionAuthorizationState = SocketConnectionAuthorizationState()
         self.effectivePasswordProvider = effectivePasswordProvider
-        self.effectiveAccessModeProvider = effectiveAccessModeProvider
         self.events = events
         (self.connections, self.connectionsContinuation) =
             AsyncStream<ControlConnection>.makeStream(
@@ -308,17 +301,9 @@ public final class SocketControlServer {
         listenerStateSnapshot().pendingRearmGeneration != nil
     }
 
-    /// The access mode of the current listener, reconciled through the
-    /// injected authoritative policy provider before it is returned.
+    /// The access mode currently owned by the authorization state.
     public nonisolated var accessMode: SocketControlMode {
-        guard let effectiveAccessModeProvider else {
-            return connectionAuthorizationState.accessMode
-        }
-        let resolved = effectiveAccessModeProvider()
-        if connectionAuthorizationState.accessMode != resolved {
-            configureConnectionAuthorization(accessMode: resolved)
-        }
-        return resolved
+        connectionAuthorizationState.accessMode
     }
 
     /// Generation attached to newly accepted clients for policy revocation.
@@ -328,7 +313,6 @@ public final class SocketControlServer {
 
     /// Whether an accepted connection still belongs to the live access policy.
     public nonisolated func isConnectionAuthorizationCurrent(_ generation: UInt64) -> Bool {
-        _ = accessMode
         return connectionAuthorizationState.isCurrent(generation)
     }
 
@@ -339,7 +323,6 @@ public final class SocketControlServer {
         _ generation: UInt64,
         passwordAuthorization: SocketPasswordAuthorization
     ) -> Bool {
-        _ = accessMode
         return connectionAuthorizationState.permitsContinuation(
             generation: generation,
             authenticatedPasswordFingerprint:
@@ -411,7 +394,7 @@ public final class SocketControlServer {
         stateMirror.withLock { $0 }
     }
 
-    nonisolated func configureConnectionAuthorization(accessMode: SocketControlMode) {
+    func configureConnectionAuthorization(accessMode: SocketControlMode) {
         connectionAuthorizationState.configure(
             accessMode: accessMode,
             effectivePassword: accessMode.requiresPasswordAuth
@@ -432,7 +415,6 @@ public final class SocketControlServer {
         generation: UInt64,
         revocationSignal: SocketAuthorizationRevocationSignal
     ) {
-        _ = accessMode
         let generation = connectionAuthorizationState.currentGeneration
         return (generation.number, generation.revocationSignal)
     }

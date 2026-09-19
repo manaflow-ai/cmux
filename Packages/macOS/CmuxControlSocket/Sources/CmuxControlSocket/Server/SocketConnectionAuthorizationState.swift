@@ -34,6 +34,9 @@ final class SocketConnectionAuthorizationState: Sendable {
                 && !constantTimeEqual(state.passwordFingerprint, fingerprint)
             state.accessMode = accessMode
             state.passwordFingerprint = fingerprint
+            if accessMode == .off {
+                state.isRunning = false
+            }
             if policyChanged || passwordChanged {
                 rotate(&state)
             }
