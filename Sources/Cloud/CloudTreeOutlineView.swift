@@ -3,9 +3,7 @@ import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
-/// The Finder-like Cloud tree over the surface catalog: This Mac (local
-/// workspaces → terminals; Browsers) then every machine (Workspaces → cmux-tui
-/// workspace → terminals; Ports; Displays; Terminals), as an `NSOutlineView`. Rows are pure
+/// The Cloud catalog outline: local workspaces, then machine workspaces and resources. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
 /// expansion, clicks, context menus, keyboard navigation, and the native
 /// drag whose drop projects the row as a pane in the main view.
@@ -13,6 +11,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machines: [MachineSnapshot]
     /// Creates still running or failed, shown as pending rows above the fleet.
     var pendingCreates: [MachineCreateOperation] = []
+    var adoptedOperationIDs: [String: UUID] = [:]
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
     /// Machine id to terminal ids with a notification this Mac has not read.
@@ -65,7 +64,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
-            pendingCreates: pendingCreates,
+            pendingCreates: pendingCreates, adoptedOperationIDs: adoptedOperationIDs,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
@@ -867,16 +866,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let nodeActions = nodeActions
             let id = operation.id
             var items: [NSMenuItem] = []
-            if operation.isRunning {
+            if operation.isCancellable {
                 items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
-            } else {
+            } else if !operation.isReconciling {
                 items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
                 items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
                 items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
                 items.append(.separator())
             }
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
-            if !operation.isRunning {
+            if operation.failureOutput != nil {
                 items.append(.separator())
                 items.append(item(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) { create.dismiss(id) })
             }

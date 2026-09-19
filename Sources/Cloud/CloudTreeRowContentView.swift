@@ -338,7 +338,7 @@ struct CloudTreeTerminalRowContent: View {
             tint: CloudTreeIconPalette.terminal,
             title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
-            detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) }
+            detail: row.directoryText
         ) {
             if showsDetachedState {
                 // Zero views: still running on the machine, no daemon tab shows it.
@@ -360,7 +360,7 @@ struct CloudTreeTerminalRowContent: View {
         }
         // Agent state stays on hover and in `cmux vm tree`; the row itself
         // carries only the unread dot.
-        .help(agentLabel ?? "")
+        .help([row.directoryHelp, agentLabel].compactMap { $0 }.joined(separator: "\n"))
     }
 
     /// The view-count badge a pool row shows: the count when several daemon tabs

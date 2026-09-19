@@ -583,6 +583,7 @@ struct MachinesPanelView: View {
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.machines : [],
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
+            adoptedOperationIDs: includesCloud ? viewModel.adoptedOperationIDs : [:],
             snapshot: treeSnapshot,
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,

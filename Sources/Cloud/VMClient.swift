@@ -1211,7 +1211,7 @@ actor VMClient {
         return result
     }
 
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1220,6 +1220,7 @@ actor VMClient {
             if persistentHome { body["persistentHome"] = true }
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }
+            if let displayName { body["displayName"] = displayName }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]
@@ -1238,11 +1239,8 @@ actor VMClient {
             else {
                 throw VMClientError.malformedResponse("Cloud VM create response was missing required fields.")
             }
-            // Prefer the server-supplied createdAt. Using the local wall clock caused two
-            // visible bugs: (1) creation time was wrong under clock skew, (2) idempotent
-            // retries that short-circuited to an existing VM on the server still stamped
-            // "now" on the mac side, so the client saw a fresh timestamp for a replayed
-            // create (Codex P2). Fall back to the local clock only if the server omits it.
+            // Preserve the server timestamp on idempotent replays and under local clock skew.
+            // Fall back to the local clock only for older servers that omit it.
             let serverCreatedAt = (obj["createdAt"] as? Int64)
                 ?? Int64((obj["createdAt"] as? Double) ?? 0)
             let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)

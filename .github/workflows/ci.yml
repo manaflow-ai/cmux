@@ -1086,6 +1086,23 @@ jobs:
             -only-testing:cmuxTests/BrowserSystemProxyMirrorTests \
             test-without-building
 
+      - name: Run Cloud notification dismiss parity regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Focused gate for https://github.com/manaflow-ai/cmux/issues/13000.
+          # The tolerant full-suite step accepts ordinary Swift Testing
+          # failures, so keep the one-read-state contract between the local
+          # store, the left sidebar, and the Cloud tree on a non-tolerant
+          # only-testing invocation.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CloudNotificationDismissParityTests \
+            test-without-building
+
       - name: Run agent restore admission regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1909,6 +1926,7 @@ jobs:
             CMUXAuthCore
             CmuxBrowser
             CmuxCanvasUI
+            CmuxCloudMachines
             CmuxCore
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
@@ -2747,6 +2765,10 @@ jobs:
           path: ghostty-cli-helper
 
       - name: Install universal Ghostty CLI helper
+        env:
+          # install-cmux-tui-client.sh verifies the manifest's build-provenance
+          # attestation with gh before trusting it.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           /bin/bash ./tests/test_install_cmux_tui_client.sh
