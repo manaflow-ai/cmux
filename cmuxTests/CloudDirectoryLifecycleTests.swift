@@ -186,7 +186,7 @@ struct CloudDirectoryLifecycleTests {
         summary.slug = slug
         fixture.provider.update(summary: summary)
         try fixture.changeDirectory("/home/cmux/a", terminal: 0)
-        try fixture.changeDirectory("/home/cmux/a", terminal: 1)
+        try fixture.changeDirectory("/home/cmux/b", terminal: 1)
 
         #expect(MachineSnapshotBuilder.snapshot(from: summary).displayName == expected)
         #expect(fixture.provider.info.name == expected)
@@ -195,11 +195,11 @@ struct CloudDirectoryLifecycleTests {
                 workspace: fixture.workspace, orderedPanelIDs: fixture.panels,
                 usesLastSegmentPath: usesLastSegmentPath
             ))
-            let full = "\(expected) · /home/cmux/a"
+            let full = "\(expected) · /home/cmux/a, /home/cmux/b"
             if usesLastSegmentPath {
                 #expect(presentation.directoryCandidates.count == 2)
-                #expect(presentation.directoryCandidates.first?.hasSuffix("/home/cmux/a") == true)
-                #expect(presentation.directoryCandidates.last == "\(expected) · …/a")
+                #expect(presentation.directoryCandidates.first == full)
+                #expect(presentation.directoryCandidates.last == "\(expected) · …/a, …/b")
             } else {
                 #expect(presentation.directoryCandidates == [full])
             }
@@ -276,6 +276,51 @@ struct CloudDirectoryLifecycleTests {
         #expect(try fixture.sidebar().cloudWorkspaceLabel?.contains("other-machine") == true)
         #expect(try fixture.sidebarText().contains("Other machine ·"))
         #expect(workspace.title == "My explicit task title")
+    }
+
+    @Test("A machine name is shown once for multiple directories and collisions stay distinct")
+    func groupedMachineDirectories() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.changeDirectory("/home/cmux/a", terminal: 0)
+        try fixture.changeDirectory("/home/cmux/b", terminal: 1)
+        var info = fixture.provider.info
+        info.name = "Build server"
+        fixture.catalog.updateMachine(info, from: fixture.provider)
+        let singleMachine = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+        ))
+        #expect(singleMachine.directoryCandidates == ["Build server · /home/cmux/a, /home/cmux/b"])
+
+        let other = SurfaceMachineID.cloud("other-machine")
+        let otherPanel = try #require(fixture.workspace.newTerminalSurface(
+            inPane: try #require(fixture.workspace.bonsplitController.allPaneIds.first), focus: false
+        )).id
+        let otherResource = SurfaceResource(
+            id: SurfaceResourceID(machine: other, kind: .terminal, key: "other-terminal"),
+            title: "bash", detail: "/srv/other", lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        )
+        let otherProvider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: other.rawValue, provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil),
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: fixture.catalog
+        )
+        fixture.catalog.register(otherProvider)
+        defer {
+            fixture.catalog.endProjections(panelID: otherPanel)
+            fixture.catalog.unregister(machine: other)
+            fixture.workspace.panels[otherPanel]?.close()
+        }
+        var otherInfo = otherProvider.info
+        otherInfo.name = "Build server"
+        fixture.catalog.updateMachine(otherInfo, from: otherProvider)
+        fixture.catalog.upsert(otherResource, from: otherProvider)
+        fixture.catalog.record(SurfaceProjection(resource: otherResource.id, workspaceID: fixture.workspace.id, panelID: otherPanel))
+        let collision = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.workspace.sidebarOrderedPanelIds(), usesLastSegmentPath: false
+        ))
+        #expect(collision.directoryCandidates.first?.contains("Build server (cwd-machine) · /home/cmux/a, /home/cmux/b") == true)
+        #expect(collision.directoryCandidates.first?.contains("Build server (other-machine) · /srv/other") == true)
     }
 
     @Test("Local renderer OSC reports cannot overwrite the accepted Cloud graph")
