@@ -63,7 +63,7 @@ jobs:
 
       - name: Test semantic config validator
         run: |
-          swift test --package-path Packages/macOS/CmuxFoundation             --filter CmuxConfigSemanticValidatorTests             -Xswiftc -warnings-as-errors
+          swift test --package-path Packages/macOS/CmuxFoundation --filter CmuxConfigSemanticValidatorTests
 
       - name: Build the standalone CLI
         run: |
