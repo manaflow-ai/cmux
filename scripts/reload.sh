@@ -1484,6 +1484,9 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}
 else
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
 fi
+if [[ "${CMUX_BUILD_TIMING:-0}" == 1 ]]; then
+  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
+fi
 XCODEBUILD_ARGS+=(build)
 
 if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
