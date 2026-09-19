@@ -35,4 +35,16 @@ struct CloudTreeLayoutMetricsTests {
         #expect(metrics.referenceInset == 12)
         #expect(CloudTreeRowGrid.trailingPadding == metrics.referenceInset)
     }
+
+    @Test("compact rows use a standard close spacing rhythm")
+    func compactGridSpacing() {
+        #expect(CloudTreeStyle.compact.rowHeight == 22)
+        #expect(CloudTreeStyle.compact.iconSlot == 16)
+        #expect(CloudTreeStyle.compact.iconGap == 4)
+        #expect(CloudTreeRowGrid.disclosureSlot == 16)
+        #expect(CloudTreeRowGrid.disclosureGap == 2)
+        #expect(CloudTreeRowGrid.dotSlot == 10)
+        #expect(CloudTreeRowGrid.dotGap == 4)
+        #expect(CloudTreeRowGrid.detailGap == 5)
+    }
 }
