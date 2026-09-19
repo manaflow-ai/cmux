@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -32,6 +33,21 @@ class CloudHostnameTests(unittest.TestCase):
         source = Path(__file__).parent / "fixtures/cloud-hostname-resolver-tripwire.m"
         subprocess.run(["xcrun", "clang", "-dynamiclib", "-framework", "Foundation",
                         str(source), "-o", cls.library], check=True, capture_output=True)
+        # Run the supplied CLI from a directory containing no real cmux-tui. This
+        # keeps a bundled client in the source app from masking the disposable
+        # probe below, while the inherited DYLD framework paths still resolve the
+        # CLI's original build products on CI.
+        isolated_bin = Path(cls.fixture.name, "cli")
+        isolated_bin.mkdir()
+        cls.cli = str(isolated_bin / "cmux")
+        shutil.copy2(os.environ["CMUX_CLI_BIN"], cls.cli)
+        Path(cls.cli).chmod(0o700)
+        cls.probe_client = str(Path(cls.fixture.name, "probe-client"))
+        subprocess.run([
+            "xcrun", "clang", "-DCMUX_TEST_REMOTE_PROBE_CLIENT", str(source),
+            "-o", cls.probe_client,
+        ], check=True, capture_output=True)
+        Path(cls.probe_client).chmod(0o700)
 
     def test_app_label_does_not_resolve_the_computers_name(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -84,11 +100,23 @@ class CloudHostnameTests(unittest.TestCase):
                 "AppleLanguages": "(en)",
             })
             # A disposable probe client; no remote process is ever launched.
-            client = Path(server.root.name, "cmux-tui")
-            client.write_text('#!/bin/sh\nprintf \'%s\\n\' \'{"app":"cmux-tui",'
-                              '"capabilities":["wireguard-hub"]}\'\n')
-            client.chmod(0o700)
+            # Preflight the exact executable and environment so a discovery
+            # failure cannot be mistaken for the hostname regression.
+            client = Path(self.probe_client)
             environment["CMUX_TUI_CLIENT"] = str(client)
+            probe = subprocess.run(
+                [str(client), "remote-probe", "--json"],
+                env=environment, stdin=subprocess.DEVNULL, capture_output=True,
+                text=True, timeout=10, check=False,
+            )
+            self.assertEqual(probe.returncode, 0,
+                             f"probe failed: stdout={probe.stdout!r} stderr={probe.stderr!r}")
+            self.assertEqual(json.loads(probe.stdout), {
+                "app": "cmux-tui", "capabilities": ["wireguard-hub"],
+            })
+            self.assertIn("CMUX_TEST_HOSTNAME_TRIPWIRE_INSTALLED", probe.stderr)
+            self.assertNotIn("CMUX_TEST_HOSTNAME_RESOLVER_CALLED", probe.stderr)
+            self.assertFalse(Path(self.cli).with_name("cmux-tui").exists())
             completed = subprocess.run(
                 [self.cli, "--socket", server.path, "vm", "tui", "hostname-test", "--json"],
                 env=environment, stdin=subprocess.DEVNULL, capture_output=True,
