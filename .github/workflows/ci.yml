@@ -623,10 +623,11 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/6)
     # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions. Validated head-to-head that warp-macos-15-arm64-6x runs the
-    # full app-host suite with 0 unexpected failures, so route through the
-    # shared MACOS_RUNNER_15 var like the other macOS jobs.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    # sessions, so route through the shared MACOS_RUNNER_15 var like the other
+    # macOS jobs. The fallback is what fork pull requests get, because
+    # repository variables are not exposed to them, so it names the same
+    # Blacksmith pool main uses and never the paid overflow provider.
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -2105,7 +2106,7 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
@@ -2253,7 +2254,7 @@ jobs:
     # Build the full cmux scheme once, then run the required display/runtime
     # regressions from the same DerivedData instead of queuing a second display
     # runner for UI-only checks.
-    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
     # A cold DerivedData cache (any project.pbxproj or Package.resolved change
     # mints a new cache key with no restore-keys fallback) forces a full
     # cmux build whose Swift codegen alone can run 20+ min. Project/package
@@ -2266,7 +2267,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'warp-macos-15-arm64-6x' }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
