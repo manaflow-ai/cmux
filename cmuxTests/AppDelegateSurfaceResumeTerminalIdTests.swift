@@ -105,7 +105,12 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
 
         let unboundMenu = NSMenu()
         surfaceView.appendCurrentSurfaceContextMenuItems(to: unboundMenu)
-        XCTAssertEqual(unboundMenu.items.first?.title, "Make Restorable…")
+        let resumeCommandsItem = try XCTUnwrap(unboundMenu.items.first)
+        XCTAssertEqual(resumeCommandsItem.title, "Resume Commands")
+        XCTAssertEqual(
+            try XCTUnwrap(resumeCommandsItem.submenu).items.map(\.title),
+            ["Set"]
+        )
 
         let command = "tmux attach -t work"
         guard case .result(let setSnapshot) =
@@ -123,14 +128,14 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         let boundMenu = NSMenu()
         surfaceView.appendCurrentSurfaceContextMenuItems(to: boundMenu)
         let restorableItem = try XCTUnwrap(boundMenu.items.first)
-        XCTAssertEqual(restorableItem.title, "Restorable Terminal")
+        XCTAssertEqual(restorableItem.title, "Resume Commands")
         let submenu = try XCTUnwrap(restorableItem.submenu)
         XCTAssertEqual(
             submenu.items.filter { !$0.isSeparatorItem }.map(\.title),
             [
-                "Resume Command: tmux attach -t work",
-                "Set Resume Command…",
-                "Clear Resume Command",
+                "tmux attach -t work",
+                "Edit",
+                "Clear",
             ]
         )
         XCTAssertFalse(submenu.items[0].isEnabled)
@@ -190,10 +195,8 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
 
         XCTAssertEqual(surfaceView.currentSurfaceResumeContextMenuState(), .agentManaged)
         let menu = NSMenu()
-        surfaceView.appendCurrentSurfaceContextMenuItems(to: menu)
-        let managedItem = try XCTUnwrap(menu.items.first)
-        XCTAssertEqual(managedItem.title, "Agent Session Resume: Managed")
-        XCTAssertFalse(managedItem.isEnabled)
+        XCTAssertFalse(surfaceView.appendCurrentSurfaceResumeMenuItems(to: menu))
+        XCTAssertTrue(menu.items.isEmpty)
 
         if case .result =
             surfaceView.setCurrentSurfaceResumeBindingFromContextMenu(command: "echo replacement") {
