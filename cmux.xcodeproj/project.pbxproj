@@ -1170,6 +1170,7 @@
 		C51A7300000000000000000F /* CMUXCLI+SimulatorInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000010 /* CMUXCLI+SimulatorInput.swift */; };
 		C51A73000000000000000011 /* CMUXCLI+SimulatorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73000000000000000012 /* CMUXCLI+SimulatorSettings.swift */; };
 		C79470010000000000000001 /* CMUXCLI+SocketClientCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */; };
+		D95100000000000000000001 /* CMUXCLI+SocketControlStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95100000000000000000002 /* CMUXCLI+SocketControlStatus.swift */; };
 		812600000000000000000001 /* CMUXCLI+SSHCommandOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812600000000000000000002 /* CMUXCLI+SSHCommandOptions.swift */; };
 		B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */; };
 		8300A0020000000000000002 /* CMUXCLI+SSHConnectionSharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8300A0010000000000000001 /* CMUXCLI+SSHConnectionSharing.swift */; };
@@ -5114,6 +5115,7 @@
 		C51A73000000000000000010 /* CMUXCLI+SimulatorInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorInput.swift"; sourceTree = "<group>"; };
 		C51A73000000000000000012 /* CMUXCLI+SimulatorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SimulatorSettings.swift"; sourceTree = "<group>"; };
 		C79470010000000000000002 /* CMUXCLI+SocketClientCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SocketClientCapability.swift"; sourceTree = "<group>"; };
+		D95100000000000000000002 /* CMUXCLI+SocketControlStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SocketControlStatus.swift"; sourceTree = "<group>"; };
 		812600000000000000000002 /* CMUXCLI+SSHCommandOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHCommandOptions.swift"; sourceTree = "<group>"; };
 		B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHCommandSupport.swift"; sourceTree = "<group>"; };
 		8300A0010000000000000001 /* CMUXCLI+SSHConnectionSharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHConnectionSharing.swift"; sourceTree = "<group>"; };
@@ -10627,6 +10629,7 @@
 				A10020000000000000000008 /* CMUXCLI+SurfaceSelection.swift */,
 				906902000000000000000001 /* CMUXCLI+MemoryAttribution.swift */,
 				C51A75000000000000000002 /* CMUXCLI+JSONOutput.swift */,
+				D95100000000000000000002 /* CMUXCLI+SocketControlStatus.swift */,
 				C51A73000000000000000002 /* CMUXCLI+Simulator.swift */,
 				C51A73B20000000000000001 /* IOSScreenshotCommandResultBox.swift */,
 				C51A73000000000000000006 /* CMUXCLI+SimulatorAgent.swift */,
@@ -14953,6 +14956,7 @@
 				C51A7300000000000000000F /* CMUXCLI+SimulatorInput.swift in Sources */,
 				C51A73000000000000000011 /* CMUXCLI+SimulatorSettings.swift in Sources */,
 				C79470010000000000000001 /* CMUXCLI+SocketClientCapability.swift in Sources */,
+				D95100000000000000000001 /* CMUXCLI+SocketControlStatus.swift in Sources */,
 				812600000000000000000001 /* CMUXCLI+SSHCommandOptions.swift in Sources */,
 				B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */,
 				8300A0020000000000000002 /* CMUXCLI+SSHConnectionSharing.swift in Sources */,
