@@ -491,6 +491,12 @@ extension CMUXCLI {
             print("    \(example.summary)")
             print("    Fits: \(example.fit.joined(separator: "; "))")
             print("    Creates: \(example.creates.joined(separator: "; "))")
+            print("    Config: \(example.configFiles.joined(separator: "; "))")
+            if !example.requires.isEmpty {
+                print("    Requires: \(example.requires.joined(separator: "; "))")
+            }
+            print("    Start: \(example.instantiate.joined(separator: " "))")
+            print("    Adapt: \(example.adapt.joined(separator: "; "))")
             print("    Source: \(example.source)")
         }
         print()
