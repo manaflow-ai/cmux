@@ -317,21 +317,37 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     rows.push(Row { line: Line::from(Span::styled(text.clone(), c.dim())), text, item: i, toggle: None });
                     plain("", Style::default(), i, &mut rows);
                 }
-                // Codex's user block: a tinted band with a blank row above and
-                // below and `› ` before the text.
+                // Codex app: your message is a tinted bubble on the right,
+                // at most seven tenths of the width, with a padded row above
+                // and below. `❯` marks it; the foreground is explicit so a
+                // light terminal reads it too.
                 let bg = Style::default().bg(c.user_bg);
-                // Codex: plain text on the tint, the marker bold and dim. The
-                // foreground is explicit so a light terminal reads it too.
                 let style = if *queued { c.dim().bg(c.user_bg) } else { bg.fg(c.status_fg) };
                 let marker = if *steer { "» " } else if *queued { "⏳" } else { "❯ " };
-                let start = rows.len();
-                plain("", bg, i, &mut rows);
-                wrap_marked(text, w, style, marker, bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD), i, &mut rows);
+                let marker_style = bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD);
+                let bubble_w = if width < 50 { width } else { (width * 7 / 10).max(40).min(width) };
+                let inner_w = bubble_w.saturating_sub(4);
+                let left = " ".repeat(width.saturating_sub(bubble_w));
+                let mut body: Vec<Row> = Vec::new();
+                wrap(text, inner_w, style, "", i, &mut body);
                 if *queued {
-                    plain(&format!("{GUTTER}queued · sends when the running turn ends · Ctrl-x cancels it"), c.dim().bg(c.user_bg), i, &mut rows);
+                    plain("queued · sends when the running turn ends · Ctrl-x cancels it", c.dim().bg(c.user_bg), i, &mut body);
                 }
-                plain("", bg, i, &mut rows);
-                tint_rows(&mut rows[start..], width, c.user_bg, None);
+                let bubble_row = |content: Vec<Span<'static>>, used: usize, text: String| -> Row {
+                    let mut spans = vec![Span::raw(left.clone()), Span::styled(" ".to_owned(), bg)];
+                    spans.extend(content);
+                    spans.push(Span::styled(" ".repeat(bubble_w.saturating_sub(2 + used)), bg));
+                    Row { line: Line::from(spans), text, item: i, toggle: None }
+                };
+                rows.push(bubble_row(vec![], 0, String::new()));
+                for (n, r) in body.into_iter().enumerate() {
+                    let m = if n == 0 { marker } else { "  " };
+                    let content = r.text.clone();
+                    let used = 2 + content.width();
+                    let spans = vec![Span::styled(m.to_owned(), if n == 0 { marker_style } else { bg }), Span::styled(content.clone(), if r.line.spans.len() > 1 { r.line.spans[1].style.bg(c.user_bg) } else { style })];
+                    rows.push(bubble_row(spans, used, format!("{left}{m}{content}")));
+                }
+                rows.push(bubble_row(vec![], 0, String::new()));
                 let _ = after_user_block;
                 // The turn's work: everything visible between this message
                 // and the final reply. Two or more blocks get a handle row
@@ -381,6 +397,8 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     spacer(&mut rows, i, false);
                     let text = format!("{label}  {}", if open { "▾" } else { "›" });
                     rows.push(Row { line: Line::from(vec![Span::styled(label, c.muted()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]), text, item: i, toggle: Some(Toggle::Turn(i)) });
+                    // Codex app: a hairline under the handle.
+                    rows.push(Row { line: Line::from(Span::styled("─".repeat(width), Style::default().fg(c.composer_border_fg))), text: String::new(), item: i, toggle: None });
                     if !open {
                         turn_open = false;
                         reopen_at = Some(work_end);
@@ -481,7 +499,27 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     }
                     Item::Status { text } => plain(&format!("{GUTTER}-- {text}"), c.dim(), i, &mut rows),
                     Item::TurnEnd { stop } => plain(&format!("{GUTTER}-- {stop}"), c.dim(), i, &mut rows),
-                    Item::Error { text } => wrap_marked(text, w, Style::default().fg(c.error_fg).add_modifier(Modifier::BOLD), "✗ ", Style::default().fg(c.error_fg), i, &mut rows),
+                    Item::Error { text } => {
+                        // Codex app: a rounded notice card with an icon.
+                        let border = Style::default().fg(c.composer_border_fg);
+                        let cw = width.max(12);
+                        let inner = cw.saturating_sub(6);
+                        let mut body: Vec<Row> = Vec::new();
+                        wrap(text, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                        rows.push(Row { line: Line::from(Span::styled(format!("╭{}╮", "─".repeat(cw - 2)), border)), text: String::new(), item: i, toggle: None });
+                        for (n, r) in body.into_iter().enumerate() {
+                            let content = r.text.clone();
+                            let icon = if n == 0 { "✗ " } else { "  " };
+                            let pad = inner.saturating_sub(content.width());
+                            rows.push(Row {
+                                line: Line::from(vec![Span::styled("│ ".to_owned(), border), Span::styled(icon.to_owned(), Style::default().fg(c.error_fg).add_modifier(Modifier::BOLD)), Span::styled(content.clone(), Style::default().fg(c.status_fg)), Span::raw(" ".repeat(pad)), Span::styled(" │".to_owned(), border)]),
+                                text: format!("  {icon}{content}"),
+                                item: i,
+                                toggle: None,
+                            });
+                        }
+                        rows.push(Row { line: Line::from(Span::styled(format!("╰{}╯", "─".repeat(cw - 2)), border)), text: String::new(), item: i, toggle: None });
+                    }
                     Item::Stderr { text } => plain(&format!("{GUTTER}stderr: {}", truncate(text, w.saturating_sub(8))), c.dim(), i, &mut rows),
                     _ => {}
                 }
@@ -981,7 +1019,7 @@ mod hierarchy_tests {
         let none = std::collections::HashSet::new();
         let rows = transcript_rows(&t, 80, false, false, &none, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
-        assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash")), "{text:?}");
+        assert!(text.iter().any(|l| l.trim_start().starts_with("❯ Use your Bash")), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("2 steps") && l.ends_with("▾")), "{text:?}");
         assert!(text.iter().any(|l| l.contains("Allowed  date")), "{text:?}");
         // Collapse the group and the first turn.
@@ -995,17 +1033,17 @@ mod hierarchy_tests {
         let rows = transcript_rows(&t, 80, false, false, &none, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert!(text.iter().any(|l| l.starts_with("Worked") && l.ends_with("▾")), "{text:?}");
-        assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash")), "{text:?}");
-        assert!(!rows.iter().any(|r| r.text.starts_with("❯") && r.toggle.is_some()), "user rows never toggle");
+        assert!(text.iter().any(|l| l.trim_start().starts_with("❯ Use your Bash")), "{text:?}");
+        assert!(!rows.iter().any(|r| r.text.trim_start().starts_with("❯") && r.toggle.is_some()), "user rows never toggle");
         // Collapsing the work keeps the message and the final reply.
         flipped.insert(Toggle::Turn(0));
         let rows = transcript_rows(&t, 80, false, false, &flipped, &c);
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert!(text.iter().any(|l| l.starts_with("Worked") && l.ends_with("›")), "{text:?}");
-        assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash tool twice")), "{text:?}");
+        assert!(text.iter().any(|l| l.trim_start().starts_with("❯ Use your Bash tool twice")), "{text:?}");
         assert!(text.iter().any(|l| l == &"  done"), "{text:?}");
         assert!(!text.iter().any(|l| l.contains("thinking") || l.contains("hostname")), "{text:?}");
-        assert!(text.iter().any(|l| l.starts_with("❯ again")), "{text:?}");
+        assert!(text.iter().any(|l| l.trim_start().starts_with("❯ again")), "{text:?}");
         // The second turn has one block only: no handle.
         assert_eq!(text.iter().filter(|l| l.starts_with("Worked")).count(), 1, "{text:?}");
     }
