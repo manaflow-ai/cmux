@@ -104,6 +104,35 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
 }
 
 extension AppDelegate {
+    /// Requests application termination for the Cmd+Q quit path.
+    ///
+    /// The `terminate` seam exists so the quit path's *scheduling* is testable
+    /// without ending the test process, and so every Cmd+Q caller goes through
+    /// one place that decides when `NSApp.terminate` runs.
+    ///
+    /// `applicationShouldTerminate` can answer `.terminateLater` and finish the
+    /// quit from a `Task { @MainActor }` (owned runtime cleanup plus the fresh
+    /// session snapshot). That continuation is queued behind whatever the main
+    /// queue is currently running, so a caller that is itself a queued
+    /// main-queue block never lets it start: the debug socket hops to the main
+    /// queue with `DispatchQueue.main.sync`, so `simulate_shortcut cmd+q`
+    /// deadlocked the app — the socket worker waited on the hop, `terminate`
+    /// waited on the cleanup reply, and the cleanup task waited on the hop's
+    /// block to return (issue #10788). Keyboard Cmd+Q escaped it only because
+    /// AppKit delivers that key in a run-loop event callout, not a queued block.
+    static func requestApplicationTermination(
+        terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }
+    ) {
+        // Hand the terminate back to the main queue so this call returns first.
+        // The caller's block then unwinds, which is what lets the
+        // `.terminateLater` cleanup continuation start.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                terminate()
+            }
+        }
+    }
+
     static func pendingTerminateReply(
         isAwaitingTerminateCleanup: Bool,
         hasActiveQuitConfirmation: Bool,

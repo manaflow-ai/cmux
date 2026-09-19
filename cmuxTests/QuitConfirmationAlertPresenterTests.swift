@@ -7,9 +7,53 @@ import Testing
 @testable import cmux
 #endif
 
+/// Counts terminate requests for ``QuitConfirmationAlertPresenterTests`` without
+/// ending the test process.
+@MainActor
+private final class TerminateRequestRecorder {
+    private(set) var count = 0
+
+    func record() {
+        count += 1
+    }
+}
+
 @MainActor
 @Suite
 struct QuitConfirmationAlertPresenterTests {
+    /// Regression coverage for issue #10788: `simulate_shortcut cmd+q` arrives
+    /// inside the debug socket's `DispatchQueue.main.sync` hop, so terminating
+    /// synchronously from there deadlocks the app — `applicationShouldTerminate`
+    /// answers `.terminateLater` and its `@MainActor` cleanup continuation can
+    /// never start while the main queue is still inside that block.
+    ///
+    /// The quit path must therefore hand the terminate back to the main queue
+    /// and return, which is what this asserts: nothing terminates during the
+    /// call, and the terminate still lands on a later main-queue turn.
+    @Test
+    func quitTerminationIsDeferredOutOfTheCallersMainQueueBlock() async {
+        let recorder = TerminateRequestRecorder()
+
+        AppDelegate.requestApplicationTermination {
+            recorder.record()
+        }
+
+        #expect(
+            recorder.count == 0,
+            "terminate ran inside the caller's main-queue block; the .terminateLater cleanup task could never start behind it"
+        )
+
+        // The main queue is serial and FIFO, so once this later block runs the
+        // scheduled terminate must already have been delivered.
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+
+        #expect(recorder.count == 1, "the deferred terminate never reached the run loop")
+    }
+
     @Test
     func freshSnapshotDeadlineTerminatesWithCachedIndexesAfterOwnedCleanup() {
         #expect(
