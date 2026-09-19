@@ -1,0 +1,439 @@
+#if DEBUG
+import AppKit
+import CmuxAppKitSupportUI
+import CmuxFoundation
+import SwiftUI
+
+// MARK: - Cloud sidebar spacing lab
+
+/// Debug-only lab for tuning the real Cloud tree geometry against deliberately
+/// adversarial names. The preview uses the production outline and row views, so
+/// a spacing change is visible both here and in an open Cloud sidebar.
+final class CloudSidebarDebugLabWindowController: ReleasingWindowController {
+    static let shared = CloudSidebarDebugLabWindowController()
+
+    override func makeWindow() -> NSWindow {
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1_080, height: 760),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Cloud Sidebar Spacing Lab"
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.cloudSidebarDebugLab")
+        window.minSize = NSSize(width: 860, height: 560)
+        window.isMovableByWindowBackground = true
+        window.level = .floating
+        window.center()
+        window.contentView = NSHostingView(rootView: CloudSidebarDebugLabView())
+        AppDelegate.shared?.applyWindowDecorations(to: window)
+        return window
+    }
+
+    func show() {
+        showManagedWindow(activateApplication: true, orderFrontRegardless: true)
+        window?.makeKey()
+    }
+}
+
+private struct CloudSidebarDebugLabView: View {
+    @State private var selectedStyleID = CloudTreeStyleStore.current.id
+    @State private var metrics = CloudSidebarDebugSettings.metrics
+    @State private var previewWidth = 360.0
+    @State private var expansionStore = CloudSidebarDebugFixture.makeExpansionStore()
+
+    private var selectedStyle: CloudTreeStyle {
+        CloudTreeStyle.preset(id: selectedStyleID) ?? .defaultStyle
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            CloudSidebarDebugControls(
+                selectedStyleID: $selectedStyleID,
+                metrics: $metrics,
+                previewWidth: $previewWidth,
+                selectedStyle: selectedStyle
+            )
+            .frame(width: 328)
+            Divider()
+            CloudSidebarDebugPreview(
+                style: CloudSidebarDebugSettings.resolvedStyle(selectedStyle, metrics: metrics),
+                previewWidth: previewWidth,
+                expansionStore: expansionStore
+            )
+        }
+        .onAppear {
+            CloudSidebarDebugSettings.update(metrics)
+        }
+        .onChange(of: metrics) { _, value in
+            CloudSidebarDebugSettings.update(value)
+        }
+        .onChange(of: selectedStyleID) { _, value in
+            guard let style = CloudTreeStyle.preset(id: value) else { return }
+            CloudTreeStyleStore.current = style
+        }
+    }
+}
+
+private struct CloudSidebarDebugControls: View {
+    @Binding var selectedStyleID: String
+    @Binding var metrics: CloudSidebarDebugMetrics
+    @Binding var previewWidth: Double
+    let selectedStyle: CloudTreeStyle
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Cloud Sidebar Spacing Lab")
+                    .cmuxFont(.headline)
+                Text("Tune the production outline with long machine, workspace, terminal, browser, and port names. Values apply live to the Cloud sidebar.")
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                GroupBox("Style") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Picker("Preset", selection: $selectedStyleID) {
+                            ForEach(CloudTreeStyle.presets) { style in
+                                Text(style.name).tag(style.id)
+                            }
+                        }
+                        .labelsHidden()
+                        Text("Previewing \(selectedStyle.name), with spacing overrides below.")
+                            .cmuxFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Outline") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        CloudSidebarDebugSliderRow(title: "Preview width", value: $previewWidth, range: 240...540)
+                        CloudSidebarDebugSliderRow(title: "Row height", value: $metrics.rowHeight, range: 16...44)
+                        CloudSidebarDebugSliderRow(title: "Indent / level", value: $metrics.indentPerLevel, range: 6...24)
+                        CloudSidebarDebugSliderRow(title: "Trailing inset", value: $metrics.referenceInset, range: 0...28)
+                        CloudSidebarDebugSliderRow(title: "Disclosure slot", value: $metrics.disclosureSlot, range: 8...24)
+                        CloudSidebarDebugSliderRow(title: "Disclosure gap", value: $metrics.disclosureGap, range: 0...14)
+                    }
+                    .padding(.top, 2)
+                }
+
+                GroupBox("Row content") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        CloudSidebarDebugSliderRow(title: "Icon slot", value: $metrics.iconSlot, range: 0...28)
+                        CloudSidebarDebugSliderRow(title: "Icon gap", value: $metrics.iconGap, range: 0...16)
+                        CloudSidebarDebugSliderRow(title: "Status slot", value: $metrics.dotSlot, range: 0...18)
+                        CloudSidebarDebugSliderRow(title: "Status gap", value: $metrics.dotGap, range: 0...16)
+                        CloudSidebarDebugSliderRow(title: "Detail gap", value: $metrics.detailGap, range: 0...16)
+                        CloudSidebarDebugSliderRow(title: "Trailing gap", value: $metrics.trailingGap, range: 0...24)
+                        CloudSidebarDebugSliderRow(title: "Machine line gap", value: $metrics.machineLineSpacing, range: 0...8)
+                        CloudSidebarDebugSliderRow(title: "Machine vertical pad", value: $metrics.machineVerticalPadding, range: 0...12)
+                    }
+                    .padding(.top, 2)
+                }
+
+                HStack(spacing: 10) {
+                    Button("Reset spacing") {
+                        metrics = .default
+                    }
+                    Button("Copy config") {
+                        GhosttyApp.terminalPasteboard.writeString(
+                            CloudSidebarDebugSettings.copyPayload(metrics),
+                            to: .general
+                        )
+                    }
+                }
+                .controlSize(.small)
+
+                Text("The fixture keeps every section expanded and uses names long enough to exercise truncation, badges, detail columns, and the trailing edge.")
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+        }
+    }
+}
+
+private struct CloudSidebarDebugSliderRow: View {
+    let title: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .frame(width: 126, alignment: .leading)
+            Slider(value: $value, in: range, step: 1)
+            Text(String(format: "%.0f", value))
+                .cmuxFont(.caption)
+                .monospacedDigit()
+                .frame(width: 28, alignment: .trailing)
+        }
+    }
+}
+
+private struct CloudSidebarDebugPreview: View {
+    let style: CloudTreeStyle
+    let previewWidth: Double
+    let expansionStore: CloudTreeExpansionStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "cloud.fill")
+                    .foregroundStyle(.tint)
+                Text("Production outline preview")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("\(Int(previewWidth)) pt")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            Divider()
+            HStack(alignment: .top, spacing: 16) {
+                CloudTreeOutlineView(
+                    machines: CloudSidebarDebugFixture.machines,
+                    snapshot: CloudSidebarDebugFixture.snapshot,
+                    localWorkspaces: [],
+                    machineActions: CloudSidebarDebugFixture.machineActions,
+                    nodeActions: CloudSidebarDebugFixture.nodeActions,
+                    expansionStore: expansionStore,
+                    style: style
+                )
+                .frame(width: previewWidth)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                CloudSidebarDebugPreviewNotes()
+                    .frame(maxWidth: 230, alignment: .leading)
+            }
+            .padding(16)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct CloudSidebarDebugPreviewNotes: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Stress cases")
+                .font(.system(size: 12, weight: .semibold))
+            Label("Long machine and workspace names", systemImage: "text.alignleft")
+            Label("Long terminal titles and cwd details", systemImage: "terminal")
+            Label("Browser URL and forwarded port rows", systemImage: "globe")
+            Label("Displays, badges, and resource metrics", systemImage: "rectangle.on.rectangle")
+            Text("Resize the preview width to find the first awkward breakpoint. Keep the row readable before making the sidebar wider.")
+                .cmuxFont(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+    }
+}
+
+private enum CloudSidebarDebugFixture {
+    static let machineID = "debug-long-machine-name-for-cloud-sidebar-spacing"
+    static let machine = SurfaceMachineID.cloud(machineID)
+    static let workspaceA = SurfaceRemoteWorkspace(
+        id: "debug-workspace-release-candidate",
+        name: "release-candidate / observability-and-telemetry / production-hotfix-review",
+        index: 0,
+        focused: true
+    )
+    static let workspaceB = SurfaceRemoteWorkspace(
+        id: "debug-workspace-design-review",
+        name: "design-review / navigation-redesign / accessibility-and-localization-pass",
+        index: 1,
+        focused: false
+    )
+    static let workspaceC = SurfaceRemoteWorkspace(
+        id: "debug-workspace-empty-long-name",
+        name: "long-lived-background-workspace-with-a-name-that-nearly-fills-the-sidebar",
+        index: 2,
+        focused: false
+    )
+
+    static var machines: [MachineSnapshot] {
+        [
+            MachineSnapshot(
+                id: machineID,
+                provider: "freestyle",
+                image: "cmux-debug-stress-image",
+                isDesktop: true,
+                activity: .ready,
+                createdAt: Date(timeIntervalSinceNow: -86_400 * 12),
+                label: "production-hotfix-review-machine-with-a-deliberately-very-long-name",
+                slug: "patient-otter",
+                stats: VMStats(
+                    state: .awake,
+                    sampledAt: .now,
+                    resourceSampledAt: .now,
+                    cpus: 8,
+                    cpuPercent: 63.4,
+                    loadAverage1m: 3.1,
+                    memoryTotalMb: 16_384,
+                    memoryUsedMb: 12_288,
+                    diskTotalMb: 102_400,
+                    diskUsedMb: 77_824
+                )
+            )
+        ]
+    }
+
+    static var snapshot: SurfaceCatalogSnapshot {
+        let terminalA = terminal(
+            key: "debug-terminal-build",
+            title: "codex / build-and-test / release-candidate-validation-terminal",
+            detail: "/home/cmux/projects/cmux/very/long/path/to/release-candidate"
+        )
+        let terminalB = terminal(
+            key: "debug-terminal-server",
+            title: "zsh / web-server / local-development-and-preview-process",
+            detail: "/home/cmux/projects/cmux/web/apps/cloud-dashboard"
+        )
+        let terminalDetached = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "debug-terminal-detached"),
+            title: "detached-background-terminal-with-a-long-process-title",
+            detail: "/home/cmux/projects/cmux/scripts/fixtures",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            port: nil,
+            url: nil
+        )
+        let browser = browser(
+            key: "debug-browser-docs",
+            title: "Cloud dashboard / deployment timeline / production incident review",
+            url: "https://observability.production.example.com/really/long/path/to/a/dashboard"
+        )
+        let port = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: "port:4317"),
+            title: "Forwarded development server on port 4317 with a long explanatory title",
+            detail: "HTTP service",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: nil,
+            port: 4317,
+            url: "http://debug-machine.internal:4317"
+        )
+        let display = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .display, key: "display:1"),
+            title: "Desktop / browser automation / visual regression monitor",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspaceB,
+            port: 6901,
+            url: nil
+        )
+
+        return SurfaceCatalogSnapshot(
+            machines: [
+                SurfaceMachineInfo(
+                    id: machine,
+                    name: "production-hotfix-review-machine-with-a-deliberately-very-long-name",
+                    status: "running",
+                    image: "cmux-debug-stress-image",
+                    hasDesktop: true,
+                    memoryMb: 16_384,
+                    diskMb: 102_400,
+                    linkState: .connected,
+                    linkError: nil,
+                    cpuPercent: 63.4,
+                    memoryUsedMb: 12_288,
+                    diskUsedMb: 77_824,
+                    remoteWorkspaces: [workspaceA, workspaceB, workspaceC],
+                    privateAddress: "100.64.12.34"
+                )
+            ],
+            resources: [terminalA, terminalB, terminalDetached, browser, port, display],
+            projections: []
+        )
+    }
+
+    private static func terminal(key: String, title: String, detail: String) -> SurfaceResource {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: key),
+            title: title,
+            detail: detail,
+            lifecycle: .running,
+            agent: SurfaceAgentBadge(state: "working", source: "codex"),
+            remoteWorkspace: workspaceA,
+            port: nil,
+            url: nil
+        )
+        resource.remoteViews = [
+            SurfaceRemoteView(
+                tabID: "tab-\(key)",
+                workspace: workspaceA,
+                screenID: "screen-1",
+                paneID: "pane-\(key)",
+                name: title,
+                index: 0,
+                focused: key == "debug-terminal-build"
+            )
+        ]
+        return resource
+    }
+
+    private static func browser(key: String, title: String, url: String) -> SurfaceResource {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: key),
+            title: title,
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspaceB,
+            port: nil,
+            url: url
+        )
+        resource.remoteViews = [SurfaceRemoteView(tabID: "tab-\(key)", workspace: workspaceB)]
+        return resource
+    }
+
+    static func makeExpansionStore() -> CloudTreeExpansionStore {
+        let defaults = UserDefaults(suiteName: "cmux.cloudSidebarDebugLab") ?? .standard
+        defaults.removePersistentDomain(forName: "cmux.cloudSidebarDebugLab")
+        let store = CloudTreeExpansionStore(defaults: defaults)
+        let nodes = CloudTreeNodeBuilder.nodes(machines: machines, snapshot: snapshot, localWorkspaces: [])
+        for node in CloudTreeNodeBuilder.flattened(nodes) where node.isExpandable {
+            store.setExpanded(true, node: node)
+        }
+        return store
+    }
+
+    static let machineActions = MachineRowActions(
+        openShell: { _ in },
+        openDesktop: { _ in },
+        runCommand: { _, _ in },
+        confirmDelete: { _ in },
+        promptRename: { _, _ in },
+        resizeDisk: { _, _ in },
+        promptUpgrade: {}
+    )
+
+    static let nodeActions = CloudTreeNodeActions(
+        project: { _, _, _ in },
+        projectRemoteView: { _, _, _, _ in },
+        projectInLocalWorkspace: { _, _ in },
+        projectRemoteViewInLocalWorkspace: { _, _, _ in },
+        newTerminal: { _, _ in },
+        openGroup: { _, _, _, _ in },
+        openGroupAsWorkspace: { _, _, _ in },
+        newWorkspace: { _ in },
+        closeTerminal: { _ in },
+        closeWorkspace: { _, _ in },
+        renameWorkspace: { _, _ in },
+        renameTerminal: { _, _ in },
+        selectLocalWorkspace: { _ in },
+        copyToPasteboard: { _ in },
+        copyPortLink: { _ in },
+        refresh: {}
+    )
+}
+#endif
