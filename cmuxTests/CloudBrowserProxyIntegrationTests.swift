@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Network
 import Testing
