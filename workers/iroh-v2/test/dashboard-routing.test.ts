@@ -50,4 +50,19 @@ describe("Dashboard browser bootstrap", () => {
     expect(calls[calls.length - 1]?.url.includes(token)).toBe(false);
     expect(calls[calls.length - 1]?.headers.get("x-cmux-v2-dashboard-authority")).toContain("team");
   });
+
+  test("records the cause of an unexpected socket failure without exposing it", async () => {
+    const ready = await routeDashboard(new Request("https://worker/v2/dashboard/session", {
+      method: "POST", headers: { origin: "https://cmux.com", authorization: "Bearer stack", "content-type": "application/json" },
+      body: JSON.stringify({ schemaId: "dashboard.open.v1", requestId: "socket-crash", environment: "staging", projectId: "project", teamId: "team", userId: "user", clientInstanceId: "tab" }),
+    }), services);
+    const token = (await ready.json() as any).ticket.token;
+    const observed: Array<Record<string, unknown>> = [];
+    const response = await routeDashboard(new Request("https://worker/v2/dashboard/socket", {
+      headers: { origin: "https://cmux.com", upgrade: "websocket", "sec-websocket-protocol": `cmux-v2-dashboard, ticket.${token}` },
+    }), { ...services, dispatchTeam: async () => { throw new Error("Durable Object reset"); }, observe: event => { observed.push(event); } });
+    expect(response.status).toBe(500);
+    expect(JSON.stringify(await response.json())).not.toContain("Durable Object");
+    expect(observed[0]).toMatchObject({ event: "iroh.dashboard.failure", code: "internal_error", reason: "Error: Durable Object reset" });
+  });
 });

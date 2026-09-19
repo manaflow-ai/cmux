@@ -184,8 +184,7 @@
     "memoryUnavailable": {
       "message": "このマシンサイズは現在利用できません。{max} GiB 以下を選択してください。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -195,7 +194,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -322,7 +322,7 @@
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH デバイス"
+      "connectedDevices": "接続済みデバイス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -598,11 +598,11 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "接続済みデバイス",
+      "description": "このチームにサインインし、チームのMacに接続できるデバイスです。使用しなくなったデバイスのアクセスは取り消せます。",
+      "noTeam": "チームに参加すると接続済みデバイスが表示されます。",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "このチームに接続済みのデバイスはありません。",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",

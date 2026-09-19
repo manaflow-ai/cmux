@@ -11,7 +11,7 @@ interface Dependencies {
   now(): number;
   charge(userId: string, operation: "ticket.request" | "control.socket"): Promise<void>;
   dispatchTeam(teamId: string, request: Request): Promise<Response>;
-  observe?(event: { event: string; requestId: string; code: string; status: number }): void;
+  observe?(event: { event: string; requestId: string; code: string; status: number; reason?: string }): void;
 }
 
 /** Browser auth is verified before it can allocate a team socket. Tokens never enter URLs. */
@@ -66,7 +66,16 @@ export async function routeDashboard(request: Request, services: Dependencies): 
     return cors(await services.dispatchTeam(claims.authority.teamId, forwarded));
   } catch (error) {
     const failure = errorResponse(error, requestId).failure;
-    services.observe?.({ event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status });
+    // Unexpected errors are opaque to the browser, so record their cause here.
+    // The name and message of a runtime error carry no credential material.
+    const reason = failure.code === "internal_error" ? describeUnexpected(error) : undefined;
+    if (reason) console.error("iroh.dashboard.failure", { requestId, path: new URL(request.url).pathname, reason });
+    services.observe?.({ event: "iroh.dashboard.failure", requestId, code: failure.code, status: failure.status, ...(reason ? { reason } : {}) });
     return cors(httpFailure(error, requestId));
   }
+}
+
+function describeUnexpected(error: unknown): string {
+  const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return text.slice(0, 256);
 }
