@@ -50,6 +50,48 @@ struct CmuxConfigSemanticValidatorTests {
         }
     }
 
+    @Test("enforces multiple and pattern-property constraints")
+    func enforcesRemainingSchemaKeywords() throws {
+        let invalidMagnification = try issues(
+            ["app": ["globalFontMagnification": 105]]
+        )
+        #expect(
+            contains(
+                invalidMagnification,
+                path: "$.app.globalFontMagnification",
+                message: "multiple of 10"
+            )
+        )
+
+        let validOverrides = try issues([
+            "notifications": [
+                "soundOverrides": [
+                    "codex": [
+                        "turnDone": ["sound": "Ping"],
+                    ],
+                ],
+            ],
+        ])
+        #expect(validOverrides.isEmpty)
+
+        let invalidOverride = try issues([
+            "notifications": [
+                "soundOverrides": [
+                    "codex": [
+                        "turnDone": ["sound": "laser"],
+                    ],
+                ],
+            ],
+        ])
+        #expect(
+            contains(
+                invalidOverride,
+                path: "$.notifications.soundOverrides.codex.turnDone.sound",
+                message: "must be one of"
+            )
+        )
+    }
+
     @Test("project scope rejects global settings while keeping project hooks legal")
     func enforcesProjectScope() throws {
         let globalOnly = try issues(
