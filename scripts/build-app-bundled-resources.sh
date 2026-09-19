@@ -20,12 +20,20 @@ GHOSTTY_HELPER_DEST="${BIN_DEST}/ghostty"
 BUILD_CMUX_CUA="${SRCROOT}/scripts/build-cmux-cua.sh"
 CMUX_CUA_DEST="${BIN_DEST}/cmux-cua"
 CMUX_CUA_LICENSE_DEST="${BIN_DEST}/cmux-cua-LICENSE.md"
-CMUX_CUA_HELPER_EXEC="${DEST}/../Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+CMUX_CUA_HELPER_APP="${DEST}/../Library/cmux Computer Use.app"
+CMUX_CUA_HELPER_OWNER_MARKER="${CMUX_CUA_HELPER_APP}/Contents/Resources/.cmux-cua-managed-helper"
+CMUX_CUA_HELPER_EXEC="${CMUX_CUA_HELPER_APP}/Contents/MacOS/cmux-cua"
 INFO_PLIST="${TARGET_BUILD_DIR}/${INFOPLIST_PATH}"
+
+run_git() (
+  unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE
+  unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_PREFIX
+  command git "$@"
+)
 
 update_commit() {
   local commit
-  commit="$(git -C "${SRCROOT}" rev-parse --short=9 HEAD 2>/dev/null || true)"
+  commit="$(run_git -C "${SRCROOT}" rev-parse --short=9 HEAD 2>/dev/null || true)"
   if [ -n "$commit" ] && [ -f "$INFO_PLIST" ]; then
     /usr/libexec/PlistBuddy -c "Set :CMUXCommit $commit" "$INFO_PLIST" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c "Add :CMUXCommit string $commit" "$INFO_PLIST" >/dev/null 2>&1 || true
   fi
@@ -39,10 +47,19 @@ OUTPUT_MANIFEST="${DERIVED_FILE_DIR}/cmux-bundled-resources.outputs"
 # every source that the phase copies or compiles, plus the build architecture.
 hash_tree() {
   local path="$1"
-  if [ -d "$path" ]; then
+  if [ -L "$path" ]; then
+    printf 'symlink:%s -> %s\n' "$path" "$(readlink "$path")"
+    if [ -f "$path" ]; then
+      shasum "$path"
+    fi
+  elif [ -d "$path" ]; then
     printf 'dir:%s\n' "$path"
-    find "$path" -type f -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
-      shasum "$file"
+    find -P "$path" \( -type f -o -type l \) -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
+      if [ -L "$file" ]; then
+        printf 'symlink:%s -> %s\n' "$file" "$(readlink "$file")"
+      else
+        shasum "$file"
+      fi
     done
   elif [ -f "$path" ]; then
     printf 'file:%s\n' "$path"
@@ -58,11 +75,11 @@ hash_git_worktree() {
     printf 'missing-git:%s\n' "$repo"
     return
   fi
-  git -C "$repo" ls-files -z 2>/dev/null | while IFS= read -r -d '' file; do
+  run_git -C "$repo" ls-files -z 2>/dev/null | while IFS= read -r -d '' file; do
     shasum "$repo/$file"
   done
-  git -C "$repo" diff --binary HEAD 2>/dev/null || true
-  git -C "$repo" ls-files --others --exclude-standard -z 2>/dev/null | while IFS= read -r -d '' file; do
+  run_git -C "$repo" diff --binary HEAD 2>/dev/null || true
+  run_git -C "$repo" ls-files --others --exclude-standard -z 2>/dev/null | while IFS= read -r -d '' file; do
     shasum "$repo/$file"
   done
 }
@@ -75,10 +92,10 @@ output_fingerprint() {
     hash_tree "$GHOSTTY_HELPER_DEST"
     hash_tree "$CMUX_CUA_DEST"
     hash_tree "$CMUX_CUA_LICENSE_DEST"
-    if [ -e "$CMUX_CUA_HELPER_EXEC" ]; then
-      hash_tree "$CMUX_CUA_HELPER_EXEC"
+    if [ -d "$CMUX_CUA_HELPER_APP" ]; then
+      hash_tree "$CMUX_CUA_HELPER_APP"
     else
-      printf 'missing:%s\n' "$CMUX_CUA_HELPER_EXEC"
+      printf 'missing:%s\n' "$CMUX_CUA_HELPER_APP"
     fi
   } | shasum | awk '{print $1}'
 }
@@ -117,7 +134,12 @@ fingerprint="$({
 output_fingerprint_value="$(output_fingerprint)"
 
 helper_output_ok=true
-if [[ "$DEST" == *.app/Contents/Resources ]] && [ ! -x "$CMUX_CUA_HELPER_EXEC" ]; then
+if [[ "$DEST" == *.app/Contents/Resources ]] && {
+  [ ! -d "$CMUX_CUA_HELPER_APP" ] ||
+  [ ! -f "$CMUX_CUA_HELPER_APP/Contents/Info.plist" ] ||
+  [ ! -f "$CMUX_CUA_HELPER_OWNER_MARKER" ] ||
+  [ ! -x "$CMUX_CUA_HELPER_EXEC" ]
+}; then
   helper_output_ok=false
 fi
 if [ -f "$STAMP" ] && [ -s "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
