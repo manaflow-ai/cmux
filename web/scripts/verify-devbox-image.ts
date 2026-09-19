@@ -283,6 +283,9 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // Ubuntu's user-private-group umask (002) is what puts it there.
   `[ "$(find ${DEVBOX_WORK_HOME} -type d \\( -perm -g+w -o -perm -o+w \\) | wc -l)" = 0 ] && [ "$(sudo -n -u ${DEVBOX_WORK_USER} sh -c umask)" = 0022 ] && echo home-perms-ok`,
   "[ \"$(stat -c %a /usr/local/share/blesh/state.d)\" = 1777 ] && [ \"$(stat -c %a /usr/local/share/blesh/cache.d)\" = 1777 ] && echo blesh-dirs-ok",
+  // Persistent daemon shells must keep their runtime files when an unrelated
+  // login closes. The image configures the account to live until shutdown.
+  `[ "$(loginctl show-user ${DEVBOX_WORK_USER} -p Linger --value)" = yes ] && systemctl is-active --quiet user-runtime-dir@${DEVBOX_WORK_UID}.service && [ "$(stat -c '%u:%a' /run/user/${DEVBOX_WORK_UID})" = '${DEVBOX_WORK_UID}:700' ] && echo work-user-runtime-persistent`,
   `test -f ${DEVBOX_WORK_HOME}/.cache/motd.legal-displayed && test -f /root/.cache/motd.legal-displayed && test -f /etc/skel/.cache/motd.legal-displayed && echo legal-notice-silenced`,
   ...[1, 2].map((run) =>
     `sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'tmux -L vprobe${run} new-session -d -s login -x 120 -y 30 && sleep 3 && pane="$(tmux -L vprobe${run} capture-pane -pt login)"; tmux -L vprobe${run} kill-server 2>/dev/null; printf "%s\\n" "$pane" | grep -iE "ble\\.sh|bleopt|ble-face|denied|not found|WARRANTY${run > 1 ? "|updating tput" : ""}" && { printf "%s\\n" "$pane"; exit 1; }; printf "%s\\n" "$pane" | grep -q "@cmux" && printf "%s\\n" "$pane" | grep -q "λ" && echo work-user-login-silent-${run}'`,
