@@ -11,6 +11,68 @@ import Testing
 @MainActor
 @Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
+    @Test("Cloud rows retain equal outer margins on first layout and resize")
+    func treeRetainsOuterMargins() throws {
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-padding-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        let outline = try #require(coordinator.outlineView)
+        coordinator.apply(nodes: [Self.terminalNode()])
+        let scroll = try #require(outline.enclosingScrollView)
+
+        for width: CGFloat in [345, 240, 500] {
+            container.frame = NSRect(x: 0, y: 0, width: width, height: 160)
+            container.layoutSubtreeIfNeeded()
+            let margins = [
+                scroll.frame.minX,
+                container.bounds.maxX - scroll.frame.maxX,
+                scroll.frame.minY,
+                container.bounds.maxY - scroll.frame.maxY
+            ]
+            // Keep a compact outer gutter in addition to the row selection inset.
+            #expect(margins.allSatisfy { $0 > 0 && $0 <= 3 })
+            #expect(margins.allSatisfy { abs($0 - margins[0]) < 0.5 })
+        }
+    }
+
+    @Test("Pending indicators use the first column instead of an empty disclosure slot")
+    func pendingIndicatorStartsAtLeadingMargin() throws {
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: Self.machineActions,
+            nodeActions: Self.nodeActions,
+            expansionStore: CloudTreeExpansionStore(
+                defaults: UserDefaults(suiteName: "cloud-tree-pending-\(UUID().uuidString)")!
+            ),
+            tabDragTransferRegistry: { nil }
+        )
+        let container = CloudTreeContainerView(coordinator: coordinator)
+        container.frame = NSRect(x: 0, y: 0, width: 345, height: 160)
+        let outline = try #require(coordinator.outlineView)
+        let operation = MachineCreateOperation(
+            id: UUID(),
+            request: MachineCreateRequest(mode: .newMachine, kind: .desktop, name: nil, arguments: []),
+            startedAt: Date()
+        )
+        let node = CloudTreeNode(id: "pending-layout", kind: .pendingMachine(operation))
+        coordinator.apply(nodes: [node])
+        container.layoutSubtreeIfNeeded()
+        let cell = try #require(coordinator.outlineView(outline, viewFor: outline.outlineTableColumn, item: node) as? CloudTreeCellView)
+        cell.frame = outline.frameOfCell(atColumn: 0, row: 0)
+        cell.layoutSubtreeIfNeeded()
+        let host = try #require(cell.subviews.first { $0 is CloudTreePassthroughHostingView })
+        #expect(abs(cell.frame.minX + host.frame.minX - CloudTreeNSOutlineView.leadingMargin) < 0.5)
+
+        cell.configure(node: Self.terminalNode(), machineActions: Self.machineActions, nodeActions: Self.nodeActions)
+        cell.layoutSubtreeIfNeeded()
+        #expect(host.frame.minX > 0)
+    }
+
     private final class HoverWindow: NSWindow {
         var simulatedKeyWindow = false
         var pointerOnScreen = NSPoint.zero

@@ -5,7 +5,7 @@ import WebKit
 
 #if DEBUG
 extension TerminalController {
-    nonisolated func captureScreenshot(_ args: String) -> String {
+    nonisolated func captureScreenshot(_ args: String, windowIdentifier: String? = nil) -> String {
         guard !Thread.isMainThread else {
             return "ERROR: screenshot must run off the main thread"
         }
@@ -35,12 +35,17 @@ extension TerminalController {
                     window.contentView != nil &&
                     !window.frame.isEmpty
             }
-            let window = WindowScreenshotWindowSelector.select(
-                eligibleWindows: candidateWindows,
-                keyWindow: NSApp.keyWindow,
-                mainWindow: NSApp.mainWindow,
-                terminalWindow: self.tabManager?.window
-            )
+            let window: NSWindow?
+            if let windowIdentifier {
+                window = candidateWindows.first { $0.identifier?.rawValue == windowIdentifier }
+            } else {
+                window = WindowScreenshotWindowSelector.select(
+                    eligibleWindows: candidateWindows,
+                    keyWindow: NSApp.keyWindow,
+                    mainWindow: NSApp.mainWindow,
+                    terminalWindow: self.tabManager?.window
+                )
+            }
             guard let window else { return nil }
             return WindowScreenshotTarget(
                 windowNumber: window.windowNumber
