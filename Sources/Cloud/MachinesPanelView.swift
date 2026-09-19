@@ -21,8 +21,9 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 struct MachinesPanelView: View {
-    @StateObject private var viewModel: MachinesPanelViewModel
+    @StateObject var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
+    @State private(set) var selectedCreateSelection: (accountID: String?, selection: CloudTreeCreateSelection)?
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
@@ -41,11 +42,7 @@ struct MachinesPanelView: View {
         self.init(chromeBackgroundColor: chromeBackgroundColor, defaultMachineStore: DefaultCloudMachineStore(defaults: .standard), tabManager: tabManager)
     }
 
-    private var accountFlow: HostAccountFlow? {
-        AppDelegate.shared?.auth?.accountFlow
-    }
-
-    private var authState: CloudVMPanelAuthState {
+    var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
             isWorkingOnAuth: accountFlow?.isCompletingSignIn == true
@@ -66,6 +63,12 @@ struct MachinesPanelView: View {
         .onAppear { syncPolling(for: authState) }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
+        }
+        .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            selectedCreateSelection = nil
+            viewModel.stopPolling()
+            viewModel.resetForAuthTransition()
+            syncPolling(for: authState)
         }
         .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
             if let id { viewModel.setDefaultMachine(id: id) }
@@ -117,6 +120,7 @@ struct MachinesPanelView: View {
         case .signedIn:
             viewModel.startPolling()
         case .checking, .signedOut:
+            selectedCreateSelection = nil
             viewModel.stopPolling()
             viewModel.resetForAuthTransition()
         }
@@ -183,13 +187,13 @@ struct MachinesPanelView: View {
             ) {
                 viewModel.refresh(tree: true)
             }
-            MachinesChromeIconButton(
-                symbolName: "plus",
-                accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
-                isBusy: false
-            ) {
-                requestNewMachine()
-            }
+            CloudTreeCreateMenu(
+                selection: currentCreateSelection,
+                machineName: machineDisplayName,
+                requestNewMachine: requestNewMachine,
+                newWorkspace: createWorkspaceForSelection,
+                newTerminal: createTerminalForSelection
+            )
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
@@ -448,6 +452,7 @@ struct MachinesPanelView: View {
     }
     /// Builds the snapshot-bound Cloud tree and binds its row actions.
     private var machinesList: some View {
+        let accountID = accountFlow?.currentIdentity?.id
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
@@ -465,17 +470,6 @@ struct MachinesPanelView: View {
             viewModel?.setDefaultMachine(id: id)
         }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
-        let nodeActions = CloudTreeNodeActions.bound(
-            catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
-            selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
-            },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
-            onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
-            onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
-        )
         return CloudTreeOutlineView(
             machines: viewModel.machines,
             pendingCreates: viewModel.pendingCreates, adoptedOperationIDs: viewModel.adoptedOperationIDs,
@@ -483,12 +477,15 @@ struct MachinesPanelView: View {
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
-            nodeActions: nodeActions,
+            nodeActions: cloudTreeNodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
+            selectedRemoteWorkspace: currentCreateSelection?.remoteWorkspace,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
+            onSelectionChange: { selection in selectedCreateSelection = selection.map { (accountID, $0) } }
         )
         .accessibilityIdentifier("CloudMachinesTree")
+        .onDisappear { selectedCreateSelection = nil }
     }
 
     @ViewBuilder

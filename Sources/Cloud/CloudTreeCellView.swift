@@ -55,7 +55,8 @@ final class CloudTreeCellView: NSTableCellView {
         node: CloudTreeNode,
         machineActions: MachineRowActions,
         nodeActions: CloudTreeNodeActions,
-        style: CloudTreeStyle = CloudTreeStyleStore.current
+        style: CloudTreeStyle = CloudTreeStyleStore.current,
+        machineName: String? = nil
     ) {
         #if DEBUG
         if case .terminal(let row) = node.kind, row.hasUnreadNotification {
@@ -74,7 +75,7 @@ final class CloudTreeCellView: NSTableCellView {
         needsLayout = true
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost()
-            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
+            buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineName: machineName ?? node.machine.rawValue, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
@@ -88,7 +89,10 @@ final class CloudTreeCellView: NSTableCellView {
             buttonsHost?.isHidden = true
             buttonsLeadingConstraint?.isActive = false
         }
-        if case .machine(let machine, _) = node.kind {
+        let createLabel = CloudTreeCreateRowContent.destinationLabel(for: node.kind)
+        if let createLabel {
+            toolTip = createLabel
+        } else if case .machine(let machine, _) = node.kind {
             toolTip = CloudTreeMachineRowContent(machine: machine).toolTip
         } else if case .pendingMachine(let operation) = node.kind {
             // The failure's first line rides along so a red row explains itself on hover.
@@ -98,7 +102,9 @@ final class CloudTreeCellView: NSTableCellView {
         } else {
             toolTip = nil
         }
-        if case .machine(let machine, _) = node.kind {
+        if let createLabel {
+            setAccessibilityLabel(createLabel)
+        } else if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
         } else if case .resource(_, let row) = node.kind {
             setAccessibilityLabel(row.accessibilityLabel)
