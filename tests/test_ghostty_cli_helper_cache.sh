@@ -38,6 +38,7 @@ CACHE_DIR="$TMP_DIR/cache"
 FIRST="$TMP_DIR/first"
 SECOND="$TMP_DIR/second"
 THIRD="$TMP_DIR/third"
+FOURTH="$TMP_DIR/fourth"
 
 CMUX_ZIG="$FAKE_ZIG" \
 CMUX_GHOSTTY_HELPER_CACHE_DIR="$CACHE_DIR" \
@@ -51,6 +52,16 @@ CMUX_GHOSTTY_HELPER_CACHE_DIR="$CACHE_DIR" \
 grep -q 'Building Ghostty CLI helper' "$TMP_DIR/first.log"
 grep -q 'Reusing cached Ghostty CLI helper' "$TMP_DIR/second.log"
 cmp -s "$FIRST" "$SECOND"
+
+cached_helper="$(find "$CACHE_DIR" -type f -name ghostty -print -quit)"
+[[ -n "$cached_helper" ]]
+printf 'tampered\n' >> "$cached_helper"
+CMUX_ZIG="$FAKE_ZIG" \
+CMUX_GHOSTTY_HELPER_CACHE_DIR="$CACHE_DIR" \
+  "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh" \
+  --target aarch64-macos --output "$FOURTH" >"$TMP_DIR/fourth.log"
+grep -q 'Building Ghostty CLI helper' "$TMP_DIR/fourth.log"
+cmp -s "$FIRST" "$FOURTH"
 
 CMUX_ZIG="$FAKE_ZIG" \
 CMUX_GHOSTTY_HELPER_CACHE_DIR="$CACHE_DIR" \

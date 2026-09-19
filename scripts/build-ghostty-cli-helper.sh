@@ -86,8 +86,13 @@ ghostty_cache_install_if_valid() {
   local cache_manifest="$2"
   local metadata="$3"
   local prefix="$4"
+  local cached_metadata cached_sha expected_sha
   [[ -x "$cache_bin" && -f "$cache_manifest" ]] || return 1
-  [[ "$(cat "$cache_manifest" 2>/dev/null || true)" == "$metadata" ]] || return 1
+  cached_metadata="$(sed '/^binary_sha256=/d' "$cache_manifest" 2>/dev/null || true)"
+  [[ "$cached_metadata" == "$metadata" ]] || return 1
+  cached_sha="$(sed -n 's/^binary_sha256=//p' "$cache_manifest" 2>/dev/null || true)"
+  expected_sha="$(shasum -a 256 "$cache_bin" 2>/dev/null | awk '{print $1}')"
+  [[ -n "$cached_sha" && "$cached_sha" == "$expected_sha" ]] || return 1
   mkdir -p "$prefix/bin"
   install -m 755 "$cache_bin" "$prefix/bin/ghostty"
   echo "Reusing cached Ghostty CLI helper"
@@ -102,10 +107,12 @@ ghostty_cache_publish() {
   local cache_manifest="$cache_dir/manifest"
   local tmp_binary="$cache_dir/.ghostty.tmp.$$"
   local tmp_manifest="$cache_dir/.manifest.tmp.$$"
+  local binary_sha
   mkdir -p "$cache_dir"
   install -m 755 "$binary" "$tmp_binary"
   mv -f "$tmp_binary" "$cache_bin"
-  printf '%s' "$metadata" > "$tmp_manifest"
+  binary_sha="$(shasum -a 256 "$cache_bin" | awk '{print $1}')"
+  printf '%s\nbinary_sha256=%s' "$metadata" "$binary_sha" > "$tmp_manifest"
   mv -f "$tmp_manifest" "$cache_manifest"
 }
 
@@ -371,7 +378,9 @@ build_helper() {
     return 1
   }
   if [[ "$cache_enabled" -eq 1 ]]; then
-    ghostty_cache_publish "$cache_dir" "$cache_metadata" "$prefix/bin/ghostty"
+    if ! ghostty_cache_publish "$cache_dir" "$cache_metadata" "$prefix/bin/ghostty"; then
+      echo "warning: unable to publish Ghostty CLI helper cache; continuing with built helper" >&2
+    fi
   fi
 }
 
