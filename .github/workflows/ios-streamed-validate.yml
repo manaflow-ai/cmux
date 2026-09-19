@@ -19,10 +19,10 @@ permissions:
 jobs:
   validate:
     # This end-to-end validation is expensive and is run only on explicit
-    # dispatch. Default to the isolated WarpBuild ARM lane; the selector below
-    # chooses its installed Xcode 26 toolchain and simulator runtime. Keep an
-    # override for a future isolated runner migration.
-    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'blacksmith-6vcpu-macos-15' }}
+    # dispatch. Default to the Blacksmith image the iOS simulator tests use; the
+    # selector below picks its Xcode 26 toolchain. Keep an override for a
+    # future isolated runner migration.
+    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"
