@@ -74,6 +74,28 @@ struct CloudDesktopAccessTests {
         #expect(await connected.result == true)
     }
 
+    @Test("Cloud desktop paints a connecting state before its route is ready")
+    func desktopConnectingPlaceholderFirstPaint() async throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let started = ContinuousClock.now
+        browser.webView.loadHTMLString(
+            SurfaceBrowserPlaceholder.connecting("Desktop"),
+            baseURL: nil
+        )
+        let deadline = started.advanced(by: .seconds(2))
+        var title = ""
+        while ContinuousClock.now < deadline {
+            title = (try? await browser.webView.evaluateJavaScript("document.title") as? String) ?? ""
+            if title == "Connecting to Desktop…" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let elapsed = started.duration(to: ContinuousClock.now)
+        print("Cloud desktop connecting placeholder first paint: \(elapsed)")
+        #expect(title == "Connecting to Desktop…")
+        #expect(elapsed < .seconds(0.5), "The pane should never spend seconds showing about:blank")
+    }
+
     @Test("A saved Cloud browser URL never retains an ephemeral loopback port")
     func sessionSnapshotUsesPrivateServiceAddress() {
         let local = URL(string: "http://127.0.0.1:46901/vnc.html?path=websockify&resize=remote")!

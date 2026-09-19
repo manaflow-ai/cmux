@@ -31,6 +31,16 @@ extension CmuxTuiSurfaceProvider {
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
+        // The endpoint is asynchronous, but the pane is visible immediately. Replace
+        // WebKit's default about:blank with the same local connecting state used by
+        // other optimistic surface opens so the user never sees an empty document.
+        if existingPane == nil {
+            SurfacePaneFactory.showPlaceholder(
+                SurfaceBrowserPlaceholder.connecting(resource.title),
+                panelID: pane.panelID,
+                in: pane.workspaceID
+            )
+        }
         switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
         case .privateDirect(let raw):
             guard let url = URL(string: raw) else { throw ProviderError.localForwardURLUnavailable }
