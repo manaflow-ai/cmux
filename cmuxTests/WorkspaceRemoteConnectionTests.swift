@@ -3853,7 +3853,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            cliMockAgentHookDeliveryTargetResponse(line, workspaceId: workspaceId, surfaceId: surfaceId)
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
                 ?? cliMockAcceptAnyResponse(line: line)
         }
 
@@ -4144,7 +4144,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         startMockServerAccepting(listenerFD: listenerFD, state: state) { line in
-            cliMockAgentHookDeliveryTargetResponse(line, workspaceId: workspaceId, surfaceId: surfaceId)
+            cliMockAgentHookDeliveryTargetResponse(line: line, workspaceId: workspaceId, surfaceId: surfaceId)
                 ?? cliMockAcceptAnyResponse(line: line)
         }
 
