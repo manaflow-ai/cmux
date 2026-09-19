@@ -2940,12 +2940,22 @@ function directResourceStatsExec(
 ): Effect.Effect<ExecResult | null> {
   const key = `${provider}:${providerVmId}`;
   const existing = directResourceStatsInFlight.get(key);
-  if (existing) return Effect.promise(() => existing);
+  if (existing) return waitForDirectResourceStats(existing);
 
   const execution = Effect.runPromise(providers.exec(provider, providerVmId, command, {
     timeoutMs: DIRECT_RESOURCE_STATS_TIMEOUT_MS,
     providerMetadata: { ...providerMetadata },
   })).catch(() => null);
+  directResourceStatsInFlight.set(key, execution);
+  void execution.then(
+    () => { if (directResourceStatsInFlight.get(key) === execution) directResourceStatsInFlight.delete(key); },
+    () => { if (directResourceStatsInFlight.get(key) === execution) directResourceStatsInFlight.delete(key); },
+  );
+  return waitForDirectResourceStats(execution);
+}
+
+/** Bound request latency without releasing the shared key while the provider call runs. */
+function waitForDirectResourceStats(execution: Promise<ExecResult | null>): Effect.Effect<ExecResult | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), DIRECT_RESOURCE_STATS_TIMEOUT_MS);
@@ -2954,11 +2964,6 @@ function directResourceStatsExec(
     if (timer !== undefined) clearTimeout(timer);
     return result;
   });
-  directResourceStatsInFlight.set(key, bounded);
-  void bounded.then(
-    () => { if (directResourceStatsInFlight.get(key) === bounded) directResourceStatsInFlight.delete(key); },
-    () => { if (directResourceStatsInFlight.get(key) === bounded) directResourceStatsInFlight.delete(key); },
-  );
   return Effect.promise(() => bounded);
 }
 
