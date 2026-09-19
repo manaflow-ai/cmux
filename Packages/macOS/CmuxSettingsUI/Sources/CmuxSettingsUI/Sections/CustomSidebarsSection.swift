@@ -7,6 +7,7 @@ import SwiftUI
 @MainActor
 public struct CustomSidebarsSection: View {
     private let hostActions: SettingsHostActions
+    private let onboardingAssets = CustomSidebarOnboardingAssets()
 
     @State private var enabled: DefaultsValueModel<Bool>
     @State private var renderer: JSONValueModel<CustomSidebarRendererMode>
@@ -123,7 +124,7 @@ public struct CustomSidebarsSection: View {
                 String(localized: "menu.help.gettingStarted", defaultValue: "Getting Started")
             ) {
                 Menu {
-                    ForEach(CustomSidebarOnboardingAssets.examples) { example in
+                    ForEach(onboardingAssets.examples) { example in
                         Button(example.title) {
                             applyOnboardingResult(hostActions.installCustomSidebarExample(id: example.id))
                         }
