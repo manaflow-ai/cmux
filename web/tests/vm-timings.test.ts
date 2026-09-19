@@ -29,10 +29,11 @@ describe("VM timing helpers", () => {
     const attributes: Array<{ key: string; value: unknown }> = [];
     const span = { setAttribute: (key: string, value: unknown) => attributes.push({ key, value }) } as unknown as Span;
     const recorder = new VmTimingRecorder(span, "create", { debugTimings: false });
+    recorder.record("admission", 85);
     recorder.record("auth", 12.345);
     recorder.record("provider_create", 250);
     recorder.record("provider_create", 50);
-    expect(recorder.serverTimingHeader()).toBe("auth;dur=12.35, provider_create;dur=300");
+    expect(recorder.serverTimingHeader()).toBe("admission;dur=85, auth;dur=12.35, provider_create;dur=300");
     expect(attributes.some((attribute) => attribute.key === "cmux.vm.timing.provider_create_started_at_ms")).toBe(true);
     expect(attributes.some((attribute) => attribute.key === "cmux.vm.timing.provider_create_ended_at_ms")).toBe(true);
   });
