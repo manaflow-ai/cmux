@@ -93,6 +93,7 @@ final class CloudOperationRecorder {
             if context.parentSpanID == nil {
                 operations[index].outcome = outcome
                 operations[index].failure = failure
+                operations[index].durationMs = milliseconds
             } else if let step = operations[index].steps.firstIndex(where: { $0.id == context.spanID }) {
                 operations[index].steps[step].outcome = outcome
                 operations[index].steps[step].failure = failure

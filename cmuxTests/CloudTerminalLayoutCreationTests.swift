@@ -24,11 +24,14 @@ struct CloudTerminalLayoutCreationTests {
         #expect(result.created.terminalID == "term_created")
         #expect(result.workspaceID == "ws_target")
         let commands = await runner.commands
-        #expect(commands == [
-            CloudTuiCommandLine.snapshotArguments(socketPath: Self.socketPath),
-            ["--socket", Self.socketPath, "--json", "pane", "pane_target", "split",
-             "--" + direction.rawValue, "--cwd", "/remote/project", "--idempotency-key", "request-one", "--expected-revision", "10"]
-        ])
+        #expect(commands.count == 2)
+        #expect(commands[0].operation == "session.snapshot")
+        #expect(commands[1].operation == "pane.split")
+        #expect(commands[1].params["pane"] as? String == "pane_target")
+        #expect(commands[1].params["direction"] as? String == direction.rawValue)
+        #expect(commands[1].params["cwd"] as? String == "/remote/project")
+        #expect(commands[1].params["expected_revision"] as? String == "10")
+        #expect(commands[1].idempotencyKey == "request-one")
     }
 
     @Test
@@ -40,9 +43,11 @@ struct CloudTerminalLayoutCreationTests {
             nearTabID: "tab_source", splitDirection: nil, cwd: "/remote/project", idempotencyKey: "request-tab"
         )
         let command = try #require(await runner.commands.last)
-        #expect(command == ["--socket", Self.socketPath, "--json", "pane", "pane_target", "run",
-                            "--cwd", "/remote/project", "--idempotency-key", "request-tab", "--expected-revision", "10", "--"]
-            + CloudTuiCommandLine.defaultTerminalCommand)
+        #expect(command.operation == "pane.run")
+        #expect(command.params["pane"] as? String == "pane_target")
+        #expect(command.params["cwd"] as? String == "/remote/project")
+        #expect(command.params["argv"] as? [String] == CloudTuiCommandLine.defaultTerminalCommand)
+        #expect(command.idempotencyKey == "request-tab")
     }
 
     @Test
@@ -58,10 +63,10 @@ struct CloudTerminalLayoutCreationTests {
         )
         let commands = await runner.commands
         #expect(commands.count == 4)
-        #expect(commands[1].contains("pane_target"))
-        #expect(commands[3].contains("pane_moved"))
-        #expect(commands[1].suffix(4) == ["--idempotency-key", "one-intent", "--expected-revision", "10"])
-        #expect(commands[3].suffix(4) == ["--idempotency-key", "one-intent", "--expected-revision", "11"])
+        #expect(commands[1].params["pane"] as? String == "pane_target")
+        #expect(commands[3].params["pane"] as? String == "pane_moved")
+        #expect(commands[1].idempotencyKey == "one-intent" && commands[1].params["expected_revision"] as? String == "10")
+        #expect(commands[3].idempotencyKey == "one-intent" && commands[3].params["expected_revision"] as? String == "11")
     }
 
     @Test
@@ -93,6 +98,36 @@ struct CloudTerminalLayoutCreationTests {
         #expect(await runner.commands.count == 1)
     }
 
+    @Test func currentEventSnapshotAvoidsThePreCreationRoundTrip() async throws {
+        let data = try Self.snapshot()
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: Self.machine))
+        let runner = LayoutCreationRunner(responses: [.success(try Self.created())])
+        var operation = operation(runner)
+        operation.initialState = state
+        _ = try await operation.run(nearTabID: "tab_source", splitDirection: .right, idempotencyKey: "one")
+        let requests = await runner.commands
+        #expect(requests.count == 1)
+        #expect(requests.first?.operation == "pane.split")
+        #expect(requests.first?.params["expected_revision"] as? String == "10")
+    }
+
+    @Test func staleEventSnapshotRefreshesOnlyAfterRevisionRejection() async throws {
+        let object = try #require(JSONSerialization.jsonObject(with: Self.snapshot()) as? [String: Any])
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: object, machine: Self.machine))
+        let runner = LayoutCreationRunner(responses: [
+            .failure(.exited(status: 1, output: #"{"code":"revision.conflict"}"#)),
+            .success(try Self.snapshot(revision: "11", paneID: "pane_moved")), .success(try Self.created())
+        ])
+        var operation = operation(runner)
+        operation.initialState = state
+        _ = try await operation.run(nearTabID: "tab_source", splitDirection: .right, idempotencyKey: "one")
+        let requests = await runner.commands
+        #expect(requests.map(\.operation) == ["pane.split", "session.snapshot", "pane.split"])
+        #expect(requests[0].idempotencyKey == requests[2].idempotencyKey)
+        #expect(requests[2].params["pane"] as? String == "pane_moved")
+    }
+
     private func operation(_ runner: LayoutCreationRunner) -> CloudTerminalLayoutCreation {
         CloudTerminalLayoutCreation(machine: Self.machine, socketPath: Self.socketPath, commandRunner: runner)
     }
@@ -120,13 +155,13 @@ struct CloudTerminalLayoutCreationTests {
 /// An ordered daemon script; every command passes through the production operation.
 private actor LayoutCreationRunner: CloudTuiCommandRunning {
     private var responses: [Result<Data, CloudMachineLink.LinkError>]
-    private(set) var commands: [[String]] = []
+    private(set) var commands: [CloudTuiRequest] = []
 
     init(responses: [Result<Data, CloudMachineLink.LinkError>]) {
         self.responses = responses
     }
 
-    func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+    func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         commands.append(arguments)
         return try responses.removeFirst().get()
     }

@@ -14,7 +14,7 @@ const MAX_SAFE_UNSIGNED_INTEGER = 0xffff_ffff;
 
 const phases = new Set([
   "endpoint_start", "pairing", "transport_dial", "host_auth",
-  "rpc_ready", "recovery", "relay_policy", "discovery",
+  "rpc_ready", "recovery", "relay_policy", "discovery", "initial_connect", "terminal_trace",
 ]);
 const outcomes = new Set(["success", "failure", "timeout", "cancelled", "abandoned"]);
 const failures = new Set([
@@ -34,6 +34,7 @@ const allowedPropertyKeys = new Set([
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
   "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
+  "population", "attempt_id", "terminal_ready",
   "window_ms", "input_count", "output_count", "presented_count",
   "correlated_output_count", "dropped_count", "output_bytes", "max_queue_depth",
   "input_to_output_p50_ms", "input_to_output_p95_ms", "input_to_output_p99_ms",
@@ -41,6 +42,7 @@ const allowedPropertyKeys = new Set([
   "render_p50_ms", "render_p95_ms", "render_p99_ms",
   "input_failed_count", "histogram_version", "input_to_output_histogram", "input_to_visible_histogram", "render_histogram",
   "duration_ms", "threshold_ms", "stage",
+  "trace_id", "operation", "terminal_phase",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -50,6 +52,9 @@ export type MobileNetworkOutcome = {
   readonly durationMs: number;
   readonly runtimeRole: "mobileClient";
   readonly userUsable: boolean;
+  readonly population?: "cold_open" | "warm_open" | "reconnect" | "pairing_required";
+  readonly attemptId?: string;
+  readonly terminalReady?: boolean;
   readonly failure?: string;
   readonly transport?: string;
   readonly platform?: "ios";
@@ -59,6 +64,9 @@ export type MobileNetworkOutcome = {
   readonly bundleIdentifier?: string;
   readonly osVersion?: string;
   readonly deviceModel?: string;
+  readonly traceId?: string;
+  readonly operation?: string;
+  readonly terminalPhase?: string;
 };
 
 export type MobileTerminalLatencyWindow = {
@@ -215,8 +223,8 @@ export function parseMobileObservabilityEvent(candidate: unknown): MobileObserva
     ?? parseMobileTerminalLatencyAnomaly(candidate);
 }
 
-type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport">;
-type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel">;
+type CoreObservation = Pick<MobileNetworkOutcome, "phase" | "outcome" | "durationMs" | "userUsable" | "failure" | "transport" | "population" | "attemptId" | "terminalReady">;
+type Metadata = Pick<MobileNetworkOutcome, "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel" | "traceId" | "operation" | "terminalPhase">;
 
 function validTimestamp(value: unknown): value is string {
   return typeof value === "string"
@@ -236,7 +244,8 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
   const durationMs = unsignedInteger(properties.duration_ms);
   const failure = optionalSetValue(properties.failure, failures);
   const transport = optionalSetValue(properties.transport, transports);
-  if (durationMs === null || failure === false || transport === false) return null;
+  const initialFields = parseInitialConnectionFields(properties);
+  if (durationMs === null || failure === false || transport === false || initialFields === null) return null;
   return {
     phase: properties.phase,
     outcome: properties.outcome as CoreObservation["outcome"],
@@ -244,6 +253,28 @@ function parseCore(properties: Record<string, unknown>): CoreObservation | null 
     userUsable: properties.user_usable,
     ...(typeof failure === "string" ? { failure } : {}),
     ...(typeof transport === "string" ? { transport } : {}),
+    ...initialFields,
+  };
+}
+
+function parseInitialConnectionFields(
+  properties: Record<string, unknown>,
+): Pick<CoreObservation, "population" | "attemptId" | "terminalReady"> | null {
+  const population = optionalSetValue(
+    properties.population,
+    new Set(["cold_open", "warm_open", "reconnect", "pairing_required"]),
+  ) as CoreObservation["population"] | false;
+  const attemptId = properties.attempt_id === undefined
+    ? undefined
+    : optionalMachineString(properties.attempt_id);
+  const terminalReady = properties.terminal_ready === undefined
+    ? undefined
+    : typeof properties.terminal_ready === "boolean" ? properties.terminal_ready : false;
+  if (population === false || attemptId === false || terminalReady === false) return null;
+  return {
+    ...(typeof population === "string" ? { population } : {}),
+    ...(typeof attemptId === "string" ? { attemptId } : {}),
+    ...(typeof terminalReady === "boolean" ? { terminalReady } : {}),
   };
 }
 
@@ -257,7 +288,17 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
   const bundleIdentifier = optionalMachineString(properties.bundle_identifier);
   const osVersion = optionalMachineString(properties.os_version);
   const deviceModel = optionalMachineString(properties.device_model, true);
-  if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel].includes(false)) return null;
+  const traceId = optionalTraceID(properties.trace_id);
+  const operation = optionalSetValue(properties.operation, new Set(["replay", "artifactScan", "artifactList"]));
+  const terminalPhase = optionalSetValue(properties.terminal_phase, new Set([
+    "applied", "failed", "discarded",
+  ]));
+  if ([platform, clientChannel, appVersion, buildNumber, bundleIdentifier, osVersion, deviceModel,
+    traceId, operation, terminalPhase].includes(false)) return null;
+  if (properties.phase === "terminal_trace"
+    && (typeof traceId !== "string" || typeof operation !== "string" || typeof terminalPhase !== "string")) {
+    return null;
+  }
   return {
     ...(platform === "ios" ? { platform } : {}),
     ...(typeof clientChannel === "string" ? { clientChannel } : {}),
@@ -266,6 +307,9 @@ function parseMetadata(properties: Record<string, unknown>): Metadata | null {
     ...(typeof bundleIdentifier === "string" ? { bundleIdentifier } : {}),
     ...(typeof osVersion === "string" ? { osVersion } : {}),
     ...(typeof deviceModel === "string" ? { deviceModel } : {}),
+    ...(typeof traceId === "string" ? { traceId } : {}),
+    ...(typeof operation === "string" ? { operation } : {}),
+    ...(typeof terminalPhase === "string" ? { terminalPhase } : {}),
   };
 }
 
@@ -285,6 +329,9 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.outcome": observation.outcome,
       "cmux.mobile.duration_ms": observation.durationMs,
       "cmux.mobile.user_usable": observation.userUsable,
+      "cmux.mobile.population": observation.population,
+      "cmux.mobile.attempt_id": observation.attemptId,
+      "cmux.mobile.terminal_ready": observation.terminalReady,
       "cmux.mobile.occurred_at": observation.timestamp,
       "cmux.mobile.failure": observation.failure,
       "cmux.mobile.transport": observation.transport,
@@ -295,6 +342,9 @@ export async function emitMobileNetworkOutcomes(
       "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
       "cmux.mobile.os_version": observation.osVersion,
       "cmux.mobile.device_model": observation.deviceModel,
+      "cmux.mobile.trace_id": observation.traceId,
+      "cmux.mobile.operation": observation.operation,
+      "cmux.mobile.terminal_phase": observation.terminalPhase,
     },
     (span) => {
       if (observation.outcome === "failure" || observation.outcome === "timeout") {
@@ -406,4 +456,11 @@ function optionalMachineString(value: unknown, allowSpaces = false): string | un
   if (typeof value !== "string" || value.length === 0 || value.length > MAX_STRING_LENGTH) return false;
   const pattern = allowSpaces ? /^[A-Za-z0-9 .,_()+-]+$/ : /^[A-Za-z0-9._+-]+$/;
   return pattern.test(value) ? value : false;
+}
+
+function optionalTraceID(value: unknown): string | undefined | false {
+  if (value === undefined) return undefined;
+  return typeof value === "string" && /^[0-9a-f]{16}$/.test(value) && value !== "0000000000000000"
+    ? value
+    : false;
 }

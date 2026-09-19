@@ -5191,7 +5191,19 @@ mod unix {
                     )?;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    thread::sleep(Duration::from_millis(20));
+                    // Wake as soon as an attachment arrives. The timeout keeps
+                    // the same lifecycle/owner-death polling bound without
+                    // imposing a 20 ms admission delay on each new connection.
+                    let mut fd =
+                        libc::pollfd { fd: listener.as_raw_fd(), events: libc::POLLIN, revents: 0 };
+                    // SAFETY: fd is valid for this call and listener owns the
+                    // descriptor until the accept loop exits.
+                    if unsafe { libc::poll(&mut fd, 1, 20) } < 0 {
+                        let error = std::io::Error::last_os_error();
+                        if error.kind() != std::io::ErrorKind::Interrupted {
+                            return Err(error.into());
+                        }
+                    }
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(error.into()),
