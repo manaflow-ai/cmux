@@ -437,7 +437,7 @@ pub(crate) fn public_terminal_snapshot(
         "running": durable.lifecycle == TerminalLifecycle::Running,
         "lifecycle": lifecycle,
     });
-    if let Some(cwd) = surface.and_then(crate::Surface::published_directory) {
+    if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
     if durable.lifecycle == TerminalLifecycle::Exited {

@@ -1522,6 +1522,9 @@ pub struct PtyTerminalRuntime {
     pwd: Mutex<Option<String>>,
     published_directory: Mutex<PublishedDirectory>,
     directory_pending: AtomicBool,
+    /// A shell has reported a directory at least once; only then is a later
+    /// absent report a clear rather than the still-unreported launch directory.
+    directory_reported: AtomicBool,
     geometry: Mutex<PtyGeometry>,
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
     #[cfg(test)]
@@ -2425,6 +2428,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 #[cfg(test)]
@@ -2921,6 +2925,7 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
+                directory_reported: AtomicBool::new(pwd.is_some()),
                 pwd: Mutex::new(pwd),
                 published_directory: Mutex::new(PublishedDirectory::Unreported),
                 directory_pending: AtomicBool::new(true),
@@ -3965,6 +3970,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(PtyGeometry {
                     cols,
                     rows,
@@ -4204,6 +4210,7 @@ impl Surface {
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
+                directory_reported: AtomicBool::new(false),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
@@ -5515,7 +5522,7 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn set_test_pwd(&self, pwd: Option<String>) {
         let pty = self.as_pty().expect("test PTY surface");
-        *pty.pwd.lock().unwrap() = pwd;
+        pty.record_directory(pwd);
         pty.directory_pending.store(true, Ordering::Release);
     }
 

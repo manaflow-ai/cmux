@@ -15,6 +15,29 @@ impl Surface {
         })
     }
 
+    /// The directory the public graph shows: the shell's committed report when
+    /// it has made one, nothing after it explicitly cleared that report, and
+    /// otherwise the directory the daemon launched the terminal in
+    /// (https://github.com/manaflow-ai/cmux/issues/10756).
+    pub(crate) fn presented_directory(&self) -> Option<String> {
+        let pty = self.as_pty()?;
+        match &*pty.published_directory.lock().unwrap() {
+            PublishedDirectory::Reported(Some(directory)) => Some(directory.clone()),
+            PublishedDirectory::Reported(None)
+                if pty.directory_reported.load(Ordering::Acquire) =>
+            {
+                None
+            }
+            PublishedDirectory::Reported(None) | PublishedDirectory::Unreported => pty.cwd.clone(),
+        }
+    }
+
+    /// Whether the shell has ever reported a directory, which makes a later
+    /// absent report an explicit clear.
+    pub(crate) fn directory_was_reported(&self) -> bool {
+        self.as_pty().is_some_and(|pty| pty.directory_reported.load(Ordering::Acquire))
+    }
+
     pub(crate) fn directory_publication_matches(&self, directory: &Option<String>) -> bool {
         self.as_pty().is_some_and(|pty| match &*pty.published_directory.lock().unwrap() {
             PublishedDirectory::Unreported => false,
@@ -70,6 +93,9 @@ impl PtyTerminalRuntime {
     /// `None` is a real report too: the VT keeps its pwd across output until the
     /// shell clears it, so a change to `None` must reach the graph like any other.
     pub(super) fn record_directory(&self, value: Option<String>) {
+        if value.is_some() {
+            self.directory_reported.store(true, Ordering::Release);
+        }
         let mut previous = self.pwd.lock().unwrap();
         if *previous != value {
             *previous = value;

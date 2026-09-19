@@ -43,7 +43,10 @@ impl Mux {
         let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
         if let Some(directory) = &directory {
             fields.insert("cwd".into(), serde_json::json!(directory));
-        } else {
+        } else if source.directory_was_reported() {
+            // An explicit clear: the shell reported a directory before and now
+            // reports none. A terminal that has never reported keeps the launch
+            // directory the snapshot already presents.
             fields.remove("cwd");
         }
         let deltas = serde_json::json!([{
