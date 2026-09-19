@@ -82,6 +82,9 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         manager.window = window
+        // A registered context resolves its window from the context itself, and naming
+        // the NSWindow by identifier is not enough any more, so attach it.
+        appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }?.window = window
         return (windowId, window)
     }
 
