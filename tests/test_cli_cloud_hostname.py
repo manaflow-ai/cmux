@@ -19,6 +19,7 @@ import unittest
 import uuid
 
 from test_cli_vm_resize import ResizeSocket
+from test_cli_socket_autodiscovery import copy_runtime_frameworks
 
 
 class CloudHostnameTests(unittest.TestCase):
@@ -35,10 +36,11 @@ class CloudHostnameTests(unittest.TestCase):
                         str(source), "-o", cls.library], check=True, capture_output=True)
         # Run the supplied CLI from a directory containing no real cmux-tui. This
         # keeps a bundled client in the source app from masking the disposable
-        # probe below, while the inherited DYLD framework paths still resolve the
-        # CLI's original build products on CI.
+        # probe below. Preserve runtime frameworks even when the app-host lane
+        # has no DYLD_FRAMEWORK_PATH or the build artifact has been relocated.
         isolated_bin = Path(cls.fixture.name, "cli")
         isolated_bin.mkdir()
+        copy_runtime_frameworks(cls.cli, cls.fixture.name)
         cls.cli = str(isolated_bin / "cmux")
         shutil.copy2(os.environ["CMUX_CLI_BIN"], cls.cli)
         Path(cls.cli).chmod(0o700)
