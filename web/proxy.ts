@@ -3,6 +3,7 @@ import createMiddleware from "next-intl/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import { shouldRewriteToDevbox } from "./devbox-routing";
 import {
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
@@ -96,6 +97,46 @@ function routeRequest(incomingRequest: NextRequest) {
     : response;
 }
 
+function handleDevboxRoute(
+  request: NextRequest,
+  host: string,
+  pathname: string,
+): NextResponse | undefined {
+  // The creator lives outside the localized site tree, including its auth
+  // return path on cmux.com and preview hosts.
+  if (pathname === "/devbox" || pathname === "/devbox/") {
+    return NextResponse.next();
+  }
+  if (!shouldRewriteToDevbox(host, pathname)) return undefined;
+  const url = request.nextUrl.clone();
+  url.pathname = "/devbox";
+  return NextResponse.rewrite(url);
+}
+
+function handleCoderouterRoute(
+  request: NextRequest,
+  host: string,
+  pathname: string,
+): NextResponse | undefined {
+  if (
+    (host === "coderouter.dev" || host === "www.coderouter.dev") &&
+    (pathname === "/" || pathname === "/en" || pathname === "/en/")
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/coderouter";
+    return NextResponse.rewrite(url);
+  }
+  // Keep machine endpoints and the standalone landing page outside next-intl.
+  if (
+    pathname === "/v1/responses" ||
+    pathname === "/v1/codex/responses" ||
+    isCoderouterLandingPath(pathname)
+  ) {
+    return NextResponse.next();
+  }
+  return undefined;
+}
+
 function handleHostAndMachineRoutes(
   request: NextRequest,
   host: string,
@@ -109,28 +150,11 @@ function handleHostAndMachineRoutes(
     return NextResponse.redirect(url.toString(), 301);
   }
 
-  if (
-    (host === "coderouter.dev" || host === "www.coderouter.dev") &&
-    (pathname === "/" || pathname === "/en" || pathname === "/en/")
-  ) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/coderouter";
-    return NextResponse.rewrite(url);
-  }
+  const devboxResponse = handleDevboxRoute(request, host, pathname);
+  if (devboxResponse) return devboxResponse;
 
-  // OpenAI-compatible coderouter traffic is a machine endpoint, never a
-  // localized page. Keep this explicit in addition to the matcher exclusion
-  // so direct middleware tests and future matcher edits fail safely.
-  if (pathname === "/v1/responses" || pathname === "/v1/codex/responses") {
-    return NextResponse.next();
-  }
-
-  // coderouter has one hostname-independent landing page. In particular,
-  // cmux.com/coderouter must not be rewritten to /<locale>/coderouter, because
-  // the page deliberately lives outside the localized cmux site tree.
-  if (isCoderouterLandingPath(pathname)) {
-    return NextResponse.next();
-  }
+  const coderouterResponse = handleCoderouterRoute(request, host, pathname);
+  if (coderouterResponse) return coderouterResponse;
 
   if (pathname === "/coderouter/auth/complete" || pathname === "/coderouter/auth/complete/") {
     const requestHeaders = new Headers(request.headers);
