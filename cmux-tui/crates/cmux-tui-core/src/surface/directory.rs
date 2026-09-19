@@ -67,10 +67,9 @@ impl Surface {
 
 impl PtyTerminalRuntime {
     /// Called in the serialized parser stream; publication happens after releasing VT locks.
-    pub(super) fn record_directory(&self, value: Option<String>, complete: bool) {
-        if value.is_none() && !complete {
-            return;
-        }
+    /// `None` is a real report too: the VT keeps its pwd across output until the
+    /// shell clears it, so a change to `None` must reach the graph like any other.
+    pub(super) fn record_directory(&self, value: Option<String>) {
         let mut previous = self.pwd.lock().unwrap();
         if *previous != value {
             *previous = value;

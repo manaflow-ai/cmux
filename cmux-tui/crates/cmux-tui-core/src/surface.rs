@@ -2544,7 +2544,7 @@ impl Surface {
                                     mux.emit_terminal_title(surface.id, title.into());
                                 }
                             }
-                            pty.record_directory(term.pwd(), false);
+                            pty.record_directory(term.pwd());
                             if before != after {
                                 scroll_changed = Some(after);
                                 broadcast_render_scroll_locked(pty, after);
@@ -3133,7 +3133,7 @@ impl Surface {
                                         *pty.title.lock().unwrap() = title.clone();
                                         title_update = Some(title);
                                     }
-                                    pty.record_directory(term.pwd(), false);
+                                    pty.record_directory(term.pwd());
                                     if before != after {
                                         scroll_changed = Some(after);
                                         broadcast_render_scroll_locked(pty, after);
@@ -3270,7 +3270,7 @@ impl Surface {
                                     *geometry = next_geometry;
                                     pty.journal_geometry(next_geometry);
                                     *pty.title.lock().unwrap() = title.clone();
-                                    pty.record_directory(pwd, true);
+                                    pty.record_directory(pwd);
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
                                     applied_color_overrides = colors;
                                     applied_color_revision = term.color_revision();
@@ -3571,7 +3571,7 @@ impl Surface {
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
-                            pty.record_directory(pwd, true);
+                            pty.record_directory(pwd);
                             *pty.kitty_graphics_limits.lock().unwrap() =
                                 replacement_snapshot.kitty_state.limits;
                             applied_color_overrides = replacement_snapshot.colors;
