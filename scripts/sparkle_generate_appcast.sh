@@ -51,7 +51,7 @@ elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
 else
   echo "Cloning Sparkle ${SPARKLE_VERSION}..."
   git clone --depth 1 --branch "$SPARKLE_VERSION" https://github.com/sparkle-project/Sparkle "$work_dir/Sparkle"
-  
+
   echo "Building Sparkle generate_appcast tool..."
   xcodebuild \
     -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
@@ -60,7 +60,7 @@ else
     -derivedDataPath "$work_dir/build" \
     CODE_SIGNING_ALLOWED=NO \
     build >/dev/null
-  
+
   echo "Building Sparkle sign_update tool..."
   xcodebuild \
     -project "$work_dir/Sparkle/Sparkle.xcodeproj" \
@@ -69,7 +69,7 @@ else
     -derivedDataPath "$work_dir/build" \
     CODE_SIGNING_ALLOWED=NO \
     build >/dev/null
-  
+
   generate_appcast="$work_dir/build/Build/Products/Release/generate_appcast"
   sign_update="$work_dir/build/Build/Products/Release/sign_update"
 fi

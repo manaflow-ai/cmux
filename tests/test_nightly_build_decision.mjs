@@ -66,3 +66,20 @@ test("explicit force, branch dogfood and measurement always build", async () => 
     }
   }
 });
+
+// Preserve the RC channel added on main when integrating the input filter.
+test("RC builds and publishes even when only web inputs changed", async () => {
+  const { outputs, comparisons } = await decide({ branch: "rc/0.99.0", files: [{ filename: "web/app/page.tsx" }] });
+  assert.equal(outputs.should_build, "true");
+  assert.equal(outputs.should_publish, "true");
+  assert.equal(outputs.channel, "rc");
+  assert.equal(comparisons, 0);
+});
+
+test("fast and measurement RC builds never publish", async () => {
+  for (const env of [{ FAST_BUILD: "true" }, { BUILD_ONLY: "true" }]) {
+    const { outputs } = await decide({ branch: "rc/0.99.0", env });
+    assert.equal(outputs.should_build, "true");
+    assert.equal(outputs.should_publish, "false");
+  }
+});
