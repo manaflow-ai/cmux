@@ -57,7 +57,7 @@ permissions:
 
 env:
   CREATE_DMG_VERSION: 8.0.0
-  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/Packages/macOS/CMUXProjectModel/.swiftpm/configuration/mirrors.json
+  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
 
 jobs:
   decide:

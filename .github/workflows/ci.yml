@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 env:
-  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/Packages/macOS/CMUXProjectModel/.swiftpm/configuration/mirrors.json
+  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

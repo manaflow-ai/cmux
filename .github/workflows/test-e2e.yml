@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
     env:
       TEST_REF: ${{ inputs.ref || github.ref }}
-      SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/Packages/macOS/CMUXProjectModel/.swiftpm/configuration/mirrors.json
+      SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
     steps:
       - name: Validate Depot runner identity

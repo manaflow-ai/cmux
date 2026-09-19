@@ -17,10 +17,6 @@ ios/Config/AppStoreConnect.local.plist
 
 # Swift Package Manager
 .swiftpm/
-# Keep the PathKit mirror with CMUXProjectModel; SwiftPM reads this local config.
-!Packages/macOS/CMUXProjectModel/.swiftpm/
-!Packages/macOS/CMUXProjectModel/.swiftpm/configuration/
-!Packages/macOS/CMUXProjectModel/.swiftpm/configuration/mirrors.json
 .ci-source-packages/
 .ci-reload-derived-data/
 
