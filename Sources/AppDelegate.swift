@@ -1084,20 +1084,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didSetupMultiWindowNotificationsUITest = false
     private var didSetupDisplayResolutionUITestDiagnostics = false
     private var displayResolutionUITestObservers: [NSObjectProtocol] = []
-    private var didSetupFeedSidebarUITest = false
-    private var didStartFeedSidebarUITestPush = false
-    private var feedSidebarUITestObservers: [NSObjectProtocol] = []
+    private lazy var feedSidebarUITestCoordinator = FeedSidebarUITestCoordinator(
+        environment: ProcessInfo.processInfo.environment,
+        notificationCenter: .default,
+        windowContextOwner: self,
+        reveal: { [weak self] in
+            guard let self else { return nil }
+            let result = self.debugRevealRightSidebarInActiveMainWindow(
+                mode: .dock,
+                focusFirstItem: false,
+                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return .init(
+                revealed: result.revealed,
+                visible: result.visible,
+                contextFound: result.contextFound,
+                stateFound: result.stateFound,
+                activeMode: result.activeMode
+            )
+        },
+        isPending: { requestId in
+            FeedCoordinator.shared.store?.items.contains { item in
+                guard item.status.isPending else { return false }
+                if case .permissionRequest(let itemRequestId, _, _, _) = item.payload {
+                    return itemRequestId == requestId
+                }
+                return false
+            } ?? false
+        },
+        pushClient: FeedSidebarUITestPushClient(handleSocketLine: {
+            TerminalController.shared.handleSocketLine($0)
+        }),
+        recordDiagnostics: { [weak self] stage in
+            self?.uiTestDiagnosticsWriter.write(stage: stage)
+        }
+    )
     private var didSetupPortalStatsUITestDiagnostics = false
     private var portalStatsUITestObservers: [NSObjectProtocol] = []
-    private struct UITestRenderDiagnosticsSnapshot {
-        let panelId: UUID
-        let drawCount: Int
-        let presentCount: Int
-        let lastPresentTime: Double
-        let windowVisible: Bool
-        let appIsActive: Bool
-        let desiredFocus: Bool
-        let isFirstResponder: Bool
+    private lazy var uiTestSocketSanityCoordinator = UITestSocketSanityCoordinator(
+        dependencies: .init(
+            configuration: { [weak self] in self?.socketListenerConfigurationIfEnabled() },
+            activeSocketPath: { path in
+                TerminalController.shared.activeSocketPath(preferredPath: path)
+            },
+            health: { path in
+                TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+            },
+            probe: { [weak self] command, path, timeout in
+                self?.socketTransport.probeCommand(command, at: path, timeout: timeout)
+            },
+            restart: { [weak self] source in
+                self?.restartSocketListenerIfEnabled(source: source)
+            },
+            recordStage: { [weak self] stage in
+                self?.recordUITestSocketSanityStage(stage)
+            }
+        )
+    )
+    private lazy var uiTestDiagnosticsWriter = UITestDiagnosticsWriter(
+        isRunningUnderXCTest: { [weak self] environment in
+            self?.isRunningUnderXCTest(environment) ?? false
+        },
+        socketDiagnostics: { [weak self] environment in
+            self?.uiTestSocketSanityDiagnostics(environment: environment) ?? [:]
+        },
+        renderDiagnostics: { [weak self] in
+            self?.currentUITestRenderDiagnosticsForWriter()
+        }
+    )
+
+    private func uiTestSocketSanityDiagnostics(environment: [String: String]) -> [String: String] {
+        uiTestSocketSanityCoordinator.diagnostics(environment: environment)
+    }
+
+    private func recordUITestSocketSanityStage(_ stage: String) {
+        uiTestDiagnosticsWriter.write(stage: stage)
     }
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
     /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
@@ -1591,7 +1652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
 #if DEBUG
-            setupFeedSidebarUITestIfNeeded()
+            feedSidebarUITestCoordinator.startIfNeeded()
 #endif
         }
 
@@ -1631,11 +1692,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
 #if DEBUG
-        writeUITestDiagnosticsIfNeeded(stage: "didFinishLaunching")
+        uiTestDiagnosticsWriter.write(stage: "didFinishLaunching")
         CmuxMainRunLoopStallMonitor.shared.installIfNeeded()
         CmuxMainThreadTurnProfiler.shared.installIfNeeded()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.writeUITestDiagnosticsIfNeeded(stage: "after1s")
+            self?.uiTestDiagnosticsWriter.write(stage: "after1s")
         }
 #endif
 
@@ -1837,7 +1898,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for window in self.mainWindowsForVisibilityController() {
                     window.orderFrontRegardless()
                 }
-                self.writeUITestDiagnosticsIfNeeded(stage: "afterForceWindow")
+                self.uiTestDiagnosticsWriter.write(stage: "afterForceWindow")
             }
             if env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_OPEN_BLANK_BROWSER"] == "1" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
@@ -1863,162 +1924,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
-    private func writeUITestDiagnosticsIfNeeded(stage: String) {
-        let env = ProcessInfo.processInfo.environment
-        guard let path = env["CMUX_UI_TEST_DIAGNOSTICS_PATH"], !path.isEmpty else { return }
-
-        var payload = loadUITestDiagnostics(at: path)
-        let isRunningUnderXCTest = isRunningUnderXCTest(env)
-
-        let windows = NSApp.windows
-        let ids = windows.map { $0.identifier?.rawValue ?? "" }.joined(separator: ",")
-        let vis = windows.map { $0.isVisible ? "1" : "0" }.joined(separator: ",")
-        let screenIDs = windows.map { $0.screen?.cmuxDisplayID.map(String.init) ?? "" }.joined(separator: ",")
-        let targetDisplayID = env["CMUX_UI_TEST_TARGET_DISPLAY_ID"] ?? ""
-
-        payload["stage"] = stage
-        payload["pid"] = String(ProcessInfo.processInfo.processIdentifier)
-        payload["bundleId"] = Bundle.main.bundleIdentifier ?? ""
-        payload["isRunningUnderXCTest"] = isRunningUnderXCTest ? "1" : "0"
-        payload["windowsCount"] = String(windows.count)
-        payload["windowIdentifiers"] = ids
-        payload["windowVisibleFlags"] = vis
-        payload["windowScreenDisplayIDs"] = screenIDs
-        payload["uiTestTargetDisplayID"] = targetDisplayID
-        if let rawDisplayID = UInt32(targetDisplayID) {
-            let screenPresent = NSScreen.screens.contains(where: { $0.cmuxDisplayID == rawDisplayID })
-            let movedWindow = windows.contains(where: { $0.screen?.cmuxDisplayID == rawDisplayID })
-            payload["targetDisplayPresent"] = screenPresent ? "1" : "0"
-            payload["targetDisplayMoveSucceeded"] = movedWindow ? "1" : "0"
-        }
-        appendUITestRenderDiagnosticsIfNeeded(&payload, environment: env)
-        appendUITestSocketDiagnosticsIfNeeded(&payload, environment: env)
-        appendUITestPortalDiagnosticsIfNeeded(&payload, environment: env)
-
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
-
-    private func loadUITestDiagnostics(at path: String) -> [String: String] {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return [:]
-        }
-        return object
-    }
-
-    private func appendUITestSocketDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
-
-        guard let config = socketListenerConfigurationIfEnabled() else {
-            payload["socketExpectedPath"] = env["CMUX_SOCKET_PATH"] ?? ""
-            payload["socketMode"] = "off"
-            payload["socketReady"] = "0"
-            payload["socketPingResponse"] = ""
-            payload["socketIsRunning"] = "0"
-            payload["socketAcceptLoopAlive"] = "0"
-            payload["socketPathMatches"] = "0"
-            payload["socketPathExists"] = "0"
-            payload["socketPathOwnedByListener"] = "0"
-            payload["socketFailureSignals"] = "socket_disabled"
-            return
-        }
-
-        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: config.preferredSocketPath)
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: socketPath)
-        let pingResponse = health.isHealthy
-            ? socketTransport.probeCommand("ping", at: socketPath, timeout: 1.0)
-            : nil
-        let isReady = health.isHealthy && pingResponse == "PONG"
-        var failureSignals = health.failureSignals
-        if health.isHealthy && pingResponse != "PONG" {
-            failureSignals.append("ping_timeout")
-        }
-
-        payload["socketExpectedPath"] = socketPath
-        payload["socketMode"] = config.accessMode.rawValue
-        payload["socketReady"] = isReady ? "1" : "0"
-        payload["socketPingResponse"] = pingResponse ?? ""
-        payload["socketIsRunning"] = health.isRunning ? "1" : "0"
-        payload["socketAcceptLoopAlive"] = health.acceptLoopAlive ? "1" : "0"
-        payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
-        payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
-        payload["socketPathOwnedByListener"] = health.socketPathOwnedByListener ? "1" : "0"
-        payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
-    }
-
-    private func appendUITestPortalDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_PORTAL_STATS"] == "1" else { return }
-
-        let stats = TerminalWindowPortalRegistry.debugPortalStats()
-        payload["portal_count"] = Self.uiTestStringValue(stats["portal_count"])
-        payload["portal_hosted_mapping_count"] = Self.uiTestStringValue(stats["hosted_mapping_count"])
-        payload["portal_guarded_bind_blocked_count"] = Self.uiTestStringValue(stats["guarded_bind_blocked_count"])
-        if let totals = stats["totals"] as? [String: Any] {
-            for (key, value) in totals {
-                payload["portal_\(key)"] = Self.uiTestStringValue(value)
-            }
-        }
-    }
-
-    private static func uiTestStringValue(_ value: Any?) -> String {
-        switch value {
-        case let value as String:
-            return value
-        case let value as Bool:
-            return value ? "1" : "0"
-        case let value as Int:
-            return String(value)
-        case let value as NSNumber:
-            return value.stringValue
-        case let value as UUID:
-            return value.uuidString
-        case .some(let value):
-            return String(describing: value)
-        case .none:
-            return ""
-        }
-    }
-
-    private func appendUITestRenderDiagnosticsIfNeeded(
-        _ payload: inout [String: String],
-        environment env: [String: String]
-    ) {
-        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
-
-        guard let renderState = currentUITestRenderDiagnostics() else {
-            payload["renderStatsAvailable"] = "0"
-            payload["renderPanelId"] = ""
-            payload["renderDrawCount"] = ""
-            payload["renderPresentCount"] = ""
-            payload["renderLastPresentTime"] = ""
-            payload["renderWindowVisible"] = ""
-            payload["renderAppIsActive"] = ""
-            payload["renderDesiredFocus"] = ""
-            payload["renderIsFirstResponder"] = ""
-            payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
-            return
-        }
-
-        payload["renderStatsAvailable"] = "1"
-        payload["renderPanelId"] = renderState.panelId.uuidString
-        payload["renderDrawCount"] = String(renderState.drawCount)
-        payload["renderPresentCount"] = String(renderState.presentCount)
-        payload["renderLastPresentTime"] = String(format: "%.6f", renderState.lastPresentTime)
-        payload["renderWindowVisible"] = renderState.windowVisible ? "1" : "0"
-        payload["renderAppIsActive"] = renderState.appIsActive ? "1" : "0"
-        payload["renderDesiredFocus"] = renderState.desiredFocus ? "1" : "0"
-        payload["renderIsFirstResponder"] = renderState.isFirstResponder ? "1" : "0"
-        payload["renderDiagnosticsUpdatedAt"] = String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
-    }
-
-    private func currentUITestRenderDiagnostics() -> UITestRenderDiagnosticsSnapshot? {
+    private func currentUITestRenderDiagnosticsForWriter() -> UITestDiagnosticsWriter.RenderDiagnostics? {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else {
@@ -2034,7 +1940,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let terminalPanel else { return nil }
         let stats = terminalPanel.hostedView.debugRenderStats()
-        return UITestRenderDiagnosticsSnapshot(
+        return UITestDiagnosticsWriter.RenderDiagnostics(
             panelId: terminalPanel.id,
             drawCount: stats.drawCount,
             presentCount: stats.presentCount,
@@ -2059,7 +1965,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
                 }
             }
-            self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayMissing")
+            self.uiTestDiagnosticsWriter.write(stage: "targetDisplayMissing")
             return
         }
 
@@ -2069,7 +1975,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
                 }
             }
-            self.writeUITestDiagnosticsIfNeeded(stage: "targetDisplayNoWindow")
+            self.uiTestDiagnosticsWriter.write(stage: "targetDisplayNoWindow")
             return
         }
 
@@ -2092,7 +1998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return
         }
-        self.writeUITestDiagnosticsIfNeeded(stage: "afterMoveToTargetDisplay")
+        self.uiTestDiagnosticsWriter.write(stage: "afterMoveToTargetDisplay")
     }
 #endif
 
@@ -2665,7 +2571,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let env = ProcessInfo.processInfo.environment
         if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
-            scheduleUITestSocketSanityCheckIfNeeded()
+            uiTestSocketSanityCoordinator.scheduleIfNeeded(environment: env)
         }
         // Best-effort one-time migration: a value previously stored in the
         // legacy ~/.config/cmux/dev-window-display file moves into the shared
@@ -3552,38 +3458,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func scheduleUITestSocketSanityCheckIfNeeded() {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-            guard let self else { return }
-            guard let config = self.socketListenerConfigurationIfEnabled() else {
-                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityDisabled")
-                return
-            }
-
-            let expectedPath = TerminalController.shared.activeSocketPath(
-                preferredPath: config.preferredSocketPath
-            )
-            let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedPath)
-            let pingResponse = health.isHealthy
-                ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
-                : nil
-            let isReady = health.isHealthy && pingResponse == "PONG"
-            if isReady {
-                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityReady")
-                return
-            }
-
-            self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityRestart")
-            self.restartSocketListenerIfEnabled(source: "uiTest.socketSanity")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-                self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
-            }
-        }
-    }
-
     private func setupDisplayResolutionUITestDiagnosticsIfNeeded() {
         let env = ProcessInfo.processInfo.environment
         guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
@@ -3595,7 +3469,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self else { return }
             let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
-                    self?.writeUITestDiagnosticsIfNeeded(stage: stage)
+                    self?.uiTestDiagnosticsWriter.write(stage: stage)
                 }
             }
             self.displayResolutionUITestObservers.append(observer)
@@ -3608,7 +3482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         observe(.terminalSurfaceDidBecomeReady, "displayUITest.terminalSurfaceDidBecomeReady")
         observe(.terminalPortalVisibilityDidChange, "displayUITest.terminalPortalVisibilityDidChange")
 
-        writeUITestDiagnosticsIfNeeded(stage: "displayUITest.setup")
+        uiTestDiagnosticsWriter.write(stage: "displayUITest.setup")
     }
 
     private func setupPortalStatsUITestDiagnosticsIfNeeded() {
@@ -3622,185 +3496,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
+            self?.uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
         }
         portalStatsUITestObservers.append(observer)
-        writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.portalStats.setup")
+        uiTestDiagnosticsWriter.write(stage: "feedSidebarUITest.portalStats.setup")
     }
 
-    private func setupFeedSidebarUITestIfNeeded() {
-        let env = ProcessInfo.processInfo.environment
-        guard !didSetupFeedSidebarUITest else { return }
-        guard let path = env["CMUX_UI_TEST_FEED_SIDEBAR_RESULT_PATH"], !path.isEmpty else { return }
-        didSetupFeedSidebarUITest = true
 
-        setupFeedSidebarUITestReveal(resultPath: path)
-        writeFeedSidebarUITestData(["stage": "revealOnly"], at: path)
-    }
-
-    private func setupFeedSidebarUITestReveal(resultPath: String) {
-        var observer: NSObjectProtocol?
-        let attemptReveal: () -> Void = { [weak self] in
-            guard let self else { return }
-            let result = self.debugRevealRightSidebarInActiveMainWindow(
-                mode: .dock,
-                focusFirstItem: false,
-                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-            )
-            self.writeFeedSidebarUITestData([
-                "reveal": result.revealed ? "1" : "0",
-                "revealVisible": result.visible ? "1" : "0",
-                "revealContextFound": result.contextFound ? "1" : "0",
-                "revealStateFound": result.stateFound ? "1" : "0",
-                "revealActiveMode": result.activeMode ?? "",
-            ], at: resultPath)
-            self.writeUITestDiagnosticsIfNeeded(
-                stage: result.revealed ? "feedSidebarUITest.reveal.ok" : "feedSidebarUITest.reveal.pending"
-            )
-            if result.revealed {
-                self.startFeedSidebarUITestPushIfNeeded(resultPath: resultPath)
-                if let observer {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-            }
-        }
-
-        observer = NotificationCenter.default.addObserver(
-            forName: .mainWindowContextsDidChange,
-            object: self,
-            queue: .main
-        ) { _ in
-            attemptReveal()
-        }
-        if let observer {
-            feedSidebarUITestObservers.append(observer)
-        }
-        DispatchQueue.main.async(execute: attemptReveal)
-    }
-
-    private func startFeedSidebarUITestPushIfNeeded(resultPath: String) {
-        let env = ProcessInfo.processInfo.environment
-        guard !didStartFeedSidebarUITestPush else { return }
-        guard let requestId = env["CMUX_UI_TEST_FEED_SIDEBAR_REQUEST_ID"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !requestId.isEmpty else {
-            return
-        }
-        didStartFeedSidebarUITestPush = true
-
-        writeFeedSidebarUITestData([
-            "pushStarted": "1",
-            "pushRequestId": requestId,
-        ], at: resultPath)
-        observeFeedSidebarUITestPending(requestId: requestId, resultPath: resultPath)
-
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            var updates = Self.feedSidebarUITestPushUpdates(response: Self.runFeedSidebarUITestPush(requestId: requestId))
-            if updates["pushResultStatus"] == "resolved" { updates["shortcutResponse"] = TerminalController.shared.handleSocketLine("simulate_shortcut ctrl+3") }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.writeFeedSidebarUITestData(updates, at: resultPath)
-                self.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.push.finished")
-            }
-        }
-    }
-
-    private func observeFeedSidebarUITestPending(
-        requestId: String,
-        resultPath: String,
-        remainingAttempts: Int = 75
-    ) {
-        let pending = FeedCoordinator.shared.snapshot(pendingOnly: false).contains { item in
-            guard item.status.isPending else { return false }
-            if case .permissionRequest(let itemRequestId, _, _, _) = item.payload {
-                return itemRequestId == requestId
-            }
-            return false
-        }
-        if pending {
-            writeFeedSidebarUITestData([
-                "pushPendingObserved": "1",
-            ], at: resultPath)
-            return
-        }
-        guard remainingAttempts > 0 else {
-            writeFeedSidebarUITestData([
-                "pushPendingObserved": "0",
-            ], at: resultPath)
-            return
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            self?.observeFeedSidebarUITestPending(
-                requestId: requestId,
-                resultPath: resultPath,
-                remainingAttempts: remainingAttempts - 1
-            )
-        }
-    }
-
-    private static func runFeedSidebarUITestPush(requestId: String) -> String {
-        let params: [String: Any] = [
-            "event": [
-                "session_id": "uitest-\(requestId)",
-                "hook_event_name": "PermissionRequest",
-                "_source": "claude",
-                "tool_name": "Write",
-                "tool_input": ["file_path": "/tmp/feeduitest"],
-                "_opencode_request_id": requestId,
-            ],
-            "wait_timeout_seconds": 120,
-        ]
-        let frame: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "feed.push",
-            "params": params,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"message\":\"failed to encode feed.push frame\"}}"
-        }
-        return TerminalController.shared.handleSocketLine(line)
-    }
-
-    private static func feedSidebarUITestPushUpdates(response: String) -> [String: String] {
-        var updates: [String: String] = ["pushResponse": response]
-        guard let data = response.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            updates["pushError"] = "invalid response: \(response)"
-            return updates
-        }
-        guard object["ok"] as? Bool == true else {
-            let error = object["error"] as? [String: Any]
-            updates["pushError"] = (error?["message"] as? String) ?? "feed.push returned ok=false"
-            return updates
-        }
-        guard let result = object["result"] as? [String: Any],
-              let status = result["status"] as? String else {
-            updates["pushError"] = "feed.push response missing result.status"
-            return updates
-        }
-        updates["pushResultStatus"] = status
-        if let decision = result["decision"] as? [String: Any],
-           let mode = decision["mode"] as? String {
-            updates["pushResultMode"] = mode
-        }
-        return updates
-    }
-
-    private func writeFeedSidebarUITestData(_ updates: [String: String], at path: String) {
-        var payload: [String: String] = {
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-                return [:]
-            }
-            return object
-        }()
-        for (key, value) in updates {
-            payload[key] = value
-        }
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
 #endif
 
     private func captureSessionLaunchStateIfNeeded(
