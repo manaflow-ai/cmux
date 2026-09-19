@@ -1114,6 +1114,27 @@ def test_demo_schedule_still_waits_for_an_earlier_upload() -> None:
     }
 
 
+def test_demo_schedule_retries_ordering_api_errors() -> None:
+    for failed_api in ("runs", "jobs"):
+        result = run_decision_scenario(
+            event_name="schedule",
+            schedule=IOS_SCHEDULES[1],
+            prior_sha="base-sha",
+            prior_artifact="ios-testflight-build-metadata-demo",
+            head_sha="head-sha",
+            changed_files=("ios/cmux/App.swift",),
+            blocking_prior_run=True,
+            ordering_api_failure=failed_api,
+        )
+
+        assert result["waitCalls"] == [60_000]
+        assert result["outputs"] == {
+            "should_build": "true",
+            "last_uploaded_sha": "base-sha",
+            "variant": "demo",
+        }
+
+
 def test_mapping_keys_normalizes_quoted_yaml_keys() -> None:
     triggers = "  push:\n  'schedule':\n  \"workflow_dispatch\":\n"
 
@@ -1234,6 +1255,7 @@ if __name__ == "__main__":
     test_internal_poll_skips_instead_of_queueing_behind_an_upload()
     test_internal_poll_skips_when_ordering_cannot_be_checked()
     test_demo_schedule_still_waits_for_an_earlier_upload()
+    test_demo_schedule_retries_ordering_api_errors()
     test_mapping_keys_normalizes_quoted_yaml_keys()
     test_testflight_notes_use_the_same_ios_path_contract()
     test_scheduled_and_manual_runs_use_independent_concurrency_groups()
