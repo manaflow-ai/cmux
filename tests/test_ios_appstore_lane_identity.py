@@ -499,6 +499,7 @@ import sys
 
 args = sys.argv[1:]
 if args[:1] == ["x509"] and "-outform" in args:
+    sys.stdin.buffer.read()
     sys.stdout.buffer.write(b"fixture certificate")
 elif args[:1] == ["dgst"] and "-sha256" in args:
     print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())
