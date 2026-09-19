@@ -1,15 +1,3 @@
-/// How the host's scroller participates in layout, without AppKit.
-///
-/// AppKit's legacy scroller style reserves a gutter beside the content, so a
-/// present scroller narrows the terminal grid; its overlay style floats over
-/// the content and reserves nothing.
-public enum TerminalScrollerStyle: Sendable, Equatable {
-    /// A present scroller occupies a gutter beside the content.
-    case legacy
-    /// A present scroller floats over the content.
-    case overlay
-}
-
 /// Decides whether a terminal pane's vertical scroller is present.
 ///
 /// Presence is a layout input, not only a visual: with the legacy scroller

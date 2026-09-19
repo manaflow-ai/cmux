@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d1904d26efcb80e90893f6e3d5092225fd15df14afb79c7188734de6d583824c";
+pub const ir_sha256 = "7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3017,6 +3017,26 @@ pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabRe
     );
 }
 
+pub const MoveTabToWorkspaceRequest = struct {
+    surface: Id,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const MoveTabToWorkspaceResult = EmptyResult;
+
+pub fn moveTabToWorkspace(client: anytype, request: MoveTabToWorkspaceRequest) !wire.Decoded(MoveTabToWorkspaceResult) {
+    return client.callTyped(
+        MoveTabToWorkspaceResult,
+        .{
+            .name = "move-tab-to-workspace",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-workspace-move-v1",
+        },
+        request,
+    );
+}
+
 pub const MoveTerminalRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
@@ -5284,7 +5304,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 111;
+pub const command_count: usize = 112;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5335,6 +5355,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "move-tab-to-workspace", .authority = "control", .since = 12, .capability = "tab-workspace-move-v1", .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },

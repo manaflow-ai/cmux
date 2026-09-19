@@ -151,6 +151,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let dogfoodFeedbackCapability = "dogfood.v1"
     static let workspaceGroupsCapability = "workspace.groups.v1"
     static let notificationFeedCapability = "notification.feed.v1"
+    static let phonePushKeyExchangeCapability = "phone_push.keys.exchange.v1"
     static let phonePushSettingsCapability = "phone_push.settings.v1"
     static let phonePushTestCapability = "phone_push.test.v1"
     static let caffeineControlCapability = "caffeine.control.v1"
@@ -557,6 +558,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// means no attached Mac has proved same-account ownership and exposed the
     /// independent Mac privacy gate.
     public internal(set) var phonePushMacStatus: MobileHostPhonePushStatus?
+    /// True after the authenticated E2E push-key exchange exhausts its bounded
+    /// retries. Push delivery remains unavailable until the exchange succeeds.
+    public internal(set) var phonePushKeyExchangeFailed = false
     /// The connected Mac's current cmux-owned keep-awake state. `nil` means
     /// the state has not been read or the current Mac is unavailable.
     public internal(set) var caffeineStatus: MobileCaffeineStatus?
@@ -584,6 +588,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether the authenticated Mac can enqueue a correlated test alert.
     public var supportsPhonePushTest: Bool {
         supportedHostCapabilities.contains(Self.phonePushTestCapability)
+    }
+
+    /// Starts the secure push-key exchange again on the current authenticated
+    /// Mac connection. The failure flag stays visible until the exchange
+    /// succeeds, so Settings never reports readiness optimistically.
+    @discardableResult
+    public func retryPhonePushKeyExchange() -> Bool {
+        guard let client = remoteClient,
+              let status = phonePushKeyExchangeStatus else {
+            return false
+        }
+        exchangePhonePushKeyIfConfigured(client: client, status: status)
+        return true
     }
 
     /// Whether the authenticated Mac supports the Keep Mac Awake RPC.
@@ -1091,6 +1108,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device tree simply keeps its registry "last seen" hints.
     private let presence: (any PresenceSubscribing)?
     let identityProvider: (any MobileIdentityProviding)?
+    let phonePushKeyExchangeHooks: MobilePhonePushKeyExchangeHooks?
     let teamIDProvider: @Sendable () async -> String?
     let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
@@ -1178,6 +1196,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// short capability probe; see ``scheduleHostIdentityAdoptionIfNeeded(client:)``.
     /// Cancelled on disconnect via ``cancelRemoteOperationTasks()``.
     private var hostIdentityAdoptionTask: Task<Void, Never>?
+    /// Retries the authenticated phone-push key exchange while the RPC client
+    /// remains connected after a transient failure.
+    var phonePushKeyExchangeRetryTask: Task<Void, Never>?
+    /// The latest primary-Mac status used to retry the push-key exchange from
+    /// Settings without creating a second connection.
+    @ObservationIgnored var phonePushKeyExchangeStatus: MobileHostStatusResponse?
     /// Tail of the serialized paired-Mac store write chain; see
     /// ``performSerializedPairedMacWrite(ifStillCurrent:_:)``.
     private var pairedMacWriteChain: Task<Void, Never>?
@@ -1810,6 +1834,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
+        phonePushKeyExchangeHooks: MobilePhonePushKeyExchangeHooks? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         reachability: any ReachabilityProviding = ReachabilityService(),
         routePinger: any CmxRoutePinging = CmxNetworkRoutePinger(),
@@ -1872,6 +1897,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.personalIrohForget = personalIrohForget
         self.presence = presence
         self.identityProvider = identityProvider
+        self.phonePushKeyExchangeHooks = phonePushKeyExchangeHooks
         self.teamIDProvider = teamIDProvider
         self.reachability = reachability
         self.routePinger = routePinger
@@ -2026,6 +2052,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryOwner.cancel()
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
+        phonePushKeyExchangeRetryTask?.cancel()
         directoryObservationTask?.cancel()
         directoryObservationTask = nil
         presenceTask?.cancel()
@@ -5464,6 +5491,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await disconnectSecondaryClientAndDrain(client)
             return .permanentFailure
         }
+        await exchangePhonePushKeyIfConfigured(client: client, status: status)
         let capabilities = Set(status.capabilities)
         if !capabilities.contains("events.v1") {
             mobileShellLog.info(
@@ -10674,6 +10702,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         )
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
+                    exchangePhonePushKeyIfConfigured(client: client, status: status)
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
                             client: client,
@@ -11416,6 +11445,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func cancelRemoteOperationTasks() {
         hostIdentityAdoptionTask?.cancel()
         hostIdentityAdoptionTask = nil
+        phonePushKeyExchangeRetryTask?.cancel()
+        phonePushKeyExchangeRetryTask = nil
+        phonePushKeyExchangeFailed = false
+        phonePushKeyExchangeStatus = nil
         terminalSubscriptionRefreshTask?.cancel()
         terminalSubscriptionRefreshTask = nil
         notificationReconcileTask?.cancel()
@@ -14963,6 +14996,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             replayBarrierToken: replayBarrierTokenForRequest
         )
         let diagnosticStartedAt = appDiagnosticNow()
+        let terminalTraceID = DiagnosticTerminalTraceID()
+        recordTerminalTrace(
+            operation: .replay,
+            phase: .started,
+            traceID: terminalTraceID,
+            surfaceID: surfaceID
+        )
         recordAppEvent(
             .terminalReplayStarted,
             correlationID: surfaceID
@@ -15008,11 +15048,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         ? MobileTerminalScrollbackPreference.resolve()
                         : 0
                 }
+                params["trace_id"] = terminalTraceID.stringValue
                 let request = try MobileCoreRPCClient.requestData(
                     method: "mobile.terminal.replay",
                     params: params
                 )
-                replayResult = .success(try await client.sendRequest(request))
+                self?.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .requestSent,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt
+                )
+                let response = try await client.sendRequest(request)
+                self?.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .responseReceived,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: response.count
+                )
+                replayResult = .success(response)
             } catch {
                 replayResult = .failure(error)
             }
@@ -15035,11 +15092,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // suspension point, so every staleness guard below already
                 // observes post-decode state.
                 let decoded = await Self.decodeTerminalReplayResponseOffMain(data)
+                self.recordTerminalTrace(
+                    operation: .replay,
+                    phase: .decoded,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: data.count
+                )
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request surface=\(surfaceID)")
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     return
                 }
                 guard self.remoteClient === client else {
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
                         requestID: replayRequestID
@@ -15069,6 +15148,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 if let replayBarrierTokenForRequest {
                     guard self.terminalReplayBarrierTokensBySurfaceID[surfaceID] == replayBarrierTokenForRequest else {
                         MobileDebugLog.anchormux("CMUX_REPLAY barrier_stale surface=\(surfaceID)")
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
                         return
                     }
                 }
@@ -15121,6 +15207,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
                 if let renderGrid {
                     guard !self.shouldDropRenderGridBehindPendingInput(renderGrid, source: "replay") else {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt,
+                            detail: renderGrid.rowSpans.count
+                        )
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
                             replayBarrierToken: replayBarrierTokenForRequest,
@@ -15136,6 +15230,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         bypassReplayBarrier: replayBarrierTokenForRequest != nil
                     )
                     guard accepted else {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt,
+                            detail: renderGrid.rowSpans.count
+                        )
                         transferredInFlightToRetry = self.recoverAfterDroppedReplayFrame(
                             surfaceID: surfaceID,
                             replayBarrierToken: replayBarrierTokenForRequest,
@@ -15170,6 +15272,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         startedAt: diagnosticStartedAt,
                         count: renderGrid.rowSpans.count
                     )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .applied,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt,
+                        detail: renderGrid.rowSpans.count
+                    )
                     return
                 }
                 guard let deliverBytes, !deliverBytes.isEmpty else {
@@ -15178,6 +15288,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         replayBarrierToken: replayBarrierTokenForRequest
                        ) {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
                         self.clearTerminalReplayInFlightIfCurrent(
                             surfaceID: surfaceID,
                             requestID: replayRequestID
@@ -15199,6 +15316,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest,
                         reason: "empty"
+                    )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
                     )
                     return
                 }
@@ -15246,9 +15370,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     failure: accepted ? nil : .protocolViolation,
                     count: accepted ? deliverBytes.count : nil
                 )
+                self.recordTerminalTrace(
+                    operation: .replay,
+                    phase: accepted ? .applied : .failed,
+                    traceID: terminalTraceID,
+                    surfaceID: surfaceID,
+                    startedAt: diagnosticStartedAt,
+                    detail: accepted ? deliverBytes.count : nil
+                )
             case .failure(let error):
                 guard self.terminalReplayRequestIDsInFlightBySurfaceID[surfaceID] == replayRequestID else {
                     MobileDebugLog.anchormux("CMUX_REPLAY stale_request_failed surface=\(surfaceID)")
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .discarded,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     return
                 }
                 // A viewport transition is the host's expected readiness
@@ -15266,8 +15405,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         startedAt: diagnosticStartedAt,
                         failure: DiagnosticFailureKind.classify(error)
                     )
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                 }
                 guard self.remoteClient === client else {
+                    if self.isTerminalReplayViewportTransition(error) {
+                        self.recordTerminalTrace(
+                            operation: .replay,
+                            phase: .discarded,
+                            traceID: terminalTraceID,
+                            surfaceID: surfaceID,
+                            startedAt: diagnosticStartedAt
+                        )
+                    }
                     self.clearTerminalReplayInFlightIfCurrent(
                         surfaceID: surfaceID,
                         requestID: replayRequestID
@@ -15300,6 +15455,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // full grid. The next live grid is the synchronization
                     // signal; a dropped grid will request the replay through
                     // the normal barrier path once this task has settled.
+                    self.recordTerminalTrace(
+                        operation: .replay,
+                        phase: .failed,
+                        traceID: terminalTraceID,
+                        surfaceID: surfaceID,
+                        startedAt: diagnosticStartedAt
+                    )
                     _ = self.armTerminalReplayBarrierForViewportTransition(
                         surfaceID: surfaceID,
                         token: replayBarrierTokenForRequest

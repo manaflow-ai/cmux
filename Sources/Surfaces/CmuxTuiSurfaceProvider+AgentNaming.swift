@@ -12,7 +12,7 @@ extension CmuxTuiSurfaceProvider: SurfaceAgentNaming {
               let cursor = state.cursor, let tabID = context.projection.remoteTabID else {
             throw CancellationError()
         }
-        let connected = try await links.connected(machineID: machineID)
+        _ = try await links.connected(machineID: machineID)
         guard isCurrentLifecycleGeneration(lifecycle), isRegisteredInCatalog(),
               let link = await links.link(machineID: machineID) else { throw CancellationError() }
         try Task.checkCancellation()
