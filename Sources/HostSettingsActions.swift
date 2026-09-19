@@ -301,7 +301,8 @@ final class HostSettingsActions: SettingsHostActions {
         _ = try await runLocalTmuxCLI(arguments: arguments)
     }
 
-    static func decodeLocalTmuxSessions(_ data: Data) throws -> [LocalTmuxSessionSummary] {
+    /// Decodes the CLI session-list payload without requiring the main actor.
+    nonisolated static func decodeLocalTmuxSessions(_ data: Data) throws -> [LocalTmuxSessionSummary] {
         let response: LocalTmuxSessionListResponse
         do {
             response = try JSONDecoder().decode(LocalTmuxSessionListResponse.self, from: data)
@@ -343,7 +344,8 @@ final class HostSettingsActions: SettingsHostActions {
         }
     }
 
-    private static func invalidLocalTmuxSessionListError() -> LocalTmuxSettingsCLIError {
+    /// Returns the stable product-level error used for malformed CLI output.
+    nonisolated private static func invalidLocalTmuxSessionListError() -> LocalTmuxSettingsCLIError {
         LocalTmuxSettingsCLIError(
             message: String(
                 localized: "settings.terminal.localTmux.invalidResponse",
@@ -371,7 +373,14 @@ final class HostSettingsActions: SettingsHostActions {
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = stdout
             process.standardError = stderr
-            try process.run()
+
+            let (terminationEvents, terminationContinuation) = AsyncStream<Int32>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            process.terminationHandler = { process in
+                terminationContinuation.yield(process.terminationStatus)
+                terminationContinuation.finish()
+            }
 
             let outputTask = Task.detached(priority: .userInitiated) {
                 stdout.fileHandleForReading.readDataToEndOfFile()
@@ -379,19 +388,45 @@ final class HostSettingsActions: SettingsHostActions {
             let errorTask = Task.detached(priority: .userInitiated) {
                 stderr.fileHandleForReading.readDataToEndOfFile()
             }
-            process.waitUntilExit()
+
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                terminationContinuation.finish()
+                try? stdout.fileHandleForWriting.close()
+                try? stderr.fileHandleForWriting.close()
+                _ = await outputTask.value
+                _ = await errorTask.value
+                hostSettingsLogger.error(
+                    "Failed to launch bundled local-tmux CLI: \(String(describing: error), privacy: .private)"
+                )
+                throw LocalTmuxSettingsCLIError(
+                    message: String(
+                        localized: "settings.terminal.localTmux.commandFailed",
+                        defaultValue: "cmux local-tmux could not complete the requested action."
+                    )
+                )
+            }
+
+            var terminationIterator = terminationEvents.makeAsyncIterator()
+            let terminationStatus = await terminationIterator.next() ?? process.terminationStatus
             let output = await outputTask.value
             let errorData = await errorTask.value
 
-            guard process.terminationStatus == 0 else {
-                let message = String(data: errorData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                let fallback = String(
-                    localized: "settings.terminal.localTmux.commandFailed",
-                    defaultValue: "cmux local-tmux could not complete the requested action."
-                )
+            guard terminationStatus == 0 else {
+                if let diagnostics = String(data: errorData, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !diagnostics.isEmpty {
+                    hostSettingsLogger.error(
+                        "Bundled local-tmux CLI failed: \(diagnostics, privacy: .private)"
+                    )
+                }
                 throw LocalTmuxSettingsCLIError(
-                    message: message.flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+                    message: String(
+                        localized: "settings.terminal.localTmux.commandFailed",
+                        defaultValue: "cmux local-tmux could not complete the requested action."
+                    )
                 )
             }
             return output
