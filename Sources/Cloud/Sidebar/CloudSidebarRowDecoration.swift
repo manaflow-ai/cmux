@@ -9,7 +9,10 @@ struct CloudSidebarRowDecoration: ViewModifier {
     let hasUnreadNotification: Bool
 
     func body(content: Content) -> some View {
-        HStack(spacing: 4) {
+        // Keep the pin in the same compact leading cluster as the row icon.
+        // Four points made the unread badge spill past the narrow sidebar's
+        // identity column; two points matches the tree's shared gaps.
+        HStack(spacing: 2) {
             if isPinned {
                 Image(systemName: "pin.fill")
                     .cmuxFont(size: 9, weight: .semibold)
