@@ -110,12 +110,12 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func storeClearManualUnread(workspaceId: UUID) -> Bool {
         log.append("storeClearManualUnread")
-        return manualWorkspaceUnread.contains(workspaceId)
+        return manualWorkspaceUnread.remove(workspaceId) != nil
     }
 
     func storeClearManualUnread(workspaceId: UUID, surfaceId: UUID) -> Bool {
         log.append("storeClearManualUnread:\(short(surfaceId))")
-        return manualSurfaceUnread.contains(surfaceId)
+        return manualSurfaceUnread.remove(surfaceId) != nil
     }
 
     func storeClearRestoredUnreadIndicator(workspaceId: UUID) -> Bool {
@@ -129,6 +129,7 @@ private final class FakeHost: NotificationDismissalHosting {
 
     func workspaceClearManualUnread(workspaceId: UUID, panelId: UUID) {
         log.append("panelClearManualUnread")
+        manualPanelUnread.remove(panelId)
     }
 
     func workspaceClearRestoredUnreadIndicator(workspaceId: UUID, panelId: UUID) {

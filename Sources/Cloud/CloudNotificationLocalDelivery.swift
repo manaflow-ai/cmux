@@ -30,6 +30,15 @@ struct CloudNotificationLocalDelivery {
 
     func deliver(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> CloudNotificationDeliveryOutcome {
         guard let store = store() else { return .declined }
+        // Workspace mute is an admission decision of the person's own: the
+        // row is read here rather than left as a dot no local dismissal can
+        // reach. Decided before the gate so a muted row costs no budget.
+        let admissionWorkspaceID = store.notificationMuteAdmissionTabID(
+            claimedTabId: target.workspaceID,
+            surfaceId: target.panelID,
+            retargetsToLiveSurfaceOwner: target.panelID != nil
+        )
+        guard !store.isWorkspaceNotificationsMuted(forTabId: admissionWorkspaceID) else { return .suppressed }
         switch admit(row) {
         case .allowed:
             break
@@ -70,9 +79,9 @@ struct CloudNotificationLocalDelivery {
             correlationKey: CloudNotificationCorrelation.key(machineID: machineID, notificationID: row.id),
             origin: .cloudVM(machineID: machineID)
         ) != nil
-        // The store declines for a muted workspace: an admission decision
-        // of its own, so the row is read here too rather than left as a dot
-        // that no local dismissal can reach.
-        return recorded ? .delivered : .suppressed
+        // Any other decline is transient (the pane's live owner vanished
+        // between placement and delivery): the next fold re-resolves it. A
+        // second attempt meets the gate's duplicate-id rule and is read.
+        return recorded ? .delivered : .declined
     }
 }

@@ -55,8 +55,10 @@ struct CloudNotificationPlacementResolver {
     /// tree dot is its indicator, instead of stacking onto whichever local
     /// workspace happens to be bound to the machine (a workspace row then
     /// badges the whole machine's notifications, manaflow-ai/cmux#13000).
-    /// Only a machine-level row, one no remote workspace's tab shows, lands
-    /// on any local workspace bound to the machine.
+    /// Only a machine-level row (no terminal) lands on any local workspace
+    /// bound to the machine. A terminal the accepted graph places in no
+    /// workspace fails closed the same way: an unknown placement is not a
+    /// machine-level one.
     func target(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
         let bound = boundWorkspaces()
         guard let terminalID = row.terminalID else {
@@ -66,9 +68,7 @@ struct CloudNotificationPlacementResolver {
         if let projection = projections(resource).first {
             return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
         }
-        guard let remoteWorkspaceID = remoteWorkspaceID(terminalID) else {
-            return bound.first.map { CloudNotificationDeliveryTarget(workspaceID: $0.workspaceID, panelID: nil) }
-        }
+        guard let remoteWorkspaceID = remoteWorkspaceID(terminalID) else { return nil }
         return bound.first { $0.remoteWorkspaceID == remoteWorkspaceID }
             .map { CloudNotificationDeliveryTarget(workspaceID: $0.workspaceID, panelID: nil) }
     }

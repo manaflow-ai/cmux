@@ -775,6 +775,7 @@
 		4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */; };
 		7829E36E90E948BB82360052 /* CloudNightlyOverrideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCD9CDECAE2049469F5CAB46 /* CloudNightlyOverrideTests.swift */; };
 		16D0D1DB9FE54DB29743A98A /* CloudNotificationCorrelation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */; };
+		E0AB5F18239F64CBC2B24AEA /* CloudNotificationDismissParityHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD78BAE063E70755F45861C9 /* CloudNotificationDismissParityHarness.swift */; };
 		4EFC91B414CF5D9FEA440819 /* CloudNotificationDismissParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8894FC01353CA3B8C9326F /* CloudNotificationDismissParityTests.swift */; };
 		06A7D527A380A87E00C122EE /* CloudNotificationLocalDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */; };
 		ED7A8BCBA7C0A396EAC81DAB /* CloudNotificationPlacement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D5BAD7EE4528BF8811C31A6 /* CloudNotificationPlacement.swift */; };
@@ -4744,6 +4745,7 @@
 		5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNativeLayoutProjectionTests.swift"; sourceTree = "<group>"; };
 		DCD9CDECAE2049469F5CAB46 /* CloudNightlyOverrideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNightlyOverrideTests.swift; sourceTree = "<group>"; };
 		503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationCorrelation.swift; sourceTree = "<group>"; };
+		CD78BAE063E70755F45861C9 /* CloudNotificationDismissParityHarness.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationDismissParityHarness.swift; sourceTree = "<group>"; };
 		CB8894FC01353CA3B8C9326F /* CloudNotificationDismissParityTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationDismissParityTests.swift; sourceTree = "<group>"; };
 		D792B1E5CE28BAFC121F6781 /* CloudNotificationLocalDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNotificationLocalDelivery.swift; sourceTree = "<group>"; };
 		6D5BAD7EE4528BF8811C31A6 /* CloudNotificationPlacement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNotificationPlacement.swift; sourceTree = "<group>"; };
@@ -11285,6 +11287,7 @@
 				EF70B0862D206C62CA5ACF65 /* CloudManualMirrorSocketFixture.swift */,
 				64CB7AF7545F56E95A91B154 /* CloudNotificationSyncTests.swift */,
 				CB8894FC01353CA3B8C9326F /* CloudNotificationDismissParityTests.swift */,
+				CD78BAE063E70755F45861C9 /* CloudNotificationDismissParityHarness.swift */,
 				A12481000000000000000002 /* CloudSidebarScaleTests.swift */,
 				A12481700000000000000002 /* SidebarDerivedStateScaleTests.swift */,
 				A12481600000000000000002 /* CloudNotificationSyncStoreTests.swift */,
@@ -15392,6 +15395,7 @@
 				BC9AC2D1065E4E88A48074BC /* CloudNameAuthorityTests.swift in Sources */,
 				4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */,
 				7829E36E90E948BB82360052 /* CloudNightlyOverrideTests.swift in Sources */,
+				E0AB5F18239F64CBC2B24AEA /* CloudNotificationDismissParityHarness.swift in Sources */,
 				4EFC91B414CF5D9FEA440819 /* CloudNotificationDismissParityTests.swift in Sources */,
 				A12481600000000000000001 /* CloudNotificationSyncStoreTests.swift in Sources */,
 				B71758C265B0439845140478 /* CloudNotificationSyncTests.swift in Sources */,
