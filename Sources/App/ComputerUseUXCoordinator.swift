@@ -72,18 +72,25 @@ final class ComputerUseUXCoordinator {
     }
 
     static func isComputerUseToolInvocation(_ event: WorkstreamEvent) -> Bool {
+        computerUseToolName(event) != nil
+    }
+
+    private static func computerUseToolName(_ event: WorkstreamEvent) -> String? {
         guard event.hookEventName == .preToolUse,
               let toolName = event.toolName?.lowercased()
         else {
-            return false
+            return nil
         }
         // Accept the canonical MCP server spelling and the separator variants
         // emitted by different MCP clients. There is one cmux-cua contract;
         // legacy driver/server names are intentionally not recognized.
-        return toolName.hasPrefix("mcp__cmux-cua__")
-            || toolName.hasPrefix("mcp__cmux_cua__")
-            || toolName.hasPrefix("cmux-cua.")
-            || toolName.hasPrefix("cmux_cua.")
+        for prefix in ["mcp__cmux-cua__", "mcp__cmux_cua__", "cmux-cua.", "cmux_cua."] {
+            if toolName.hasPrefix(prefix) {
+                let name = String(toolName.dropFirst(prefix.count))
+                return name.isEmpty ? nil : name
+            }
+        }
+        return nil
     }
 
     func install(
@@ -255,9 +262,8 @@ final class ComputerUseUXCoordinator {
         watchTarget.start()
         watchTargetController = watchTarget
 
-        // Starting or restoring a supported agent stays quiet. Workstream
-        // events are used only for live-session/cursor bookkeeping; they never
-        // present permission onboarding.
+        // Starting or restoring an agent stays quiet. Only its first functional
+        // Computer Use invocation can request setup through the shared coordinator.
     }
 
     func teardown() {
@@ -281,8 +287,8 @@ final class ComputerUseUXCoordinator {
         runtimeService.stopForTermination()
     }
 
-    /// Presents onboarding only for a deliberate Settings permission/setup
-    /// action. No workstream event is allowed to call this entrypoint.
+    /// Explicit Settings actions can resume setup or select another permission
+    /// step after automatic first-use presentation has been dismissed.
     @discardableResult
     func presentOnboardingFromSettings(
         startingAt startingPoint: ComputerUseOnboardingWindowController.StartingPoint = .overview
@@ -361,6 +367,13 @@ final class ComputerUseUXCoordinator {
                 )
             }
             watchTargetController?.driverSessionDidStart(driverSessionID)
+            if featureEnabled(), runtimeService.desiredEnabled,
+               runtimeService.acceptsNewLaunches,
+               Self.computerUseToolName(event) != "check_permissions" {
+                ensureOnboardingCoordinator().requestFromToolInvocation(
+                    onboarding: runtimeService.onboarding
+                )
+            }
         case .stop, .sessionEnd:
             activityLifecycle.recordCompletion(
                 driverSessionID: driverSessionID,

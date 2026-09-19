@@ -83,10 +83,12 @@ the main cmux app:
 - **Accessibility** — inspect and drive app UI (`AXIsProcessTrusted`).
 - **Screen Recording** — screenshots / vision (`CGPreflightScreenCaptureAccess`).
 
-Onboarding is opened only by a deliberate user action in Settings → Computer
-Use (the **Grant…** or **Open System Settings** permission controls), not by a
-tool call, skill load, prompt text, MCP discovery, cmux startup, or agent
-resume. Settings → Computer Use always shows the two authoritative
+When the user has asked for Computer Use, the first functional tool call from
+a current cmux agent session opens setup automatically if setup is required.
+Opening setup does not grant access: the user still completes each permission
+step. Skill loading, prompt text, MCP discovery, `check_permissions`, cmux
+startup, and agent resume never open setup. Settings → Computer Use also opens
+setup through **Finish Setup…**, **Grant…**, or **Open System Settings** and shows the two authoritative
 permission states; choosing **Grant…** for an ungranted permission opens that
 same permission step and its draggable helper-app recovery path. Each **Allow**
 action opens the matching permanent System Settings pane in one step and stays
@@ -104,18 +106,19 @@ suppressing the probe; without that consent, agent screenshots on Tahoe fail.
 The consent follows the helper's code signature, so every rebuilt (ad-hoc
 signed) dev helper can require the direct-capture step again: cmux invalidates
 its cached direct-capture-ready flag whenever it replaces the installed helper
-build. This remains quiet until the user deliberately re-enters Settings;
-helper replacement never presents onboarding on its own.
+build. Helper replacement stays quiet until the next functional Computer Use
+request or a deliberate Settings action.
 Do not invoke `check_permissions {prompt:true}` or any standalone helper while
 this flow is active: that creates the stray native permission dialogs this
 onboarding deliberately avoids. The main cmux process never calls a TCC API or
 executes the cmux-cua binary.
 
-If an already-attached proxy is unconfigured, its protected call remains quiet
-and returns the helper's setup-required response after its bounded readiness
-wait: **“Computer Use onboarding is still in progress. Finish setup in cmux,
-then retry.”** Re-enter Settings deliberately to start setup; do not try to
-grant consent by calling a setup/status tool.
+An unconfigured proxy waits for setup before forwarding its protected call.
+If setup is not finished before the bounded wait ends, it returns **“Computer
+Use onboarding is still in progress. Finish setup in cmux, then retry.”**
+Retries do not repeatedly reopen a dismissed setup window. Resume a dismissed
+flow with **Finish Setup…** in Settings, then retry the requested tool. Never
+attempt to grant consent by calling a setup/status tool.
 
 A TCC prompt naming **Codex Computer Use** (`com.openai.sky.CUAService`) is
 not from cmux. The `codex` CLI ships its own computer-use helper; when codex

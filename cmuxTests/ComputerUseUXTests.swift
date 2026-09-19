@@ -256,15 +256,15 @@ struct ComputerUseUXTests {
         #expect(phase == .onboardingRequired)
     }
 
-    @Test @MainActor func workstreamComputerUseHooksNeverPresentOnboarding() throws {
+    @Test @MainActor func unownedWorkstreamEventsNeverPresentOnboarding() throws {
         let invocation = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .preToolUse,
             source: "claude",
             toolName: "mcp__cmux-cua__start_session"
         )
-        // The hook is still recognized for live-session/cursor bookkeeping,
-        // but that recognition is deliberately not an onboarding request.
+        // A recognized tool name alone does not establish a current live agent
+        // session. These unowned events must not request onboarding.
         #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(invocation))
 
         // The same namespaced event remains recognized for live-session
@@ -413,7 +413,7 @@ struct ComputerUseUXTests {
         }
         #expect(
             presentations.isEmpty,
-            "agent activity, prompt text, skill discovery, and status probes stay quiet"
+            "unowned activity, prompt text, skill discovery, and status probes stay quiet"
         )
 
         #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .screenRecording))
@@ -429,7 +429,7 @@ struct ComputerUseUXTests {
         }
         #expect(
             presentations == [.screenRecording, .accessibility],
-            "dismissal and tool retries must not resurface onboarding"
+            "unowned tool retries must not resurface onboarding"
         )
         #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility))
         #expect(presentations == [.screenRecording, .accessibility, .accessibility])

@@ -1,8 +1,7 @@
-/// Serializes the one trusted entrypoint for the Computer Use permission UI.
+/// Serializes Settings and first-use requests for the Computer Use permission UI.
 ///
-/// Workstream events are intentionally not an entrypoint. No agent-selected
-/// tool, skill event, prompt, or helper status can call the presenter. Settings
-/// calls the explicit `requestFromSettings` method instead.
+/// The runtime owns setup progress and tool admission. Presenting a window never
+/// grants access; the user still completes the existing permission/capture flow.
 @MainActor
 final class ComputerUseOnboardingCoordinator {
     typealias StartingPoint = ComputerUseOnboardingWindowController.StartingPoint
@@ -16,10 +15,21 @@ final class ComputerUseOnboardingCoordinator {
 
     /// Handles the deliberate Settings permission/setup action. Every request
     /// reaches the existing presenter so a newly selected permission step is
-    /// honored even while onboarding is visible; agent events never call this.
+    /// honored even while onboarding is visible.
     @discardableResult
     func requestFromSettings(startingAt startingPoint: StartingPoint) -> Bool {
         presenter(startingPoint)
+        return true
+    }
+
+    /// Called only after the host matches a functional tool to a current live
+    /// agent session. Claim presentation synchronously so retries and dismissal
+    /// cannot repeatedly raise the window; Settings can always resume the flow.
+    @discardableResult
+    func requestFromToolInvocation(onboarding: ComputerUseOnboardingStore) -> Bool {
+        guard onboarding.phase == .onboardingRequired else { return false }
+        onboarding.apply(.onboardingPresented)
+        presenter(.overview)
         return true
     }
 }
