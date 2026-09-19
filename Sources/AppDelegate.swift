@@ -10644,7 +10644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.openPreferencesWindow(debugSource: "menuBarExtra")
             },
             onQuitApp: {
-                NSApp.terminate(nil)
+                AppDelegate.requestApplicationTermination()
             }
         )
     }

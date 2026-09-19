@@ -123,7 +123,14 @@ extension AppDelegate {
     static func requestApplicationTermination(
         terminate: @escaping @MainActor () -> Void = { NSApp.terminate(nil) }
     ) {
-        terminate()
+        // Hand the terminate back to the main queue so this call returns first.
+        // The caller's block then unwinds, which is what lets the
+        // `.terminateLater` cleanup continuation start.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                terminate()
+            }
+        }
     }
 
     static func pendingTerminateReply(
