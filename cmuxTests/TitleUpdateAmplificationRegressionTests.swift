@@ -159,6 +159,24 @@ struct TitleUpdateAmplificationRegressionTests {
     }
 
     @Test
+    func explicitWorkspaceCreationTitleKeepsItsExistingTabSemantics() throws {
+        let authoredTitle = "Authored workspace name\n" + String(repeating: "x", count: 300)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.addWorkspaceIfActive(
+            title: authoredTitle,
+            titleSource: .user,
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        ))
+        let panelId = try #require(workspace.focusedPanelId)
+        let surfaceId = try #require(workspace.surfaceIdFromPanelId(panelId))
+
+        #expect(workspace.customTitle == authoredTitle)
+        #expect(workspace.bonsplitController.tab(surfaceId)?.title == authoredTitle)
+    }
+
+    @Test
     func titleBurstUsesTheSafetyCoalescingWindowByDefault() async throws {
         let suiteName = "TitleUpdateAmplification.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))

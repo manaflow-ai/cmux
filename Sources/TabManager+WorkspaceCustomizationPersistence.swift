@@ -47,6 +47,13 @@ extension TabManager {
         guard let explicitTitle else { return }
         workspace.setCustomTitle(explicitTitle, source: explicitTitleSource)
         recordWorkspaceCustomTitle(workspace, source: explicitTitleSource)
+        if let panelId = workspace.focusedPanelId,
+           let surfaceId = workspace.surfaceIdFromPanelId(panelId) {
+            // Workspace construction admits automatic titles before this
+            // explicit custom-title path runs. Keep the initial Bonsplit tab
+            // faithful to an authored creation name.
+            workspace.bonsplitController.updateTab(surfaceId, title: explicitTitle)
+        }
     }
 
     /// Applies stable-ID recovery data after the snapshot has restored its own identity.
