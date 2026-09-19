@@ -1,6 +1,6 @@
 "use client";
 
-import { useStackApp, useUser } from "@stackframe/stack";
+import { useStackApp, useUser } from "@hexclave/next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
