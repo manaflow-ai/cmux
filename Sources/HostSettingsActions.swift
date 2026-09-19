@@ -346,22 +346,12 @@ final class HostSettingsActions: SettingsHostActions {
 
     /// Returns the stable product-level error used for malformed CLI output.
     nonisolated private static func invalidLocalTmuxSessionListError() -> LocalTmuxSettingsCLIError {
-        LocalTmuxSettingsCLIError(
-            message: String(
-                localized: "settings.terminal.localTmux.invalidResponse",
-                defaultValue: "cmux local-tmux returned an invalid session list."
-            )
-        )
+        LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.invalidResponse)
     }
 
     private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {
         guard let cliURL = CLIForwardingLaunchRouter.bundledCLIURL() else {
-            throw LocalTmuxSettingsCLIError(
-                message: String(
-                    localized: "settings.terminal.localTmux.cliMissing",
-                    defaultValue: "The bundled cmux command-line tool could not be found."
-                )
-            )
+            throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.cliMissing)
         }
 
         return try await Task.detached(priority: .userInitiated) {
@@ -401,12 +391,7 @@ final class HostSettingsActions: SettingsHostActions {
                 hostSettingsLogger.error(
                     "Failed to launch bundled local-tmux CLI: \(String(describing: error), privacy: .private)"
                 )
-                throw LocalTmuxSettingsCLIError(
-                    message: String(
-                        localized: "settings.terminal.localTmux.commandFailed",
-                        defaultValue: "cmux local-tmux could not complete the requested action."
-                    )
-                )
+                throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.commandFailed)
             }
 
             var terminationIterator = terminationEvents.makeAsyncIterator()
@@ -422,12 +407,7 @@ final class HostSettingsActions: SettingsHostActions {
                         "Bundled local-tmux CLI failed: \(diagnostics, privacy: .private)"
                     )
                 }
-                throw LocalTmuxSettingsCLIError(
-                    message: String(
-                        localized: "settings.terminal.localTmux.commandFailed",
-                        defaultValue: "cmux local-tmux could not complete the requested action."
-                    )
-                )
+                throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.commandFailed)
             }
             return output
         }.value
