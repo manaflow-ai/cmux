@@ -98,6 +98,8 @@ from pathlib import Path
 TEAM_ID = {TEAM_ID!r}
 APPSTORE_BUNDLE_ID = {APPSTORE_BUNDLE_ID!r}
 APPSTORE_APP_ID = {APPSTORE_APP_ID!r}
+APPSTORE_EXTENSION_BUNDLE_ID = {APPSTORE_EXTENSION_BUNDLE_ID!r}
+APPSTORE_EXTENSION_PROFILE_NAME = {APPSTORE_EXTENSION_PROFILE_NAME!r}
 BETA_BUNDLE_ID = {BETA_BUNDLE_ID!r}
 BETA_APP_ID = {BETA_APP_ID!r}
 IDENTITY = {IDENTITY!r}
@@ -454,6 +456,7 @@ sys.exit(0)
         fakebin / "security",
         f"""#!/usr/bin/env python3
 import copy
+import datetime
 import plistlib
 import sys
 from pathlib import Path
@@ -462,6 +465,15 @@ LEGACY_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
 LEGACY_PROFILE["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
 LEGACY_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.com.cmuxterm.app"
 LEGACY_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.com.cmuxterm.app"]
+# The notification extension's App Store profile (#12935). The installer's
+# extension validator also requires an unexpired ExpirationDate.
+EXTENSION_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
+EXTENSION_PROFILE["Name"] = APPSTORE_EXTENSION_PROFILE_NAME
+EXTENSION_PROFILE["UUID"] = "00000000-0000-0000-0000-000000000002"
+EXTENSION_PROFILE["ExpirationDate"] = datetime.datetime(2099, 1, 1, tzinfo=datetime.timezone.utc)
+EXTENSION_PROFILE["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
+EXTENSION_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.{{APPSTORE_EXTENSION_BUNDLE_ID}}"
+EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.{{APPSTORE_EXTENSION_BUNDLE_ID}}"]
 
 args = sys.argv[1:]
 if args[:3] == ["find-identity", "-v", "-p"]:
@@ -475,6 +487,8 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
             body = source.read_bytes()
             if b"legacy profile" in body:
                 profile = LEGACY_PROFILE
+            elif b"extension profile" in body:
+                profile = EXTENSION_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
     sys.stdout.buffer.write(plist_bytes(profile))
@@ -1210,6 +1224,7 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
     env["GITHUB_ENV"] = str(tmp / "github-env")
     Path(env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
     env["IOS_APPSTORE_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"fake profile").decode()
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     result = _run(
         ["bash", str(ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh")],
         env=env,
@@ -1221,6 +1236,10 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
         "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=cmux App Store Distribution Test" in github_env,
         "profile installer exports the resolved App Store profile name",
     )
+    _check(
+        f"IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME={APPSTORE_EXTENSION_PROFILE_NAME}" in github_env,
+        "profile installer exports the notification extension profile name",
+    )
 
 
 def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path) -> None:
@@ -1231,6 +1250,7 @@ def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path
     Path(env["RUNNER_TEMP"]).mkdir(parents=True, exist_ok=True)
     env["IOS_APPSTORE_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"legacy profile").decode()
     env["IOS_PROD_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"fake profile").decode()
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     result = _run(
         ["bash", str(ROOT / ".github" / "scripts" / "install-app-store-provisioning-profile.sh")],
         env=env,
