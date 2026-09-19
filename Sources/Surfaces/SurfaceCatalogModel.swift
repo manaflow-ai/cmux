@@ -96,6 +96,8 @@ enum SurfaceLifecycle: String, Codable, Sendable {
 struct SurfaceAgentBadge: Hashable, Codable, Sendable {
     var state: String
     var source: String?
+    /// The adapter identity, separate from report provenance (`hook`, `socket`, or `plugin`).
+    var agent: String? = nil
 }
 
 /// The daemon's monotonic position for one complete remote session state.
@@ -289,6 +291,7 @@ struct CloudVMAgentState: Hashable, Codable, Sendable {
     var terminalID: String
     var state: String
     var source: String?
+    var agent: String? = nil
 }
 
 /// How a remote session can be synchronized.

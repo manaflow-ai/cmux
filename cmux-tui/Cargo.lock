@@ -854,6 +854,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tungstenite",
+ "toml",
  "uds_windows",
  "url",
  "wait-timeout",
