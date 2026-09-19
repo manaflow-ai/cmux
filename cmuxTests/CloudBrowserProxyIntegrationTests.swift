@@ -86,7 +86,7 @@ struct CloudBrowserProxyIntegrationTests {
               ContinuousClock.now < websocketDeadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        if server.bridgeRequests.isEmpty { Issue.record("Cloud WebSocket bridge did not receive an upgrade; first bytes: \(server.firstBytes), targets: \(server.authorizedTargets)") }
+        #expect(!server.bridgeRequests.isEmpty, "The Cloud WebSocket bridge must receive the page upgrade")
         let websocketState = try await panel.webView.evaluateJavaScript("JSON.stringify({state:window.cloudWebSocketState,error:window.cloudWebSocketError || null})") as? String
         #expect(websocketState == "{\"state\":\"open\",\"error\":null}", "WebSocket traffic must use the same Cloud browser route: \(websocketState ?? "missing")")
         await model.retire()
@@ -408,8 +408,6 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
     var authorizedTargets: [String] { lock.withLock { capturedTargets } }
     private var capturedBridgeRequests: [String] = []
     var bridgeRequests: [String] { lock.withLock { capturedBridgeRequests } }
-    private var capturedFirstBytes: [UInt8] = []
-    var firstBytes: [UInt8] { lock.withLock { capturedFirstBytes } }
     var endpoint: CloudBrowserProxyEndpoint {
         CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
@@ -476,7 +474,6 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
         do {
             try await connection.startAndWaitUntilReady(queue: queue)
             let first = try await connection.receiveExactly(1)
-            lock.withLock { capturedFirstBytes.append(first[0]) }
             var buffered = Data(first)
             if first[0] == UInt8(ascii: "G") {
                 let bridge = try await readRequest(connection, buffered: &buffered)
