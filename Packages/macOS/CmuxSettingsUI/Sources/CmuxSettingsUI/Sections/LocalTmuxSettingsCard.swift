@@ -103,9 +103,7 @@ struct LocalTmuxSettingsCard: View {
                 ) {
                     if session.isLive {
                         Button(
-                            session.clientCount > 0
-                                ? String(localized: "settings.terminal.localTmux.focusButton", defaultValue: "Focus")
-                                : String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach")
+                            String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach")
                         ) {
                             attach(session)
                         }
@@ -167,6 +165,7 @@ struct LocalTmuxSettingsCard: View {
             sessions = try await hostActions.localTmuxSessions()
             errorMessage = nil
         } catch {
+            sessions = []
             errorMessage = error.localizedDescription
         }
     }
