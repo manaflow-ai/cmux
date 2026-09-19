@@ -13,7 +13,6 @@ public struct SocketControlPolicyResolver: Sendable {
     // UserDefaults implementation and ManagedDevicePolicy probe.
     nonisolated(unsafe) private let defaults: UserDefaults
     private let environment: [String: String]
-    private let bundleIdentifier: String?
     private let managedPolicy: ManagedDevicePolicy
 
     /// Creates a resolver.
@@ -33,7 +32,6 @@ public struct SocketControlPolicyResolver: Sendable {
     ) {
         self.defaults = defaults
         self.environment = environment
-        self.bundleIdentifier = bundleIdentifier
         self.managedPolicy = managedPolicy ?? ManagedDevicePolicy(
             defaults: defaults,
             releaseDomainDefaults: ManagedDevicePolicy.defaultReleaseDomainDefaults(
@@ -77,22 +75,12 @@ public struct SocketControlPolicyResolver: Sendable {
     }
 
     private func configuredUserMode() -> SocketControlMode {
-        // A forced preference shadows ordinary UserDefaults reads. The
-        // persistent application domain is the unforced user value, so CLI
-        // compliance output can show what the user configured before MDM
-        // enforcement instead of echoing the forced mode as both fields.
-        let raw = unforcedUserValue() as? String
-            ?? defaults.string(forKey: SocketControlSettings.appStorageKey)
+        // The user key `socketControlMode` is distinct from the managed
+        // `SocketControlMode` key. Preserve the normal defaults search order;
+        // reading only the persistent domain would bypass higher-priority values.
+        let raw = defaults.string(forKey: SocketControlSettings.appStorageKey)
             ?? SocketControlSettings.defaultMode.rawValue
         return SocketControlSettings.migrateMode(raw)
-    }
-
-    private func unforcedUserValue() -> Any? {
-        guard let bundleIdentifier,
-              let domain = defaults.persistentDomain(forName: bundleIdentifier) else {
-            return nil
-        }
-        return domain[SocketControlSettings.appStorageKey]
     }
 
     private func source(_ forcedSource: ManagedDevicePolicyValueSource) -> SocketControlPolicySource {

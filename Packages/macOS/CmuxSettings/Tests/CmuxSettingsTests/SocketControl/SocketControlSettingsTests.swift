@@ -56,11 +56,11 @@ import CmuxSettings
             releaseDomainDefaults: nil,
             forcedObject: { store, key in
                 key == ManagedDevicePolicyKey.socketControlMode.rawValue
-                    ? store.object(forKey: "forced.SocketControlMode")
+                    ? store.object(forKey: key)
                     : nil
             }
         )
-        defaults.set(mode.rawValue, forKey: "forced.SocketControlMode")
+        defaults.set(mode.rawValue, forKey: ManagedDevicePolicyKey.socketControlMode.rawValue)
         let resolution = SocketControlPolicyResolver(
             defaults: defaults,
             environment: [
