@@ -10,7 +10,7 @@ import Testing
 
 @Suite("HostSettingsActions local tmux")
 struct HostSettingsActionsLocalTmuxTests {
-    @MainActor
+    /// Decodes authoritative CLI rows and preserves live-first display ordering.
     @Test func decodesAuthoritativeSessionListAndOrdersLiveFirst() throws {
         let managedID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
         let payload: [String: Any] = [
@@ -55,7 +55,7 @@ struct HostSettingsActionsLocalTmuxTests {
         #expect(sessions[2].clientCount == 0)
     }
 
-    @MainActor
+    /// Rejects malformed required lifecycle fields, identifiers, and client counts off-main.
     @Test func rejectsMalformedSessionRows() throws {
         let malformedRows: [[String: Any]] = [
             [
@@ -87,7 +87,7 @@ struct HostSettingsActionsLocalTmuxTests {
         }
     }
 
-    @MainActor
+    /// Rejects payloads that omit the authoritative session list.
     @Test func rejectsMalformedSessionListPayload() {
         let data = Data(#"{"count": 1}"#.utf8)
 
