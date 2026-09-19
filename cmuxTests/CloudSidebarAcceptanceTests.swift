@@ -1,4 +1,9 @@
 import Testing
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
 
 /// One isolated app-host invocation for the Cloud sidebar's focused acceptance
 /// checks. Reuse their behavioral fixtures and assertions; serialize the groups
