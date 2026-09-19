@@ -343,7 +343,7 @@ def setting(prefix):
 
 if "archive" in args:
     archive = Path(after("-archivePath"))
-    bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
+    bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
@@ -448,10 +448,17 @@ sys.exit(0)
         fakebin / "security",
         f"""#!/usr/bin/env python3
 import copy
+import datetime
 import plistlib
 import sys
 from pathlib import Path
 {common}
+EXTENSION_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
+EXTENSION_PROFILE["Name"] = "cmux Notification Service Distribution Test"
+EXTENSION_PROFILE["UUID"] = "00000000-0000-0000-0000-000000000002"
+EXTENSION_PROFILE["ExpirationDate"] = datetime.datetime.now() + datetime.timedelta(days=30)
+EXTENSION_PROFILE["Entitlements"]["application-identifier"] = APPSTORE_APP_ID + ".NotificationService"
+EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [APPSTORE_APP_ID + ".NotificationService"]
 LEGACY_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
 LEGACY_PROFILE["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
 LEGACY_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.com.cmuxterm.app"
@@ -467,7 +474,9 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
         source = Path(args[args.index("-i") + 1])
         if source.exists():
             body = source.read_bytes()
-            if b"legacy profile" in body:
+            if b"extension profile" in body:
+                profile = EXTENSION_PROFILE
+            elif b"legacy profile" in body:
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
@@ -530,6 +539,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Notification Service Distribution Test"
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
@@ -753,7 +763,8 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call
+        and f"CMUX_HOST_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
         "beta archive command stamps the beta bundle id",
     )
     _check(
@@ -1089,7 +1100,8 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call
+        and f"CMUX_HOST_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
         "archive command stamps com.cmux.app",
     )
     _check(
@@ -1116,6 +1128,11 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         profiles.get(APPSTORE_BUNDLE_ID) == "cmux App Store Distribution",
         "export options map the App Store profile to com.cmux.app",
+    )
+    _check(
+        profiles.get(f"{APPSTORE_BUNDLE_ID}.NotificationService")
+        == "cmux Notification Service Distribution Test",
+        "export options map the notification extension to its own profile",
     )
     _check("com.cmuxterm.app" not in profiles, "export options do not include the retired app id")
 
@@ -1176,6 +1193,10 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
 
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # These tests exercise profile identity/selection; certificate matching has
+    # no imported signing identity in this isolated fake-tool environment.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
@@ -1192,10 +1213,18 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
         "IOS_APPSTORE_PROVISIONING_PROFILE_NAME=cmux App Store Distribution Test" in github_env,
         "profile installer exports the resolved App Store profile name",
     )
+    _check(
+        "IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME=cmux Notification Service Distribution Test" in github_env,
+        "profile installer separately resolves the notification extension profile",
+    )
 
 
 def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # These tests exercise profile identity/selection; certificate matching has
+    # no imported signing identity in this isolated fake-tool environment.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")

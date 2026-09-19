@@ -832,7 +832,7 @@ final class MachinesPanelModelTests: XCTestCase {
         // A machine the catalog has not registered yet still gets its final
         // Resources section while the surface connection is connecting.
         let unregistered = CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "new")], snapshot: .empty, localWorkspaces: [])
-        XCTAssertEqual(unregistered[0].children.map(\.id), ["machine:new/placeholder", "machine:new/resources", "machine:new/resources/cpu", "machine:new/resources/memory", "machine:new/resources/disk", "machine:new/resources/usage"])
+        XCTAssertEqual(CloudTreeNodeBuilder.flattened(unregistered[0].children).map(\.id), ["machine:new/placeholder", "machine:new/resources", "machine:new/resources/cpu", "machine:new/resources/memory", "machine:new/resources/disk", "machine:new/resources/usage"])
         if case .placeholder(_, let placeholder) = unregistered[0].children[0].kind { XCTAssertEqual(placeholder.style, .connecting) } else { XCTFail() }
         // A machine only the catalog knows still gets a row.
         let catalogOnly = CloudTreeNodeBuilder.nodes(
@@ -989,7 +989,7 @@ final class MachinesPanelModelTests: XCTestCase {
         let reloaded = CloudTreeExpansionStore(defaults: defaults)
         XCTAssertFalse(reloaded.isExpanded(machineNode), "machine collapse persists")
         XCTAssertFalse(reloaded.isExpanded(localNode), "This Mac's collapse persists too")
-        XCTAssertTrue(reloaded.isExpanded(group), "nested collapses are panel-lifetime only")
+        XCTAssertFalse(reloaded.isExpanded(group), "nested collapses persist across panel reloads")
     }
 
     func testMachineSubtitleNeverShowsTheFreeAccessCountdown() {
