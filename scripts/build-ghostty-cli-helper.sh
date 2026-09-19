@@ -63,7 +63,9 @@ ghostty_cache_is_safe() {
   # A dirty or caller-owned Ghostty tree must never be substituted by a
   # revision-only cache entry. Ignored Zig build output is intentionally fine.
   run_git -C "$GHOSTTY_DIR" diff --quiet HEAD -- . || return 1
-  [[ -z "$(run_git -C "$GHOSTTY_DIR" ls-files --others --exclude-standard)" ]] || return 1
+  local untracked
+  untracked="$(run_git -C "$GHOSTTY_DIR" ls-files --others --exclude-standard)" || return 1
+  [[ -z "$untracked" ]] || return 1
   return 0
 }
 
