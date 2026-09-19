@@ -26,6 +26,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
         var replacedPID: Int?
         var missingPID: Int?
         var complete = true
+        var hasScope = true
         var mainThreadReads = 0
         var reads = 0
     }
@@ -105,7 +106,7 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
     }
 
     func scope(for pid: Int, key: CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScope? {
-        state.withLock { $0.counts.scope += 1 }
+        guard state.withLock({ $0.counts.scope += 1; return $0.hasScope }) else { return nil }
         return CmuxTopProcessSnapshot.cmuxScope(arguments: ["agent", "--session", "fixture-\(pid)"], environment: [
             "CMUX_WORKSPACE_ID": workspaces[pid % 125].uuidString,
             "CMUX_SURFACE_ID": surfaces[pid % 427].uuidString

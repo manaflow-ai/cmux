@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import AppKit
 import Foundation
 
@@ -33,40 +34,15 @@ extension TerminalController {
         }
         v2AttachTopApplicationProcess(to: &windowNodes)
 
-        let processSnapshot = await withTaskGroup(
-            of: CmuxTopProcessSnapshot.self,
-            returning: CmuxTopProcessSnapshot.self
-        ) { group in
-            group.addTask(priority: .utility) {
-                await CmuxTopProcessSnapshot.captureCached(includeProcessDetails: includeProcesses, maximumAge: 2)
-            }
-            return await group.next()!
-        }
-        try Task.checkCancellation()
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        var annotatedWindows = windowNodes
-        let totalPIDs = v2AnnotateTopWindows(
-            &annotatedWindows,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
+        let payload = await processTopPayload(
+            windows: JSONValue(foundationObject: windowNodes) ?? .array([]),
             includeProcesses: includeProcesses
         )
-        let aggregates = processAggregates(from: processSnapshot, totalPIDs: totalPIDs)
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: annotatedWindows
-        )
-
-        return [
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": NSNull(),
-            "sample": processSnapshot.samplePayload(),
-            "totals": processSnapshot.summaryPayload(for: totalPIDs),
-            "memory_diagnostic": memoryDiagnostic,
-            "program_totals": aggregates.programs,
-            "coding_agents": aggregates.codingAgents,
-            "windows": annotatedWindows
-        ]
+        try Task.checkCancellation()
+        var result = JSONValue.object(payload).foundationObject as? [String: Any] ?? [:]
+        result["active"] = focused.isEmpty ? (NSNull() as Any) : focused
+        result["caller"] = NSNull()
+        return result
     }
 
     nonisolated func processAggregates(

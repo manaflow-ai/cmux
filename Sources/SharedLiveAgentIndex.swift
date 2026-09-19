@@ -221,8 +221,7 @@ final class SharedLiveAgentIndex {
 
     init(
         indexLoader: @escaping @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
-            let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-            return SharedLiveAgentIndexLoader(processSnapshotProvider: { snapshot }).loadResultSynchronously()
+            await SharedLiveAgentIndexLoader.loadFreshResult()
         },
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),

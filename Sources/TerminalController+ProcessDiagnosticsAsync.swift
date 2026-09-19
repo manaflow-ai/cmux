@@ -21,14 +21,20 @@ extension TerminalController {
               case .array(let rawWindows)? = baseObject["windows"] else {
             return Self.v2Encoder.response(id: request.id, base)
         }
-        guard let windowsObject = JSONValue.array(rawWindows).foundationObject as? [[String: Any]] else {
-            return Self.v2Encoder.error(
-                id: request.id,
-                code: "internal_error",
-                message: "Invalid system.top payload"
-            )
-        }
+        let processPayload = await processTopPayload(
+            windows: .array(rawWindows), includeProcesses: includeProcesses
+        )
+        let payload = baseObject.merging(processPayload) { _, incoming in incoming }
+        return Self.v2Encoder.response(id: request.id, .ok(.object(payload)))
+    }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func processTopPayload(windows: JSONValue, includeProcesses: Bool) async -> [String: JSONValue] {
+        guard let windowsObject = windows.foundationObject as? [[String: Any]] else { return [:] }
         let processSnapshot = await CmuxTopProcessSnapshot.captureCached(
             includeProcessDetails: includeProcesses, maximumAge: 2
         )
@@ -49,7 +55,7 @@ extension TerminalController {
             annotatedWindows: windows
         )
 
-        var payload = baseObject
+        var payload: [String: JSONValue] = [:]
         payload["sample"] = JSONValue(
             foundationObject: processSnapshot.samplePayload()
         ) ?? .object([:])
@@ -68,10 +74,7 @@ extension TerminalController {
         payload["windows"] = JSONValue(
             foundationObject: windows
         ) ?? .array([])
-        return Self.v2Encoder.response(
-            id: request.id,
-            .ok(.object(payload))
-        )
+        return payload
     }
 
 }

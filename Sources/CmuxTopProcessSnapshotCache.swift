@@ -14,10 +14,11 @@ extension CmuxTopProcessSnapshot {
     static func capture(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,
+        includeResources: Bool = true,
         service: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> = cmuxProcessSnapshots
     ) async -> CmuxTopProcessSnapshot {
         await capture(
-            fields: CmuxTopProcessFields(details: includeProcessDetails, scope: includeCMUXScope),
+            fields: CmuxTopProcessFields(details: includeProcessDetails, scope: includeCMUXScope, resources: includeResources),
             freshness: .afterRequest, service: service
         )
     }
@@ -26,11 +27,12 @@ extension CmuxTopProcessSnapshot {
     static func captureCached(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,
+        includeResources: Bool = true,
         maximumAge: TimeInterval,
         service: ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> = cmuxProcessSnapshots
     ) async -> CmuxTopProcessSnapshot {
         await capture(
-            fields: CmuxTopProcessFields(details: includeProcessDetails, scope: includeCMUXScope),
+            fields: CmuxTopProcessFields(details: includeProcessDetails, scope: includeCMUXScope, resources: includeResources),
             freshness: .maximumAge(.seconds(max(0, maximumAge))), service: service
         )
     }
@@ -46,14 +48,15 @@ extension CmuxTopProcessSnapshot {
             // never a complete empty machine. Safety callers must fail closed.
             return CmuxTopProcessSnapshot(
                 processes: [], sampledAt: Date(), includesProcessDetails: fields.contains(.details),
-                includesCMUXScope: fields.contains(.scope), enumerationIsComplete: false,
+                includesCMUXScope: fields.contains(.scope), includesResources: fields.contains(.resources),
+                enumerationIsComplete: false,
                 captureIsAvailable: false
             )
         }
     }
 
     static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) async -> [CmuxTopProcessInfo] {
-        let snapshot = await capture(includeProcessDetails: includeProcessDetails, includeCMUXScope: includeCMUXScope)
+        let snapshot = await capture(includeProcessDetails: includeProcessDetails, includeCMUXScope: includeCMUXScope, includeResources: false)
         return Array(snapshot.processesByPID.values)
     }
 }

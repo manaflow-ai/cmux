@@ -9,14 +9,12 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            await loadOnWorker(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager,
-                maximumSnapshotAge: 5,
-                ttyDeviceBindings: ttyDeviceBindings
-            )
-        }.value
+        await loadOnWorker(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            maximumSnapshotAge: 5,
+            ttyDeviceBindings: ttyDeviceBindings
+        )
     }
 
     /// Loads current hook stores and captures an uncached process snapshot off-main.
@@ -25,13 +23,11 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default,
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            await loadFreshOnWorker(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager,
-                ttyDeviceBindings: ttyDeviceBindings
-            )
-        }.value
+        await loadFreshOnWorker(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            ttyDeviceBindings: ttyDeviceBindings
+        )
     }
 
     /// Loads fresh process state with a bounded lifecycle deadline.
@@ -133,9 +129,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
         ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         let processSnapshot = if let maximumSnapshotAge {
-            await CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
+            await CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, includeResources: false, maximumAge: maximumSnapshotAge)
         } else {
-            await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
         }
         guard processSnapshot.captureIsAvailable, !Task.isCancelled else {
             return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .empty)

@@ -1,6 +1,5 @@
 import Foundation
 import Darwin
-import os
 
 struct CmuxTopProcessScopeCacheKey: Hashable {
     let pid: Int
@@ -8,44 +7,14 @@ struct CmuxTopProcessScopeCacheKey: Hashable {
     let startMicroseconds: Int
 }
 
-private struct CmuxTopProcessScopeCacheValue {
-    // nil means "this process was probed and has no cmux scope". A negative entry
-    // is honored as a hit only until `negativeExpiresAtNanos`, so a non-cmux
-    // process is re-probed at most once per TTL window instead of on every
-    // system.top poll. Positive entries never expire (`negativeExpiresAtNanos` is
-    // ignored when `scope != nil`): a cmux scope comes from inherited environment
-    // or a stable argv and does not disappear for the process lifetime.
-    let scope: CmuxTopProcessScope?
-    let negativeExpiresAtNanos: UInt64
-}
-
-// How long a "no cmux scope" result stays cached before the process is probed
-// again. The scope is derived from argv/environment, which an `exec` can change
-// without changing the pid or process start time (the cache key), so a process
-// first sampled in its fork-before-exec window, or one that execs into a
-// `cmux hooks … monitor` later, must be re-probed eventually or it would never
-// be attributed. A newly spawned process has a new cache key and is probed
-// immediately; this TTL only bounds attribution latency for same-pid execs while
-// collapsing the steady-state re-probe storm for non-cmux processes.
-// Internal (not private) so tests can read the TTL via @testable import.
-nonisolated let cmuxTopNegativeScopeTTLNanoseconds: UInt64 = 60 * 1_000_000_000
-
 // Result of probing a single process for its cmux scope. `resolved` means the
-// probe completed (the scope may legitimately be absent) and is safe to cache.
+// probe completed (the scope may legitimately be absent) within this census.
 // `unavailable` means a transient failure (process exited mid-probe, pid reuse,
-// or a failed sysctl) and must NOT be cached so the next poll retries.
+// or a failed sysctl); later censuses retry rather than retaining an absent scope.
 enum CmuxTopProcessScopeProbeResult: Equatable {
     case resolved(CmuxTopProcessScope?)
     case unavailable
 }
-
-// CmuxTopProcessSnapshot.capture is intentionally synchronous because it backs
-// both async task-manager sampling and sync v2 system.top socket handling. Keep
-// this tiny lock isolated to dictionary reads/writes; procargs/sysctl work must
-// happen outside the critical section.
-private nonisolated let cmuxTopScopeCache = OSAllocatedUnfairLock(
-    initialState: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheValue]()
-)
 
 extension CmuxTopProcessSnapshot {
     static func scopeCacheKey(from kinfo: kinfo_proc) -> CmuxTopProcessScopeCacheKey {
@@ -63,60 +32,6 @@ extension CmuxTopProcessSnapshot {
             startSeconds: Int(bsdInfo.pbi_start_tvsec),
             startMicroseconds: Int(bsdInfo.pbi_start_tvusec)
         )
-    }
-
-    static func cachedCMUXScope(
-        for pid: Int,
-        cacheKey: CmuxTopProcessScopeCacheKey,
-        nowNanoseconds: UInt64,
-        probe: (Int, CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScopeProbeResult = CmuxTopProcessSnapshot.cmuxScopeProbe
-    ) -> CmuxTopProcessScope? {
-        if let cached = cmuxTopScopeCache.withLock({ cache in cache[cacheKey] }) {
-            if let scope = cached.scope {
-                // Positive results never expire: a discovered cmux scope is stable.
-                return scope
-            }
-            if nowNanoseconds < cached.negativeExpiresAtNanos {
-                // Negative result still within its TTL: honor the cached miss.
-                return nil
-            }
-            // Negative TTL expired: fall through and re-probe in case the process
-            // execed into a cmux-scoped command since it was last sampled.
-        }
-
-        switch probe(pid, cacheKey) {
-        case .resolved(let scope):
-            // Cache the resolved result. Positive scopes are kept indefinitely;
-            // negative scopes are kept only until the TTL elapses so a later exec
-            // is eventually attributed. The key is pruned to live pids each
-            // capture, so a recycled pid gets a fresh key.
-            //
-            // capture() runs concurrently (async task-manager sampling and sync
-            // system.top socket handling), and the probe happened outside the
-            // lock. Never let a stale negative from an older capture clobber a
-            // positive scope a newer capture already discovered for the same
-            // process: if we probed nil but a positive entry now exists, keep and
-            // return it.
-            return cmuxTopScopeCache.withLock { cache -> CmuxTopProcessScope? in
-                if scope == nil, let existing = cache[cacheKey], let existingScope = existing.scope {
-                    return existingScope
-                }
-                cache[cacheKey] = CmuxTopProcessScopeCacheValue(
-                    scope: scope,
-                    negativeExpiresAtNanos: nowNanoseconds &+ cmuxTopNegativeScopeTTLNanoseconds
-                )
-                return scope
-            }
-        case .unavailable:
-            // Transient failure: do not cache, retry on the next poll.
-            return nil
-        }
-    }
-
-    static func pruneCMUXScopeCache(activeKeys: Set<CmuxTopProcessScopeCacheKey>) {
-        cmuxTopScopeCache.withLock { cache in
-            cache = cache.filter { activeKeys.contains($0.key) }
-        }
     }
 
     // Probes a single process for its cmux scope via sysctl.

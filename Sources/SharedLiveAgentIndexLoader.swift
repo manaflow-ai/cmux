@@ -45,6 +45,16 @@ struct SharedLiveAgentIndexLoader {
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func loadFreshResult() async -> LoadResult {
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
+        return SharedLiveAgentIndexLoader(processSnapshotProvider: { snapshot }).loadResultSynchronously()
+    }
+
     func loadSynchronously() -> RestorableAgentSessionIndex {
         loadResultSynchronously().index
     }

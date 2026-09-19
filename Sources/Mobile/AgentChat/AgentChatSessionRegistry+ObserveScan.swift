@@ -201,7 +201,7 @@ extension AgentChatSessionRegistry {
         guard !Task.isCancelled else { return [] }
         let snapshot = await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
-            includeCMUXScope: true
+            includeCMUXScope: true, includeResources: false
         )
         guard !Task.isCancelled else { return [] }
         return scanObservedAgentSessions(

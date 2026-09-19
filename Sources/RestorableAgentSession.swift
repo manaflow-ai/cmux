@@ -1572,45 +1572,6 @@ struct RestorableAgentSessionIndex: Sendable {
             detectedSnapshots: [:]
         )
     }
-    static func loadIncludingProcessDetectedSnapshots(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) async -> RestorableAgentSessionIndex {
-        await Task.detached(priority: .utility) {
-            let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-            return loadIncludingProcessDetectedSnapshotsSynchronously(
-                processSnapshot: snapshot, homeDirectory: homeDirectory,
-                fileManager: fileManager
-            )
-        }.value
-    }
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(
-        processSnapshot: CmuxTopProcessSnapshot,
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) -> RestorableAgentSessionIndex {
-        guard processSnapshot.captureIsAvailable, !Task.isCancelled else { return .unavailable }
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let detectedSnapshots = processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
-        )
-        let hibernationProcessScopes = detectedSnapshots.mapValues { detected in
-            processSnapshot.agentHibernationProcessScope(
-                panelProcessIDs: detected.processIDs,
-                agentProcessIDs: detected.agentProcessIDs
-            )
-        }
-        return load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots,
-            hibernationProcessScopes: hibernationProcessScopes
-        )
-    }
     static func load(
         homeDirectory: String,
         fileManager: FileManager,

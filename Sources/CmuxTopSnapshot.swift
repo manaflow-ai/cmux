@@ -72,6 +72,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     let enumerationIsComplete: Bool
     let enumerationMissingProcessCount: Int
     private let includesProcessDetails: Bool
+    let includesResources: Bool
     private let includesCMUXScope: Bool
     let processesByPID: [Int: CmuxTopProcessInfo]
     private let childrenByParentPID: [Int: [Int]]
@@ -85,6 +86,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         sampledAt: Date,
         includesProcessDetails: Bool,
         includesCMUXScope: Bool = true,
+        includesResources: Bool = true,
         enumerationIsComplete: Bool = true,
         enumerationMissingProcessCount: Int = 0,
         captureIsAvailable: Bool = true
@@ -95,6 +97,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
+        self.includesResources = includesResources
         var processMap: [Int: CmuxTopProcessInfo] = [:]
         processMap.reserveCapacity(processes.count)
         for process in processes {
@@ -141,6 +144,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resident_memory_sources": residentMemorySourceNames,
             "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
             "process_details": includesProcessDetails,
+            "resource_details": includesResources,
             "cmux_scope": includesCMUXScope,
             "enumeration_complete": enumerationIsComplete,
             "enumeration_missing_process_count": enumerationMissingProcessCount

@@ -17,7 +17,7 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         let baseline = try await withThrowingTaskGroup(of: CmuxTopProcessCapture.self) { group in
             for _ in 0..<8 {
                 group.addTask {
-                    try baselineSampler.enrich(baselineSampler.capture(), fields: [.details, .scope])
+                    try baselineSampler.enrich(baselineSampler.capture(), fields: [.details, .scope, .resources])
                 }
             }
             var values: [CmuxTopProcessCapture] = []
@@ -72,7 +72,9 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         let value = try await Task.detached { try sampler.capture() }.value
         let counts = reader.state.withLock { $0.counts }
         #expect(counts.names == 0 && counts.paths == 0 && counts.scope == 0)
+        #expect(counts.task == 0 && counts.rusage == 0)
         #expect(!value.snapshot.hasCMUXScope)
+        #expect(!value.snapshot.includesResources)
         #expect(value.snapshot.processesByPID.values.allSatisfy { $0.path == nil })
     }
 
@@ -81,7 +83,7 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         reader.state.withLock { $0.missingPID = 123; $0.complete = false }
         let sampler = CmuxTopProcessSampler(reader: reader)
         let value = try await Task.detached {
-            try sampler.enrich(sampler.capture(), fields: [.details, .scope])
+            try sampler.enrich(sampler.capture(), fields: [.details, .scope, .resources])
         }.value
         #expect(!value.snapshot.enumerationIsComplete)
         #expect(value.snapshot.enumerationMissingProcessCount == 1)
@@ -93,7 +95,7 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         let sampler = CmuxTopProcessSampler(reader: reader)
         let base = try await Task.detached { try sampler.capture() }.value
         reader.state.withLock { $0.replacedPID = 123 }
-        let rich = try await Task.detached { try sampler.enrich(base, fields: [.details, .scope]) }.value
+        let rich = try await Task.detached { try sampler.enrich(base, fields: [.details, .scope, .resources]) }.value
         #expect(rich.snapshot.process(pid: 123) == nil)
         #expect(!rich.snapshot.enumerationIsComplete)
         #expect(rich.snapshot.enumerationMissingProcessCount == 1)
@@ -109,6 +111,24 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
         let value = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, service: service)
         #expect(value.processesByPID.count == 100)
         #expect(reader.state.withLock { $0.mainThreadReads } == 0)
+    }
+
+    @Test func freshCensusReprobesAbsentScopeAfterSamePIDExec() async {
+        let reader = SyntheticProcessSnapshotReader(count: 100)
+        reader.state.withLock { $0.hasScope = false }
+        let sampler = CmuxTopProcessSampler(reader: reader)
+        let service = ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields>(
+            capture: { try sampler.capture() }, enrich: { try sampler.enrich($0, fields: $1) }
+        )
+        let first = await CmuxTopProcessSnapshot.capture(service: service)
+        #expect(first.cmuxScopedProcesses().isEmpty)
+        let cached = await CmuxTopProcessSnapshot.captureCached(maximumAge: 5, service: service)
+        #expect(cached === first)
+        #expect(reader.state.withLock { $0.counts.scope } == 100)
+        reader.state.withLock { $0.hasScope = true }
+        let fresh = await CmuxTopProcessSnapshot.capture(service: service)
+        #expect(fresh.cmuxScopedProcesses().count == 100)
+        #expect(reader.state.withLock { $0.counts.scope } == 200)
     }
 
 }

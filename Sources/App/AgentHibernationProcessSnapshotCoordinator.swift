@@ -142,7 +142,7 @@ actor AgentHibernationProcessSnapshotCoordinator {
     private nonisolated static func captureFreshSnapshot() async -> CmuxTopProcessSnapshot {
         await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: false,
-            includeCMUXScope: false
+            includeCMUXScope: false, includeResources: false
         )
     }
 

@@ -30,7 +30,7 @@ extension AgentChatSessionRegistry {
         guard !expectedSessionIDs.isEmpty else { return nil }
         let snapshot = await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true,
-            includeCMUXScope: true
+            includeCMUXScope: true, includeResources: false
         )
         return liveAgentPID(
             in: snapshot,

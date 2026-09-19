@@ -2,7 +2,7 @@ import CmuxFoundation
 import Darwin
 import Foundation
 
-/// Reads one minimal resource census; paths and scope are separate enrichment.
+/// Reads one minimal topology census; resources, paths and scope are separate enrichment.
 struct CmuxTopProcessSampler: Sendable {
     let reader: any CmuxTopProcessReading
     init(reader: any CmuxTopProcessReading = CmuxTopProcessReader()) { self.reader = reader }
@@ -11,22 +11,20 @@ struct CmuxTopProcessSampler: Sendable {
         try Task.checkCancellation()
         let startedAt = Date()
         let listing = reader.enumerate()
-        let records = processRecords(from: listing.processes, includeProcessDetails: false, includeCMUXScope: false)
+        let records = processRecords(from: listing.processes, includeResources: false)
         try Task.checkCancellation()
         let missing = listing.missingProcessCount + listing.processes.count - records.count
         let snapshot = CmuxTopProcessSnapshot(
             processes: records, sampledAt: startedAt,
-            includesProcessDetails: false, includesCMUXScope: false,
+            includesProcessDetails: false, includesCMUXScope: false, includesResources: false,
             enumerationIsComplete: listing.isComplete && missing == 0,
             enumerationMissingProcessCount: missing
         )
         return CmuxTopProcessCapture(listing: listing, snapshot: snapshot, fields: [])
     }
 
-    private func processRecords(
-        from sampledProcesses: [proc_bsdinfo],
-        includeProcessDetails: Bool,
-        includeCMUXScope: Bool
+    func processRecords(
+        from sampledProcesses: [proc_bsdinfo], includeResources: Bool
     ) -> [CmuxTopProcessInfo] {
         guard !sampledProcesses.isEmpty else { return [] }
 
@@ -51,9 +49,7 @@ struct CmuxTopProcessSampler: Sendable {
         for process in sampledProcesses {
             guard !Task.isCancelled else { break }
             guard let processRecord = processInfo(
-                from: process,
-                includeProcessDetails: includeProcessDetails,
-                includeCMUXScope: includeCMUXScope,
+                from: process, includeResources: includeResources,
                 sampledAtNanoseconds: sampledAtNanoseconds,
                 currentCPUSamples: &currentCPUSamples
             ) else {
@@ -61,6 +57,7 @@ struct CmuxTopProcessSampler: Sendable {
             }
             processRecords.append(processRecord)
         }
+        guard includeResources else { return processRecords.map(\.info) }
         let cpuPercentages = CmuxTopProcessSnapshot.cpuPercentages(
             for: currentCPUSamples,
             activeKeys: activeScopeKeys,
@@ -76,26 +73,19 @@ struct CmuxTopProcessSampler: Sendable {
     }
 
     private func processInfo(
-        from bsdInfo: proc_bsdinfo,
-        includeProcessDetails: Bool,
-        includeCMUXScope: Bool,
+        from bsdInfo: proc_bsdinfo, includeResources: Bool,
         sampledAtNanoseconds: UInt64,
         currentCPUSamples: inout [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]
     ) -> (info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)? {
         let pid = Int(bsdInfo.pbi_pid)
         guard pid > 0 else { return nil }
 
-        let taskInfo = reader.taskInfo(for: pid)
-        let resourceUsage = reader.resourceUsage(for: pid)
+        let taskInfo = includeResources ? reader.taskInfo(for: pid) : nil
+        let resourceUsage = includeResources ? reader.resourceUsage(for: pid) : nil
         let cacheKey = CmuxTopProcessSnapshot.scopeCacheKey(from: bsdInfo)
         let fallbackName = CmuxTopProcessSnapshot.fixedString(bsdInfo.pbi_comm)
-        let name = includeProcessDetails ? reader.processName(pid: pid, fallback: fallbackName) : fallbackName
-        let path = includeProcessDetails ? reader.processPath(pid: pid) : nil
         let rawTTY = Int64(bsdInfo.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
-        let cmuxScope = includeCMUXScope
-            ? reader.scope(for: pid, key: cacheKey)
-            : nil
         let rawProcessGroupID = Int(bsdInfo.pbi_pgid)
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(bsdInfo.e_tpgid)
@@ -141,12 +131,12 @@ struct CmuxTopProcessSampler: Sendable {
                 startMicroseconds: Int64(cacheKey.startMicroseconds)
             ),
             parentPID: Int(bsdInfo.pbi_ppid),
-            name: name.isEmpty ? "pid-\(pid)" : name,
-            path: path,
+            name: fallbackName.isEmpty ? "pid-\(pid)" : fallbackName,
+            path: nil,
             ttyDevice: ttyDevice,
-            cmuxWorkspaceID: cmuxScope?.workspaceID,
-            cmuxSurfaceID: cmuxScope?.surfaceID,
-            cmuxAttributionReason: cmuxScope?.attributionReason,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
             cpuPercent: 0,
