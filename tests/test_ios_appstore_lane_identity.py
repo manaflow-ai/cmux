@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import http.server
 import json
 import os
@@ -71,6 +72,7 @@ def _profile_plist(
     return {
         "Name": name,
         "UUID": "00000000-0000-0000-0000-000000000001",
+        "ExpirationDate": datetime(2099, 1, 1, tzinfo=timezone.utc),
         "Entitlements": {
             "application-identifier": app_id,
             "com.apple.developer.team-identifier": TEAM_ID,
