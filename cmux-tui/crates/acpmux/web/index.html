@@ -57,6 +57,16 @@
   .sess .mark.run { color: var(--warm); animation: pulse 1.2s infinite; }
   .sess .mark.q { color: var(--attn); font-weight: 600; }
   .sess.closed .name { color: var(--dim); }
+  .sess .dots { display: none; color: var(--muted); padding: 0 4px; border-radius: 6px; font-weight: 700; line-height: 1; }
+  .sess:hover .dots, .sess.sel .dots { display: inline-block; }
+  .sess .dots:hover { background: var(--raised); color: var(--ink); }
+  .hovercard { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 10px 14px; max-width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 13px; pointer-events: none; }
+  .hovercard .t { font-weight: 600; color: var(--ink); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hovercard .s { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .menu { position: fixed; z-index: 30; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 6px; min-width: 190px; box-shadow: 0 8px 24px rgba(0,0,0,.35); display: grid; }
+  .menu button { text-align: left; padding: 7px 10px; border-radius: 8px; font-size: 13.5px; }
+  .menu button.bad { color: var(--bad); }
+  .menu hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 0; }
   .more { padding: 6px 10px 6px 30px; color: var(--muted); cursor: pointer; border-radius: 8px; font-size: 13px; }
   .more:hover { background: var(--hover); }
   @keyframes pulse { 50% { opacity: .35; } }
@@ -454,14 +464,53 @@
         const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '') + (s.status === 'closed' ? ' closed' : '');
         const pending = s.pendingPermissions > 0;
         const mark = pending ? '<span class="mark q">?</span>' : s.status === 'running' ? '<span class="mark run">●</span>' : s.status === 'waiting' ? '<span class="mark q">?</span>' : (s.status === 'disconnected' || s.status === 'unreachable') ? '<span class="mark dot bad"></span>' : s.unread ? '<span class="mark dot"></span>' : '';
-        el.innerHTML = '<span class="name">' + esc(titleOf(s)) + '</span>' + mark;
-        el.title = s.name + (s.cwd ? '\n' + s.cwd : '') + (s.harness ? '\n' + s.harness + (s.model && s.model !== 'default' ? ' · ' + s.model : '') : '');
-        el.onclick = () => select(s.sessionId);
+        el.innerHTML = '<span class="name">' + esc(titleOf(s)) + '</span>' + mark + '<span class="dots" title="Actions">⋯</span>';
+        el.onclick = (e) => { if (e.target.classList.contains('dots')) { openMenu(e.target, s); } else select(s.sessionId); };
+        el.oncontextmenu = (e) => { e.preventDefault(); openMenu(e, s); };
+        el.onmouseenter = () => showHover(el, s);
+        el.onmouseleave = hideHover;
         list.appendChild(el);
       }
       if (cut) { const m = document.createElement('div'); m.className = 'more'; m.textContent = 'Show more (' + (rows.length - 6) + ')'; m.onclick = () => { expanded.add(g); renderList(); }; list.appendChild(m); }
     }
   }
+
+  // Codex app: a card with the full title, directory, harness and age
+  // while a row is hovered; a small menu behind ⋯ or a right-click.
+  let hoverEl = null, hoverTimer = null, menuEl = null;
+  const ago = (ms) => { const s = Math.max(0, Math.floor((Date.now() - ms) / 1000)); return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago'; };
+  function showHover(row, s) {
+    hideHover();
+    hoverTimer = setTimeout(() => {
+      const r = row.getBoundingClientRect();
+      hoverEl = document.createElement('div'); hoverEl.className = 'hovercard';
+      const title = titleOf(s); const name = s.peer && s.name.startsWith(s.peer + '/') ? s.name.slice(s.peer.length + 1) : s.name;
+      const line2 = [(s.peer ? s.peer + ' · ' : '') + (s.cwd || ''), s.harness + (s.model && s.model !== 'default' ? ' · ' + s.model : ''), s.updatedAt ? ago(s.updatedAt) : ''].filter(Boolean).join('  ·  ');
+      hoverEl.innerHTML = '<div class="t">' + esc(title) + (title !== name ? ' <span class="s">· ' + esc(name) + '</span>' : '') + '</div><div class="s">' + esc(line2) + '</div>';
+      document.body.appendChild(hoverEl);
+      const top = Math.min(r.top, window.innerHeight - hoverEl.offsetHeight - 12);
+      hoverEl.style.left = (r.right + 8) + 'px'; hoverEl.style.top = top + 'px';
+    }, 350);
+  }
+  function hideHover() { clearTimeout(hoverTimer); if (hoverEl) { hoverEl.remove(); hoverEl = null; } }
+  function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+  function openMenu(at, s) {
+    closeMenu(); hideHover();
+    const r = at.getBoundingClientRect ? at.getBoundingClientRect() : { left: at.clientX, right: at.clientX, top: at.clientY, bottom: at.clientY };
+    menuEl = document.createElement('div'); menuEl.className = 'menu';
+    const act = (label, fn, bad) => { const b = document.createElement('button'); b.textContent = label; if (bad) b.className = 'bad'; b.onclick = () => { closeMenu(); fn(); }; menuEl.appendChild(b); };
+    act('Rename…', async () => { const name = prompt('New name:', s.name.replace(/^[^/]+\//, '')); if (!name) return; try { await call('_acpmux/rename', { sessionId: s.sessionId, newName: name }); } catch (e) { toast('error: ' + e.message); } });
+    act('Fork with history', async () => { const p = { sessionId: s.sessionId, mcpServers: [], _meta: { acpmux: {} } }; try { const r = await call('session/fork', p); const ns = r._meta && r._meta.acpmux; if (ns) upsertSession(ns); select(r.sessionId); } catch (e) { toast('error: ' + e.message); } });
+    act('Open in a new tab', () => window.open(location.pathname + location.search.replace(/&session=[^&]*/, '') + '&session=' + encodeURIComponent(s.sessionId), '_blank'));
+    if (s.status !== 'closed' && s.status !== 'idle') act('Stop agent (keeps history)', async () => { try { await call('_acpmux/kill', { sessionId: s.sessionId, purge: false }); } catch (e) { toast('error: ' + e.message); } });
+    menuEl.appendChild(document.createElement('hr'));
+    act('Delete session…', async () => { if (!confirm('Delete "' + titleOf(s) + '" and its history?')) return; try { await call('_acpmux/kill', { sessionId: s.sessionId, purge: true }); state.sessions = state.sessions.filter((x) => x.sessionId !== s.sessionId); if (selected === s.sessionId) { selected = null; renderBar(); renderLog(true); } renderList(); } catch (e) { toast('error: ' + e.message); } }, true);
+    document.body.appendChild(menuEl);
+    const left = Math.min(r.right + 4, window.innerWidth - menuEl.offsetWidth - 8), top = Math.min(r.top, window.innerHeight - menuEl.offsetHeight - 8);
+    menuEl.style.left = left + 'px'; menuEl.style.top = top + 'px';
+    setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); hideHover(); } });
 
   // ---------- rendering: header + composer chips
   function renderBar() {

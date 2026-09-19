@@ -439,6 +439,10 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                 for (name, prof) in agents {
                     let argv: Vec<String> = prof.get("argv").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_owned)).collect()).unwrap_or_default();
                     let family = prof.get("family").and_then(Value::as_str).unwrap_or("");
+                    if let Some(r) = prof.get("unavailable").and_then(Value::as_str) {
+                        println!("{}{:<10} {:<9} {}  [unavailable: {}]", if name == default { "*" } else { " " }, name, family, argv.join(" "), r.chars().take(80).collect::<String>());
+                        continue;
+                    }
                     let d = prof.get("defaults");
                     let extras: Vec<String> = ["model", "effort", "policy"].iter().filter_map(|k| d.and_then(|d| d.get(*k)).and_then(Value::as_str).map(|v| format!("{k}={v}"))).collect();
                     println!("{}{:<10} {:<9} {}{}", if name == default { "*" } else { " " }, name, family, argv.join(" "), if extras.is_empty() { String::new() } else { format!("  [{}]", extras.join(" ")) });

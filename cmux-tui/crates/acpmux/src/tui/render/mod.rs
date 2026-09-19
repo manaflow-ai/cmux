@@ -1052,6 +1052,21 @@ mod hierarchy_tests {
     }
 
     #[test]
+    fn errors_render_as_a_notice_card() {
+        let c = Chrome::dark();
+        let mut t = Transcript::default();
+        t.items.push(Item::User { text: "go".into(), steer: false, queued: false });
+        t.items.push(Item::Error { text: "API error: model not found".into() });
+        let rows = transcript_rows(&t, 60, false, false, &std::collections::HashSet::new(), &c);
+        let lines: Vec<String> = rows.iter().map(|r| r.line.spans.iter().map(|s| s.content.to_string()).collect::<String>()).collect();
+        assert!(lines.iter().any(|l| l.starts_with("╭") && l.ends_with("╮")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.contains("✗ API error: model not found")), "{lines:?}");
+        assert!(lines.iter().any(|l| l.starts_with("╰") && l.ends_with("╯")), "{lines:?}");
+        let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
+        assert!(text.iter().any(|l| l.contains("✗ API error")), "{text:?}");
+    }
+
+    #[test]
     fn hierarchy_renders_and_collapses() {
         let c = Chrome::dark();
         let t = sample();

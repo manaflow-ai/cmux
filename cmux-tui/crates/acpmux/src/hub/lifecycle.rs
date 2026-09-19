@@ -23,6 +23,9 @@ impl Hub {
                 .or_else(|| cfg.default_harness.clone())
                 .ok_or_else(|| RpcError::invalid_params("no harnesses configured; add one to config.json"))?;
             let resolved = cfg.resolve_harness(&head).map_err(|e| RpcError::invalid_params(self.with_model_hint(&cfg, &head, model.as_deref(), e)))?;
+            if let Some(reason) = cfg.unavailable.get(&resolved) {
+                return Err(RpcError::invalid_params(format!("harness {resolved} is unavailable: {reason}")));
+            }
             let profile = cfg.harnesses[&resolved].clone();
             let mut d = cfg.defaults_for(&resolved);
             if let Some(p) = &preset_cfg {

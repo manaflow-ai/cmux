@@ -297,6 +297,9 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
                 if let Some(o) = v.as_object_mut() {
                     o.insert("family".into(), json!(crate::config::derive_family(name, p)));
+                    if let Some(r) = cfg.unavailable.get(name) {
+                        o.insert("unavailable".into(), json!(r));
+                    }
                     let d = cfg.defaults_for(name);
                     if !d.is_empty() {
                         o.insert("defaults".into(), json!(d));

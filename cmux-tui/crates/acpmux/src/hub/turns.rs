@@ -78,7 +78,9 @@ impl Hub {
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
         if let Err(e) = &result {
-            if is_limit_error(&e.message) {
+            // A pool launcher that dies on the prompt (its proxy is down)
+            // moves the session too, not only a usage or auth limit.
+            if is_limit_error(&e.message) || e.message.starts_with("agent process closed") {
                 if let Some(to) = self.fallback_profile(session).await {
                     let from = session.meta().harness;
                     self.append(session, "mux", "failover", json!({"from": from, "to": to, "reason": e.message}));
@@ -222,7 +224,20 @@ impl Hub {
             params = json!({});
         }
         params["sessionId"] = Value::String(sid);
-        let res = child.request(m, params).await?;
+        let res = match child.request(m, params).await {
+            Ok(v) => v,
+            Err(mut e) => {
+                // A process that died on this request: quote its last stderr
+                // line, as prompt() does, so "agent process closed" says why.
+                if e.message == "agent process closed" {
+                    let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
+                    if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")) {
+                        e.message = format!("agent process closed ({}): {last}", session.meta().harness);
+                    }
+                }
+                return Err(e);
+            }
+        };
         match m {
             method::SESSION_SET_MODE => {
                 if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {

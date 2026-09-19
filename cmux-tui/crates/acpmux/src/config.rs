@@ -343,6 +343,11 @@ pub struct Config {
     /// `defaults.claude.prefer` was filled in by discovery, not the user.
     #[serde(skip)]
     pub auto_prefer: bool,
+    /// Profiles whose launcher failed its start-up check, with the reason.
+    /// They stay configured (sessions on them keep their history) but no
+    /// family preference or fallback routes new work to them.
+    #[serde(skip)]
+    pub unavailable: BTreeMap<String, String>,
 }
 
 impl Config {
@@ -368,7 +373,8 @@ impl Config {
         let fams = self.families();
         if let Some(members) = fams.get(head) {
             if let Some(d) = self.defaults.get(head) {
-                if let Some(p) = d.prefer.iter().find(|p| self.harnesses.contains_key(*p)) {
+                // An unavailable profile is skipped; the next preference serves.
+                if let Some(p) = d.prefer.iter().find(|p| self.harnesses.contains_key(*p) && !self.unavailable.contains_key(*p)) {
                     return Ok(p.clone());
                 }
             }
@@ -604,16 +610,11 @@ pub fn verify_launchers(cfg: &mut Config) {
         .collect();
     for (name, argv) in candidates {
         if let Err(reason) = launcher_ok(&argv) {
-            tracing::warn!(agent = %name, "launcher disabled: {reason}");
-            cfg.harnesses.remove(&name);
+            tracing::warn!(agent = %name, "launcher unavailable: {reason}");
+            cfg.unavailable.insert(name.clone(), reason);
             for p in cfg.harnesses.values_mut() {
                 if p.fallback.as_deref() == Some(name.as_str()) {
                     p.fallback = None;
-                }
-            }
-            if cfg.auto_prefer {
-                if let Some(d) = cfg.defaults.get_mut("claude") {
-                    d.prefer.retain(|p| p != &name);
                 }
             }
         }
@@ -639,7 +640,8 @@ fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     }
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_owned();
+    // Warnings (a peer that could not be reached) are not failures.
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with("warning:")).unwrap_or("").to_owned();
     if !out.status.success() || first.starts_with("subrouter:") || text.to_lowercase().contains("unknown command") {
         return Err(format!("`{} claude proxy --version` failed: {}", argv[0], if first.is_empty() { out.status.to_string() } else { first }));
     }
@@ -814,8 +816,13 @@ mod tests {
         cfg.harnesses.insert("claude-sr".into(), HarnessProfile { kind: HarnessKind::ClaudeStdio, argv: argv(&old), env: BTreeMap::new(), description: None, fallback: None, family: None, models: vec![], model: None, effort: None, policy: None });
         cfg.harnesses.insert("claude".into(), HarnessProfile { kind: HarnessKind::ClaudeStdio, argv: vec!["claude".into()], env: BTreeMap::new(), description: None, fallback: Some("claude-sr".into()), family: None, models: vec![], model: None, effort: None, policy: None });
         verify_launchers(&mut cfg);
-        assert!(!cfg.harnesses.contains_key("claude-sr"));
+        // The profile stays (sessions on it keep working or fail with the
+        // reason); nothing routes new work to it.
+        assert!(cfg.harnesses.contains_key("claude-sr"));
+        assert!(cfg.unavailable.get("claude-sr").unwrap().contains("unknown command"));
         assert_eq!(cfg.harnesses["claude"].fallback, None);
+        cfg.defaults.insert("claude".into(), SessionDefaults { prefer: vec!["claude-sr".into(), "claude".into()], ..Default::default() });
+        assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
