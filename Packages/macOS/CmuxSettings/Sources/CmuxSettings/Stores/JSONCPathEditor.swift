@@ -1,6 +1,8 @@
 import Foundation
 
 struct JSONCPathEditor: Sendable {
+    /// Synchronous editor input; the editor does not retain or share this object graph.
+    struct EncodedValue: @unchecked Sendable { let rawValue: Any }
     enum EditError: Error, Equatable {
         case malformedObject
     }
@@ -11,7 +13,7 @@ struct JSONCPathEditor: Sendable {
         let properties: [PropertyRange]
 
         func property(named key: String) -> PropertyRange? {
-            properties.last { $0.key == key }
+            return properties.last { $0.key == key }
         }
     }
 
@@ -22,11 +24,11 @@ struct JSONCPathEditor: Sendable {
         let valueEnd: String.Index
     }
 
-    func set(path: [String], value: Any, in source: String) throws -> String {
+    func set(path: [String], value: EncodedValue, in source: String) throws -> String {
         guard !path.isEmpty, let root = rootObject(in: source) else {
             throw EditError.malformedObject
         }
-        return try setting(path: ArraySlice(path), value: value, in: root, source: source)
+        return try setting(path: ArraySlice(path), value: value.rawValue, in: root, source: source)
     }
 
     func remove(path: [String], in source: String) throws -> String {
@@ -39,7 +41,9 @@ struct JSONCPathEditor: Sendable {
         // A parsed JSON object resolves duplicate keys to the last occurrence.
         // Remove every duplicate leaf so reset cannot expose a shadowed value.
         while property(at: path, in: updated) != nil {
-            updated = try removingProperty(at: path, in: updated)
+            let next = try removingProperty(at: path, in: updated)
+            guard next != updated else { break }
+            updated = next
         }
         guard path.count > 1 else { return updated }
 
@@ -209,7 +213,7 @@ struct JSONCPathEditor: Sendable {
     }
 
     private func removingProperty(at path: [String], in source: String) throws -> String {
-        guard let (parent, childIndex) = parentAndPropertyIndex(at: path, in: source) else {
+        guard let (parent, childIndex) = parentAndPropertyIndex(at: path, in: source, selectingLast: false) else {
             return source
         }
         let child = parent.properties[childIndex]
@@ -258,18 +262,25 @@ struct JSONCPathEditor: Sendable {
 
     private func parentAndPropertyIndex(
         at path: [String],
-        in source: String
+        in source: String,
+        selectingLast: Bool = true
     ) -> (ObjectRange, Int)? {
         guard !path.isEmpty, var object = rootObject(in: source) else { return nil }
         for component in path.dropLast() {
-            guard let property = object.property(named: component) else { return nil }
+            let property = selectingLast
+                ? object.property(named: component)
+                : object.properties.first { $0.key == component }
+            guard let property else { return nil }
             let valueStart = skipWhitespaceAndComments(in: source, from: property.valueStart)
             guard valueStart < source.endIndex,
                   source[valueStart] == "{",
                   let child = parseObject(in: source, at: valueStart) else { return nil }
             object = child
         }
-        guard let index = object.properties.firstIndex(where: { $0.key == path.last }) else { return nil }
+        let index = selectingLast
+            ? object.properties.lastIndex { $0.key == path.last }
+            : object.properties.firstIndex { $0.key == path.last }
+        guard let index else { return nil }
         return (object, index)
     }
 

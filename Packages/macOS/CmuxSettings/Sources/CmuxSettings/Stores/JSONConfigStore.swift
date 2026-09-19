@@ -118,6 +118,7 @@ public actor JSONConfigStore {
     /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
     public func set<Value>(_ value: Value, for key: JSONKey<Value>) throws {
         let encodedValue = value.encodeForJSON()
+        let editorValue = JSONCPathEditor.EncodedValue(rawValue: encodedValue)
         try mutateRoot(
             { root in
                 key.path.assign(encodedValue, in: &root)
@@ -125,7 +126,7 @@ public actor JSONConfigStore {
             editingSource: { source in
                 try sourceEditor.set(
                     path: key.path.components,
-                    value: encodedValue,
+                    value: editorValue,
                     in: source
                 )
             }
@@ -401,7 +402,7 @@ public actor JSONConfigStore {
         // comment-only empty parents can intentionally remain after reset.
         let sanitized = try sanitizer.sanitize(data)
         let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
-        guard let writtenRoot = object as? [String: Any] else {
+        guard object is [String: Any] else {
             throw JSONConfigStoreReadError.notADictionary
         }
 
@@ -410,7 +411,7 @@ public actor JSONConfigStore {
         try data.write(to: writeURL, options: [.atomic])
 
         // Only commit to cache after the file write succeeded.
-        cachedRoot = writtenRoot
+        cachedRoot = candidateRoot
         cacheValid = true
         cachedRootResolvedPath = writeURL.path
 
