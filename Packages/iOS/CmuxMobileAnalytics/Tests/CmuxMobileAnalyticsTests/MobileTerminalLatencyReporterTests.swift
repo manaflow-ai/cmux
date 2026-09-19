@@ -23,7 +23,8 @@ import CMUXMobileCore
             now: { clock.value }
         )
 
-        let sequence = reporter.inputStarted(surfaceID: "terminal", byteCount: 3)
+        let sequence: UInt64 = 100
+        reporter.inputStarted(surfaceID: "terminal", byteCount: 3, sequence: sequence)
         reporter.inputSent(surfaceID: "terminal", sequence: sequence)
         clock.value = 5_000_000
         reporter.outputReceived(
@@ -50,7 +51,8 @@ import CMUXMobileCore
         let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
         let clock = LatencyTestClock()
         let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
-        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        let sequence: UInt64 = 100
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: sequence)
         clock.value = 10_000_000
         reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0)
         clock.value = 120_000_000_000
@@ -67,9 +69,10 @@ import CMUXMobileCore
         let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
         let clock = LatencyTestClock()
         let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
-        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: 100)
         clock.value = 2_000_000_000
-        let latest = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        let latest: UInt64 = 101
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: latest)
         clock.value = 2_010_000_000
         reporter.outputReceived(surfaceID: "s", appliedInputSequence: latest, byteCount: 1, queueDepth: 0)
         clock.value = 2_020_000_000
@@ -86,9 +89,10 @@ import CMUXMobileCore
         let clock = LatencyTestClock()
         let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
 
-        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1, correlate: false)
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: nil)
         clock.value = 2_000_000_000
-        let marked = reporter.inputStarted(surfaceID: "s", byteCount: 1, correlate: true)
+        let marked: UInt64 = 100
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: marked)
         clock.value = 2_010_000_000
         reporter.outputReceived(surfaceID: "s", appliedInputSequence: marked, byteCount: 1, queueDepth: 0)
         await reporter.flush()
@@ -105,7 +109,7 @@ import CMUXMobileCore
         let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value }, onAnomaly: { duration in
             emitter.capture("ios_test_incident", ["duration_ms": .int(Int(duration))])
         })
-        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: 100)
         clock.value = 1_000_000_000
         reporter.setForeground(false)
         clock.value = 90_000_000_000
@@ -123,7 +127,10 @@ import CMUXMobileCore
         #expect(events.first { $0.name == MobileTerminalLatencyReporter.windowEventName }?.properties["presented_count"] == .int(6))
         #expect(events.first { $0.name == MobileTerminalLatencyReporter.windowEventName }?.properties["window_ms"] == .int(2800))
         reporter.setEnabled(false)
-        #expect(reporter.inputStarted(surfaceID: "s", byteCount: 1) == 0)
+        let eventCountAfterDisable = await uploader.uploadedEvents.count
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: 999)
+        await reporter.flush()
+        #expect(await uploader.uploadedEvents.count == eventCountAfterDisable)
     }
 
     @Test @MainActor func delayedBackgroundFlushAndResumeUseOnlyActiveDuration() async {
@@ -131,7 +138,7 @@ import CMUXMobileCore
         let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
         let clock = LatencyTestClock()
         let reporter = MobileTerminalLatencyReporter(emitter: emitter, now: { clock.value })
-        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: 100)
         clock.value = 1_000_000_000
         reporter.setForeground(false)
         clock.value = 30_000_000_000
@@ -139,7 +146,7 @@ import CMUXMobileCore
         #expect(await uploader.uploadedEvents.last?.properties["window_ms"] == .int(1000))
         clock.value = 100_000_000_000
         reporter.setForeground(true)
-        _ = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: 101)
         clock.value = 102_000_000_000
         await reporter.flush()
         #expect(await uploader.uploadedEvents.last?.properties["window_ms"] == .int(2000))
@@ -149,7 +156,8 @@ import CMUXMobileCore
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(uploader: uploader, consent: FixedLatencyConsent(isTelemetryEnabled: true), anonymousID: "latency-test")
         let reporter = MobileTerminalLatencyReporter(emitter: emitter)
-        let sequence = reporter.inputStarted(surfaceID: "s", byteCount: 1)
+        let sequence: UInt64 = 100
+        reporter.inputStarted(surfaceID: "s", byteCount: 1, sequence: sequence)
         reporter.inputFailed(surfaceID: "s", sequence: sequence)
         reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence, byteCount: 1, queueDepth: 0)
         reporter.outputReceived(surfaceID: "s", appliedInputSequence: sequence + 1, byteCount: 1, queueDepth: 0)

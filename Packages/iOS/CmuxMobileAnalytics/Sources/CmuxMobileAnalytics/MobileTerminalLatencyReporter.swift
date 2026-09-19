@@ -51,7 +51,6 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
     private let consent: any AnalyticsConsentProviding
     private let onAnomaly: (@Sendable (UInt32) -> Void)?
     private var states: [String: SurfaceState] = [:]
-    private var nextSequence = UInt64.random(in: 1...(UInt64.max / 2))
     private var enabled = true
     private var isForeground = true
     private var foregroundStartedAt: UInt64 = 0
@@ -108,15 +107,13 @@ public final class MobileTerminalLatencyReporter: MobileTerminalLatencyObserving
         }
     }
 
-    public func inputStarted(surfaceID: String, byteCount: Int, correlate: Bool) -> UInt64 {
-        guard let surface = state(for: surfaceID) else { return 0 }
-        nextSequence &+= 1
+    public func inputStarted(surfaceID: String, byteCount: Int, sequence: UInt64?) {
+        guard let surface = state(for: surfaceID) else { return }
         surface.window.inputCount += 1
-        if correlate {
-            surface.inputStarts[nextSequence] = now()
+        if let sequence {
+            surface.inputStarts[sequence] = now()
             trim(&surface.inputStarts)
         }
-        return nextSequence
     }
 
     public func inputSent(surfaceID: String, sequence: UInt64) {}
