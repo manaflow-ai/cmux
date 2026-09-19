@@ -66,6 +66,7 @@ public struct CuratedSettingEntry: Sendable, Hashable {
         self.anchorPath = anchorPath
     }
 
+    /// Projects one catalog descriptor into the Settings search model.
     init<Value>(userFacing key: DefaultsKey<Value>) {
         guard let descriptor = key.userFacing else {
             preconditionFailure("Missing user-facing descriptor for \(key.id)")
