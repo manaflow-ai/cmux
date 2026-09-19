@@ -110,7 +110,7 @@ final class PhonePushClient {
     private var recipientRefreshTask: Task<Void, Never>?
     private var lastRecipientRefreshEpochSeconds = 0
     private var lastEncryptionUnavailableLogEpochSeconds = 0
-    
+
     let identityPrewarm = PhonePushIdentityPrewarm()
     private var activeIdentity: AuthenticatedSessionIdentity?
     private var pendingPersistenceSnapshot: [PhonePushRequestEnvelope]?
