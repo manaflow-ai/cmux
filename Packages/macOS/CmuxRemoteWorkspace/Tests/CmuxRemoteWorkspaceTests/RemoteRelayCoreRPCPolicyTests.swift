@@ -7,6 +7,23 @@ struct RemoteRelayCoreRPCPolicyTests {
     private let owner = UUID()
     private let surface = UUID()
 
+    @Test("malformed selectors retain the correct workspace or surface denial code", arguments: [
+        ("workspace_id", "remote_relay_workspace_denied"),
+        ("surface_id", "remote_relay_surface_denied"),
+        ("terminal_id", "remote_relay_surface_denied")
+    ])
+    func malformedSelectorDenialCode(key: String, code: String) {
+        let malformedValues: [Any] = [NSNull(), 17, true, [owner.uuidString], ["id": owner.uuidString], "invalid"]
+        for value in malformedValues {
+            var params: [String: Any] = ["workspace_id": owner.uuidString, "surface_id": surface.uuidString]
+            params[key] = value
+            #expect(decision("surface.read_text", params) == .denied(code: code, message: "Relay selector is invalid"))
+            if key == "workspace_id" {
+                #expect(decision("workspace.list", [key: value]) == .denied(code: code, message: "Relay selector is invalid"))
+            }
+        }
+    }
+
     @Test("capabilities filter exact method names without adding unsupported grants")
     func capabilityDiscovery() {
         let methods = RemoteRelayCommandPolicy().permittedMethods(from: [
