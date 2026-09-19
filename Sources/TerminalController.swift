@@ -4349,6 +4349,11 @@ class TerminalController {
                 break
             }
         }
+        // An ownership rejection is app-owned copy naming the workspace rule
+        // that blocked the open; the generic Cloud VM line would hide it.
+        if let rejection = error as? SurfaceTransferRejection {
+            return rejection.message
+        }
         guard case let VMClientError.httpStatus(status, body) = error else {
             guard let vmError = error as? VMClientError else { return fallback }
             let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(describing: vmError))
