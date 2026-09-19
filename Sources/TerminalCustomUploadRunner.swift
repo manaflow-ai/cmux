@@ -56,10 +56,12 @@ struct TerminalCustomUploadRunner {
     /// The command matching this endpoint, or nil when the built-in transport should be
     /// used. Matching uses the first usable `HostName` in `endpoint.sshOptions` and falls
     /// back to `endpoint.destination`, so a broker alias still matches the host it reaches.
-    /// Called on the main thread from the drop/paste sites, so the rules are read via
-    /// `MainActor.assumeIsolated`.
+    @MainActor
     private func matchedCommand(for endpoint: Endpoint) -> String? {
-        let rules = MainActor.assumeIsolated { uploadRules() }
+        // Swift 5 mode only warns when a closure handed to DispatchQueue, Timer or
+        // NotificationCenter calls a main-actor function, so the run-time check stays.
+        MainActor.preconditionIsolated()
+        let rules = uploadRules()
         return TerminalUploadCommand(rules: rules).command(
             forDestination: endpoint.destination,
             sshOptions: endpoint.sshOptions
@@ -147,6 +149,7 @@ struct TerminalCustomUploadRunner {
     /// the main queue after the transfer operation is marked finished. Returns
     /// true when it took ownership — the caller must NOT run the built-in
     /// `execute`; false to fall through to the built-in transport unchanged.
+    @MainActor
     @discardableResult
     func handleIfMatched(
         plan: TerminalImageTransferPlan,

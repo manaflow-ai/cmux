@@ -2,6 +2,7 @@ import AppKit
 import CmuxTerminalCore
 
 extension GhosttyApp {
+    @MainActor
     @discardableResult
     static func handleCustomPasteUploadIfMatched(
         plan: TerminalImageTransferPlan,
