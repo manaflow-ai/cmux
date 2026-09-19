@@ -193,7 +193,7 @@
 <body>
 <aside id="side">
   <div class="brand">acpmux <span id="conn" class="conn off" title="connecting…"></span></div>
-  <div class="nav" id="btn-new"><span class="ic">✎</span><span>New session</span></div>
+  <div class="nav" id="btn-new" title="New session (⌘K / Ctrl-K)"><span class="ic">✎</span><span>New session</span></div>
   <div class="list" id="list"></div>
   <div id="empty" class="empty" hidden>No sessions yet. Start one above, or from a terminal:<br><code class="mono">acpmux new -m claude</code></div>
   <div class="rail-foot" id="hosts"></div>
@@ -492,7 +492,7 @@
       const h = document.createElement('div'); h.className = 'grp'; h.innerHTML = '<span class="ic">▢</span><span>' + esc(g) + '</span>'; list.appendChild(h);
       const cut = rows.length > 7 && !expanded.has(g) && !rows.slice(6).some((s) => s.sessionId === selected);
       for (const s of (cut ? rows.slice(0, 6) : rows)) {
-        const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '') + (s.status === 'closed' ? ' closed' : '');
+        const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '') + (s.status === 'closed' ? ' closed' : ''); el.dataset.id = s.sessionId;
         const pending = s.pendingPermissions > 0;
         const mark = pending ? '<span class="mark q">?</span>' : s.status === 'running' ? '<span class="mark run">●</span>' : s.status === 'waiting' ? '<span class="mark q">?</span>' : (s.status === 'disconnected' || s.status === 'unreachable') ? '<span class="mark dot bad"></span>' : s.unread ? '<span class="mark dot"></span>' : '';
         el.innerHTML = '<span class="name">' + esc(titleOf(s)) + '</span>' + mark + '<span class="dots" title="Actions">⋯</span>';
@@ -827,6 +827,18 @@
   });
   document.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); startDraft(); }
+    // Alt-↑/↓ (or Alt-j/k) walk the rail, as j/k do in the TUI; the rows
+    // are read in their shown order so groups and "Show more" are honored.
+    if (e.altKey && !e.metaKey && !e.ctrlKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'k' || e.key === '∆' || e.key === '˚')) {
+      e.preventDefault();
+      const ids = Array.from(document.querySelectorAll('#list .sess')).map((el) => el.dataset.id);
+      if (!ids.length) return;
+      const down = e.key === 'ArrowDown' || e.key === 'j' || e.key === '∆';
+      const at = ids.indexOf(selected);
+      const next = at < 0 ? (down ? 0 : ids.length - 1) : Math.min(ids.length - 1, Math.max(0, at + (down ? 1 : -1)));
+      if (ids[next] !== selected) { select(ids[next]); const row = document.querySelector('#list .sess.sel'); if (row) row.scrollIntoView({ block: 'nearest' }); }
+      return;
+    }
     const t = selected && state.transcripts.get(selected); const perm = t && pendingPermission(t);
     if (perm && document.activeElement !== input && !$('#dlg-new').open) {
       if (e.key === 'y') { const o = perm.options.find((x) => x.kind.startsWith('allow')); if (o) call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: o.id }); }

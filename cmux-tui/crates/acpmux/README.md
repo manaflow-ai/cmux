@@ -61,7 +61,9 @@ rounded composer with the permission, mode, model and effort chips inside; and a
 permission docked above it (`y`/`n` answer it from the keyboard). Every session, local and
 peered, streams live. Dark by default, light through the OS or `?theme=light`; `?open=1`
 unfolds every turn, `?session=<name>` opens one, `?session=new` (or `&draft=1`) starts a
-draft. On a phone the rail is a sheet behind a `Sessions` button. To reach it
+draft. Keys: `⌘K`/`Ctrl-K` new session, `Alt-↑`/`Alt-↓` (or `Alt-j`/`Alt-k`) walk the rail,
+`y`/`n` answer a permission, `Esc` in the composer cancels the turn. On a phone the rail is a
+sheet behind a `Sessions` button. To reach it
 from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
 firewall in front.
 
