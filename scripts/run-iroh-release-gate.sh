@@ -7,6 +7,8 @@ Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expir
        [--staging-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
+       [--soak-profile <basic|stress>]
+       [--credentials-file <agent-profile-env>]
        [--production [--stack-env-file <secure-path>]]
 
 Automatic, relay-only, and relay-expiry build a tagged Mac app plus an isolated iOS Simulator
@@ -34,6 +36,9 @@ PRODUCTION=0
 STACK_ENV_FILE=""
 BASE_URL_WAS_EXPLICIT=0
 PRINT_PLAN=0
+SOAK_PROFILE=""
+REPORT_TIMEOUT=480
+DOGFOOD_CREDENTIALS_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +52,8 @@ while [[ $# -gt 0 ]]; do
     --keep-simulator) KEEP_SIMULATOR=1; shift ;;
     --report-output) REPORT_OUTPUT="${2:-}"; shift 2 ;;
     --print-plan) PRINT_PLAN=1; shift ;;
+    --soak-profile) SOAK_PROFILE="${2:-}"; shift 2 ;;
+    --credentials-file) DOGFOOD_CREDENTIALS_FILE="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
   esac
@@ -86,6 +93,18 @@ case "$MODE" in
   *) echo "error: invalid mode '$MODE'" >&2; exit 2 ;;
 esac
 
+if [[ -n "$SOAK_PROFILE" ]]; then
+  [[ "$MODE" == automatic || "$MODE" == relay-only ]] || {
+    echo "error: soak requires automatic or relay-only mode" >&2; exit 2;
+  }
+  case "$SOAK_PROFILE" in
+    basic) REPORT_TIMEOUT=840 ;;
+    stress) REPORT_TIMEOUT=3840 ;;
+    *) echo "error: invalid soak profile" >&2; exit 2 ;;
+  esac
+  GATE_SCENARIO=standard
+fi
+
 if [[ "$PRODUCTION" -eq 1 && "$GATE_PLAN" == "host-private-path-transport" ]]; then
   echo "error: private-path proves the host transport contract and has no production environment" >&2
   exit 2
@@ -113,6 +132,10 @@ source "$SCRIPT_DIR/lib/dev-secrets.sh"
 # shellcheck source=scripts/lib/iroh-release-gate-targets.sh
 source "$SCRIPT_DIR/lib/iroh-release-gate-targets.sh"
 cmux_attach_validate_dev_tag "$TAG"
+if [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+  [[ "$PRODUCTION" -eq 0 ]] || { echo "error: --credentials-file is for staging only" >&2; exit 2; }
+  cmux_dev_secrets_validate_file "$DOGFOOD_CREDENTIALS_FILE"
+fi
 
 ACTIVE_BUILD_WRAPPER_PID=""
 
@@ -312,6 +335,7 @@ cleanup() {
     rm -rf "$VERCEL_DIR"
   fi
   defaults delete "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode >/dev/null 2>&1 || true
+  defaults delete "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay >/dev/null 2>&1 || true
   defaults delete "$MAC_BUNDLE_ID" presenceServiceURL >/dev/null 2>&1 || true
   pkill -f "cmux DEV ${SLUG}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
   if [[ "$PRODUCTION" -eq 1 ]]; then
@@ -558,6 +582,16 @@ fi
 # Both endpoints read the mode before constructing their Iroh endpoint. Write
 # after installation so a fresh simulator app container cannot replace it.
 defaults write "$MAC_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+# The current Iroh implementation owns a separate endpoint configuration.
+# Constrain both generations so a same-host direct route cannot satisfy a
+# check advertised as exercising the relay fleet.
+FORCE_RELAY=0
+FORCE_RELAY_BOOLEAN=false
+if [[ "$RAW_MODE" == relayOnly ]]; then
+  FORCE_RELAY=1
+  FORCE_RELAY_BOOLEAN=true
+fi
+defaults write "$MAC_BUNDLE_ID" cmux.iroh.v2.force-relay -bool "$FORCE_RELAY_BOOLEAN"
 if [[ -n "$PRESENCE_BASE_URL" ]]; then
   defaults write "$MAC_BUNDLE_ID" presenceServiceURL -string "$PRESENCE_BASE_URL"
 else
@@ -565,6 +599,8 @@ else
 fi
 xcrun simctl spawn "$SIMULATOR_ID" defaults write \
   "$IOS_BUNDLE_ID" cmux.iroh.debug.transport-mode -string "$RAW_MODE"
+xcrun simctl spawn "$SIMULATOR_ID" defaults write \
+  "$IOS_BUNDLE_ID" cmux.iroh.v2.config.CMUX_IROH_V2_FORCE_RELAY -string "$FORCE_RELAY"
 
 # The driver owns this unique tag, so restart it unconditionally. A live pairing
 # socket can otherwise make `cmux_attach_ensure_mac` return without relaunching,
@@ -622,15 +658,21 @@ fi
 # tag is uniquely owned by this driver, and the exact executable is now absent,
 # so remove only this validated tag's socket before relaunching.
 cmux_attach_remove_stale_socket "$TAG"
+MAC_AUTH_ARGS=()
+if [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+  cmux_dev_secrets_load --profile agent --credentials-file "$DOGFOOD_CREDENTIALS_FILE" >/dev/null
+  MAC_AUTH_ARGS=(0 agent "$DOGFOOD_CREDENTIALS_FILE" "$CMUX_DEV_AUTH_ACCOUNT")
+fi
 CMUX_PRESENCE_BASE_URL="$PRESENCE_BASE_URL" \
 CMUX_ATTACH_ALLOW_RELAUNCH=1 \
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
-cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device
+cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" physical_device ${MAC_AUTH_ARGS[@]+"${MAC_AUTH_ARGS[@]}"}
 
 # Wait for the app's atomic report-write signal. Python owns the simulator
 # notifyutil child so its timeout is bounded without polling the filesystem.
 SIMULATOR_ID="$SIMULATOR_ID" \
 REPORT_READY_NOTIFICATION="$REPORT_READY_NOTIFICATION" \
+REPORT_TIMEOUT="$REPORT_TIMEOUT" \
 /usr/bin/python3 <<'PY' &
 import os
 import subprocess
@@ -643,7 +685,7 @@ try:
         ],
         check=True,
         stdout=subprocess.DEVNULL,
-        timeout=480,
+        timeout=int(os.environ["REPORT_TIMEOUT"]),
     )
 except subprocess.TimeoutExpired:
     raise SystemExit("Iroh release gate report signal timed out")
@@ -660,10 +702,13 @@ MOBILE_LAUNCH_ARGS=(
 )
 if [[ "$PRODUCTION" -eq 1 ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
+elif [[ -n "$DOGFOOD_CREDENTIALS_FILE" ]]; then
+  MOBILE_LAUNCH_ARGS+=(--credentials-file "$DOGFOOD_CREDENTIALS_FILE")
 fi
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
+CMUX_IROH_SOAK_PROFILE="$SOAK_PROFILE" \
 CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
   2>&1 | sed -E \
@@ -685,6 +730,7 @@ REPORT_WAITER_PID=""
 if [[ -n "$REPORT_OUTPUT" ]]; then
   mkdir -p "$(dirname "$REPORT_OUTPUT")"
   cp "$REPORT_PATH" "$REPORT_OUTPUT"
+  xcrun simctl io "$SIMULATOR_ID" screenshot "${REPORT_OUTPUT%.json}-ios.png" >/dev/null 2>&1 || true
 
   # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.
   # The host owns admission and stream lifetime, so an iOS-only report cannot
@@ -699,7 +745,7 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
   fi
 fi
 
-REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" /usr/bin/python3 <<'PY'
+REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" EXPECTED_SOAK="$SOAK_PROFILE" /usr/bin/python3 <<'PY'
 import json
 import os
 
@@ -732,8 +778,10 @@ allowed_keys = {
     "routeKind",
     "selectedPath",
     "failure",
+    "uiLatencies",
     "lastDiagnosticEventCode",
     "lastDiagnosticFailureKind",
+    "soak",
 }
 allowed_paths = {
     "automatic": {"direct", "private_network", "managed_relay", "custom_relay"},
@@ -752,6 +800,31 @@ required_true = (
     "artifactScanCountVerified",
 )
 problems = []
+soak_profile = os.environ["EXPECTED_SOAK"]
+if soak_profile:
+    allowed_paths["automatic"].add("relay")
+    allowed_paths["relayOnly"].add("relay")
+    soak = report.get("soak") or {}
+    duration, cycles = (600, 50) if soak_profile == "basic" else (3600, 300)
+    if soak.get("profile") != soak_profile or soak.get("planVersion") != 1:
+        problems.append("soak profile or plan version mismatch")
+    if soak.get("requestedDurationSeconds") != duration or soak.get("elapsedSeconds", 0) < duration:
+        problems.append("soak did not complete its full observation window")
+    if soak.get("completedCycles", 0) < cycles or soak.get("currentOperation") != "complete":
+        problems.append("soak workload incomplete")
+    required_operations = ["host_status", "rpc_inventory", "terminal_round_trip", "workspace_rename_restore",
+                           "independent_events", "notification_reconcile", "chat_sessions", "artifact_scan"]
+    if soak_profile == "stress":
+        required_operations += ["workspace_navigation", "workspace_refresh", "notification_refresh",
+                                "unicode_output_burst", "workspace_create", "workspace_switch", "workspace_close",
+                                "terminal_after_restore", "forced_reconnect", "terminal_after_reconnect"]
+    counts = soak.get("operationCounts", {})
+    for operation in required_operations:
+        minimum = cycles if operation in required_operations[:8] else cycles // 4
+        if operation in ("forced_reconnect", "terminal_after_reconnect"):
+            minimum = cycles // 120
+        if counts.get(operation, 0) < minimum:
+            problems.append("insufficient operation coverage: " + operation)
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")

@@ -630,6 +630,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "rd.present",
                                 "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
+                            MobileReleaseGateUIProbe.record(.terminalFramePresented)
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,

@@ -266,7 +266,12 @@ struct WorkspaceDetailView: View {
             .onChange(of: altScreenNoticeIsVisible) { _, isVisible in
                 if !isVisible { trailingToolbarItemWidths["altscreen-notice"] = nil }
             }
-            .onAppear { refreshWorkspaceChangesHint() }
+            .onAppear {
+                #if os(iOS) && DEBUG
+                MobileReleaseGateUIProbe.record(.workspaceDetailVisible)
+                #endif
+                refreshWorkspaceChangesHint()
+            }
             .onChange(of: workspaceChangesHintEligibilityKey) { _, _ in
                 refreshWorkspaceChangesHint()
             }

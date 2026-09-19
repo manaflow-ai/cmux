@@ -35,7 +35,17 @@ extension MobileShellComposite {
               let remoteClient else {
             throw MobileIrohReleaseGateProbeFailure.unauthenticatedIrohSession
         }
+        var operationLatencies: [String: Double] = [:]
 
+        func record(_ operation: String, started: ContinuousClock.Instant) {
+            let duration = started.duration(to: .now)
+            let components = duration.components
+            let seconds = Double(components.seconds) + Double(components.attoseconds) / 1e18
+            guard seconds.isFinite, seconds >= 0 else { return }
+            operationLatencies[operation] = seconds
+        }
+
+        let hostStatusStarted = ContinuousClock.now
         mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=begin")
         let statusData: Data
         do {
@@ -51,10 +61,13 @@ extension MobileShellComposite {
               status.macInstanceTag?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             throw MobileIrohReleaseGateProbeFailure.hostStatusRejected
         }
+        record("host_status", started: hostStatusStarted)
         mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=completed")
 
+        let rpcInventoryStarted = ContinuousClock.now
         mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=begin")
         try await verifyRPCMethodInventory(client: remoteClient)
+        record("rpc_inventory", started: rpcInventoryStarted)
         mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=completed")
 
         guard let target = irohReleaseGateForegroundTarget() else {
@@ -72,19 +85,26 @@ extension MobileShellComposite {
 
         switch scenario {
         case .standard:
+            let workspaceMutationStarted = ContinuousClock.now
             try await verifyReversibleWorkspaceRename(
                 workspace: workspace,
                 marker: marker
             )
+            record("workspace_rename_restore", started: workspaceMutationStarted)
+            let terminalRoundTripStarted = ContinuousClock.now
             try await verifyTerminalRoundTrip(
                 surfaceID: terminalID,
                 marker: marker
             )
+            record("terminal_round_trip", started: terminalRoundTripStarted)
+            let independentEventsStarted = ContinuousClock.now
             try await verifyIndependentEvents(
                 client: remoteClient,
                 marker: marker
             )
+            record("independent_events", started: independentEventsStarted)
         case .relayRollover:
+            let rolloverStarted = ContinuousClock.now
             let continuity = try await verifyRelayCredentialRollover(
                 client: remoteClient,
                 workspace: workspace,
@@ -100,38 +120,51 @@ extension MobileShellComposite {
             controlStreamContinuityVerified = continuity.controlStreamContinuityVerified
             independentEventsContinuityVerified = continuity.independentEventsContinuityVerified
             artifactLaneVerified = continuity.artifactLaneVerified
+            record("relay_credential_rollover", started: rolloverStarted)
         case .relayExpiry:
+            let workspaceMutationStarted = ContinuousClock.now
             try await verifyReversibleWorkspaceRename(
                 workspace: workspace,
                 marker: marker
             )
+            record("workspace_rename_restore", started: workspaceMutationStarted)
+            let terminalRoundTripStarted = ContinuousClock.now
             try await verifyTerminalRoundTrip(
                 surfaceID: terminalID,
                 marker: marker
             )
+            record("terminal_round_trip", started: terminalRoundTripStarted)
+            let independentEventsStarted = ContinuousClock.now
             try await verifyIndependentEvents(
                 client: remoteClient,
                 marker: marker
             )
+            record("independent_events", started: independentEventsStarted)
         }
         mobileIrohReleaseGateProbeLog.info("probe stage=workspace_mutation state=completed")
         mobileIrohReleaseGateProbeLog.info("probe stage=terminal_round_trip state=completed")
         mobileIrohReleaseGateProbeLog.info("probe stage=independent_events state=completed")
+        let notificationReconcileStarted = ContinuousClock.now
         mobileIrohReleaseGateProbeLog.info("probe stage=notification_reconcile state=begin")
         try await verifyNotificationReconcile(client: remoteClient)
+        record("notification_reconcile", started: notificationReconcileStarted)
         mobileIrohReleaseGateProbeLog.info("probe stage=notification_reconcile state=completed")
+        let chatSessionsStarted = ContinuousClock.now
         mobileIrohReleaseGateProbeLog.info("probe stage=chat_sessions state=begin")
         try await verifyChatSessions(
             client: remoteClient,
             workspaceID: workspace.rpcWorkspaceID.rawValue
         )
+        record("chat_sessions", started: chatSessionsStarted)
         mobileIrohReleaseGateProbeLog.info("probe stage=chat_sessions state=completed")
+        let artifactScanStarted = ContinuousClock.now
         mobileIrohReleaseGateProbeLog.info("probe stage=artifact_scan_count state=begin")
         try await verifyArtifactScanCount(
             client: remoteClient,
             workspaceID: workspace.rpcWorkspaceID.rawValue,
             surfaceID: terminalID
         )
+        record("artifact_scan", started: artifactScanStarted)
         mobileIrohReleaseGateProbeLog.info("probe stage=artifact_scan_count state=completed")
 
         if scenario == .relayExpiry {
@@ -158,7 +191,8 @@ extension MobileShellComposite {
             independentEventsContinuityVerified: independentEventsContinuityVerified,
             artifactLaneVerified: artifactLaneVerified,
             unrefreshedExpiryDisconnectVerified: unrefreshedExpiryDisconnectVerified,
-            soakDurationSeconds: scenario == .relayRollover ? soakDurationSeconds : 0
+            soakDurationSeconds: scenario == .relayRollover ? soakDurationSeconds : 0,
+            operationLatencies: operationLatencies
         )
     }
 
@@ -854,7 +888,7 @@ extension MobileShellComposite {
         }
     }
 
-    private func verifyTerminalRoundTrip(
+    func verifyTerminalRoundTrip(
         surfaceID: String,
         marker: String
     ) async throws {

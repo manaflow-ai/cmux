@@ -5256,7 +5256,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``hideMac(macDeviceID:)`` and ``switchToMac(macDeviceID:)`` reuse this,
     /// so it must not clear ``hasKnownPairedMac``; hiding changes list visibility,
     /// not whether a stored paired Mac is known.
-    func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
+    package func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()

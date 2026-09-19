@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -636,6 +637,9 @@ struct WorkspaceListView: View {
             cancelMacTitlePickerSwitch()
         }
         .onAppear {
+            #if os(iOS) && DEBUG
+            MobileReleaseGateUIProbe.record(.workspaceListVisible)
+            #endif
             syncOptimisticWorkspaceOrder()
             updateMachineSnapshots(currentMachineSnapshots)
             filter.pruneMachinesForFilterMenu(visibleMacSelection: currentVisibleMacSelection)
