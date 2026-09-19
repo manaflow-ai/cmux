@@ -343,7 +343,7 @@ def setting(prefix):
 
 if "archive" in args:
     archive = Path(after("-archivePath"))
-    bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
+    bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=") or setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
@@ -448,6 +448,7 @@ sys.exit(0)
         fakebin / "security",
         f"""#!/usr/bin/env python3
 import copy
+import datetime
 import plistlib
 import sys
 from pathlib import Path
@@ -456,6 +457,12 @@ LEGACY_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
 LEGACY_PROFILE["Entitlements"] = dict(APPSTORE_PROFILE["Entitlements"])
 LEGACY_PROFILE["Entitlements"]["application-identifier"] = f"{{TEAM_ID}}.com.cmuxterm.app"
 LEGACY_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{TEAM_ID}}.com.cmuxterm.app"]
+EXTENSION_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
+EXTENSION_PROFILE["Name"] = "cmux App Store Notification Distribution Test"
+EXTENSION_PROFILE["UUID"] = "00000000-0000-0000-0000-000000000002"
+EXTENSION_PROFILE["ExpirationDate"] = datetime.datetime(2099, 1, 1)
+EXTENSION_PROFILE["Entitlements"]["application-identifier"] = f"{{APPSTORE_APP_ID}}.NotificationService"
+EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [f"{{APPSTORE_APP_ID}}.NotificationService"]
 
 args = sys.argv[1:]
 if args[:3] == ["find-identity", "-v", "-p"]:
@@ -471,6 +478,8 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
+            elif b"extension profile" in body:
+                profile = EXTENSION_PROFILE
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
@@ -530,6 +539,8 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux App Store Notification Distribution Test"
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
@@ -753,7 +764,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
         "beta archive command stamps the beta bundle id",
     )
     _check(
@@ -1089,7 +1100,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
         "archive command stamps com.cmux.app",
     )
     _check(
@@ -1176,6 +1187,8 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
 
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # These profile-only fixtures do not import a distribution certificate.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
@@ -1196,6 +1209,8 @@ def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fake
 
 def test_profile_installer_ignores_stale_primary_secret(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    # These profile-only fixtures do not import a distribution certificate.
+    env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
     env["HOME"] = str(tmp / "home")
     env["GITHUB_ENV"] = str(tmp / "github-env")
