@@ -112,7 +112,7 @@ struct CloudPlacementSelectorLifecycleTests {
     @Test
     func commandFailureDiagnosticsExcludeDaemonProseAndArguments() {
         let diagnostic = CloudTuiCommandDiagnostic(
-            arguments: ["--socket", "/private/socket", "--json", "tab", "tab_expected", "move", "--name", "private-name"],
+            arguments: CloudTuiRequest("tab.move", ["tab": "tab_expected", "name": "private-name"]),
             output: #"{"code":"selector.not_found","details":{"scope":"tab","selector":"tab_expected"},"message":"private-command /home/user/secret"}"#
         )
         #expect(diagnostic.operation == "tab.move")
@@ -125,35 +125,6 @@ struct CloudPlacementSelectorLifecycleTests {
         #expect(!CloudTuiDaemonAnswer.isMissingSelector(CloudMachineLink.LinkError.exited(
             status: 1, output: "unrelated failure mentioning selector.not_found"
         )))
-    }
-
-    @Test
-    func structuredDaemonErrorSurvivesAdditionalStderr() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cloud-command-output-\(UUID().uuidString.lowercased())", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let link = CloudMachineLink(
-            machineID: "test-machine",
-            clientURL: URL(fileURLWithPath: "/bin/sh"),
-            paths: CloudTuiClientPaths(home: root)
-        )
-        let structured = #"{"code":"selector.not_found","details":{"scope":"tab","selector":"tab_stale"}}"#
-        do {
-            _ = try await link.run(arguments: [
-                "-c",
-                "printf '%s\\n' '\(structured)'; printf '%s\\n' 'diagnostic' >&2; exit 1"
-            ])
-            Issue.record("the failed command must throw")
-        } catch let CloudMachineLink.LinkError.exited(_, output) {
-            #expect(output.contains(structured))
-            #expect(output.contains("diagnostic"))
-            #expect(CloudTuiDaemonAnswer.isMissingSelector(
-                CloudMachineLink.LinkError.exited(status: 1, output: output)
-            ))
-        } catch {
-            Issue.record("expected LinkError.exited, got \(error)")
-        }
     }
 
     @Test(arguments: [false, true])
@@ -268,13 +239,13 @@ struct CloudPlacementSelectorLifecycleTests {
 
         init(snapshot: Data, tree: Data) { self.snapshot = snapshot; self.tree = tree }
         func replace(snapshot: Data) { self.snapshot = snapshot }
-        func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
-            if arguments.suffix(3) == ["session", "current", "snapshot"] {
+        func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
+            if arguments.operation == "session.snapshot" {
                 snapshotReads += 1
                 return snapshot
             }
-            let request = try JSONSerialization.jsonObject(with: Data((arguments.last ?? "").utf8)) as? [String: Any]
-            #expect(request?["cmd"] as? String == "list-workspaces")
+            #expect(arguments.operation == "list-workspaces")
+            #expect(arguments.raw)
             treeReads += 1
             return tree
         }

@@ -9,14 +9,14 @@ struct CloudTuiCommandDiagnostic {
     let code: String
     let scope: String
 
-    init(arguments: [String], output: String) {
-        // App commands begin with an explicit socket and JSON output mode.
-        let words = Array(arguments.dropFirst(3))
+    init(arguments: CloudTuiRequest, output: String) {
+        // Inspect only the operation and scope, never arbitrary request fields.
+        let words = arguments.operation.split(separator: ".").map(String.init)
         let resourceScopes = ["session", "workspace", "screen", "pane", "tab", "terminal"]
         let verbs = ["snapshot", "events", "run", "split", "move", "close", "rename", "project", "write", "keys"]
-        if words.count >= 3, resourceScopes.contains(words[0]), verbs.contains(words[2]) {
-            operation = words[0] + "." + words[2]
-            selector = words[1]
+        if words.count == 2, resourceScopes.contains(words[0]), verbs.contains(words[1]) {
+            operation = arguments.operation
+            selector = arguments.params[words[0]] as? String ?? ""
         } else {
             operation = "other"
             selector = ""

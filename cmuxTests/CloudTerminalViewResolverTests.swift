@@ -69,9 +69,9 @@ struct CloudTerminalViewResolverTests {
 
         init(snapshot: Data, tree: Data) { self.snapshot = snapshot; self.tree = tree }
         func replace(snapshot: Data, tree: Data) { self.snapshot = snapshot; self.tree = tree }
-        func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+        func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
             calls += 1
-            if arguments.suffix(3) == ["session", "current", "snapshot"] { return snapshot }
+            if arguments.operation == "session.snapshot" { return snapshot }
             return tree
         }
     }

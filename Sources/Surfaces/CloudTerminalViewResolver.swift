@@ -16,7 +16,7 @@ struct CloudTerminalViewResolver: Sendable {
         guard !terminalByTab.isEmpty else { return [:] }
         do {
             let snapshot = try await commandRunner.runTuiCommand(
-                arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath), deadline: .seconds(15)
+                arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath), deadline: .seconds(15)
             )
             guard let object = try? JSONSerialization.jsonObject(with: snapshot) as? [String: Any],
                   CmuxTuiSnapshotParser.authoritativeGraphIsValid(object) else {
@@ -46,7 +46,7 @@ struct CloudTerminalViewResolver: Sendable {
             }
             guard !live.isEmpty else { return results }
             let tree = try await commandRunner.runTuiCommand(
-                arguments: CloudTuiCommandLine.legacyListWorkspacesArguments(socketPath: socketPath), deadline: .seconds(15)
+                arguments: CloudTuiRequests.legacyListWorkspacesArguments(socketPath: socketPath), deadline: .seconds(15)
             )
             let surfaces = CloudTuiLegacySnapshotParser().viewSurfaceIDs(from: tree, terminalByTab: live)
             for tabID in live.keys {

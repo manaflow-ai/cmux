@@ -18234,9 +18234,9 @@ struct CMUXCLI {
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports. Terminal
-            and metadata access starts a user-space WireGuard tunnel automatically.
-            Opening a private Cloud URL starts the signed Network Extension tunnel
-            and can require one macOS approval. Missing tunnel support fails closed.
+            and embedded browser access uses user-space WireGuard automatically.
+            Private Cloud URLs keep their machine's address and original port.
+            The optional system VPN is only needed for access from other apps.
 
             Subcommands:
               guide | --skill           \(Self.guideDescription)
@@ -18390,7 +18390,7 @@ struct CMUXCLI {
                                         browser tab on its port, opened here.
               push <id> <local> [remote] [--exclude <pattern>]... [--no-default-excludes]
                                         Copy a local file or directory onto the VM over the
-                                        exec channel (no SSH needed). Alias: `upload`.
+                                        private Cloud link using SCP. Alias: `upload`.
               push <id> <local> [remote] --watch [--interval <s>]
                                         Keep pushing: re-sync whenever a local file changes,
                                         until Ctrl-C.
