@@ -1147,6 +1147,31 @@ function reopenBaseIfProviderDeleted(
   );
 }
 
+export function findOwnedSnapshotByName(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly name: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    if (!repo.findOwnedSnapshotByName) return null;
+    const snapshot = yield* repo.findOwnedSnapshotByName({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      provider: "freestyle",
+      name: input.name,
+    });
+    if (!snapshot || !snapshot.resourceReservation) return null;
+    const owned = yield* repo.hasOwnedSnapshot({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      provider: "freestyle",
+      snapshotId: snapshot.id,
+    });
+    return owned ? snapshot : null;
+  });
+}
+
 export function snapshotVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;

@@ -463,6 +463,19 @@ export type VmRepositoryShape = {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Find a caller-owned named snapshot recorded in the usage ledger. */
+  readonly findOwnedSnapshotByName?: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
+    readonly name: string;
+  }) => Effect.Effect<{
+    readonly id: string;
+    readonly name: string;
+    readonly createdAt: string;
+    /** Durable source shape captured with the snapshot claim, when available. */
+    readonly resourceReservation: VmResourceReservation;
+  } | null, VmDatabaseError>;
   /** Return the durable resource claim for an owned snapshot, or null when absent. */
   readonly ownedSnapshotResourceReservation?: (input: {
     readonly userId: string;
@@ -2704,6 +2717,51 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return [...new Set(rows.flatMap(({ metadata }) =>
         typeof metadata.snapshotId === "string" ? [metadata.snapshotId] : [],
       ))];
+    }),
+
+  findOwnedSnapshotByName: (input) =>
+    dbEffect("findOwnedSnapshotByName", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select({
+          metadata: cloudVmUsageEvents.metadata,
+          sourceMetadata: cloudVms.providerMetadata,
+          createdAt: cloudVmUsageEvents.createdAt,
+        })
+        .from(cloudVmUsageEvents)
+        .leftJoin(cloudVms, eq(cloudVmUsageEvents.vmId, cloudVms.id))
+        .where(and(
+          accountUsageScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+          eq(cloudVmUsageEvents.provider, input.provider),
+          eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+          sql`${cloudVmUsageEvents.metadata}->>'name' = ${input.name}`,
+          sql`jsonb_typeof(${cloudVmUsageEvents.metadata}->'snapshotId') = 'string'`,
+          sql`not exists (
+            select 1 from ${cloudVmUsageEvents} as snapshot_deleted
+            where snapshot_deleted.event_type in ('vm.snapshot.delete_requested', 'vm.snapshot.deleted')
+              and snapshot_deleted.provider = ${cloudVmUsageEvents.provider}
+              and snapshot_deleted.metadata->>'snapshotId' = ${cloudVmUsageEvents.metadata}->>'snapshotId'
+          )`,
+        ))
+        .orderBy(desc(cloudVmUsageEvents.createdAt), desc(cloudVmUsageEvents.id))
+        .limit(1);
+      const row = rows.find(({ metadata }) => typeof metadata.snapshotId === "string");
+      if (!row || typeof row.metadata.snapshotId !== "string") return null;
+      const source = vmResourceReservationFromMetadata(row.sourceMetadata, {
+        ...DEFAULT_VM_RESOURCE_RESERVATION,
+        diskMb: VM_DISK_MB_MAX,
+      });
+      const sourceReservation = {
+        vcpus: positiveReservationInteger(row.metadata.vcpus) ?? source.vcpus,
+        memoryMb: positiveReservationInteger(row.metadata.memoryMb) ?? source.memoryMb,
+        diskMb: positiveReservationInteger(row.metadata.diskMb) ?? source.diskMb,
+      };
+      return {
+        id: row.metadata.snapshotId,
+        name: input.name,
+        createdAt: row.createdAt.toISOString(),
+        resourceReservation: sourceReservation,
+      };
     }),
 
   hasOwnedSnapshot: (input) =>
