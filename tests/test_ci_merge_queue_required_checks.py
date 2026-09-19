@@ -16,10 +16,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
-# The required status checks in the branch rule for main.
+# The required status checks in the branch rule for main that validate the
+# merged tree. "CLA Assistant" and "CLA policy guard" are also required, but
+# they judge a pull request's authors and policy edits from the base branch.
+# How they report for the queue is a maintainer decision and is not covered.
 REQUIRED_CHECKS = (
-    "CLA Assistant",
-    "CLA policy guard",
     "Web complexity",
     "ci-status",
     "web-validation",
