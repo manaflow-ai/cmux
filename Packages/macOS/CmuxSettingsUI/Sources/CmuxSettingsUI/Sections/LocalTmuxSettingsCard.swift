@@ -22,11 +22,13 @@ struct LocalTmuxSettingsCard: View {
                 searchAnchorID: "setting:terminal:session-persistence",
                 String(
                     localized: "settings.terminal.localTmux.title",
-                    defaultValue: "Keep Local Sessions Alive"
+                    defaultValue: "Keep Local Sessions Alive",
+                    bundle: .module
                 ),
                 subtitle: String(
                     localized: "settings.terminal.localTmux.subtitle",
-                    defaultValue: "Named local-tmux sessions keep processes and scrollback alive across cmux quit, crashes, and updates. Ordinary terminals keep their current behavior."
+                    defaultValue: "Named local-tmux sessions keep processes and scrollback alive across cmux quit, crashes, and updates. Ordinary terminals keep their current behavior.",
+                    bundle: .module
                 ),
                 controlWidth: 300
             ) {
@@ -36,7 +38,7 @@ struct LocalTmuxSettingsCard: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
-                    Button(String(localized: "settings.terminal.localTmux.refresh", defaultValue: "Refresh")) {
+                    Button(String(localized: "settings.terminal.localTmux.refresh", defaultValue: "Refresh", bundle: .module)) {
                         refresh()
                     }
                     .buttonStyle(.bordered)
@@ -45,7 +47,7 @@ struct LocalTmuxSettingsCard: View {
                     .accessibilityIdentifier("SettingsTerminalLocalTmuxRefreshButton")
 
                     Link(
-                        String(localized: "settings.terminal.localTmux.details", defaultValue: "Details"),
+                        String(localized: "settings.terminal.localTmux.details", defaultValue: "Details", bundle: .module),
                         destination: URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/local-tmux.md")!
                     )
                     .cmuxFont(.caption)
@@ -58,24 +60,26 @@ struct LocalTmuxSettingsCard: View {
                 configurationReview: .action,
                 String(
                     localized: "settings.terminal.localTmux.start",
-                    defaultValue: "Start Persistent Session"
+                    defaultValue: "Start Persistent Session",
+                    bundle: .module
                 ),
                 subtitle: String(
                     localized: "settings.terminal.localTmux.start.subtitle",
-                    defaultValue: "Creates a named local-tmux session in the selected workspace directory and attaches it to cmux."
+                    defaultValue: "Creates a named local-tmux session in the selected workspace directory and attaches it to cmux.",
+                    bundle: .module
                 ),
                 controlWidth: 300
             ) {
                 HStack(spacing: 8) {
                     TextField(
-                        String(localized: "settings.terminal.localTmux.name", defaultValue: "Session name"),
+                        String(localized: "settings.terminal.localTmux.name", defaultValue: "Session name", bundle: .module),
                         text: $sessionName
                     )
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 170)
                     .accessibilityIdentifier("SettingsTerminalLocalTmuxNameField")
 
-                    Button(String(localized: "settings.terminal.localTmux.startButton", defaultValue: "Start")) {
+                    Button(String(localized: "settings.terminal.localTmux.startButton", defaultValue: "Start", bundle: .module)) {
                         startSession()
                     }
                     .buttonStyle(.borderedProminent)
@@ -89,7 +93,7 @@ struct LocalTmuxSettingsCard: View {
                 SettingsCardDivider()
                 SettingsCardRow(
                     configurationReview: .action,
-                    String(localized: "settings.terminal.localTmux.status", defaultValue: "Status"),
+                    String(localized: "settings.terminal.localTmux.status", defaultValue: "Status", bundle: .module),
                     subtitle: errorMessage
                 ) {
                     EmptyView()
@@ -106,7 +110,7 @@ struct LocalTmuxSettingsCard: View {
                 ) {
                     if session.isLive {
                         Button(
-                            String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach")
+                            String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach", bundle: .module)
                         ) {
                             attach(session)
                         }
@@ -115,7 +119,7 @@ struct LocalTmuxSettingsCard: View {
                         .disabled(actionInFlight)
                         .accessibilityIdentifier("SettingsTerminalLocalTmuxAttachButton-\(session.id)")
                     } else {
-                        Text(String(localized: "settings.terminal.localTmux.stale", defaultValue: "Stale"))
+                        Text(String(localized: "settings.terminal.localTmux.stale", defaultValue: "Stale", bundle: .module))
                             .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -131,15 +135,17 @@ struct LocalTmuxSettingsCard: View {
     /// Renders the cached live-session count without scanning the session array from body.
     private var statusText: String {
         if isLoading {
-            return String(localized: "settings.terminal.localTmux.checking", defaultValue: "Checking…")
+            return String(localized: "settings.terminal.localTmux.checking", defaultValue: "Checking…", bundle: .module)
         }
         if liveSessionCount == 0 {
-            return String(localized: "settings.terminal.localTmux.none", defaultValue: "No live sessions")
+            return String(localized: "settings.terminal.localTmux.none", defaultValue: "No live sessions", bundle: .module)
         }
-        return String.localizedStringWithFormat(
-            String(localized: "settings.terminal.localTmux.liveCount", defaultValue: "%lld live"),
-            liveSessionCount
+        let liveLabel = String(
+            localized: "settings.terminal.localTmux.liveCount",
+            defaultValue: "Live",
+            bundle: .module
         )
+        return "\(liveLabel): \(liveSessionCount)"
     }
 
     /// Formats one already-decoded session row for display.
@@ -147,16 +153,16 @@ struct LocalTmuxSettingsCard: View {
         var parts: [String] = []
         parts.append(
             session.isManaged
-                ? String(localized: "settings.terminal.localTmux.managed", defaultValue: "Managed")
-                : String(localized: "settings.terminal.localTmux.unmanaged", defaultValue: "Unmanaged")
+                ? String(localized: "settings.terminal.localTmux.managed", defaultValue: "Managed", bundle: .module)
+                : String(localized: "settings.terminal.localTmux.unmanaged", defaultValue: "Unmanaged", bundle: .module)
         )
         if session.clientCount > 0 {
-            parts.append(
-                String.localizedStringWithFormat(
-                    String(localized: "settings.terminal.localTmux.clients", defaultValue: "%lld client(s)"),
-                    session.clientCount
-                )
+            let clientsLabel = String(
+                localized: "settings.terminal.localTmux.clients",
+                defaultValue: "Clients",
+                bundle: .module
             )
+            parts.append("\(clientsLabel): \(session.clientCount)")
         }
         if let cwd = session.cwd, !cwd.isEmpty {
             parts.append(cwd)
