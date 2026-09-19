@@ -216,11 +216,13 @@ struct SudoApprovalCoordinatorTests {
         let broker = RecordingSudoBroker(initialSnapshots: [snapshot])
         let presenter = RecordingSudoApprovalPresenter()
         let coordinator = SudoApprovalCoordinator(broker: broker, presenter: presenter)
+        var events = presenter.events.makeAsyncIterator()
 
         try await coordinator.start()
+        #expect(await events.next() == .presented(snapshot.request.id))
         presenter.close(id: snapshot.request.id)
         await broker.send(.snapshot([snapshot]))
-        await Task.yield()
+        #expect(await events.next() == .presented(snapshot.request.id))
 
         #expect(presenter.presentCallCount == 2)
         await coordinator.stop()
