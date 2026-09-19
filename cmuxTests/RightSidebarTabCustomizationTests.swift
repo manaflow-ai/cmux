@@ -43,7 +43,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     func testDefaultOrderIsCanonical() {
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.files, .find, .sessions, .feed, .dock, .machines]
+            [.files, .find, .sessions, .feed, .dock, .machines, .beads]
         )
     }
 
@@ -51,7 +51,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         defaults.set(["machines", "bogus", "files", "custom-sidebar"], forKey: RightSidebarTabPreferences.orderKey)
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.machines, .files, .find, .sessions, .feed, .dock]
+            [.machines, .files, .find, .sessions, .feed, .dock, .beads]
         )
     }
 
@@ -60,16 +60,19 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults))
         XCTAssertEqual(
             RightSidebarMode.visibleModes(defaults: defaults),
-            [.files, .sessions, .feed, .dock, .machines]
+            [.files, .sessions, .feed, .dock, .machines, .beads]
         )
     }
 
     func testHidingLastVisibleTabIsRefused() {
         // Feed and Dock are feature-gated off in this suite; Cloud may be on
         // through the process-global rollout flag, so hide it explicitly.
+        // Beads is always available, so it must be hidden too before Sessions
+        // is the last remaining visible tab.
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .files, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .machines, defaults: defaults))
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .beads, defaults: defaults))
         XCTAssertFalse(
             RightSidebarTabPreferences.setHidden(true, mode: .sessions, defaults: defaults),
             "the last visible tab must stay visible"
@@ -81,7 +84,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         RightSidebarTabPreferences.move(.machines, offset: -5, defaults: defaults)
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.machines, .files, .find, .sessions, .feed, .dock]
+            [.machines, .files, .find, .sessions, .feed, .dock, .beads]
         )
         RightSidebarTabPreferences.move(.machines, offset: -1, defaults: defaults)
         XCTAssertEqual(
@@ -102,7 +105,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         )
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.machines, .files, .find, .feed, .sessions, .dock],
+            [.machines, .files, .find, .feed, .sessions, .dock, .beads],
             "hidden Feed keeps its 4th slot while the displayed tabs permute around it"
         )
     }
@@ -132,7 +135,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         RightSidebarTabPreferences.resetToDefaults(defaults: defaults)
         XCTAssertEqual(
             RightSidebarTabPreferences.orderedModes(defaults: defaults),
-            [.files, .find, .sessions, .feed, .dock, .machines]
+            [.files, .find, .sessions, .feed, .dock, .machines, .beads]
         )
         XCTAssertTrue(RightSidebarTabPreferences.hiddenModes(defaults: defaults).isEmpty)
     }
@@ -147,7 +150,7 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         enableMachinesGate()
         XCTAssertEqual(
             RightSidebarMode.visibleModes(defaults: defaults),
-            [.files, .find, .sessions, .machines]
+            [.files, .find, .sessions, .machines, .beads]
         )
         XCTAssertEqual(
             KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .machines, defaults: defaults),
