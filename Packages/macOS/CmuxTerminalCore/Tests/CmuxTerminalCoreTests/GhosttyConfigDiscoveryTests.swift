@@ -181,4 +181,19 @@ private struct NoFontProbe: GhosttyFontProbing {
             configPaths: [path]
         ) == nil)
     }
+
+    @Test func staleManagedSingleSidedThemeGetsSymmetricOverride() throws {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-theme-override-\(UUID().uuidString)", isDirectory: false)
+        defer { try? FileManager.default.removeItem(at: path) }
+        try "# cmux themes start\ntheme = light:Light Theme\n# cmux themes end"
+            .write(to: path, atomically: true, encoding: .utf8)
+        let reader = FakeFileReader(contentsByPath: [path.path: try String(contentsOf: path)])
+        let discovery = GhosttyConfigDiscovery(fileReader: reader, fontProbe: NoFontProbe())
+
+        #expect(discovery.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: .dark,
+            configPaths: [path.path]
+        ) == "theme = Light Theme")
+    }
 }
