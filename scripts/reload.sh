@@ -16,6 +16,7 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 LAUNCH=0
+BUILD_ONLY=0
 CMUX_DEBUG_LOG=""
 CMUX_DEV_PORT=""
 CMUX_DEV_PORT_END=""
@@ -893,6 +894,9 @@ Options:
                          so macOS launches the freshly-built binary on cmd-click or --launch.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
+  --build-only           Build and validate a tagged app without replacing or
+                         stopping the running tagged app, daemon, or tag state.
+                         Cannot be combined with --launch.
   --prod-auth            Point this tagged Debug build at production Stack auth,
                          cmux APIs, and the production Iroh broker.
   --credentials-file <path>
@@ -1027,7 +1031,12 @@ cleanup_incomplete_xcodebuild_outputs() {
   fi
   XCODEBUILD_CLEANED_OUTPUTS=1
   remove_app_bundle_output "${XCODEBUILD_SOURCE_APP_PATH:-}"
-  remove_app_bundle_output "${XCODEBUILD_TAG_APP_PATH:-}"
+  # A normal reload replaces the tagged bundle, so a stale one must not survive a
+  # failed build. Build-only never writes it, and a running tagged app executes
+  # from it, so leave it alone.
+  if [[ "${BUILD_ONLY:-0}" -ne 1 ]]; then
+    remove_app_bundle_output "${XCODEBUILD_TAG_APP_PATH:-}"
+  fi
   remove_app_bundle_output "${TAG_APP_STAGING_PATH:-}"
 }
 
@@ -1141,6 +1150,10 @@ while [[ $# -gt 0 ]]; do
       LAUNCH=1
       shift
       ;;
+    --build-only)
+      BUILD_ONLY=1
+      shift
+      ;;
     --prod-auth)
       PROD_AUTH=1
       shift
@@ -1203,6 +1216,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$BUILD_ONLY" -eq 1 && "$LAUNCH" -eq 1 ]]; then
+  echo "error: --build-only cannot be combined with --launch" >&2
+  exit 1
+fi
 
 if [[ -z "$TAG" ]]; then
   echo "error: --tag is required (example: ./scripts/reload.sh --tag fix-sidebar-theme)" >&2
@@ -1267,8 +1285,10 @@ if [[ -n "$TAG" ]]; then
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
-  cleanup_stale_cli_pointer_target || true
-  cleanup_stale_tag_state "$TAG_SLUG" || true
+  if [[ "$BUILD_ONLY" -ne 1 ]]; then
+    cleanup_stale_cli_pointer_target || true
+    cleanup_stale_tag_state "$TAG_SLUG" || true
+  fi
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -1354,7 +1374,7 @@ reload_finalize() {
   fi
   echo "==> reload succeeded in ${elapsed}s"
   echo "==> log: $RELOAD_LOG"
-  if [[ -n "${APP_PATH:-}" ]]; then
+  if [[ "$BUILD_ONLY" -ne 1 && -n "${APP_PATH:-}" ]]; then
     echo
     echo "App path:"
     echo "  $APP_PATH"
@@ -1372,7 +1392,7 @@ reload_finalize() {
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
     fi
   fi
-  if [[ -x "${CLI_PATH:-}" ]]; then
+  if [[ "$BUILD_ONLY" -ne 1 && -x "${CLI_PATH:-}" ]]; then
     echo
     echo "CLI path:"
     echo "  $CLI_PATH"
@@ -1395,7 +1415,14 @@ reload_finalize() {
     echo "Swift workaround:"
     echo "  batch mode, debug symbols, and AArch64 GlobalISel disabled for this reload"
   fi
-  if [[ "$LAUNCH" -eq 0 ]]; then
+  if [[ "$BUILD_ONLY" -eq 1 ]]; then
+    echo
+    echo "Build-only validation complete. The running tagged app, cmuxd, and tag state were left unchanged."
+    if [[ -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
+      remove_app_bundle_output "$TAG_APP_STAGING_PATH"
+      echo "==> removed temporary build-only artifact"
+    fi
+  elif [[ "$LAUNCH" -eq 0 ]]; then
     echo
     echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
   fi
@@ -1685,7 +1712,7 @@ fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
 
-if [[ -n "${TAG_SLUG:-}" ]]; then
+if [[ "$BUILD_ONLY" -ne 1 && -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
   if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then
     ABS_DERIVED_DATA="$(cd "$DERIVED_DATA" && pwd)"
@@ -1713,7 +1740,9 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       CMUX_AUTH_CALLBACK_SCHEME_VALUE="cmux-dev-${TAG_SLUG}"
-      echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
+      if [[ "$BUILD_ONLY" -ne 1 ]]; then
+        echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
+      fi
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       set_plist_url_scheme "$INFO_PLIST" "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
@@ -1735,8 +1764,12 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
-      set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$TAG_APP_FINAL_PATH/Contents/Resources/bin/cmux"
-      set_plist_env "$INFO_PLIST" CMUX_SHELL_INTEGRATION_DIR "$TAG_APP_FINAL_PATH/Contents/Resources/shell-integration"
+      BUNDLED_APP_PATH="$TAG_APP_FINAL_PATH"
+      if [[ "$BUILD_ONLY" -eq 1 ]]; then
+        BUNDLED_APP_PATH="$TAG_APP_STAGING_PATH"
+      fi
+      set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$BUNDLED_APP_PATH/Contents/Resources/bin/cmux"
+      set_plist_env "$INFO_PLIST" CMUX_SHELL_INTEGRATION_DIR "$BUNDLED_APP_PATH/Contents/Resources/shell-integration"
       set_plist_env "$INFO_PLIST" CMUX_PORT "$CMUX_DEV_PORT"
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
@@ -1764,7 +1797,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
         set_plist_env "$INFO_PLIST" CMUX_DEV_AUTH_PROFILE "$AUTH_PROFILE"
         set_plist_env "$INFO_PLIST" CMUX_DEV_AUTH_REPLACE_SESSION "1"
       fi
-      if [[ -S "$CMUXD_SOCKET" ]]; then
+      if [[ "$BUILD_ONLY" -ne 1 && -S "$CMUXD_SOCKET" ]]; then
         for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
           kill "$PID" 2>/dev/null || true
         done
@@ -1844,7 +1877,11 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
-if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
+if [[ "$BUILD_ONLY" -eq 1 && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
+  # Keep the staged artifact separate from the running tagged app. This mode is
+  # explicitly for compilation/validation and must not mutate the active bundle.
+  APP_PATH="$TAG_APP_STAGING_PATH"
+elif [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   rm -rf "$TAG_APP_FINAL_PATH"
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
   APP_PATH="$TAG_APP_FINAL_PATH"
@@ -1862,7 +1899,7 @@ fi
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
 # instead of launching the newly built binary when the user cmd-clicks the .app.
-if [[ -n "$TAG" ]]; then
+if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
@@ -1874,7 +1911,10 @@ if [[ -n "$TAG" ]]; then
   /bin/launchctl remove "$TAG_LAUNCHD_LABEL" >/dev/null 2>&1 || true
 fi
 
-if [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
+if [[ "$BUILD_ONLY" -eq 1 ]]; then
+  CAN_PUBLISH_RELOAD_STATE=0
+  RELOAD_PUBLICATION_SKIP_REASON="build-only mode left the running tagged app and tag state unchanged"
+elif [[ -n "$TAG" ]] && ! wait_for_tag_socket_lock_release "/tmp/cmux-debug-${TAG_SLUG}.sock"; then
   CAN_PUBLISH_RELOAD_STATE=0
 fi
 if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && -n "${TAG_SLUG:-}" ]]; then
