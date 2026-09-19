@@ -6268,7 +6268,7 @@ struct CMUXCLI {
                 try runVMLayoutCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "env":
-                try runVMEnvCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+                try runVMEnvCommand(commandArgs: rest, client: client, jsonOutput: jsonOutput, windowId: windowId, idFormat: idFormat)
 
             case "tab":
                 try runVMTabCommand(rest: rest, client: client, jsonOutput: jsonOutput)
@@ -12875,7 +12875,7 @@ struct CMUXCLI {
 
     /// Opens the machine's workspace through the shared cloud open path; see the body.
     @discardableResult
-    private func vmOpenShell(
+    func vmOpenShell(
         id: String,
         workspaceName: String?,
         windowRaw: String?,
@@ -17140,7 +17140,6 @@ struct CMUXCLI {
             }
             return
         }
-
 
         if subcommand == "find" {
             let sid = try requireSurface()

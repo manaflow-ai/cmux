@@ -2062,19 +2062,20 @@ actor VMClient {
         return try await operations.perform(kind, foreground: foreground, work)
     }
 
-    private func request(
+    func request( // internal: sibling extension files (VMClientEnvLayers.swift) share the HTTP path
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false
+        allowedUnderManagedPolicy: Bool = false,
+        queryItems: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
             try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
                 timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+                allowedUnderManagedPolicy: allowedUnderManagedPolicy, queryItems: queryItems)
         }
         if CloudOperationContext.current != nil || operations == nil { return try await work() }
         let kind: CloudOperationKind = path == "/api/vm" ? (method == "GET" ? .list : .create) : .resolve(path)
@@ -2088,7 +2089,8 @@ actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false
+        allowedUnderManagedPolicy: Bool = false,
+        queryItems: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
         if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
             throw VMClientError.disabledByManagedPolicy
@@ -2132,6 +2134,7 @@ actor VMClient {
                 timeoutSeconds: timeoutSeconds,
                 retryTransientServiceUnavailable: retryTransientServiceUnavailable,
                 allowedWhenCloudDisabled: allowedUnderManagedPolicy,
+                queryItems: queryItems,
                 onRetry: { retryCount += 1 }
             )
             record(.response(
@@ -2205,6 +2208,7 @@ actor VMClient {
         timeoutSeconds: TimeInterval?,
         retryTransientServiceUnavailable: Bool,
         allowedWhenCloudDisabled: Bool,
+        queryItems: [URLQueryItem],
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
@@ -2230,6 +2234,7 @@ actor VMClient {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
         }
         url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + path
+        if !queryItems.isEmpty { url.queryItems = queryItems }
         guard let resolved = url.url else {
             throw VMClientError.malformedResponse("could not build URL for \(path)")
         }
@@ -2442,14 +2447,13 @@ actor VMClient {
         )
     }
 
-    private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
+    func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "<binary>"
-            throw VMClientError.httpStatus(http.statusCode, body)
+            throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<binary>")
         }
     }
 
-    private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
+    func decodeJSONObject(_ data: Data) throws -> [String: Any] {
         let parsed = try JSONSerialization.jsonObject(with: data, options: [])
         guard let obj = parsed as? [String: Any] else {
             throw VMClientError.malformedResponse("expected JSON object, got \(type(of: parsed))")

@@ -29,6 +29,8 @@ db/
 - `/api/vm/:id`, authenticated `DELETE` destroy.
 - `/api/vm/:id/exec`, authenticated `POST` command execution.
 - `/api/vm/:id/attach-endpoint`, authenticated `POST` PTY/RPC attach lease minting.
+- `/api/vm/env/layers/resolve`, authenticated `POST` deepest cached env-layer lookup for a chain of layer hashes; also returns the base image the server would boot so clients hash against the deployed image.
+- `/api/vm/env/layers`, authenticated `POST` register / `GET` list env-layer cache entries.
 - `/api/vm/tunnel`, authenticated `POST` WireGuard tunnel enrollment for the calling
   computer, `GET` tunnel/list state, `DELETE` unenrollment. Not Pro-gated: a lapsed
   subscription must still be able to reach machines it already owns.
@@ -94,6 +96,7 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
   persist that id and issue one exact `remote enroll revoke` command per device;
   revoking all devices would disconnect other team members.
 - `cloud_vm_usage_events` records lifecycle, attach, SSH, and exec events with billing team/plan ids for billing and audit rollups.
+- `cloud_vm_env_layers` is the env-layer cache behind `cmux vm env build`. Each row maps a chain hash (provider + base image + ordered `.cmux/env.yaml` steps) to the provider snapshot taken after that step succeeded. Rows are billing-team scoped and never shared across teams because snapshots can contain secrets. Registration re-verifies snapshot ownership via `vm.snapshot.created` usage events, and restores of cached layers flow through the existing `restoreVm` ownership + entitlement gates. Freestyle-only for now (`VmEnvProviderUnsupportedError` otherwise); the chain hash is computed client-side and treated as opaque by the server.
 - `cloud_vm_networks` records the one provider private network per (user, provider).
 - `cloud_vm_tunnels` records each computer's WireGuard tunnel: provider tunnel id, device
   fingerprint, the client's **public** key, and its address inside the network. No private
