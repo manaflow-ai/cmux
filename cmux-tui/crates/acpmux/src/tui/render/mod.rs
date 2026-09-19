@@ -762,7 +762,12 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
                     let model = s.get("model").and_then(Value::as_str).unwrap_or("").to_owned();
                     let age = s.get("updatedAt").and_then(Value::as_u64).map(|t| age_label(now_ms().saturating_sub(t))).unwrap_or_default();
                     let line1 = if title == name { title.clone() } else { format!("{title}  ·  {name}") };
-                    let mut line2 = format!("▢ {}", shorten_path(&cwd));
+                    // The project, then the path only when it is short enough to help.
+                    let short = shorten_path(&cwd);
+                    let mut line2 = format!("▢ {}", project_label(&cwd));
+                    if short.width() <= 40 && short != project_label(&cwd) {
+                        line2.push_str(&format!("  {short}"));
+                    }
                     if !harness.is_empty() {
                         line2.push_str(&format!("  ·  {harness}"));
                     }
@@ -772,7 +777,7 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
                     if !age.is_empty() {
                         line2.push_str(&format!("  ·  {age}"));
                     }
-                    let w = (line1.width().max(line2.width()) as u16 + 4).min(main.width.saturating_sub(4)).max(12);
+                    let w = (line1.width().max(line2.width()) as u16 + 4).min(main.width.saturating_sub(4)).min(72).max(12);
                     let x = sidebar.x + sidebar.width + 1;
                     let y = row.y.min(area.y + area.height.saturating_sub(5));
                     let r = Rect { x, y, width: w, height: 4 };
