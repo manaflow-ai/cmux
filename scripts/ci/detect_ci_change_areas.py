@@ -64,8 +64,17 @@ def forces_all_areas(path: str) -> bool:
 _TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
 
 
+def is_plainly_linux_runner(runs_on: str) -> bool:
+    # Anything else counts as macOS: a matrix or needs expression, a list or
+    # group on the following lines, or a label this does not recognize.
+    value = runs_on.strip()
+    if not value or re.search(r"macos|matrix\.|needs\.|inputs\.", value, re.IGNORECASE):
+        return False
+    return bool(re.search(r"LINUX_RUNNER|LINUX_ARM64_RUNNER|ubuntu", value))
+
+
 def macos_job_test_references(workflow: str) -> Optional[tuple[frozenset[str], frozenset[str]]]:
-    """Return the tests/ paths ci.yml names in macOS jobs and in all jobs.
+    """Return the tests/ paths ci.yml names in non-Linux jobs and in all jobs.
 
     A macOS job that runs tests through a glob yields the glob's literal prefix.
     Returns None when the jobs cannot be read, so the caller fails open.
@@ -77,13 +86,13 @@ def macos_job_test_references(workflow: str) -> Optional[tuple[frozenset[str], f
     everywhere: set[str] = set()
     jobs = 0
     for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
-        runs_on = re.search(r"(?m)^    runs-on:\s*(.+)$", block)
+        runs_on = re.search(r"(?m)^    runs-on:[ \t]*(.*)$", block)
         if not runs_on:
             continue
         jobs += 1
         references = set(_TEST_REFERENCE_RE.findall(block))
         everywhere |= references
-        if re.search(r"macos", runs_on.group(1), re.IGNORECASE):
+        if not is_plainly_linux_runner(runs_on.group(1)):
             macos |= references
     if jobs == 0:
         return None
