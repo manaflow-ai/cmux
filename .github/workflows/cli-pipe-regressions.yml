@@ -6,6 +6,9 @@ on:
       - 'CLI/**'
       - 'tests/test_cli_broken_pipe_writes.py'
       - 'tests/test_cli_socket_operation_deadline.py'
+      - 'tests/test_cli_config_doctor.py'
+      - 'scripts/generate-cmux-config-schema.py'
+      - 'web/data/cmux.schema.json'
       - 'cmux.xcodeproj/**'
       - 'Packages/macOS/CmuxFoundation/**'
       - '.github/workflows/cli-pipe-regressions.yml'
@@ -58,6 +61,10 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -resolvePackageDependencies
 
+      - name: Test semantic config validator
+        run: |
+          swift test --package-path Packages/macOS/CmuxFoundation             --filter CmuxConfigSemanticValidatorTests             -Xswiftc -warnings-as-errors
+
       - name: Build the standalone CLI
         run: |
           set -euo pipefail
@@ -78,6 +85,7 @@ jobs:
           export CMUX_CLI_BIN="$CMUX_CLI_PRODUCTS/cmux"
           export DYLD_FRAMEWORK_PATH="$CMUX_CLI_PRODUCTS/Frameworks:$CMUX_CLI_PRODUCTS"
           python3 tests/test_cli_broken_pipe_writes.py 2>&1 | tee "$RUNNER_TEMP/cli-pipes.log"
+          python3 tests/test_cli_config_doctor.py 2>&1 | tee "$RUNNER_TEMP/cli-config-validation.log"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -87,4 +95,5 @@ jobs:
             ${{ runner.temp }}/cli-revision.txt
             ${{ runner.temp }}/cli-build.log
             ${{ runner.temp }}/cli-pipes.log
+            ${{ runner.temp }}/cli-config-validation.log
           retention-days: 7
