@@ -15,6 +15,14 @@ public struct JSONCSanitizer: Sendable {
     /// (with optional BOM), UTF-16 and UTF-32 input.
     public init() {}
 
+    /// Decodes JSONC bytes without changing their source text.
+    ///
+    /// Mutation code uses this after syntax validation so it can edit the
+    /// original authoring text instead of reserializing the parsed object.
+    func sourceText(from data: Data) throws -> String {
+        try decode(data: data)
+    }
+
     /// Strips JSONC extensions from ``data`` and returns strict JSON bytes.
     ///
     /// - Parameter data: JSONC-encoded payload.
