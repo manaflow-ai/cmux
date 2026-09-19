@@ -10,7 +10,7 @@
  *
  * Usage:
  *   FREESTYLE_API_KEY=... bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix>
- *       [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug]
+ *       [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug] [--concurrency <n>]
  *
  * Prints one line per size and a final JSON `{ sizes: { <name>: { imageId, slug, size } } }`
  * (also written to --out). Every derived VM is booted once more from its own
@@ -48,7 +48,7 @@ const fs = (() => {
 const master = process.argv[2];
 const slugPrefix = process.argv[3];
 if (!master || master.startsWith("--") || !slugPrefix || slugPrefix.startsWith("--")) {
-  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug]");
+  throw new Error("usage: bun scripts/derive-devbox-sizes.ts <master-snapshot-id> <slug-prefix> [--sizes sm,md,lg,lgx,xl,2xl] [--out <json>] [--replace-slug] [--concurrency <n>]");
 }
 const requested = (argValue("--sizes") ?? VM_IMAGE_SIZE_NAMES.join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 for (const name of requested) {
@@ -63,8 +63,29 @@ if (!/^[a-z0-9](?:[a-z0-9-]{0,57}[a-z0-9])?$/.test(slugPrefix) || slugPrefix.inc
 const sizes = requested as VmImageSizeName[];
 const replaceSlug = hasFlag("--replace-slug");
 
+const concurrencyRaw = argValue("--concurrency") ?? process.env.CMUX_DEVBOX_DERIVE_CONCURRENCY;
+const concurrency = concurrencyRaw === undefined ? sizes.length : Number(concurrencyRaw);
+if (!Number.isInteger(concurrency) || concurrency < 1) {
+  throw new Error(`--concurrency / CMUX_DEVBOX_DERIVE_CONCURRENCY: expected a positive integer, got ${concurrencyRaw}`);
+}
+
 const FIREWALL: FirewallSpec = { rules: [{ action: "allow", source: {}, destination: { public: true } }] };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Polls an operation until it succeeds or the budget runs out, and returns the
+ * last result either way so the caller reports the real failure. Guests settle
+ * at their own pace, so waiting for the condition beats waiting for a clock.
+ */
+async function retry<T>(operation: () => Promise<T>, done: (value: T) => boolean, budgetMs: number, everyMs = 2000): Promise<T> {
+  const deadline = Date.now() + budgetMs;
+  let last = await operation();
+  while (!done(last) && Date.now() < deadline) {
+    await sleep(everyMs);
+    last = await operation();
+  }
+  return last;
+}
 
 type Exec = { exec: (options: { command: string; timeoutMs?: number; linuxUser?: string }) => Promise<{ stdout?: string | null; stderr?: string | null; statusCode?: number | null }> };
 async function sh(vm: Exec, command: string, timeoutMs = 120_000): Promise<{ code: number; out: string }> {
@@ -184,7 +205,11 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
         }
         const ready = await sh(vm, devboxWaitForDaemonCommand(), 180_000);
         if (ready.code !== 0) throw new Error(`${name}: cmux-tui daemon never came back after the resize: ${ready.out.slice(-500)}`);
-        const websocket = await sh(vm, cmuxTuiWebsocketSmokeCommand(), 300_000);
+        const websocket = await retry(
+          () => sh(vm, cmuxTuiWebsocketSmokeCommand(), 300_000),
+          (r) => r.code === 0,
+          90_000,
+        );
         if (websocket.code !== 0) throw new Error(`${name}: WebSocket smoke failed before snapshot: ${websocket.out.slice(-1000)}`);
         // A resized clone runs a live daemon bound to its own instance id; park
         // it so the derived snapshot, like the master, carries no identity.
@@ -232,8 +257,7 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
 
 // Concurrency: each row holds at most two VMs at a time, so a six-row ladder
 // peaks at twelve. CMUX_DEVBOX_DERIVE_CONCURRENCY caps it when the account
-// has less headroom; 1 restores the old sequential behaviour.
-const concurrency = Math.max(1, Number(process.env.CMUX_DEVBOX_DERIVE_CONCURRENCY ?? sizes.length) || 1);
+// has less headroom; --concurrency overrides it and 1 restores sequential behaviour.
 const queue = [...sizes];
 const t0All = Date.now();
 // allSettled, not all: a rejecting `Promise.all` would let the script exit
@@ -261,7 +285,10 @@ if (failure !== undefined) {
 }
 console.log(`derived ${sizes.length} sizes in ${((Date.now() - t0All) / 1000).toFixed(0)}s (concurrency ${concurrency})`);
 
-const out = { master, sizes: result };
+// Completion order is not ladder order once sizes run concurrently.
+const ordered: typeof result = {};
+for (const name of sizes) ordered[name] = result[name];
+const out = { master, sizes: ordered };
 console.log(JSON.stringify(out, null, 2));
 const outPath = argValue("--out");
 if (outPath) writeFileSync(outPath, `${JSON.stringify(out, null, 2)}\n`);
