@@ -30,21 +30,34 @@ impl Surface {
 
     pub(crate) fn publish_pending_directory(&self) {
         let Some(pty) = self.as_pty() else { return };
-        if !pty.directory_pending.load(Ordering::Acquire) { return; }
+        if !pty.directory_pending.load(Ordering::Acquire) {
+            return;
+        }
         let raw = pty.pwd.lock().unwrap().clone();
         #[cfg(unix)]
-        let hosted = matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted);
+        let hosted = matches!(
+            &*pty.runtime.lock().unwrap(),
+            PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
+        );
         #[cfg(not(unix))]
         let hosted = false;
-        let directory = raw.as_deref().and_then(|value| {
-            if hosted { platform::terminal_pwd_to_local_path(value) }
-            else { platform::local_terminal_pwd_to_local_path(value) }
-        }).map(|path| path.to_string_lossy().into_owned());
+        let directory = raw
+            .as_deref()
+            .and_then(|value| {
+                if hosted {
+                    platform::terminal_pwd_to_local_path(value)
+                } else {
+                    platform::local_terminal_pwd_to_local_path(value)
+                }
+            })
+            .map(|path| path.to_string_lossy().into_owned());
         let Some(mux) = pty.mux.upgrade() else { return };
         match mux.publish_terminal_directory(self, &raw, directory) {
             Ok(true) => {
                 let current = pty.pwd.lock().unwrap();
-                if *current == raw { pty.directory_pending.store(false, Ordering::Release); }
+                if *current == raw {
+                    pty.directory_pending.store(false, Ordering::Release);
+                }
             }
             Ok(false) => {}
             Err(error) => eprintln!("terminal cwd publication failed: {error}"),
@@ -55,7 +68,9 @@ impl Surface {
 impl PtyTerminalRuntime {
     /// Called in the serialized parser stream; publication happens after releasing VT locks.
     pub(super) fn record_directory(&self, value: Option<String>, complete: bool) {
-        if value.is_none() && !complete { return; }
+        if value.is_none() && !complete {
+            return;
+        }
         let mut previous = self.pwd.lock().unwrap();
         if *previous != value {
             *previous = value;

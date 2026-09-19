@@ -3,8 +3,8 @@
 
 mod public_projections;
 mod resource_content;
-mod terminal_directory;
 mod resource_topology;
+mod terminal_directory;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 

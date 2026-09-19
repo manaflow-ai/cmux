@@ -18,7 +18,9 @@ impl Mux {
             return Ok(true);
         }
         // A snapshot flush may race the reader. Only the latest serialized OSC state wins.
-        if current.pwd() != *observed { return Ok(false); }
+        if current.pwd() != *observed {
+            return Ok(false);
+        }
         if current.directory_publication_matches(&directory) {
             return Ok(true);
         }
@@ -29,10 +31,14 @@ impl Mux {
         }
         let topology = registry.resource_topology_snapshot()?;
         let content_id = ContentPublicId::Terminal(id.clone());
-        let tabs = terminal_tab_ids_in_canonical_order(
-            topology.tabs.iter().filter(|tab| tab.content_id == content_id)
-                .map(|tab| (id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())),
-        ).remove(id).unwrap_or_default();
+        let tabs =
+            terminal_tab_ids_in_canonical_order(
+                topology.tabs.iter().filter(|tab| tab.content_id == content_id).map(|tab| {
+                    (id.clone(), tab.pane_id.clone(), tab.position, tab.public_id.clone())
+                }),
+            )
+            .remove(id)
+            .unwrap_or_default();
         let mut value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
         let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
         if let Some(directory) = &directory {
@@ -45,8 +51,14 @@ impl Mux {
         }]);
         let mutation = WorkspaceMutation::local("terminal.cwd");
         let commit = registry.commit_resource_patch(
-            &mutation, "terminal.cwd", &value, None, None,
-            &ResourcePatch { changes: Vec::new() }, &value, &deltas,
+            &mutation,
+            "terminal.cwd",
+            &value,
+            None,
+            None,
+            &ResourcePatch { changes: Vec::new() },
+            &value,
+            &deltas,
         )?;
         current.commit_published_directory(directory);
         state.resource_revision = commit.revision;
@@ -58,7 +70,10 @@ impl Mux {
 
     /// Close the startup race where the first prompt preceded runtime registration.
     pub(crate) fn publish_pending_terminal_directories(&self) {
-        let terminals = self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
-        for surface in terminals { surface.publish_pending_directory(); }
+        let terminals =
+            self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
+        for surface in terminals {
+            surface.publish_pending_directory();
+        }
     }
 }
