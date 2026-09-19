@@ -41,7 +41,7 @@ extension CmuxConfigSemanticValidator {
         if let types = typeSpec as? [String] {
             return types.map(localizedType).joined(separator: " / ")
         }
-        return CmuxConfigValidationLocalization.string(
+        return CmuxConfigValidationLocalization().string(
             "config.validation.type.jsonValue",
             defaultValue: "valid JSON value"
         )
@@ -62,37 +62,37 @@ extension CmuxConfigSemanticValidator {
     func localizedType(_ type: String) -> String {
         switch type {
         case "null":
-            return CmuxConfigValidationLocalization.string(
+            return CmuxConfigValidationLocalization().string(
                 "config.validation.type.null",
                 defaultValue: "null"
             )
         case "boolean":
-            return CmuxConfigValidationLocalization.string(
+            return CmuxConfigValidationLocalization().string(
                 "config.validation.type.boolean",
                 defaultValue: "boolean"
             )
         case "string":
-            return CmuxConfigValidationLocalization.string(
+            return CmuxConfigValidationLocalization().string(
                 "config.validation.type.string",
                 defaultValue: "string"
             )
         case "array":
-            return CmuxConfigValidationLocalization.string(
+            return CmuxConfigValidationLocalization().string(
                 "config.validation.type.array",
                 defaultValue: "array"
             )
         case "object":
-            return CmuxConfigValidationLocalization.string(
+            return CmuxConfigValidationLocalization().string(
                 "config.validation.type.object",
                 defaultValue: "object"
             )
         case "number":
-            return CmuxConfigValidationLocalization.string(
+            return CmuxConfigValidationLocalization().string(
                 "config.validation.type.number",
                 defaultValue: "number"
             )
         case "integer":
-            return CmuxConfigValidationLocalization.string(
+            return CmuxConfigValidationLocalization().string(
                 "config.validation.type.integer",
                 defaultValue: "integer"
             )
@@ -174,7 +174,7 @@ extension CmuxConfigSemanticValidator {
     func displayChoices(_ values: [Any]) -> String {
         let rendered = values.prefix(8).map(displayJSON)
         if values.count > rendered.count {
-            let suffix = CmuxConfigValidationLocalization.format(
+            let suffix = CmuxConfigValidationLocalization().format(
                 "config.validation.choices.more",
                 defaultValue: "(+%lld more)",
                 Int64(values.count - rendered.count)

@@ -1,16 +1,17 @@
 import Foundation
 
-public enum CmuxConfigValidationLocalization {
-    public static func string(
+public struct CmuxConfigValidationLocalization {
+    public init() {}
+    public func string(
         _ key: StaticString,
-        defaultValue: String.LocalizationValue
+        defaultValue: String
     ) -> String {
-        String(localized: key, defaultValue: defaultValue, bundle: .module)
+        String(localized: key, defaultValue: String.LocalizationValue(stringLiteral: defaultValue), bundle: .module)
     }
 
-    public static func format(
+    public func format(
         _ key: StaticString,
-        defaultValue: String.LocalizationValue,
+        defaultValue: String,
         _ arguments: any CVarArg...
     ) -> String {
         let localized = string(key, defaultValue: defaultValue)

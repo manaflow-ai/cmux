@@ -11,7 +11,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.string.min",
                         defaultValue: "must contain at least %lld character(s)",
                         Int64(minimum)
@@ -23,7 +23,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.string.max",
                         defaultValue: "must contain at most %lld character(s)",
                         Int64(maximum)
@@ -36,7 +36,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.string.pattern",
                         defaultValue: "must match pattern %@",
                         displayJSON(pattern)
@@ -50,7 +50,7 @@ extension CmuxConfigSemanticValidator {
                 issues.append(
                     CmuxConfigSemanticIssue(
                         path: path,
-                        message: CmuxConfigValidationLocalization.string(
+                        message: CmuxConfigValidationLocalization().string(
                             "config.validation.string.absoluteURI",
                             defaultValue: "must be an absolute URI"
                         )
@@ -71,7 +71,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.number.min",
                         defaultValue: "must be >= %@",
                         formatNumber(minimum)
@@ -83,7 +83,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.number.max",
                         defaultValue: "must be <= %@",
                         formatNumber(maximum)
@@ -95,7 +95,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.number.gt",
                         defaultValue: "must be > %@",
                         formatNumber(minimum)
@@ -107,7 +107,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.number.lt",
                         defaultValue: "must be < %@",
                         formatNumber(maximum)
@@ -123,7 +123,7 @@ extension CmuxConfigSemanticValidator {
                 issues.append(
                     CmuxConfigSemanticIssue(
                         path: path,
-                        message: CmuxConfigValidationLocalization.format(
+                        message: CmuxConfigValidationLocalization().format(
                             "config.validation.number.multiple",
                             defaultValue: "must be a multiple of %@",
                             formatNumber(multiple)
@@ -146,7 +146,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.array.min",
                         defaultValue: "must contain at least %lld item(s)",
                         Int64(minimum)
@@ -158,7 +158,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.array.max",
                         defaultValue: "must contain at most %lld item(s)",
                         Int64(maximum)
@@ -204,7 +204,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.object.min",
                         defaultValue: "must contain at least %lld key(s)",
                         Int64(minimum)
@@ -216,7 +216,7 @@ extension CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.object.max",
                         defaultValue: "must contain at most %lld key(s)",
                         Int64(maximum)
@@ -230,7 +230,7 @@ extension CmuxConfigSemanticValidator {
                 issues.append(
                     CmuxConfigSemanticIssue(
                         path: childPath(path, key: key),
-                        message: CmuxConfigValidationLocalization.string(
+                        message: CmuxConfigValidationLocalization().string(
                             "config.validation.required",
                             defaultValue: "is required"
                         )
@@ -292,7 +292,7 @@ extension CmuxConfigSemanticValidator {
                     issues.append(
                         CmuxConfigSemanticIssue(
                             path: child,
-                            message: CmuxConfigValidationLocalization.string(
+                            message: CmuxConfigValidationLocalization().string(
                                 "config.validation.unknownKey",
                                 defaultValue: "unknown configuration key"
                             )
