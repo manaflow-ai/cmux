@@ -77,13 +77,19 @@ struct CloudDirectoryLifecycleTests {
         let fixture = try CloudDirectoryTestFixture()
         defer { fixture.close() }
         // A terminal the app just asked a machine for carries the requested
-        // directory, but no accepted state has confirmed it yet.
+        // directory, but that machine's provider has not accepted any state yet.
         let unconfirmed = SurfaceMachineID.cloud("unconfirmed-machine")
+        let provider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: unconfirmed.rawValue, provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil),
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: fixture.catalog
+        )
+        fixture.catalog.register(provider)
+        defer { fixture.catalog.unregister(machine: unconfirmed) }
         let requested = SurfaceResourceID(machine: unconfirmed, kind: .terminal, key: "term_requested")
         fixture.catalog.upsert(SurfaceResource(
             id: requested, title: "", detail: "/srv/requested", lifecycle: .launching,
             agent: nil, remoteWorkspace: nil, port: nil, url: nil
-        ))
+        ), from: provider)
         let local = SurfaceResourceID(machine: .local, kind: .terminal, key: "local-term")
         fixture.catalog.upsert(SurfaceResource(
             id: local, title: "", detail: "/Users/alice/project", lifecycle: .running,
