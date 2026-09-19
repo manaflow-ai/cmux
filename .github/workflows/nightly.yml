@@ -355,11 +355,9 @@ jobs:
   refresh-test-compilation-cache:
     needs: decide
     # The only writer of the Debug compilation cache that ci.yml
-    # `macos-compile-admission` restores. It runs on the cache-warming schedule
-    # and not on every push to main: a pull request that touches the app target
-    # recompiles it whatever the seed holds, so what the seed reliably saves is
-    # the package layer, and that changes slowly. Four builds a day keep it
-    # fresh without taking a macOS slot per merge from the pull request queue.
+    # `macos-compile-admission` restores. Scheduled, not per push: the seed
+    # mostly saves the package layer, which changes slowly, and a build per
+    # merge would take macOS slots from the pull request queue.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.

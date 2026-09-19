@@ -2189,13 +2189,9 @@ jobs:
           set -euo pipefail
           echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
-      # Read-only on purpose. nightly.yml `refresh-test-compilation-cache`
-      # builds main and is the only writer. A cache written here would be scoped
-      # to this pull request, so no other pull request could read it, and it
-      # would spend the shared cache budget that keeps the main seed alive.
-      # The seed covers whatever this pull request leaves untouched. Swift
-      # invalidates a whole module when one of its files changes, so a change
-      # under Sources/ still recompiles the app target and reuses the packages.
+      # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
+      # only writer. A cache saved here would be scoped to this pull request and
+      # would spend the cache budget that keeps the main seed alive.
       - name: Restore test compilation cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
