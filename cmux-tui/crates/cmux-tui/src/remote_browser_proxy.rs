@@ -197,7 +197,7 @@ async fn serve_browser_connection(
     let mut first = [0_u8; 1];
     socket.peek(&mut first).await?;
     if first[0] == b'G' {
-        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token)
+        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token, Vec::new())
             .await;
     }
     serve_connect_connection(socket, client, workspace, allowed_hosts, credentials, websocket_token, proxy_port).await
@@ -258,7 +258,7 @@ async fn serve_connect_connection(
     }
     if port == proxy_port {
         socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
-        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token).await;
+        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token, initial_payload).await;
     }
     if !allowed_hosts.iter().any(|allowed| allowed == &host) {
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
@@ -384,9 +384,10 @@ async fn serve_websocket_bridge(
     workspace: cmux_remote_protocol::WorkspaceId,
     allowed_hosts: Arc<Vec<String>>,
     websocket_token: String,
+    initial_payload: Vec<u8>,
 ) -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
-    let request = read_http_headers(&mut socket, deadline).await?;
+    let request = read_http_headers(&mut socket, deadline, initial_payload).await?;
     let mut lines = request.split("\r\n");
     let request_line = lines.next().ok_or_else(|| anyhow!("missing WebSocket request line"))?;
     let mut request_parts = request_line.split_whitespace();
@@ -534,8 +535,9 @@ async fn serve_websocket_bridge(
 async fn read_http_headers(
     socket: &mut TcpStream,
     deadline: tokio::time::Instant,
+    initial_payload: Vec<u8>,
 ) -> anyhow::Result<String> {
-    let mut data = Vec::with_capacity(2048);
+    let mut data = initial_payload;
     let mut buffer = [0_u8; 2048];
     while !data.windows(4).any(|window| window == b"\r\n\r\n") {
         let read = tokio::time::timeout_at(deadline, socket.read(&mut buffer)).await??;
