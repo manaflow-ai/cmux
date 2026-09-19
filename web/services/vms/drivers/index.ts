@@ -4,21 +4,21 @@ import {
   type AttachTransport,
   type ProviderId,
   type VmCapabilities,
-  type VMProvider,
+  type VmProviderDriver,
 } from "./types";
 
 export * from "./types";
 export { FreestyleProvider };
 
-let registry: Map<ProviderId, VMProvider> | null = null;
+let registry: Map<ProviderId, VmProviderDriver> | null = null;
 
-function buildRegistry(): Map<ProviderId, VMProvider> {
-  const map = new Map<ProviderId, VMProvider>();
+function buildRegistry(): Map<ProviderId, VmProviderDriver> {
+  const map = new Map<ProviderId, VmProviderDriver>();
   map.set("freestyle", new FreestyleProvider());
   return map;
 }
 
-export function getProvider(id: ProviderId): VMProvider {
+export function getProvider(id: ProviderId): VmProviderDriver {
   if (!registry) registry = buildRegistry();
   const p = registry.get(id);
   if (!p) throw new Error(`unknown VM provider: ${id}`);
@@ -61,7 +61,7 @@ export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
 }
 
 /** Capability derivation for any driver instance (exported for tests and mocks). */
-export function vmCapabilitiesOf(provider: VMProvider): VmCapabilities {
+export function vmCapabilitiesOf(provider: VmProviderDriver): VmCapabilities {
   const declared = provider.capabilities ?? {};
   const structuralTransports: AttachTransport[] = [];
   if (typeof provider.openCmuxRemote === "function") structuralTransports.push("cmux-remote");

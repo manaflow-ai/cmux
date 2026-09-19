@@ -436,7 +436,8 @@ export interface VMPrivateNetworking {
   deleteTunnel(tunnelId: string): Promise<void>;
 }
 
-export interface VMProvider {
+/** Contract consumed by the gateway; implemented only by registered providers. */
+export interface VmProviderDriver {
   readonly id: ProviderId;
 
   /**
@@ -571,3 +572,6 @@ export class ProviderArtifactUnavailableError extends ProviderError {
     this.name = "ProviderArtifactUnavailableError";
   }
 }
+
+/** @deprecated Historical name; use VmProviderDriver. */
+export type VMProvider = VmProviderDriver;

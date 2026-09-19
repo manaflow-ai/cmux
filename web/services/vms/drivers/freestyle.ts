@@ -12,6 +12,7 @@ import {
 
 import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
+import { parseFreestyleExecResponse } from "./schemas";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
@@ -34,7 +35,7 @@ import {
   type VmEdgeRule,
   type VMHandle,
   type VMPrivateNetworking,
-  type VMProvider,
+  type VmProviderDriver,
   type VMResizeOptions,
   type VMStats,
   type VMStatus,
@@ -890,7 +891,7 @@ export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
   };
 }
 
-export class FreestyleProvider implements VMProvider {
+export class FreestyleProvider implements VmProviderDriver {
   readonly id = "freestyle" as const;
 
   /** The normal terminal transport. SSH is an explicit legacy attach verb, not the default. */
@@ -1202,10 +1203,9 @@ export class FreestyleProvider implements VMProvider {
           const vm = fs.vms.ref(vmId);
           await this.ensureGuestCli(vm, vmId);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
-          // statusCode is null when the guest killed the command at its timeout.
-          const exitCode = r.statusCode ?? 124;
-          setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
-          return { exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+          const result = parseFreestyleExecResponse(`exec(${vmId})`, r);
+          setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
+          return result;
         } catch (err) {
           throw new ProviderError("freestyle", `exec(${vmId})`, err);
         }
@@ -1723,7 +1723,7 @@ export class FreestyleProvider implements VMProvider {
         timeoutMs: 30_000,
         linuxUser: GUEST_LINUX_USER,
       });
-      const exitCode = result.statusCode ?? 124;
+      const { exitCode } = parseFreestyleExecResponse(`installGuestCli(${vmId})`, result);
       if (exitCode !== 0) {
         throw new Error(`guest cmux shim install exited ${exitCode}`);
       }
@@ -1737,7 +1737,7 @@ export class FreestyleProvider implements VMProvider {
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
     try {
       const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
-      return { exitCode: r.statusCode ?? 124, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+      return parseFreestyleExecResponse("execResult", r);
     } catch {
       return null;
     }
@@ -1745,11 +1745,12 @@ export class FreestyleProvider implements VMProvider {
 
   private async execOrThrow(vm: Vm, vmId: string, command: string, timeoutMs: number): Promise<ExecResult> {
     const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
-    const exitCode = r.statusCode ?? 124;
+    const result = parseFreestyleExecResponse(`exec(${vmId})`, r);
+    const { exitCode } = result;
     if (exitCode !== 0) {
       throw new Error(`exec in ${vmId} exited ${exitCode}: ${(r.stderr ?? r.stdout ?? "").trim().slice(0, 500)}`);
     }
-    return { exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+    return result;
   }
 
   private cmuxTuiInvoke(vm: Vm): CmuxTuiInvoke {
