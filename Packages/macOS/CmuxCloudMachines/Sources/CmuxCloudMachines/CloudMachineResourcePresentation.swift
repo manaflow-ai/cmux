@@ -14,16 +14,21 @@ private func capacity(
     placeholder: String
 ) -> CloudMachineResourcePresentation.Reading {
     guard let used, let total, used >= 0, total > 0 else {
-        return .init(label: label, percent: nil, detail: "\(label): \(unavailable)", placeholder: placeholder)
+        return .init(label: label, percent: nil, detail: "\(label): \(unavailable)", inlineDetail: unavailable, placeholder: placeholder)
     }
     // Separate OS counters may straddle an update. Keep the percentage within capacity
     // while preserving the actual reported amounts in the detail.
     let percent = min(100, Double(used) / Double(total) * 100)
-    let value = CloudMachineResourcePresentation.Reading(label: label, percent: percent, detail: "", placeholder: placeholder).value
+    let value = (percent / 100).formatted(.percent.precision(.fractionLength(0)))
+    let capacity = String(
+        format: String(localized: "machines.stats.provisioned", defaultValue: "%@ GB"),
+        "\(gb(used))/\(gb(total))"
+    )
     return .init(
         label: label,
         percent: percent,
         detail: "\(String(format: format, gb(used), gb(total))) (\(value))",
+        inlineDetail: "\(capacity) (\(value))",
         placeholder: placeholder
     )
 }
@@ -33,7 +38,7 @@ private func gb(_ mb: Int) -> String {
 }
 
 /// Pure presentation of the latest stats snapshot, shared by the row and its tooltip.
-public struct CloudMachineResourcePresentation: Sendable {
+public struct CloudMachineResourcePresentation: Equatable, Sendable {
     /// Whether the latest sample can be presented as live usage.
     public enum Availability: Equatable, Sendable {
         /// The machine snapshot has not received its first stats response yet.
@@ -49,13 +54,15 @@ public struct CloudMachineResourcePresentation: Sendable {
     }
 
     /// One localized resource label, optional percentage, and accessible detail.
-    public struct Reading: Sendable {
+    public struct Reading: Equatable, Sendable {
         /// The localized name of this resource.
         public let label: String
         /// A validated utilization percentage, or nil for an unavailable reading.
         public let percent: Double?
         /// Localized detail suitable for a tooltip or accessibility label.
         public let detail: String
+        /// The value or availability state when the resource label is already visible.
+        public let inlineDetail: String
 
         /// A whole percentage or a state-specific missing-value placeholder.
         public var value: String {
@@ -67,10 +74,11 @@ public struct CloudMachineResourcePresentation: Sendable {
 
         private let placeholder: String
 
-        fileprivate init(label: String, percent: Double?, detail: String, placeholder: String) {
+        fileprivate init(label: String, percent: Double?, detail: String, inlineDetail: String, placeholder: String) {
             self.label = label
             self.percent = percent
             self.detail = detail
+            self.inlineDetail = inlineDetail
             self.placeholder = placeholder
         }
     }
@@ -146,6 +154,9 @@ public struct CloudMachineResourcePresentation: Sendable {
             detail: cpuPercent.map {
                 String(format: String(localized: "cloudTree.stats.cpu", defaultValue: "CPU %d%%"), Int($0.rounded()))
             } ?? "\(cpuLabel): \(unavailable)",
+            inlineDetail: cpuPercent.map {
+                ($0 / 100).formatted(.percent.precision(.fractionLength(0)))
+            } ?? unavailable,
             placeholder: placeholder
         )
         memory = capacity(
