@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+source "$SCRIPT_DIR/lib/reload-incremental.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -1402,7 +1403,6 @@ reload_finalize() {
   fi
 }
 trap reload_finalize EXIT
-
 # Optional wall-clock phase diagnostics do not change compiler settings.
 RELOAD_PHASE_START=$SECONDS
 reload_phase_finished() {
@@ -1430,7 +1430,6 @@ fi
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
-
 reload_phase_finished preparation
 
 XCODEBUILD_ARGS=(
@@ -1702,6 +1701,9 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
 fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
+RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload"
+RELOAD_INPUT_DIGEST="$(reload_incremental_digest "$APP_PATH" "$SCRIPT_DIR/reload.sh" "$PWD/cmuxd" "$PWD/ghostty")"
+RELOAD_POSTBUILD_NOOP=0
 
 if [[ -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
@@ -1715,8 +1717,14 @@ fi
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
-  rm -rf "$TAG_APP_STAGING_PATH"
-  cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
+  if [[ -d "$TAG_APP_FINAL_PATH" ]] && validate_app_bundle "$TAG_APP_FINAL_PATH" "$BASE_APP_NAME" && ! reload_incremental_needs_update "$RELOAD_RECEIPT_DIR/tagged-app" "$RELOAD_INPUT_DIGEST" "$TAG_APP_FINAL_PATH"; then
+    APP_PATH="$TAG_APP_FINAL_PATH"; TAG_APP_STAGING_PATH=""; RELOAD_POSTBUILD_NOOP=1
+    echo "Reusing unchanged tagged app output at $APP_PATH"
+  else
+    rm -rf "$TAG_APP_STAGING_PATH"
+    cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
+  fi
+  if [[ "$RELOAD_POSTBUILD_NOOP" -eq 0 ]]; then
   INFO_PLIST="$TAG_APP_STAGING_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
@@ -1791,13 +1799,14 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     fi
   fi
   APP_PATH="$TAG_APP_STAGING_PATH"
+  fi
 fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
-
 reload_phase_finished tagged_staging
 
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
+if [[ "$RELOAD_POSTBUILD_NOOP" -eq 0 ]]; then
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
@@ -1870,6 +1879,8 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
+reload_incremental_record "$RELOAD_RECEIPT_DIR/tagged-app" "$RELOAD_INPUT_DIGEST" "$APP_PATH"
+fi
 reload_phase_finished signing
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 
@@ -1884,7 +1895,7 @@ fi
 # even without --launch. A stale tagged app pinned to this bundle id would otherwise
 # keep running against freshly-overwritten resources, and macOS would foreground it
 # instead of launching the newly built binary when the user cmd-clicks the .app.
-if [[ -n "$TAG" ]]; then
+if [[ -n "$TAG" && "$RELOAD_POSTBUILD_NOOP" -eq 0 ]]; then
   /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
   sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
@@ -1930,7 +1941,7 @@ if [[ "$CAN_PUBLISH_RELOAD_STATE" -eq 1 && "$NO_GLOBAL_CLI_LINKS" != "1" ]]; the
   fi
 fi
 
-if [[ "$LAUNCH" -eq 1 ]]; then
+if [[ "$LAUNCH" -eq 1 ]] && { [[ "$RELOAD_POSTBUILD_NOOP" -eq 0 ]] || ! pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null 2>&1; }; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
     /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
