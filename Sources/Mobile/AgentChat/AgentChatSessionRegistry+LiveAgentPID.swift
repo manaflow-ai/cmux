@@ -2,6 +2,12 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 
+enum AgentLiveProcessLookupResult: Sendable {
+    case found(Int)
+    case notFound
+    case unavailable
+}
+
 extension AgentChatSessionRegistry {
     /// Observe-floor liveness: the pid of a live foreground agent process
     /// matching `kind` under `surfaceID`'s process tree, or nil if none.
@@ -21,6 +27,30 @@ extension AgentChatSessionRegistry {
     #else
     @Sendable
     #endif
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func liveAgentPIDResult(
+        surfaceID: String,
+        kind: ChatAgentKind,
+        matchingSessionIDs expectedSessionIDs: Set<String>,
+        allowUnidentifiedFallback: Bool = false
+    ) async -> AgentLiveProcessLookupResult {
+        guard !expectedSessionIDs.isEmpty else { return .notFound }
+        let snapshot = await CmuxTopProcessSnapshot.capture(
+            includeProcessDetails: true, includeCMUXScope: true, includeResources: false
+        )
+        guard snapshot.captureIsAvailable else { return .unavailable }
+        return .found(liveAgentPID(
+            in: snapshot, surfaceID: surfaceID, kind: kind,
+            matchingSessionIDs: expectedSessionIDs,
+            allowUnidentifiedFallback: allowUnidentifiedFallback,
+            processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
+        ) ?? -1)
+    }
+
     nonisolated static func liveAgentPID(
         surfaceID: String,
         kind: ChatAgentKind,
@@ -32,6 +62,7 @@ extension AgentChatSessionRegistry {
             includeProcessDetails: true,
             includeCMUXScope: true, includeResources: false
         )
+        guard snapshot.captureIsAvailable else { return nil }
         return liveAgentPID(
             in: snapshot,
             surfaceID: surfaceID,

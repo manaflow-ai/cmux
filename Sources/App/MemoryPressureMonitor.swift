@@ -83,7 +83,18 @@ final class MemoryPressureMonitor {
         guard initialSamplingTask == nil else { return }
         initialSamplingTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.samplePhysicalFootprint(at: .now)
+            let sampledAt = Date.now
+            let sample = await Self.captureFootprintSample(
+                footprintSampler: self.footprintSampler,
+                aggregateSampler: self.aggregateSampler,
+                at: sampledAt
+            )
+            self.apply(
+                systemSeverity: self.heldSystemSeverity(at: sampledAt),
+                physicalFootprintBytes: sample.footprint,
+                aggregateSample: sample.aggregate,
+                sampledAt: sampledAt
+            )
             guard !Task.isCancelled else { return }
             self.initialSamplingTask = nil
         }
@@ -110,18 +121,33 @@ final class MemoryPressureMonitor {
     }
 
     func samplePhysicalFootprint(at sampledAt: Date = .now) async {
-        let footprintBytes = footprintSampler.physicalFootprintBytes()
-        let aggregateSample = await Self.captureAggregateSample(
-            using: aggregateSampler,
+        let sample = await Self.captureFootprintSample(
+            footprintSampler: footprintSampler,
+            aggregateSampler: aggregateSampler,
             at: sampledAt
         )
         guard !Task.isCancelled else { return }
         apply(
             systemSeverity: heldSystemSeverity(at: sampledAt),
-            physicalFootprintBytes: footprintBytes,
-            aggregateSample: aggregateSample,
+            physicalFootprintBytes: sample.footprint,
+            aggregateSample: sample.aggregate,
             sampledAt: sampledAt
         )
+    }
+
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private static func captureFootprintSample(
+        footprintSampler: any MemoryPressureFootprintSampling,
+        aggregateSampler: any MemoryPressureAggregateSampling,
+        at sampledAt: Date
+    ) async -> (footprint: UInt64?, aggregate: MemoryPressureAggregateSample) {
+        async let footprint = footprintSampler.physicalFootprintBytes()
+        let aggregate = await captureAggregateSample(using: aggregateSampler, at: sampledAt)
+        return (await footprint, aggregate)
     }
 
     func recordSystemPressure(_ severity: MemoryPressureSeverity, at sampledAt: Date = .now) {

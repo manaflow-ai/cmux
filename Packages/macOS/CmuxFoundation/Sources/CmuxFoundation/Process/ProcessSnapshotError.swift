@@ -4,4 +4,6 @@ public enum ProcessSnapshotError: Error {
     case expired
     /// The fixed request admission bound was reached.
     case overloaded
+    /// The census could not be used to authorize a foreground command.
+    case unavailable
 }

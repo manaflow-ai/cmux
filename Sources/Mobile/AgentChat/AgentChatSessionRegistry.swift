@@ -186,7 +186,7 @@ final class AgentChatSessionRegistry {
         }
     }
 
-    /// The watched agent process exited. Before ending the session, verify
+    /// The watched agent exited; verify before ending the session.
     /// against the surface's process tree off-main: the dead pid may be a
     /// launcher/intermediate (subrouter, `node` shim) while the real agent still
     /// runs, in which case re-bind to the live agent pid instead of ending.
@@ -204,7 +204,7 @@ final class AgentChatSessionRegistry {
         let kind = record.agentKind
         let expectedSessionIDs = Set([record.sessionID, record.hookStoreLookupSessionID])
         Task.detached { [weak self] in
-            let livePID = await Self.liveAgentPID(
+            let lookup = await Self.liveAgentPIDResult(
                 surfaceID: surfaceID,
                 kind: kind,
                 matchingSessionIDs: expectedSessionIDs,
@@ -215,12 +215,13 @@ final class AgentChatSessionRegistry {
                       let current = self.records[sessionID],
                       current.pid == pid,
                       current.state != .ended else { return }
-                if let livePID, livePID != pid {
-                    // Real agent still alive under the surface: re-bind to it
-                    // (this re-arms the exit watcher on the real agent pid).
+                switch lookup {
+                case .found(let livePID) where livePID > 0 && livePID != pid:
                     self.update(sessionID: sessionID) { $0.pid = livePID }
-                } else {
+                case .found, .notFound:
                     self.update(sessionID: sessionID) { $0.state = .ended }
+                case .unavailable:
+                    return
                 }
             }
         }
@@ -841,5 +842,4 @@ final class AgentChatSessionRegistry {
     private func processIsDead(_ pid: Int) -> Bool {
         kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
-
 }

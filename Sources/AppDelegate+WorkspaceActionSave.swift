@@ -188,7 +188,7 @@ extension AppDelegate {
         cmuxConfigStore: CmuxConfigStore,
         window: NSWindow
     ) async {
-        let snapshot = await workspace.captureConfigActionSnapshot()
+        guard let snapshot = await workspace.captureConfigActionSnapshot() else { return }
         guard window.isVisible, !Task.isCancelled else { return }
         let globalConfigPath = cmuxConfigStore.globalConfigPath
         if !snapshot.oversizedCommands.isEmpty {
