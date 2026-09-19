@@ -734,7 +734,6 @@ final class MobileHostService {
     func stop() {
         let runtime = pairingRuntime
         runtime.prepareForStop()
-        Task { @MainActor in await runtime.stopHost() }
         stopNetworkPathMonitor()
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
