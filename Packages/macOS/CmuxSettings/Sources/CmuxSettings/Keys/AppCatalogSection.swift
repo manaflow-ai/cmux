@@ -201,7 +201,7 @@ public struct AppCatalogSection: SettingCatalogSection {
             ),
             sectionID: "app",
             searchID: "rename-selects-name",
-            searchKeywords: ["rename", "select", "all", "existing", "title", "command", "palette", "workspace", "name"],
+            searchKeywords: ["rename", "select", "all", "existing", "title", "command", "palette", "workspace", "name", "text", "selection"],
             controlKind: .toggle,
             commandPaletteToggle: .init(
                 id: "renameSelectsExistingName",
