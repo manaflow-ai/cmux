@@ -17,7 +17,7 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
+        didSet { updateButtonVisibility() }
     }
 
     override init(frame frameRect: NSRect) {
@@ -168,7 +168,7 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
 final class CloudTreeRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard isSelected else { return }
-        let insetRect = bounds.insetBy(dx: 6, dy: 1)
+        let insetRect = bounds.insetBy(dx: 1, dy: 1)
         let path = NSBezierPath(roundedRect: insetRect, xRadius: 4, yRadius: 4)
         // Gray in both focus states (no accent blue); keyboard focus reads as a
         // slightly stronger shade.
