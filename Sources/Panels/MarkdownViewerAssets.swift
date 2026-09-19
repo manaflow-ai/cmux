@@ -125,6 +125,42 @@ final class MarkdownViewerAssets {
             "remoteImageURL": String(
                 localized: "markdown.web.remoteImageURL",
                 defaultValue: "Image URL: {url}"
+            ),
+            "linkOpenInCmux": String(
+                localized: "markdown.web.linkOpenInCmux",
+                defaultValue: "Open in cmux"
+            ),
+            "linkOpenInBrowser": String(
+                localized: "markdown.web.linkOpenInBrowser",
+                defaultValue: "Open in default browser"
+            ),
+            "linkCopy": String(
+                localized: "markdown.web.linkCopy",
+                defaultValue: "Copy link"
+            ),
+            "linkEdit": String(
+                localized: "markdown.web.linkEdit",
+                defaultValue: "Edit link"
+            ),
+            "linkURL": String(
+                localized: "markdown.web.linkURL",
+                defaultValue: "Link URL"
+            ),
+            "linkText": String(
+                localized: "markdown.web.linkText",
+                defaultValue: "Link text"
+            ),
+            "linkApply": String(
+                localized: "markdown.web.linkApply",
+                defaultValue: "Apply"
+            ),
+            "linkCancel": String(
+                localized: "markdown.web.linkCancel",
+                defaultValue: "Cancel"
+            ),
+            "linkInvalidURL": String(
+                localized: "markdown.web.linkInvalidURL",
+                defaultValue: "Enter a safe HTTP, HTTPS, file, mail, or tel link."
             )
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: strings),
