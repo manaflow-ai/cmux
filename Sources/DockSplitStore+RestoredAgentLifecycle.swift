@@ -76,7 +76,7 @@ extension DockSplitStore {
         internallySeededInput: String?
     ) {
         let boundary = RestoredPanelTitleBoundary(
-            internallySeededInput: internallySeededInput?.trimmingCharacters(in: .whitespacesAndNewlines).flatMap { AutomaticTerminalTitle($0)?.value ?? $0 },
+            internallySeededInput: internallySeededInput.map { AutomaticTerminalTitle($0.trimmingCharacters(in: .whitespacesAndNewlines))?.value ?? $0.trimmingCharacters(in: .whitespacesAndNewlines) },
             shellState: (panels[panelId] as? TerminalPanel)?.shellActivity.state
                 ?? .unknown
         )

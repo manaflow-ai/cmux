@@ -8,10 +8,12 @@ extension Workspace {
         // There is deliberately no timer fallback: elapsed time cannot prove
         // that PTY startup ended. Raw titles remain untrusted until the managed
         // shell reports activity; explicit custom-title APIs bypass this path.
+        let normalizedSeededInput = internallySeededInput.map {
+            let trimmed = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return AutomaticTerminalTitle(trimmed)?.value ?? trimmed
+        }
         let boundary = RestoredPanelTitleBoundary(
-            internallySeededInput: internallySeededInput?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .flatMap { AutomaticTerminalTitle($0)?.value ?? $0 },
+            internallySeededInput: normalizedSeededInput,
             shellState: panelShellActivityStates[panelId] ?? .unknown
         )
         if boundary.isReleased {
