@@ -88,9 +88,9 @@ public struct BrowserControlService: Sendable {
 
     /// True when a page-world JavaScript failure looks like a Content Security
     /// Policy block of `eval`/`Function` construction (`script-src` without
-    /// `'unsafe-eval'`). Gating the isolated-world retry on this avoids re-running a
-    /// script that already failed for an ordinary reason. Byte-identical to the
-    /// previous `v2BrowserFailureLooksLikeCSPEvalBlock`.
+    /// `'unsafe-eval'`). Gating CSP recovery on this avoids re-running a script that
+    /// already failed for an ordinary reason. Byte-identical to the previous
+    /// `v2BrowserFailureLooksLikeCSPEvalBlock`.
     /// - Parameter message: the failure message.
     /// - Returns: whether the message indicates a CSP eval block.
     public func failureLooksLikeCSPEvalBlock(_ message: String) -> Bool {

@@ -17,29 +17,11 @@ extension BrowserControlService {
         useEval: Bool,
         frameSelector: String?
     ) -> String {
-        let framePrelude: String
-        if let frameSelector {
-            framePrelude = """
-            let __cmuxDoc = document;
-            try {
-              const __cmuxFrame = document.querySelector(\(jsonLiteral(frameSelector)));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
-              }
-            } catch (_) {}
-            """
-        } else {
-            framePrelude = "const __cmuxDoc = document;"
-        }
+        let framePrelude = evaluationFramePrelude(frameSelector: frameSelector)
 
         let executionBlock = useEval
             ? "const __r = eval(\(jsonLiteral(script)));"
             : "const __r = \(script);"
-        let circularReferenceMessage = jsonLiteral(String(
-            localized: "cli.browser.error.circularEvaluationResult",
-            defaultValue: "Browser evaluation result contains a circular reference"
-        ))
-
         return """
         \(framePrelude)
 
@@ -50,6 +32,48 @@ extension BrowserControlService {
           return __r;
         };
 
+        \(evaluationResultPrelude())
+
+        const __cmuxEvalInFrame = async function() {
+          const document = __cmuxDoc;
+          \(executionBlock)
+          const __value = await __cmuxMaybeAwait(__r);
+          return {
+            [\(jsonLiteral(evalEnvelope.typeKey))]: (typeof __value === 'undefined')
+              ? \(jsonLiteral(evalEnvelope.typeUndefined)) : \(jsonLiteral(evalEnvelope.typeValue)),
+            [\(jsonLiteral(evalEnvelope.valueKey))]: __cmuxBridgeSafeValue(__value)
+          };
+        };
+
+        return await __cmuxEvalInFrame();
+        """
+    }
+
+    /// Selects the document shared by ordinary and strict-CSP evaluation.
+    public func evaluationFramePrelude(frameSelector: String?) -> String {
+        if let frameSelector {
+            return """
+            let __cmuxDoc = document;
+            try {
+              const __cmuxFrame = document.querySelector(\(jsonLiteral(frameSelector)));
+              if (__cmuxFrame && __cmuxFrame.contentDocument) {
+                __cmuxDoc = __cmuxFrame.contentDocument;
+              }
+            } catch (_) {}
+            """
+        } else {
+            return "const __cmuxDoc = document;"
+        }
+    }
+
+    /// Normalizes browser results before WebKit deserializes them in the host.
+    public func evaluationResultPrelude() -> String {
+        let circularReferenceMessage = jsonLiteral(String(
+            localized: "cli.browser.error.circularEvaluationResult",
+            defaultValue: "Browser evaluation result contains a circular reference"
+        ))
+
+        return """
         const __cmuxAncestors = new WeakSet();
         const __cmuxCopies = new WeakMap();
         const __cmuxBridgeSafeValue = (__value) => {
@@ -97,19 +121,6 @@ extension BrowserControlService {
             __cmuxAncestors.delete(__value);
           }
         };
-
-        const __cmuxEvalInFrame = async function() {
-          const document = __cmuxDoc;
-          \(executionBlock)
-          const __value = await __cmuxMaybeAwait(__r);
-          return {
-            [\(jsonLiteral(evalEnvelope.typeKey))]: (typeof __value === 'undefined')
-              ? \(jsonLiteral(evalEnvelope.typeUndefined)) : \(jsonLiteral(evalEnvelope.typeValue)),
-            [\(jsonLiteral(evalEnvelope.valueKey))]: __cmuxBridgeSafeValue(__value)
-          };
-        };
-
-        return await __cmuxEvalInFrame();
         """
     }
 }

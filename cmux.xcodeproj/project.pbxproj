@@ -414,6 +414,7 @@
 		C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A010000000000000002 /* BrowserErrorPage.swift */; };
 		C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A020000000000000002 /* BrowserErrorPageContent.swift */; };
 		C2035A0C000000000000001 /* BrowserErrorPageRetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A0C000000000000002 /* BrowserErrorPageRetry.swift */; };
+		5158E0015158E0015158E001 /* BrowserEvalResultMessageHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5158E0025158E0025158E002 /* BrowserEvalResultMessageHandler.swift */; };
 		BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */; };
 		12823DBC8091499B89BE0F50 /* BrowserExternalNavigationOpenResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15B6C102080414E9FA56FCF /* BrowserExternalNavigationOpenResult.swift */; };
 		CF9713FB29354C27B790391B /* BrowserExternalURLPolicyCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCDF8C8679E947F982BC0CFB /* BrowserExternalURLPolicyCache.swift */; };
@@ -4396,6 +4397,7 @@
 		C2035A010000000000000002 /* BrowserErrorPage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPage.swift; sourceTree = "<group>"; };
 		C2035A020000000000000002 /* BrowserErrorPageContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPageContent.swift; sourceTree = "<group>"; };
 		C2035A0C000000000000002 /* BrowserErrorPageRetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserErrorPageRetry.swift; sourceTree = "<group>"; };
+		5158E0025158E0025158E002 /* BrowserEvalResultMessageHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserEvalResultMessageHandler.swift; sourceTree = "<group>"; };
 		BEEA00010000000000000002 /* BrowserExternalNavigationHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationHandler.swift; sourceTree = "<group>"; };
 		F15B6C102080414E9FA56FCF /* BrowserExternalNavigationOpenResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalNavigationOpenResult.swift; sourceTree = "<group>"; };
 		BCDF8C8679E947F982BC0CFB /* BrowserExternalURLPolicyCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserExternalURLPolicyCache.swift; sourceTree = "<group>"; };
@@ -9873,6 +9875,7 @@
 				C67540100000000000000002 /* BrowserNavigationPopupPolicy.swift */,
 				8054A0060000000000000006 /* BrowserAutomationProbeChannel.swift */,
 				8054A0080000000000000008 /* BrowserAutomationSnapshotResult.swift */,
+				5158E0025158E0025158E002 /* BrowserEvalResultMessageHandler.swift */,
 				8054A00A000000000000000A /* BrowserJavaScriptEvaluationResult.swift */,
 				D7C0DE00000000000000A108 /* BrowserJavaScriptCompletionBridge.swift */,
 				D7C0DE00000000000000A106 /* BrowserOmnibarPageFocusAdapter.swift */,
@@ -12688,6 +12691,7 @@
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
 				C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */,
 				C2035A0C000000000000001 /* BrowserErrorPageRetry.swift in Sources */,
+				5158E0015158E0015158E001 /* BrowserEvalResultMessageHandler.swift in Sources */,
 				BEEA00010000000000000001 /* BrowserExternalNavigationHandler.swift in Sources */,
 				12823DBC8091499B89BE0F50 /* BrowserExternalNavigationOpenResult.swift in Sources */,
 				CF9713FB29354C27B790391B /* BrowserExternalURLPolicyCache.swift in Sources */,
