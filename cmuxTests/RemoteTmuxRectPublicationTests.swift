@@ -35,6 +35,12 @@ import Testing
         return (connection, writer, pipe)
     }
 
+    /// Feeds one scripted command result to the FIFO head. Incidental setup
+    /// commands (the `pane-border-status` subscription a window's first staging
+    /// queues ahead of its rects fetch) are acknowledged by `replyToNextPaneRects`,
+    /// which walks the FIFO to the fetch the scripted lines are written for; this
+    /// helper must answer exactly one slot, or a caller's rects reply lands on the
+    /// wrong command.
     private func reply(
         _ connection: RemoteTmuxControlConnection, lines: [String], isError: Bool = false
     ) {
@@ -106,6 +112,17 @@ import Testing
             if case .paneRects = $0 { return true }
             return false
         }.count
+    }
+
+    /// The window id of the first queued rects fetch. Each window's first
+    /// staging queues its border-status subscription ahead of its rects fetch,
+    /// so the next fetch to answer is the first `.paneRects` entry, not
+    /// necessarily the FIFO head.
+    private func firstPaneRectsWindow(in kinds: [RemoteTmuxControlCommandKind]) -> Int? {
+        for kind in kinds {
+            if case let .paneRects(windowId, _) = kind { return windowId }
+        }
+        return nil
     }
 
     @Test func layoutChangeNotifiesOnlyOnItsRectsReply() {

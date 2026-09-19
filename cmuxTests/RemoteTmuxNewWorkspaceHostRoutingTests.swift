@@ -132,6 +132,42 @@ struct RemoteTmuxNewWorkspaceHostRoutingTests {
         ) == nil)
     }
 
+    // MARK: - Failure reporting
+
+    /// The multiplexed path has its own create seam (in band over the shared view
+    /// stream), so it needs its own proof that a failure surfaces. A view with no
+    /// live control connection returns nil from `createWorkspaceReturningName`
+    /// without any ssh, which is exactly the "create came back with no name" case.
+    @Test func multiplexedCreateFailureIsReported() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let restoreSSH = pinStubSSH("/usr/bin/false")
+            defer { restoreSSH() }
+            let controller = RemoteTmuxController()
+            let manager = TabManager()
+            var reportedFailures: [(host: RemoteTmuxHost, detail: String)] = []
+            controller.reportNewSessionFailure = { host, detail, _ in
+                reportedFailures.append((host: host, detail: detail))
+            }
+            _ = try mirrorSelectedSession(
+                controller: controller, host: hostA, sessionName: "dev", into: manager
+            )
+            defer { controller.detach(host: hostA, sessionName: "dev") }
+            // A view whose connection was never established: createWorkspaceReturningName
+            // short-circuits to nil, so the multiplexed branch takes its failure path.
+            controller.multiplexedViewsByHost[hostA.connectionHash] = RemoteTmuxViewConnection(
+                host: hostA, ownerId: "test-mux-failure"
+            )
+
+            #expect(controller.handleNewWorkspaceRequested(in: manager))
+            await controller.newSessionRoutingTask?.value
+
+            #expect(reportedFailures.count == 1)
+            #expect(reportedFailures.first?.host == hostA)
+            // Nothing was mirrored: the failed create left no workspace behind.
+            #expect(!manager.tabs.contains { $0.title != "dev" && $0.isRemoteTmuxMirror })
+        }
+    }
+
     // MARK: - Controller seam
 
     @Test func handlerClaimsRequestOnlyWhenActiveWorkspaceIsMirror() async throws {
