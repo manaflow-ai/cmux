@@ -149,17 +149,30 @@ final class CmuxEventLogWriter: @unchecked Sendable {
             defer { try? handle.close() }
             try handle.seekToEnd()
             var currentSize = Self.fileSize(at: eventLogURL, fileManager: fileManager)
+            // One file segment at a time bounds the extra buffer to the rotation limit,
+            // except for an indivisible oversized record (the existing write-whole policy).
+            var batchData = Data()
+
+            func writeBatch() throws {
+                guard !batchData.isEmpty else { return }
+                try writeData(handle, batchData)
+                batchData.removeAll(keepingCapacity: true)
+            }
+
             for line in lines {
-                let data = Data((line + "\n").utf8)
-                if currentSize + UInt64(data.count) > maxEventLogBytes {
+                let lineBytes = UInt64(line.utf8.count) + 1
+                if currentSize + lineBytes > maxEventLogBytes {
+                    try writeBatch()
                     try handle.close()
                     try rotate(fileManager: fileManager)
                     handle = try FileHandle(forWritingTo: eventLogURL)
                     currentSize = 0
                 }
-                try writeData(handle, data)
-                currentSize += UInt64(data.count)
+                batchData.append(contentsOf: line.utf8)
+                batchData.append(0x0a)
+                currentSize += lineBytes
             }
+            try writeBatch()
         } catch {
             cmuxEventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
         }
