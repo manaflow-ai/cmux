@@ -66,22 +66,29 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     let buf = f.buffer_mut();
     let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(3), height: area.height.saturating_sub(1) };
     if let Some(d) = app.draft() {
-        let lines = [
-            String::new(),
-            format!("  {}{}  ·  {}  ·  {}  ·  {}", d.peer.as_deref().map(|p| format!("{p}/")).unwrap_or_default(), d.harness, d.model.as_deref().unwrap_or("default model"), shorten_path(&d.cwd), d.policy),
-            String::new(),
-            "  Type below and press Enter to start. The settings under the box are clickable. Esc discards.".into(),
-        ];
-        for (i, l) in lines.iter().enumerate() {
-            if (i as u16) < inner.height {
-                buf.set_stringn(inner.x, inner.y + i as u16, l, inner.width as usize, if i == 1 { Style::default() } else { c.dim() });
+        // Codex app: a centered headline naming the project, the settings
+        // as one muted line under it. The composer below is where to type.
+        let project = std::path::Path::new(&d.cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(&d.cwd));
+        let headline = format!("What should we build in {project}?");
+        let settings = format!("{}{}  ·  {}  ·  {}", d.peer.as_deref().map(|p| format!("{p} / ")).unwrap_or_default(), d.harness, d.model.as_deref().unwrap_or("default model"), d.policy);
+        let top = inner.y + inner.height / 3;
+        let center = |buf: &mut Buffer, y: u16, text: &str, style: Style| {
+            if y < inner.y + inner.height {
+                let w = text.width().min(inner.width as usize);
+                let x = inner.x + (inner.width as usize - w) as u16 / 2;
+                buf.set_stringn(x, y, text, w, style);
             }
-        }
-        let mut y = inner.y + 6;
+        };
+        center(buf, top, &headline, Style::default().add_modifier(Modifier::BOLD));
+        center(buf, top + 2, &settings, c.muted());
+        center(buf, top + 4, "Type below and press Enter to start · Esc discards", c.dim());
+        let mut y = top + 6;
         if d.creating {
-            let mut spans = vec![Span::raw("  ")];
-            spans.extend(crate::tui::shimmer::spans(&format!("Starting {}…", d.harness), c.shimmer_base, c.shimmer_bright));
-            f_render(buf, Paragraph::new(Line::from(spans)), Rect { x: inner.x, y, width: inner.width, height: 1 });
+            let label = format!("Starting {}…", d.harness);
+            let w = label.width().min(inner.width as usize);
+            let x = inner.x + (inner.width as usize - w) as u16 / 2;
+            let spans = crate::tui::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright);
+            f_render(buf, Paragraph::new(Line::from(spans)), Rect { x, y, width: w as u16, height: 1 });
             y += 1;
         }
         for e in &d.errors {
@@ -94,20 +101,18 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         return;
     }
     let Some(id) = app.selected_id() else {
-        let lines = [
-            "",
-            "  No sessions yet.",
-            "",
-            "  Ctrl-t   create a session: pick an agent, name it, choose a directory",
-            "  ?        all keys",
-            "",
-            "  From a shell:  acpmux new -m claude -n my-task",
-        ];
-        for (i, l) in lines.iter().enumerate() {
-            if (i as u16) < inner.height {
-                buf.set_stringn(inner.x, inner.y + i as u16, l, inner.width as usize, if i == 3 || i == 4 { Style::default().fg(c.ok_fg) } else { c.dim() });
+        let top = inner.y + inner.height / 3;
+        let center = |buf: &mut Buffer, y: u16, text: &str, style: Style| {
+            if y < inner.y + inner.height {
+                let w = text.width().min(inner.width as usize);
+                let x = inner.x + (inner.width as usize - w) as u16 / 2;
+                buf.set_stringn(x, y, text, w, style);
             }
-        }
+        };
+        center(buf, top, "What should we build?", Style::default().add_modifier(Modifier::BOLD));
+        center(buf, top + 2, "Ctrl-t starts a session: pick a harness, name it, choose a directory", c.muted());
+        center(buf, top + 3, "?  every key        /  every command", c.dim());
+        center(buf, top + 5, "From a shell:  acpmux new -m claude -n my-task", c.dim());
         return;
     };
     let Some(t) = app.transcripts.get(&id) else {

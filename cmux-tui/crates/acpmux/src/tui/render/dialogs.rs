@@ -31,6 +31,7 @@ fn spans(parts: &[(&str, Style)]) -> Vec<(String, Style)> {
     parts.iter().map(|(s, st)| (s.to_string(), *st)).collect()
 }
 
+#[allow(dead_code)]
 pub(super) fn draw_permission(f: &mut ratatui::Frame, area: Rect, title: &str, options: &[(String, String, String)], app: &mut App) {
     let c = app.chrome;
     let hover = app.hover;
@@ -65,6 +66,44 @@ pub(super) fn draw_permission(f: &mut ratatui::Frame, area: Rect, title: &str, o
     app.dialog_rect = state.rect;
     app.buttons.extend(btns);
     app.dialog = state;
+}
+
+/// The pending permission as a card docked above the composer: the tool
+/// title, then the options as chips. Digits, y and n still answer it.
+pub(super) fn draw_permission_card(f: &mut ratatui::Frame, area: Rect, title: &str, options: &[(String, String, String)], app: &mut App) {
+    let c = app.chrome;
+    let hover = app.hover;
+    let buf = f.buffer_mut();
+    if area.height < 4 || area.width < 12 {
+        return;
+    }
+    fill(buf, area, Style::default());
+    super::composer::rounded_border(buf, area, Style::default().fg(c.attention_fg));
+    let inner_w = area.width.saturating_sub(4) as usize;
+    let head = format!("Needs permission  ·  {}", truncate(title, inner_w.saturating_sub(20)));
+    buf.set_stringn(area.x + 2, area.y + 1, &head, inner_w, Style::default().fg(c.attention_fg).add_modifier(Modifier::BOLD));
+    let hint = "y allow · n reject";
+    if (head.width() + hint.width() + 4) < inner_w {
+        buf.set_stringn(area.x + area.width - 2 - hint.width() as u16, area.y + 1, hint, hint.width(), c.dim());
+    }
+    let mut x = area.x + 2;
+    let y = area.y + 2;
+    app.perm_rows.clear();
+    for (i, (_, name, kind)) in options.iter().enumerate() {
+        let label = format!(" {}  {} ", i + 1, name);
+        let w = (label.width() as u16).min((area.x + area.width - 2).saturating_sub(x));
+        if w == 0 {
+            break;
+        }
+        let r = Rect { x, y, width: w, height: 1 };
+        let hovered = hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
+        let fg = if kind.starts_with("allow") { c.prompt_button_accent_fg } else { c.error_fg };
+        let style = if hovered { Style::default().bg(c.status_active_bg).fg(c.status_active_fg) } else { Style::default().bg(c.prompt_bg).fg(fg) };
+        buf.set_stringn(x, y, &label, w as usize, style);
+        app.perm_rows.push((r, ButtonAction::PermissionOption(i)));
+        x += w + 2;
+    }
+    app.dialog_rect = area;
 }
 
 pub(super) fn draw_new_session(f: &mut ratatui::Frame, area: Rect, form: &NewForm, app: &mut App, hover: Option<(u16, u16)>) {

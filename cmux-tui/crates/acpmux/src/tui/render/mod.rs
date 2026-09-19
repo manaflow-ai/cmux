@@ -22,7 +22,7 @@ mod status;
 mod transcript;
 
 use composer::draw_composer;
-use dialogs::{draw_add_host, draw_confirm, draw_directory, draw_help, draw_new_session, draw_permission, draw_picker};
+use dialogs::{draw_add_host, draw_confirm, draw_directory, draw_help, draw_new_session, draw_permission_card, draw_picker};
 use sidebar::draw_sidebar;
 use status::draw_status;
 use transcript::draw_transcript;
@@ -101,10 +101,10 @@ pub fn border(buf: &mut Buffer, r: Rect, style: Style) {
         put(buf, x0, y, "│");
         put(buf, x1, y, "│");
     }
-    put(buf, x0, y0, "┌");
-    put(buf, x1, y0, "┐");
-    put(buf, x0, y1, "└");
-    put(buf, x1, y1, "┘");
+    put(buf, x0, y0, "╭");
+    put(buf, x1, y0, "╮");
+    put(buf, x0, y1, "╰");
+    put(buf, x1, y1, "╯");
 }
 
 pub fn centered(area: Rect, w: u16, h: u16) -> Rect {
@@ -246,11 +246,15 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 }
             }
             Item::Permission { title, decided, .. } => {
-                let text = match decided {
-                    Some(d) => format!("{indent}permission: {title} → {d}"),
-                    None => format!("{indent}permission needed: {title}"),
+                // Codex app wording: the request while it waits, the answer after.
+                let shown = shorten_tool_title(title);
+                let (text, style) = match decided.as_deref() {
+                    Some(d) if d.starts_with("allow") => (format!("{indent}✓ Allowed  {shown}"), c.dim()),
+                    Some(d) if d.starts_with("reject") => (format!("{indent}✗ Rejected  {shown}"), c.dim()),
+                    Some(_) => (format!("{indent}– Cancelled  {shown}"), c.dim()),
+                    None => (format!("{indent}? Needs permission  {shown}"), Style::default().fg(c.attention_fg)),
                 };
-                plain(&text, Style::default().fg(c.attention_fg), i, rows);
+                plain(&text, style, i, rows);
             }
             _ => {}
         }
@@ -336,7 +340,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     let span = t.turn_span(i);
                     let label = match span {
                         Some((start, Some(end))) => format!("Worked for {}", duration_label(end.saturating_sub(start))),
-                        Some((start, None)) if running && t.turn_times.last().map(|x| x.0 == i).unwrap_or(false) => format!("Working for {}", duration_label(now_ms().saturating_sub(start))),
+                        Some((start, None)) if t.turn_times.last().map(|x| x.0 == i).unwrap_or(false) && t.status != "ready" && t.status != "idle" => format!("Working for {}", duration_label(now_ms().saturating_sub(start))),
                         _ => "Worked".to_owned(),
                     };
                     spacer(&mut rows, i, false);
@@ -583,7 +587,21 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     // Top rule, the text, bottom rule, controls row.
     let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 3;
     let composer = Rect { x: main.x, y: main.y + main.height - input_h, width: main.width, height: input_h };
-    let transcript = Rect { x: main.x, y: main.y, width: main.width, height: main.height - input_h };
+    // A pending permission docks as a card above the composer, Codex-app
+    // style, instead of covering the conversation.
+    let pending = if matches!(app.overlay, Overlay::None) {
+        app.selected_id()
+            .and_then(|id| app.transcripts.get(&id))
+            .and_then(|t| match t.pending_permission() {
+                Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
+                _ => None,
+            })
+    } else {
+        None
+    };
+    let card_h: u16 = if pending.is_some() && main.height > input_h + 8 { 4 } else { 0 };
+    let card = Rect { x: main.x + 1, y: composer.y.saturating_sub(card_h), width: main.width.saturating_sub(2), height: card_h };
+    let transcript = Rect { x: main.x, y: main.y, width: main.width, height: main.height - input_h - card_h };
     app.areas.sidebar = sidebar;
     app.areas.sidebar_rule = if sidebar_w == 0 { Rect::default() } else { Rect { x: sidebar.x + sidebar.width - 1, y: sidebar.y, width: 1, height: sidebar.height } };
     app.areas.transcript = transcript;
@@ -611,17 +629,8 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
         };
         app.buttons.push((r, action));
     }
-    if matches!(app.overlay, Overlay::None) {
-        let pending = app
-            .selected_id()
-            .and_then(|id| app.transcripts.get(&id))
-            .and_then(|t| match t.pending_permission() {
-                Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
-                _ => None,
-            });
-        if let Some((title, options)) = pending {
-            draw_permission(f, area, &title, &options, app);
-        }
+    if let (Some((title, options)), true) = (pending, card_h > 0) {
+        draw_permission_card(f, card, &title, &options, app);
     }
     let hover = app.hover;
     let kind: u8 = match &app.overlay { Overlay::None => 0, Overlay::Help => 1, Overlay::NewSession(_) => 2, Overlay::Picker(_) => 3, Overlay::Confirm { .. } => 4, Overlay::AddHost { .. } => 5, Overlay::Directory { .. } => 6, Overlay::Menu(_) => 7 };
@@ -854,11 +863,11 @@ mod hierarchy_tests {
         let text: Vec<&str> = rows.iter().map(|r| r.text.as_str()).collect();
         assert!(text.iter().any(|l| l.starts_with("Worked") && l.ends_with("›")), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("❯ Use your Bash tool twice")), "{text:?}");
-        assert!(text.iter().any(|l| l == &"• done"), "{text:?}");
+        assert!(text.iter().any(|l| l == &"  done"), "{text:?}");
         assert!(!text.iter().any(|l| l.contains("thinking") || l.contains("hostname")), "{text:?}");
         assert!(text.iter().any(|l| l.starts_with("❯ again")), "{text:?}");
         // The second turn has one block only: no handle.
-        assert_eq!(text.iter().filter(|l| l.contains("worked ·")).count(), 1, "{text:?}");
+        assert_eq!(text.iter().filter(|l| l.starts_with("Worked")).count(), 1, "{text:?}");
     }
 }
 

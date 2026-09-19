@@ -64,7 +64,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let mut rows: Vec<Value> = Vec::with_capacity(app.sessions.len() + app.drafts.len());
     for d in &app.drafts {
         let preview = d.text.text();
-        let title = if preview.trim().is_empty() { "New session".to_owned() } else { preview.lines().next().unwrap_or("").to_owned() };
+        let title = if preview.trim().is_empty() { "Draft".to_owned() } else { preview.lines().next().unwrap_or("").to_owned() };
         rows.push(serde_json::json!({"name": title, "status": if d.creating { "running" } else { "draft" }, "draft": true, "cwd": d.cwd, "peer": d.peer}));
     }
     rows.extend(app.sessions.iter().cloned());
