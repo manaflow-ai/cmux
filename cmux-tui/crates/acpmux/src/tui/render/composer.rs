@@ -207,7 +207,7 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
 
 /// Codex's wording for the permission policy, and whether it is the warm
 /// "full access" chip.
-fn policy_label(policy: &str) -> (String, bool) {
+pub(super) fn policy_label(policy: &str) -> (String, bool) {
     match policy {
         "approve-all" => ("Full access".into(), true),
         "approve-edits" => ("Edits allowed".into(), false),

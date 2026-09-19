@@ -78,7 +78,15 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         // as one muted line under it. The composer below is where to type.
         let project = project_label(&d.cwd);
         let headline = format!("What should we build in {project}?");
-        let settings = format!("{}{}  ·  {}  ·  {}", d.peer.as_deref().map(|p| format!("{p} / ")).unwrap_or_default(), d.harness, d.model.as_deref().unwrap_or("default model"), d.policy);
+        let effort = d.effort.as_deref().filter(|e| !e.is_empty() && *e != "default").map(|e| format!("  ·  {}", effort_label(e))).unwrap_or_default();
+        let settings = format!(
+            "{}{}  ·  {}{}  ·  {}",
+            d.peer.as_deref().map(|p| format!("{p} / ")).unwrap_or_default(),
+            d.harness,
+            d.model.as_deref().map(model_label).unwrap_or_else(|| "default model".to_owned()),
+            effort,
+            crate::tui::render::composer::policy_label(&d.policy).0
+        );
         let top = inner.y + inner.height / 3;
         let center = |buf: &mut Buffer, y: u16, text: &str, style: Style| {
             if y < inner.y + inner.height {
