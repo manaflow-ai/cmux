@@ -78,6 +78,7 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(Date().timeIntervalSince(startedAt) < 2, "The browser route should be ready before a visible loading card is needed")
         #expect(panel.webView.url == remote)
         #expect(try await panel.webView.evaluateJavaScript("document.body.dataset.machine") as? String == "cold")
+        #expect(try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeInstalled === true") as? Bool == true, "Cloud WebSocket bridge script must run before page JavaScript")
         let websocketDeadline = ContinuousClock.now.advanced(by: .seconds(5))
         while (try await panel.webView.evaluateJavaScript("window.cloudWebSocketState") as? String) != "open",
               ContinuousClock.now < websocketDeadline {
