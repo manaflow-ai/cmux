@@ -95,6 +95,7 @@ def _install_fake_tools(fakebin: Path) -> None:
     common = f"""
 import os
 import plistlib
+from datetime import datetime, timezone
 from pathlib import Path
 
 TEAM_ID = {TEAM_ID!r}
