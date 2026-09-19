@@ -15,9 +15,9 @@ import Foundation
 /// should use ``value(for:)``, which is backed by the in-memory cache.
 ///
 /// JSONC (`// line` and `/* block */` comments, trailing commas) is tolerated
-/// on read via the injected ``JSONCSanitizer``. Writes round-trip through
-/// `JSONSerialization` with sorted, pretty-printed output; comment-preserving
-/// edits are a follow-up.
+/// on read via the injected ``JSONCSanitizer``. Set/reset operations edit the
+/// targeted object path in the original source text so comments, ordering, and
+/// unrelated formatting survive ordinary Settings writes.
 ///
 /// Observation uses a primary ``CmuxFileWatch/FileWatcher`` on the configured
 /// path and, when that path resolves elsewhere, a secondary watcher on the
@@ -40,6 +40,7 @@ public actor JSONConfigStore {
     public nonisolated let fileURL: URL
 
     private let sanitizer: JSONCSanitizer
+    private let sourceEditor: JSONCPathEditor
     private let watcher: FileWatcher
     private var targetWatcher: FileWatcher?
     private var watchedTargetPath: String?
@@ -67,8 +68,22 @@ public actor JSONConfigStore {
     ///   - sanitizer: JSONC sanitizer applied to file contents on read.
     ///     Inject a custom one in tests; the default is enough for normal use.
     public init(fileURL: URL, sanitizer: JSONCSanitizer = JSONCSanitizer()) {
+        self.init(
+            fileURL: fileURL,
+            sanitizer: sanitizer,
+            sourceEditor: JSONCPathEditor()
+        )
+    }
+
+    /// Internal injection seam for focused mutation tests and future editor reuse.
+    init(
+        fileURL: URL,
+        sanitizer: JSONCSanitizer,
+        sourceEditor: JSONCPathEditor
+    ) {
         self.fileURL = fileURL
         self.sanitizer = sanitizer
+        self.sourceEditor = sourceEditor
         // The primary watcher observes the configured path, including symlink
         // replacement/retarget events in its parent directory. A secondary
         // target watcher observes edits that land in the resolved target's own
@@ -115,20 +130,36 @@ public actor JSONConfigStore {
     ///
     /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
     public func set<Value>(_ value: Value, for key: JSONKey<Value>) throws {
-        try mutateRoot { root in
-            key.path.assign(value.encodeForJSON(), in: &root)
-        }
+        let encodedValue = value.encodeForJSON()
+        try mutateRoot(
+            { root in
+                key.path.assign(encodedValue, in: &root)
+            },
+            editingSource: { source in
+                try sourceEditor.set(
+                    path: key.path.components,
+                    value: encodedValue,
+                    in: source
+                )
+            }
+        )
     }
 
-    /// Removes the key's entry from the file. Parent objects that become
-    /// empty are pruned. The file itself is not deleted even when no entries
-    /// remain.
+    /// Removes the key's entry from the file. Plain parent objects that become
+    /// empty are pruned. Comment-only parents stay in place so reset does not
+    /// delete user-authored documentation. The file itself is not deleted even
+    /// when no entries remain.
     ///
-    /// - Throws: Errors from `FileManager` or `JSONSerialization` writing the file.
+    /// - Throws: Errors from `FileManager`, JSON parsing, or the source edit.
     public func reset<Value>(_ key: JSONKey<Value>) throws {
-        try mutateRoot { root in
-            key.path.remove(in: &root)
-        }
+        try mutateRoot(
+            { root in
+                key.path.remove(in: &root)
+            },
+            editingSource: { source in
+                try sourceEditor.remove(path: key.path.components, in: source)
+            }
+        )
     }
 
     /// Returns an `AsyncStream` that yields the current value and every later change.
@@ -270,20 +301,30 @@ public actor JSONConfigStore {
     }
 
     private nonisolated func readFromDisk(at url: URL) throws -> [String: Any] {
+        try readDocument(at: url).root
+    }
+
+    /// Reads the parsed root and, for an existing non-empty file, its original
+    /// source text from one disk snapshot.
+    private nonisolated func readDocument(
+        at url: URL
+    ) throws -> (root: [String: Any], source: String?) {
         let data: Data
         do {
             data = try Data(contentsOf: url)
         } catch let error as NSError where error.domain == NSCocoaErrorDomain
             && error.code == NSFileReadNoSuchFileError {
-            return [:]
+            return ([:], nil)
         }
-        if data.isEmpty { return [:] }
+        if data.isEmpty { return ([:], "") }
+
+        let source = try sanitizer.sourceText(from: data)
         let sanitized = try sanitizer.sanitize(data)
         let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
         guard let dictionary = object as? [String: Any] else {
             throw JSONConfigStoreReadError.notADictionary
         }
-        return dictionary
+        return (dictionary, source)
     }
 
     /// Resolves the location a write should target for `url`.
@@ -334,36 +375,79 @@ public actor JSONConfigStore {
     /// target's data. A single mutation reads and writes through one resolution
     /// snapshot, so a concurrent retarget serializes against the write instead
     /// of splitting the operation across two targets.
-    private func mutateRoot(_ mutate: (inout [String: Any]) -> Void) throws {
-        // Write through a symlink to its target rather than at the link path:
-        // an atomic write is a temp-file + `rename()`, which would replace the
-        // link itself with a regular file and break a dotfiles-managed config.
+    private func mutateRoot(
+        _ mutate: (inout [String: Any]) -> Void,
+        editingSource: (String) throws -> String
+    ) throws {
+        // Resolve once so parsing, source editing, and the atomic replace all
+        // target the same file when cmux.json is a symlink.
         let writeURL = Self.resolvedWriteURL(for: fileURL)
-        var root = cacheIsCurrent(for: writeURL.path) ? cachedRoot : try readFromDisk(at: writeURL)
-        mutate(&root)
+        let document = try readDocument(at: writeURL)
+
+        var candidateRoot = document.root
+        mutate(&candidateRoot)
+
+        // Semantic no-ops stay byte-stable and avoid an atomic replace. Reading
+        // from disk here also refreshes the cache if an external edit landed
+        // before this mutation.
+        guard !Self.jsonObjectsEqual(document.root, candidateRoot) else {
+            cachedRoot = document.root
+            cacheValid = true
+            cachedRootResolvedPath = writeURL.path
+            return
+        }
+
+        // Missing/zero-byte configs have no authoring text to preserve. Seed
+        // the smallest editable object and let the path editor create only the
+        // requested path.
+        let source: String
+        if let existingSource = document.source, !existingSource.isEmpty {
+            source = existingSource
+        } else {
+            source = "{\n}\n"
+        }
+        let updatedSource = try editingSource(source)
+        let data = Data(updatedSource.utf8)
+
+        // Validate our edited document before touching disk. This also gives
+        // the cache the exact semantic root represented by the retained source;
+        // comment-only empty parents can intentionally remain after reset.
+        let sanitized = try sanitizer.sanitize(data)
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: [])
+        guard let writtenRoot = object as? [String: Any] else {
+            throw JSONConfigStoreReadError.notADictionary
+        }
 
         let parent = writeURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
-        let data = try JSONSerialization.data(
-            withJSONObject: root,
-            options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        )
         try data.write(to: writeURL, options: [.atomic])
 
         // Only commit to cache after the file write succeeded.
-        cachedRoot = root
+        cachedRoot = writtenRoot
         cacheValid = true
         cachedRootResolvedPath = writeURL.path
 
-        // Notify subscribers of our own write directly rather than
-        // relying on the file watcher to observe it. Atomic writes
-        // replace the file via rename, which a vnode DispatchSource can
-        // miss, so self-writes must be signalled here to guarantee the
-        // `values(for:)` streams (and the view-models bound to them)
-        // reflect a change made through this store. The cache is already
-        // up to date, so subscribers re-read the new value immediately.
+        // Notify subscribers of our own write directly rather than relying on
+        // the file watcher to observe an atomic rename.
         for continuation in subscribers.values {
             continuation.yield(())
         }
+    }
+
+    private static func jsonObjectsEqual(
+        _ lhs: [String: Any],
+        _ rhs: [String: Any]
+    ) -> Bool {
+        guard let left = try? JSONSerialization.data(
+            withJSONObject: lhs,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        ),
+        let right = try? JSONSerialization.data(
+            withJSONObject: rhs,
+            options: [.sortedKeys, .withoutEscapingSlashes]
+        ) else {
+            return false
+        }
+        return left == right
     }
 }
