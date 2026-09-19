@@ -539,7 +539,6 @@ async fn read_http_headers(
     Ok(String::from_utf8(data).map_err(|_| anyhow!("WebSocket headers were not UTF-8"))?)
 }
 
-
 pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String, u16)> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
         let end = rest.find(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
