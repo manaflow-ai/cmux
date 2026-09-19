@@ -81,6 +81,28 @@ class SyncTestWiringTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_blank_lines_in_sources_phase_stay_normalized(self) -> None:
+        # The real project carries blank lines inside the cmuxTests Sources
+        # `files` list, and the normalizer sorts them ahead of the entries.
+        # Rewriting that list must leave them where the normalizer puts them,
+        # or every sync produces a project that check-pbxproj.sh rejects.
+        repo = self.make_repo("base.pbxproj", ["ExistingTests.swift", "AlphaTests.swift"])
+        project = repo / "cmux.xcodeproj" / "project.pbxproj"
+        text = project.read_text(encoding="utf-8")
+        entry = "\t\t\t\t555555555555555555555555 /* ExistingTests.swift in Sources */,\n"
+        self.assertEqual(text.count(entry), 1)
+        project.write_text(text.replace(entry, "\n\n" + entry), encoding="utf-8")
+
+        self.run_sync(repo)
+
+        result = subprocess.run(
+            ["python3", str(NORMALIZER), "--check", str(project)],
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("AlphaTests.swift in Sources", self.project_text(repo))
+
     def test_rerun_is_byte_for_byte_idempotent_and_check_is_clean(self) -> None:
         repo = self.make_repo("base.pbxproj", ["ExistingTests.swift", "NewTests.swift"])
         self.run_sync(repo)
