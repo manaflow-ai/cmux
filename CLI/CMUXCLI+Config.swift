@@ -70,7 +70,7 @@ extension CMUXCLI {
             )
             if report.errorCount > 0 {
                 throw CLIError(
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.cli.errorCount",
                         defaultValue: "cmux config %@ found %lld error(s)",
                         subcommand,
@@ -116,7 +116,7 @@ extension CMUXCLI {
     }
 
     func configUsage() -> String {
-        let validationHelp = CmuxConfigValidationLocalization.string(
+        let validationHelp = CmuxConfigValidationLocalization().string(
             "config.validation.cli.help",
             defaultValue: "Validate JSONC syntax and cmux config semantics."
         )

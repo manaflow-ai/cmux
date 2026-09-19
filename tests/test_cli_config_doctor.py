@@ -120,6 +120,11 @@ def main() -> int:
         home = Path(temp)
         workspace = home / "workspace" / "child"
         workspace.mkdir(parents=True)
+        helper = repo_root / "skills" / "cmux-settings" / "scripts" / "cmux-settings"
+        helper_env = dict(os.environ)
+        helper_env["HOME"] = str(home)
+        helper_env["CMUX_CLI_BIN"] = cli_path
+        helper_env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         (home / "cmux.json").write_text('{"homeLevel": true,,}\n', encoding="utf-8")
         config_path = home / ".config" / "cmux" / "cmux.json"
         config_path.parent.mkdir(parents=True)

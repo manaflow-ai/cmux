@@ -68,7 +68,7 @@ public struct CmuxConfigSemanticValidator {
             return [
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.string(
+                    message: CmuxConfigValidationLocalization().string(
                         "config.validation.scope.globalOnly",
                         defaultValue: "is only supported in the global cmux.json"
                     )
@@ -83,7 +83,7 @@ public struct CmuxConfigSemanticValidator {
                 return [
                     CmuxConfigSemanticIssue(
                         path: path,
-                        message: CmuxConfigValidationLocalization.format(
+                        message: CmuxConfigValidationLocalization().format(
                             "config.validation.schema.unknownReference",
                             defaultValue: "references an unknown schema definition '%@'",
                             ref
@@ -105,7 +105,7 @@ public struct CmuxConfigSemanticValidator {
             return [
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.type.expected",
                         defaultValue: "expected %@, got %@",
                         typeDescription(typeSpec),
@@ -119,7 +119,7 @@ public struct CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.value.equal",
                         defaultValue: "must equal %@",
                         displayJSON(constant)
@@ -133,7 +133,7 @@ public struct CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.format(
+                    message: CmuxConfigValidationLocalization().format(
                         "config.validation.value.oneOf",
                         defaultValue: "must be one of %@",
                         displayChoices(choices)
@@ -170,7 +170,7 @@ public struct CmuxConfigSemanticValidator {
                 issues.append(
                     CmuxConfigSemanticIssue(
                         path: path,
-                        message: CmuxConfigValidationLocalization.string(
+                        message: CmuxConfigValidationLocalization().string(
                             "config.validation.form.none",
                             defaultValue: "does not match any allowed form"
                         )
@@ -195,11 +195,11 @@ public struct CmuxConfigSemanticValidator {
             let passing = alternatives.filter(\.isEmpty).count
             if passing != 1 {
                 let message = passing == 0
-                    ? CmuxConfigValidationLocalization.string(
+                    ? CmuxConfigValidationLocalization().string(
                         "config.validation.form.none",
                         defaultValue: "does not match any allowed form"
                     )
-                    : CmuxConfigValidationLocalization.string(
+                    : CmuxConfigValidationLocalization().string(
                         "config.validation.form.multiple",
                         defaultValue: "matches multiple mutually exclusive forms"
                     )
@@ -239,7 +239,7 @@ public struct CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: CmuxConfigValidationLocalization.string(
+                    message: CmuxConfigValidationLocalization().string(
                         "config.validation.form.disallowed",
                         defaultValue: "uses a disallowed value combination"
                     )
