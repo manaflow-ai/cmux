@@ -1,0 +1,40 @@
+name: coderouter CLI
+
+on:
+  pull_request:
+    paths:
+      - "coderouter/**"
+      - ".github/workflows/coderouter-*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "coderouter/**"
+      - ".github/workflows/coderouter-*.yml"
+
+permissions: {}
+
+jobs:
+  test:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: coderouter
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.94.0
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.2
+        with:
+          workspaces: coderouter
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked --all-targets
+      - run: node scripts/check-version.mjs
+      - run: npm pack --dry-run
+        working-directory: coderouter/npm

@@ -2,6 +2,55 @@ public import Darwin
 internal import Foundation
 
 public extension SocketTransport {
+    /// The exact audit token of a connected Unix-domain-socket peer.
+    ///
+    /// The bytes are copied while the accepted socket still identifies its
+    /// peer. Callers can later bind dynamic code-signature checks to this
+    /// kernel identity instead of using a reusable PID.
+    func peerAuditToken(of socket: Int32) -> SocketPeerAuditToken? {
+        var token = audit_token_t()
+        var tokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
+        let result = getsockopt(
+            socket,
+            SOL_LOCAL,
+            LOCAL_PEERTOKEN,
+            &token,
+            &tokenSize
+        )
+        guard result == 0,
+              tokenSize == MemoryLayout<audit_token_t>.size else {
+            return nil
+        }
+        let bytes = withUnsafeBytes(of: token) { Array($0) }
+        return SocketPeerAuditToken(bytes: bytes)
+    }
+
+    /// The continuous absolute process launch time for a concrete PID.
+    /// `exec(2)` preserves `ri_proc_start_abstime` while PID reuse cannot.
+    func processStartTime(of processID: pid_t) -> SocketPeerProcessStartTime? {
+        guard processID > 0 else { return nil }
+        var information = rusage_info_v0()
+        let result = withUnsafeMutableBytes(
+            of: &information
+        ) { rawBuffer -> Int32 in
+            guard let baseAddress = rawBuffer.baseAddress else { return -1 }
+            // proc_pid_rusage imports as `rusage_info_t *`. Pass the concrete
+            // v0 buffer through the imported opaque pointer type.
+            return proc_pid_rusage(
+                processID,
+                RUSAGE_INFO_V0,
+                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+            )
+        }
+        guard result == 0,
+              information.ri_proc_start_abstime > 0 else {
+            return nil
+        }
+        return SocketPeerProcessStartTime(
+            absoluteTime: information.ri_proc_start_abstime
+        )
+    }
+
     /// The peer PID of a connected Unix domain socket via `LOCAL_PEERPID`.
     ///
     /// Used with ``isProcessDescendant(_:of:)`` to enforce the `cmuxOnly`

@@ -91,6 +91,49 @@ final class SocketConnectionAuthorizationState: Sendable {
         }
     }
 
+    /// Runs a short response write while holding the authorization-state lock.
+    ///
+    /// Credential-bearing socket responses must not have a check-then-write
+    /// window: a listener policy/password rotation could otherwise revoke an
+    /// accepted connection after the check and before the lease bytes leave
+    /// the process. Callers must keep `body` bounded and side-effect free.
+    func withPermittedContinuation<T: Sendable>(
+        generation: UInt64,
+        authenticatedPasswordFingerprint: Data?,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        state.withLock { state in
+            guard state.isRunning,
+                  state.generation.number == generation else {
+                return nil
+            }
+            if state.accessMode.requiresPasswordAuth {
+                guard let authenticatedPasswordFingerprint,
+                      authenticatedPasswordFingerprint == state.passwordFingerprint else {
+                    return nil
+                }
+            }
+            return body()
+        }
+    }
+
+    /// Runs a short operation under the live listener-generation lock.
+    ///
+    /// This is the password-bypass half of the dedicated signed-peer handoff
+    /// path. The app must first validate and consume its scoped launch grant.
+    func withCurrentGeneration<T: Sendable>(
+        generation: UInt64,
+        _ body: @Sendable () -> T
+    ) -> T? {
+        state.withLock { state in
+            guard state.isRunning,
+                  state.generation.number == generation else {
+                return nil
+            }
+            return body()
+        }
+    }
+
     private func rotate(_ state: inout SocketConnectionAuthorizationSnapshot) {
         let previousSignal = state.generation.revocationSignal
         state.generation = SocketConnectionAuthorizationGeneration(

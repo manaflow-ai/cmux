@@ -5,7 +5,7 @@ import Foundation
 // (CMUXCLI+Coderouter.swift), run the separately distributed CodeRouter CLI.
 // This file owns that passthrough end to end: locating the executable,
 // bootstrapping it on a machine that has none, and replacing this process
-// with it. The cmux socket is never opened on this path.
+// with it. Routed agent commands use the signed native handoff in cmux.swift.
 extension CMUXCLI {
     /// The installer documented at https://cmux.com/coderouter. Every message
     /// quotes this exact command, and the interactive bootstrap runs it: cmux
@@ -36,8 +36,8 @@ extension CMUXCLI {
     /// CodeRouter and its installer are independent executables. They never
     /// receive cmux's ambient terminal or control-plane context: CMUX_* and
     /// CMUXD_* may carry socket paths, capabilities, passwords, auth state, or
-    /// internal paths. There is intentionally no auth handoff; a future one
-    /// must be explicit and narrowly allowlisted.
+    /// internal paths. This environment is used for installation; the native
+    /// handoff applies its own narrower execution policy.
     static func coderouterChildEnvironment(from environment: [String: String]) -> [String: String] {
         environment.filter { key, _ in
             !key.hasPrefix("CMUX_") && !key.hasPrefix("CMUXD_")
@@ -45,14 +45,13 @@ extension CMUXCLI {
     }
 
     func runCoderouterAlias(commandArgs: [String]) throws {
-        let environment = ProcessInfo.processInfo.environment
-        let executablePath: String
-        if let installed = resolveCoderouterExecutable(environment: environment) {
-            executablePath = installed
-        } else {
-            executablePath = try bootstrapCoderouter(environment: environment)
-        }
-        try execCoderouter(at: executablePath, commandArgs: commandArgs, environment: environment)
+        try runCoderouterAlias(
+            commandArgs: commandArgs,
+            explicitSocketPath: nil,
+            explicitPassword: nil,
+            environment: ProcessInfo.processInfo.environment,
+            bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier() ?? "com.cmuxterm.app"
+        )
     }
 
     /// PATH first (`coderouter`, then `cr`), exactly as before, then the
@@ -78,7 +77,7 @@ extension CMUXCLI {
     /// download, or a failed installer. The offer and the question go to
     /// stderr so stdout stays CodeRouter's; the answer comes from stdin, so
     /// both must be terminals.
-    private func bootstrapCoderouter(environment: [String: String]) throws -> String {
+    func bootstrapCoderouter(environment: [String: String]) throws -> String {
         let installCommand = Self.coderouterInstallCommand
         guard isatty(STDIN_FILENO) == 1, isatty(STDERR_FILENO) == 1 else {
             throw Self.coderouterUnavailable(String(
@@ -238,50 +237,6 @@ extension CMUXCLI {
             return 128 + process.terminationStatus
         }
         return process.terminationStatus
-    }
-
-    // MARK: - Exec
-
-    /// Replace this process with the CodeRouter CLI so stdin/stdout/stderr,
-    /// signals, and the child exit status retain their normal terminal
-    /// semantics. The argv is built directly; arguments such as prompts,
-    /// paths, and shell metacharacters are never interpreted by a shell.
-    private func execCoderouter(
-        at executablePath: String,
-        commandArgs: [String],
-        environment: [String: String]
-    ) throws {
-        let childEnvironment = Self.coderouterChildEnvironment(from: environment)
-        var argv = ([executablePath] + commandArgs).map { strdup($0) }
-        let environmentStrings = childEnvironment.keys.sorted().map { key in
-            "\(key)=\(childEnvironment[key] ?? "")"
-        }
-        var environmentPointers = environmentStrings.map { strdup($0) }
-        defer {
-            for item in argv {
-                free(item)
-            }
-            for item in environmentPointers {
-                free(item)
-            }
-        }
-        argv.append(nil)
-        environmentPointers.append(nil)
-
-        let executionError = cliExecFailureErrno {
-            executablePath.withCString { executable in
-                _ = execve(executable, &argv, &environmentPointers)
-            }
-        }
-        let errorText = String(cString: strerror(executionError))
-        cliDebugLog(
-            "cli.coderouter.exec_failed executable=\(executablePath) "
-                + "errno=\(executionError) error=\(errorText)"
-        )
-        throw Self.coderouterUnavailable(Self.localizedPassthroughString(
-            "cli.coderouter.error.launchFailed",
-            defaultValue: "Could not start the required CLI. Check the installation and try again."
-        ))
     }
 
     // MARK: - Presentation

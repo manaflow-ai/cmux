@@ -49,6 +49,14 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     /// One-shot idle deadline carried over from SO_RCVTIMEO. DispatchSource
     /// is the low-level descriptor/timer bridge; it never blocks the task.
     private let idleReadTimer: (any DispatchSourceTimer)?
+    private let codeRouterHandshakeMaximumBytes: Int?
+    private var didCompleteCodeRouterHandshake = false
+    private var awaitsCodeRouterHandoffCompletion = false
+    private var codeRouterCompletionDeadlineUptimeNanoseconds: UInt64?
+    private var codeRouterCompletionDeadlineTask: Task<Void, Never>?
+    private var currentLineMethodIsCodeRouter: Bool?
+    private var lateRouteScanState = ControlClientLineReader.LateRouteScanState()
+    private var lateRouteScanIndex = 0
     private var pendingBytes: [UInt8] = []
     private var pendingStartIndex = 0
     private var newlineSearchIndex = 0
@@ -85,9 +93,11 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
         initialLimits: ControlClientLineReadLimits? = nil,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal? = nil,
         maximumBufferedBytes: Int = 16 * 1024 * 1024,
-        monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil
+        monotonicNowNanoseconds: (@Sendable () -> UInt64)? = nil,
+        codeRouterHandshakeMaximumBytes: Int? = nil
     ) {
         self.socket = socket
+        self.codeRouterHandshakeMaximumBytes = codeRouterHandshakeMaximumBytes
         self.maximumBufferedBytes = max(1, maximumBufferedBytes)
         let bufferedByteAccounting = OSAllocatedUnfairLock(
             initialState: BufferedByteAccounting()
@@ -194,6 +204,7 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
 
     deinit {
         deadlineTask?.cancel()
+        codeRouterCompletionDeadlineTask?.cancel()
         source.cancel()
         revocationSource?.cancel()
         idleReadTimer?.cancel()
@@ -216,10 +227,14 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
     public func nextLine(
         shouldContinueReading: @Sendable @escaping () -> Bool
     ) async -> String? {
+        guard !didCompleteCodeRouterHandshake else { return nil }
         while !Task.isCancelled {
-            guard deadlineHasNotExpired, shouldContinueReading() else { return nil }
+            guard deadlineHasNotExpired, shouldContinueReading(),
+                  currentLineIsWithinCodeRouterHandshakeLimit else { return nil }
 
             if let newlineIndex = nextBareNewlineIndex() {
+                let completedHandshake = currentLineMethodIsCodeRouter == true
+                let wasAwaitingCompletion = awaitsCodeRouterHandoffCompletion
                 let consumedByteCount = newlineIndex + 1 - pendingStartIndex
                 let decoded = String(
                     bytes: pendingBytes[pendingStartIndex..<newlineIndex],
@@ -229,6 +244,17 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
                 newlineSearchIndex = pendingStartIndex
                 releasePendingBytes(consumedByteCount)
                 compactPendingBytesIfNeeded()
+                currentLineMethodIsCodeRouter = nil
+                lateRouteScanState = ControlClientLineReader.LateRouteScanState()
+                lateRouteScanIndex = pendingStartIndex
+                didCompleteCodeRouterHandshake = wasAwaitingCompletion || completedHandshake
+                if wasAwaitingCompletion {
+                    awaitsCodeRouterHandoffCompletion = false
+                    codeRouterCompletionDeadlineUptimeNanoseconds = nil
+                    codeRouterCompletionDeadlineTask?.cancel()
+                    codeRouterCompletionDeadlineTask = nil
+                }
+                if decoded == nil, didCompleteCodeRouterHandshake { return nil }
                 // Invalid UTF-8 lines are dropped exactly like the blocking
                 // reader, without discarding subsequent framed lines.
                 if let decoded { return decoded }
@@ -266,15 +292,58 @@ public final class ControlClientAsyncLineReader: @unchecked Sendable {
 
     /// Explicitly terminates the reader's event sources.
     public func cancel() {
+        codeRouterCompletionDeadlineTask?.cancel()
         source.cancel()
         revocationSource?.cancel()
         idleReadTimer?.cancel()
         continuation.finish()
     }
 
+    /// Begins the second and final signed frame, with a bounded wait even if
+    /// the peer stays connected without sending another byte.
+    public func allowCodeRouterHandoffCompletion(timeoutMilliseconds: Int) {
+        guard didCompleteCodeRouterHandshake, !awaitsCodeRouterHandoffCompletion else { return }
+        let milliseconds = UInt64(clamping: max(0, timeoutMilliseconds))
+        let (duration, overflowed) = milliseconds.multipliedReportingOverflow(by: 1_000_000)
+        let (deadline, additionOverflowed) = monotonicNowNanoseconds().addingReportingOverflow(duration)
+        codeRouterCompletionDeadlineUptimeNanoseconds = overflowed || additionOverflowed ? .max : deadline
+        awaitsCodeRouterHandoffCompletion = true
+        didCompleteCodeRouterHandshake = false
+        let completion = continuation
+        codeRouterCompletionDeadlineTask = Task {
+            do { try await Task.sleep(nanoseconds: overflowed ? .max : duration) }
+            catch { return }
+            guard !Task.isCancelled else { return }
+            completion.finish()
+        }
+    }
+
+    /// Share the blocking reader's pre-JSON route classification. A large
+    /// ordinary request stays allowed; late duplicate/escaped route keys fail
+    /// closed before any JSON decoding, and handoff frames remain 4 KiB.
+    private var currentLineIsWithinCodeRouterHandshakeLimit: Bool {
+        guard let maximum = codeRouterHandshakeMaximumBytes else { return true }
+        let newline = pendingBytes[pendingStartIndex...].firstIndex(of: 0x0A)
+        let end = newline ?? pendingBytes.endIndex
+        let prefix = Array(pendingBytes[pendingStartIndex..<end].prefix(maximum + 1))
+        currentLineMethodIsCodeRouter = ControlClientLineReader.classifyTopLevelMethod(in: prefix)
+        let rawCount = end - pendingStartIndex + (newline == nil ? 0 : 1)
+        guard rawCount > maximum else { return true }
+        guard !awaitsCodeRouterHandoffCompletion, currentLineMethodIsCodeRouter == false else { return false }
+        while lateRouteScanIndex < end {
+            let byte = pendingBytes[lateRouteScanIndex]
+            lateRouteScanIndex += 1
+            if lateRouteScanState.consume(byte) { return false }
+        }
+        return true
+    }
+
     private var deadlineHasNotExpired: Bool {
-        guard let deadlineUptimeNanoseconds else { return true }
-        return monotonicNowNanoseconds() < deadlineUptimeNanoseconds
+        let now = monotonicNowNanoseconds()
+        if let deadlineUptimeNanoseconds, now >= deadlineUptimeNanoseconds { return false }
+        if let codeRouterCompletionDeadlineUptimeNanoseconds,
+           now >= codeRouterCompletionDeadlineUptimeNanoseconds { return false }
+        return true
     }
 
     private func nextBareNewlineIndex() -> Int? {

@@ -225,6 +225,9 @@ struct SocketControlServerLifecycleTests {
         let connection = try #require(await server.connections.nextConnection())
         defer { close(connection.socket) }
         #expect(connection.peerProcessID == getpid())
+        #expect(connection.peerAuditToken?.processID == getpid())
+        #expect(connection.peerAuditToken?.processVersion != 0)
+        #expect(connection.peerProcessStartTime == server.transport.processStartTime(of: getpid()))
     }
 
     @Test func connectionStreamSpansListenerRestarts() async throws {

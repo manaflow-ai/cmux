@@ -528164,6 +528164,55 @@
         }
       }
     },
+    "cli.coderouter.handoff.notAuthenticated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux アカウントへのサインインが必要です。`cmux auth login` を実行してから再試行してください。" } }
+      }
+    },
+    "cli.coderouter.handoff.teamRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a selected cmux team. Select a team in cmux, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux チームの選択が必要です。cmux でチームを選択してから、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.sessionChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux account or team changed during the handoff. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "引き継ぎ中に cmux アカウントまたはチームが変更されました。もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux handoff lease expired. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux の引き継ぎリースの有効期限が切れました。もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux service is not available. Check your connection and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスを利用できません。接続を確認して、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The installed CodeRouter CLI does not support secure cmux handoff. Update CodeRouter and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストールされている CodeRouter CLI は安全な cmux 引き継ぎに対応していません。CodeRouter を更新してから、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux service rejected the CodeRouter handoff. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスが CodeRouter の引き継ぎを拒否しました。もう一度お試しください。" } }
+      }
+    },
     "socket.cloudDiagnostics.invalidFailure": {
       "extractionState": "manual",
       "localizations": {

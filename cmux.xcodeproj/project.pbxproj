@@ -1456,7 +1456,11 @@
 		C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */; };
 		AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */; };
 		C0DE60C0000000000000A002 /* CoderouterClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A001 /* CoderouterClient.swift */; };
+		D4C0DE020000000000000001 /* CodeRouterHandoffArmGrantStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C0DE020000000000000002 /* CodeRouterHandoffArmGrantStore.swift */; };
+		D4C0DE020000000000000005 /* CodeRouterHandoffArmGrantStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C0DE020000000000000006 /* CodeRouterHandoffArmGrantStoreTests.swift */; };
+		D4C0DE010000000000000001 /* CodeRouterHandoffClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C0DE010000000000000002 /* CodeRouterHandoffClient.swift */; };
 		C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */; };
+		D4C0DE020000000000000003 /* CodeRouterSocketPeerVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C0DE020000000000000004 /* CodeRouterSocketPeerVerifier.swift */; };
 		A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */; };
 		A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E01000000000000000000E /* CodexAppServerSession.swift */; };
 		A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9E040000000000000000001 /* CodexAppServerSessionTests.swift */; };
@@ -5335,7 +5339,11 @@
 		C0A1E5CE01C0A1E5CE01A002 /* CoalesceLatestPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisher.swift; sourceTree = "<group>"; };
 		43BEE8C1CB174E3AB4F89EDE /* CoalesceLatestPublisherDemandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoalesceLatestPublisherDemandTests.swift; sourceTree = "<group>"; };
 		C0DE60C0000000000000A001 /* CoderouterClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterClient.swift; sourceTree = "<group>"; };
+		D4C0DE020000000000000002 /* CodeRouterHandoffArmGrantStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeRouterHandoffArmGrantStore.swift; sourceTree = "<group>"; };
+		D4C0DE020000000000000006 /* CodeRouterHandoffArmGrantStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodeRouterHandoffArmGrantStoreTests.swift; sourceTree = "<group>"; };
+		D4C0DE010000000000000002 /* CodeRouterHandoffClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeRouterHandoffClient.swift; sourceTree = "<group>"; };
 		C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoderouterSocketCommands.swift; sourceTree = "<group>"; };
+		D4C0DE020000000000000004 /* CodeRouterSocketPeerVerifier.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CodeRouterSocketPeerVerifier.swift; sourceTree = "<group>"; };
 		A9F100000000000000000016 /* CodexAppServerQueuedInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerQueuedInput.swift; sourceTree = "<group>"; };
 		A9E01000000000000000000E /* CodexAppServerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CodexAppServerSession.swift; sourceTree = "<group>"; };
 		A9E040000000000000000001 /* CodexAppServerSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CodexAppServerSessionTests.swift; sourceTree = "<group>"; };
@@ -8357,6 +8365,9 @@
 				B6D7EB470DDDB0411BEE922D /* CloudErrorCopy.swift */,
 				FAA7706F1C9AA61982A48AAA /* CloudDiagnosticFailure.swift */,
 				REE0CA0000000000000000E1 /* AIAccountsClient.swift */,
+				D4C0DE010000000000000002 /* CodeRouterHandoffClient.swift */,
+				D4C0DE020000000000000002 /* CodeRouterHandoffArmGrantStore.swift */,
+				D4C0DE020000000000000004 /* CodeRouterSocketPeerVerifier.swift */,
 				C0DE60C0000000000000A011 /* CoderouterSocketCommands.swift */,
 				C0DE60C0000000000000A001 /* CoderouterClient.swift */,
 				REE0CA0000000000000000F1 /* AIAccountCredentialSources.swift */,
@@ -11518,6 +11529,7 @@
 				A10649100000000000000001 /* AutomationRuleTests.swift */,
 				A10649340000000000000001 /* AutomationProcessSessionTests.swift */,
 				7837E0027837E0027837E002 /* CmuxSocketEventMapperTests.swift */,
+				D4C0DE020000000000000006 /* CodeRouterHandoffArmGrantStoreTests.swift */,
 				A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */,
 				A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */,
 				A5C0B1E00000000000000004 /* TerminalNotificationClipboardTests.swift */,
@@ -13180,7 +13192,10 @@
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
 				C0DE60C0000000000000A002 /* CoderouterClient.swift in Sources */,
+				D4C0DE020000000000000001 /* CodeRouterHandoffArmGrantStore.swift in Sources */,
+				D4C0DE010000000000000001 /* CodeRouterHandoffClient.swift in Sources */,
 				C0DE60C0000000000000A012 /* CoderouterSocketCommands.swift in Sources */,
+				D4C0DE020000000000000003 /* CodeRouterSocketPeerVerifier.swift in Sources */,
 				A9F200000000000000000016 /* CodexAppServerQueuedInput.swift in Sources */,
 				A9E02000000000000000000E /* CodexAppServerSession.swift in Sources */,
 					C8711C000000000000000002 /* CodexRolloutIdentity.swift in Sources */,
@@ -15554,6 +15569,7 @@
 				C0DE58990000000000000014 /* CmuxWebViewWebContentUndoTests.swift in Sources */,
 					A6AC72080000000000000001 /* CMUXWorkspaceLoadingCLIRegressionTests.swift in Sources */,
 				AAE06C3AEC68484DA33D42A1 /* CoalesceLatestPublisherDemandTests.swift in Sources */,
+				D4C0DE020000000000000005 /* CodeRouterHandoffArmGrantStoreTests.swift in Sources */,
 				A9E040000000000000000002 /* CodexAppServerSessionTests.swift in Sources */,
 				B6F143F6E02543F3899F1E02 /* CodexAutoresumeChainTests.swift in Sources */,
 				C8711B000000000000000002 /* CodexCodeModeRolloutIdentityTests.swift in Sources */,

@@ -42,6 +42,7 @@ struct ControlCommandExecutionPolicyTests {
     @Test func fixedWorkerSetRunsOnTheSocketWorker() {
         for method in [
             "system.ping", "system.capabilities", "auth.status", "auth.sign_in_url",
+            "coderouter.handoff.complete",
             "feed.jump", "feed.push", "agent.hook.enqueue", "agent.hook.barrier",
             "agent.restore.admit", "agent.restore.release",
             "browser.download.list", "browser.download.wait", "system.top", "system.memory",
@@ -176,6 +177,17 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.thumbnail") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
+    }
+
+    @Test func coderouterHandoffRunsOffMainAndIsNotMainThreadCallable() {
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "coderouter.handoff.complete")
+                == .socketWorker(mainThreadCallable: false)
+        )
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: "coderouter.handoff")
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func terminalReadsRunOnTheWorkerAndAreNotMainThreadCallable() {
