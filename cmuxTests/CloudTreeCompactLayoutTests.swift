@@ -59,6 +59,53 @@ struct CloudTreeCompactLayoutTests {
         }
     }
 
+    @Test("Cloud, locked, local and pending machine titles share the folder icon column",
+          arguments: [CloudTreeStyle.compact, .chips, .ledger, .aero], [75, 100, 150, 200])
+    func machineVariants(style: CloudTreeStyle, percent: Int) throws {
+        let oldPercent = UserDefaults.standard.object(forKey: GlobalFontMagnification.percentKey)
+        UserDefaults.standard.set(percent, forKey: GlobalFontMagnification.percentKey)
+        defer {
+            if let oldPercent { UserDefaults.standard.set(oldPercent, forKey: GlobalFontMagnification.percentKey) }
+            else { UserDefaults.standard.removeObject(forKey: GlobalFontMagnification.percentKey) }
+        }
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: 380, height: 620))
+        fixture.coordinator.apply(style: style)
+        let title = "early-plum-alpaca"
+        let machine = MachineSnapshot(
+            id: "fixture", provider: "fixture", image: "fixture", isDesktop: false,
+            activity: .ready, createdAt: nil, label: title
+        )
+        var locked = machine
+        locked.freeAccess = .expired
+        let pending = MachineCreateOperation(
+            id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(name: title),
+            startedAt: Date(timeIntervalSince1970: 0), phase: .failed(output: "fixture")
+        )
+        let kinds: [CloudTreeNode.Kind] = [
+            .localWorkspace(CloudTreeLocalWorkspaceRow(workspaceID: UUID(), title: title, terminalCount: 0, isSelected: true)),
+            .machine(machine, nil), .machine(locked, nil),
+            .localMachine(CloudTreeLocalMachineRow(name: title, terminalCount: 0, browserCount: 0)),
+            .pendingMachine(pending)
+        ]
+        let nodes = kinds.enumerated().map { CloudTreeNode(id: "variant-\($0.offset)", kind: $0.element) }
+        fixture.coordinator.apply(nodes: nodes)
+        fixture.container.layoutSubtreeIfNeeded()
+        try fixture.attachScreenshot(named: "machine-icon-variants-\(style.id)-\(percent)")
+        let outline = try #require(fixture.coordinator.outlineView)
+        let starts = try nodes.map { node in
+            let cell = try #require(outline.view(atColumn: 0, row: outline.row(forItem: node), makeIfNecessary: true))
+            let ink = try inkColumns(in: cell)
+            try #require(ink.runs.count >= 2)
+            return CGFloat(ink.runs[1].lowerBound) / ink.scale
+        }
+        for start in starts.dropFirst() {
+            #expect(abs(start - starts[0]) <= CGFloat(percent) / 100,
+                    "Every machine state reserves the same title column as a folder: \(starts)")
+        }
+    }
+
     @Test("Folders start as close to their carets as plain section headings",
           arguments: [220.0, 360.0], [100, 150])
     func compactRows(width: Double, percent: Int) throws {
@@ -119,6 +166,13 @@ struct CloudTreeCompactLayoutTests {
     /// Measure the actual empty columns between glyph ink and title ink, not
     /// the layout constants: SF Symbol side bearings and scaling matter here.
     private func iconLabelGap(in view: NSView, pinned: Bool) throws -> CGFloat {
+        let ink = try inkColumns(in: view)
+        let icon = pinned ? 1 : 0
+        try #require(ink.runs.count > icon + 1, "Expected visible icon and title ink")
+        return CGFloat(ink.runs[icon + 1].lowerBound - ink.runs[icon].upperBound) / ink.scale
+    }
+
+    private func inkColumns(in view: NSView) throws -> (runs: [Range<Int>], scale: CGFloat) {
         view.layoutSubtreeIfNeeded()
         let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: bitmap)
@@ -136,9 +190,7 @@ struct CloudTreeCompactLayoutTests {
                 start = nil
             }
         }
-        let icon = pinned ? 1 : 0
-        try #require(runs.count > icon + 1, "Expected visible icon and title ink")
-        return CGFloat(runs[icon + 1].lowerBound - runs[icon].upperBound) / scale
+        return (runs, scale)
     }
 
     private func leadingGap(_ node: CloudTreeNode, in outline: CloudTreeNSOutlineView) throws -> CGFloat {

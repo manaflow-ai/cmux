@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// A machine that does not exist yet (or failed to): the row the Machines
@@ -9,14 +10,15 @@ import SwiftUI
 struct CloudTreePendingMachineRowContent: View {
     let operation: MachineCreateOperation
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
+                HStack(alignment: .center, spacing: style.iconGap) {
                     leadingGlyph
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                        .frame(width: scaled(style.iconSlot), alignment: .center)
                     HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
                         name
                         status
@@ -27,9 +29,9 @@ struct CloudTreePendingMachineRowContent: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         case .twoLine:
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
+            HStack(alignment: .top, spacing: style.iconGap) {
                 leadingGlyph
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                    .frame(width: scaled(style.iconSlot), height: scaled(style.machineNameLineHeight), alignment: .center)
                 VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
                     name
                         .frame(height: style.machineNameLineHeight)
@@ -52,9 +54,13 @@ struct CloudTreePendingMachineRowContent: View {
                 .controlSize(.mini)
         } else {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 9, weight: .medium))
+                .cmuxFont(size: style.iconSize, weight: .medium)
                 .foregroundStyle(.orange)
         }
+    }
+
+    private func scaled(_ value: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(value, percent: magnification)
     }
 
     private var name: some View {
