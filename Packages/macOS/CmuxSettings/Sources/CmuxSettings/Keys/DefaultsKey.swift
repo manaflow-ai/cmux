@@ -74,6 +74,7 @@ public struct DefaultsKey<Value: SettingCodable>: Sendable, Equatable {
         self.userFacing = userFacing
     }
 
+    /// Preserves the pre-metadata equality contract: storage identity and default only.
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.id == rhs.id
             && lhs.defaultValue == rhs.defaultValue
