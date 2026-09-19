@@ -119,6 +119,12 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         }
     }
 
+    /// A restored placeholder for a resource this provider already published
+    /// reconnects through the same pass a link change uses.
+    func projectionsRestored() {
+        publish()
+    }
+
     func publish() {
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
         let resources = projection.resources(link.mirror.workspaces.orderedRecords)
