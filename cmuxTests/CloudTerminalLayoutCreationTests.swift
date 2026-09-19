@@ -76,6 +76,16 @@ struct CloudTerminalLayoutCreationTests {
     }
 
     @Test
+    func foregroundCwdPreservesPathWhitespaceButRejectsBlankValues() {
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "foreground_cwd": " /remote/project "
+        ]) == " /remote/project ")
+        #expect(CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: [
+            "foreground_cwd": " \n\t"
+        ]) == nil)
+    }
+
+    @Test
     func revisionConflictRefreshesTheTargetAndRetainsTheMutationKey() async throws {
         let runner = LayoutCreationRunner(responses: [
             .success(try Self.snapshot()),
