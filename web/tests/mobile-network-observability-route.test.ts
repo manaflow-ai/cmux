@@ -125,6 +125,28 @@ describe("iOS mobile network observability route", () => {
     expect(emitted[0]?.batch[0]).toMatchObject({ stage: "input_to_output", durationMs: 1_250 });
   });
 
+  test("accepts a bounded terminal trace correlation", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({
+        phase: "terminal_trace",
+        outcome: "success",
+        duration_ms: 12_300,
+        trace_id: "0000000000001234",
+        operation: "replay",
+        terminal_phase: "applied",
+      }),
+    ]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      phase: "terminal_trace",
+      traceId: "0000000000001234",
+      operation: "replay",
+      terminalPhase: "applied",
+      durationMs: 12_300,
+    });
+  });
+
   test("rejects a mismatched stable event code and name", async () => {
     const response = await POST(outcomeRequest([
       outcome({ phase: "transport_dial", outcome: "bogus", duration_ms: 10 }),
@@ -213,6 +235,26 @@ describe("iOS mobile network observability route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, accepted: 1 });
     expect(emitted).toHaveLength(1);
+  });
+
+  test("accepts an initial-connect outcome with its population and attempt id", async () => {
+    const response = await POST(outcomeRequest([
+      outcome({
+        phase: "initial_connect",
+        population: "cold_open",
+        attempt_id: "6F7B6E35-1B94-4B9D-9F8A-37F1D54B9C45",
+        terminal_ready: true,
+      }),
+    ]));
+
+    expect(response.status).toBe(200);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      phase: "initial_connect",
+      population: "cold_open",
+      attemptId: "6F7B6E35-1B94-4B9D-9F8A-37F1D54B9C45",
+      terminalReady: true,
+    });
   });
 
   test("fails closed when deployed rate limiting is unconfigured", async () => {

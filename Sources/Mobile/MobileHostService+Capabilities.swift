@@ -205,6 +205,7 @@ extension MobileHostService {
             "notification.dismiss.v1",
             "notification.feed.v1",
             "notification.reconcile.v1",
+            "phone_push.keys.exchange.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.verified_replay.v1",

@@ -1654,6 +1654,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     struct CreatedTerminalPath: Equatable, Sendable {
+        var attachment: CloudCreationAttachment? = nil
         let terminalID: String
         let workspaceID: String?
         let screenID: String?
@@ -1674,7 +1675,12 @@ struct CmuxTuiSnapshotParser: Sendable {
         func optionalID(_ key: String) -> String? {
             (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
+        let cursor = mutationCursor(fromResult: result)
+        let attachment = cursor.map {
+            CloudCreationAttachment(generation: $0.generation, terminalID: terminalID)
+        }
         return CreatedTerminalPath(
+            attachment: attachment,
             terminalID: terminalID,
             workspaceID: optionalID("workspace_id"),
             screenID: optionalID("screen_id"),
