@@ -114,6 +114,7 @@ fingerprint="$({
   hash_tree "${SRCROOT}/Resources/AppIcon.icns"
   hash_tree "${SRCROOT}/Resources/AppIcon-Debug.icns"
 } | shasum | awk '{print $1}')"
+output_fingerprint_value="$(output_fingerprint)"
 
 helper_output_ok=true
 if [[ "$DEST" == *.app/Contents/Resources ]] && [ ! -x "$CMUX_CUA_HELPER_EXEC" ]; then
@@ -123,7 +124,9 @@ if [ -f "$STAMP" ] && [ -s "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
   && [ "$helper_output_ok" = true ] && [ -f "$CMUX_CUA_LICENSE_DEST" ] \
   && [ -d "$GHOSTTY_DEST" ] && [ -d "$TERMINFO_DEST" ] \
   && [ -d "$CMUX_SHELL_DEST" ] && [ -f "$INFO_PLIST" ] \
-  && [ "$(cat "$STAMP")" = "$fingerprint" ]; then
+  && [ -f "$OUTPUT_MANIFEST" ] \
+  && [ "$(cat "$STAMP")" = "$fingerprint" ] \
+  && [ "$(cat "$OUTPUT_MANIFEST")" = "$output_fingerprint_value" ]; then
   update_commit
   echo "Bundled resources unchanged; skipping helper rebuilds"
   exit 0
