@@ -74,26 +74,36 @@ struct CloudDesktopAccessTests {
         #expect(await connected.result == true)
     }
 
-    @Test("Cloud desktop paints a connecting state before its route is ready")
-    func desktopConnectingPlaceholderFirstPaint() async throws {
-        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
-        defer { browser.close() }
-        let started = ContinuousClock.now
-        browser.webView.loadHTMLString(
-            SurfaceBrowserPlaceholder.connecting("Desktop"),
-            baseURL: nil
-        )
-        let deadline = started.advanced(by: .seconds(2))
-        var title = ""
-        while ContinuousClock.now < deadline {
-            title = (try? await browser.webView.evaluateJavaScript("document.title") as? String) ?? ""
-            if title == "Connecting to Desktop…" { break }
-            try await Task.sleep(for: .milliseconds(10))
+    @Test("Preparing a Cloud desktop never publishes a bootstrap about:blank URL")
+    func desktopRetainsPendingServiceIdentity() async throws {
+        let store = CloudPortAccessStore()
+        let catalog = SurfaceCatalog()
+        let readiness = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
+        let target = CloudPortForwardTarget(host: "10.0.0.7", port: 6901)
+        let model = store.model(machineID: "test-desktop", target: target) {
+            CloudPortAccessModel(
+                target: target, coordinator: nil, wake: {},
+                startForward: { _ in Issue.record("Unexpected legacy route"); return 1 },
+                stopForward: {}, startBrowserProxy: {
+                    guard let endpoint = await readiness.result else { throw CancellationError() }
+                    return endpoint
+                }
+            )
         }
-        let elapsed = started.duration(to: ContinuousClock.now)
-        print("Cloud desktop connecting placeholder first paint: \(elapsed)")
-        #expect(title == "Connecting to Desktop…")
-        #expect(elapsed < .seconds(0.5), "The pane should never spend seconds showing about:blank")
+        let provider = provider(store: store, catalog: catalog)
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close(); readiness.resolve(nil) }
+        let remote = try #require(URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: target.host)))
+        // A delayed bootstrap commit from the original WebView must not replace
+        // the Cloud identity while its authenticated replacement is being prepared.
+        browser.webView.loadHTMLString("<title>bootstrap</title>", baseURL: nil)
+        provider.configureBrowser(browser, url: remote)
+        browser.webView.loadHTMLString("<title>bootstrap</title>", baseURL: nil)
+        _ = try await firstTitle(browser, equals: "bootstrap")
+        #expect(!model.isReady)
+        #expect(browser.currentURL == remote)
+        #expect(browser.preferredURLStringForSessionSnapshot() == remote.absoluteString)
+        await store.remove(machineID: "test-desktop")
     }
 
     @Test("A saved Cloud browser URL never retains an ephemeral loopback port")
@@ -217,5 +227,16 @@ struct CloudDesktopAccessTests {
         let deadline = ContinuousClock.now.advanced(by: .seconds(5))
         while !predicate(), ContinuousClock.now < deadline { await Task.yield() }
         return predicate()
+    }
+
+    private func firstTitle(_ browser: BrowserPanel, equals expected: String) async throws -> String? {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        var title: String?
+        while ContinuousClock.now < deadline {
+            title = try await browser.webView.evaluateJavaScript("document.title") as? String
+            if title == expected { return title }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        return title
     }
 }
