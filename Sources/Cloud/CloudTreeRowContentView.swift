@@ -1,12 +1,13 @@
 import CmuxFoundation
 import SwiftUI
 enum CloudTreeRowGrid {
-    /// Width of the standard sidebar disclosure hit target; compact enough
-    /// for the first icon to read as part of the same tree column.
-    static let disclosureSlot: CGFloat = 12
-    /// One point keeps the disclosure hit target separate from its content
-    /// without recreating the empty gutter the native outline used to add.
-    static let disclosureGap: CGFloat = 1
+    /// Width of the outline's native disclosure control; content starts
+    /// `disclosureGap` after it. The native caret keeps its own artwork.
+    static let disclosureSlot: CGFloat = 16
+    /// Small separation between the caret and its row content. Keeping this
+    /// below the tree indent makes group headers read as one shared outline
+    /// rather than disconnected columns.
+    static let disclosureGap: CGFloat = 2
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
     static let dotGap: CGFloat = 4

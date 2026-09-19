@@ -46,35 +46,22 @@ struct CloudTreeCompactLayoutTests {
         let button = try #require(descendants(of: outline).compactMap { $0 as? NSButton }.first {
             $0.identifier == NSOutlineView.disclosureButtonIdentifier && outline.row(for: $0) == row
         })
-        #expect(button is CloudTreeDisclosureButton)
+        // The native disclosure control draws the caret: no custom artwork.
+        #expect(String(describing: type(of: button)) != "CloudTreeDisclosureButton")
         #expect(button.accessibilityRole() == .disclosureTriangle)
         #expect(outline.isItemExpanded(folder))
         button.performClick(nil)
         #expect(!outline.isItemExpanded(folder), "Keep the native disclosure action")
         fixture.container.layoutSubtreeIfNeeded()
         let after = outline.frameOfOutlineCell(atRow: row)
-        #expect(before.size == after.size && abs(after.width - after.height) <= 0.5)
+        #expect(before.size == after.size, "Collapsing must not resize the caret column")
+        #expect(abs(after.width - CloudTreeRowGrid.disclosureSlot * scale) <= 0.5)
         try fixture.attachScreenshot(named: "compact-tree-collapsed-\(Int(width))-\(percent)")
         let reopenedButton = try #require(descendants(of: outline).compactMap { $0 as? NSButton }.first {
             $0.identifier == NSOutlineView.disclosureButtonIdentifier && outline.row(for: $0) == row
         })
         reopenedButton.performClick(nil)
         #expect(outline.isItemExpanded(folder))
-    }
-
-    @Test("Expanded and collapsed chevrons keep the same square ink bounds")
-    func disclosureArtwork() throws {
-        let button = CloudTreeDisclosureButton(nativeButton: NSButton(frame: NSRect(x: 0, y: 0, width: 20, height: 20)))
-        let window = NSWindow(contentRect: button.frame, styleMask: [], backing: .buffered, defer: false)
-        window.contentView = button
-        defer { window.contentView = nil }
-        button.state = .off
-        let collapsed = try ink(in: button)
-        button.state = .on
-        let expanded = try ink(in: button)
-        #expect(abs(collapsed.bounds.width - expanded.bounds.width) <= 1)
-        #expect(abs(collapsed.bounds.height - expanded.bounds.height) <= 1)
-        #expect(abs(collapsed.area - expanded.area) <= 2, "Rotation must not change caret weight or size")
     }
 
     private func descendants(of view: NSView) -> [NSView] {
