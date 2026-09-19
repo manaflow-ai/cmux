@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9.
+// cmux-tui mux protocol 12, IR 016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -634,6 +634,17 @@ pub struct MoveTabRequest {
 
 #[rustfmt::skip]
 pub type MoveTabResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveTabToWorkspaceRequest {
+    pub surface: T::Id,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+pub type MoveTabToWorkspaceResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1295,8 +1306,6 @@ pub enum SubscribeRequestTreeEvents {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SubscribeRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub presence_only: Optional<bool>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub tree_events: Optional<SubscribeRequestTreeEvents>,
@@ -1658,6 +1667,10 @@ impl CmuxClient {
         self.execute(&MOVE_TAB_METADATA, &request)
     }
 
+    pub fn move_tab_to_workspace(&mut self, request: MoveTabToWorkspaceRequest) -> Result<MoveTabToWorkspaceResult> {
+        self.execute(&MOVE_TAB_TO_WORKSPACE_METADATA, &request)
+    }
+
     pub fn move_terminal(&mut self, request: MoveTerminalRequest) -> Result<T::MoveTerminalResult> {
         self.execute(&MOVE_TERMINAL_METADATA, &request)
     }
@@ -1942,10 +1955,6 @@ impl CmuxClient {
     }
 
     pub fn subscribe(&mut self, request: SubscribeRequest) -> Result<CmuxStream> {
-        if !request.presence_only.is_missing() {
-            self.require_protocol_field("subscribe", 12)?;
-            self.require_capability_field("subscribe", "presence-v1")?;
-        }
         if !request.surface.is_missing() {
             self.require_protocol_field("subscribe", 9)?;
             self.require_capability_field("subscribe", "surface-subscribe-filter")?;

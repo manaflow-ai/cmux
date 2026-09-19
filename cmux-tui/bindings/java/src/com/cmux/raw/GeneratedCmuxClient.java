@@ -258,6 +258,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final EmptyResult moveTabToWorkspace(MoveTabToWorkspaceRequest request) throws CmuxException {
+        Object result = execute(Commands.MOVE_TAB_TO_WORKSPACE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final MoveTerminalResult moveTerminal(MoveTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.MOVE_TERMINAL, request.toWire());
         return MoveTerminalResult.fromWire(result);

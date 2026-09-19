@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9. */
+/* cmux-tui mux protocol 12, IR 016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9" as const;
+export const SDK_IR_SHA256 = "016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -604,6 +604,16 @@ export const COMMAND_METADATA = {
       "An out-of-range index clamps to the destination end."
     ]
   },
+  "move-tab-to-workspace": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-workspace-move-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
+    ]
+  },
   "move-terminal": {
     "authority": "control",
     "since": 9,
@@ -1191,10 +1201,6 @@ export const COMMAND_METADATA = {
     "since": 5,
     "capability": null,
     "fields": {
-      "presence_only": {
-        "since": 12,
-        "capability": "presence-v1"
-      },
       "surface": {
         "since": 9,
         "capability": "surface-subscribe-filter"
@@ -9192,6 +9198,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "move-tab-to-workspace": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
   "move-terminal": {
     "request": {
       "additional_properties": false,
@@ -11554,16 +11589,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
-        "presence_only": {
-          "capability": "presence-v1",
-          "nullable": true,
-          "presence": "optional",
-          "since": 12,
-          "type": {
-            "kind": "scalar",
-            "name": "boolean"
-          }
-        },
         "surface": {
           "capability": "surface-subscribe-filter",
           "default": null,

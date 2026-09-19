@@ -307,12 +307,12 @@ async fn serve_browser_connection(
     }
     let (mut reader, mut writer) = socket.into_split();
     let stream = Arc::new(stream);
-    if !initial_payload.is_empty() {
-        if let Err(error) = stream.send(Bytes::from(initial_payload)).await {
-            let _ = stream.close().await;
-            let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
-            return Err(error.into());
-        }
+    if !initial_payload.is_empty()
+        && let Err(error) = stream.send(Bytes::from(initial_payload)).await
+    {
+        let _ = stream.close().await;
+        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        return Err(error.into());
     }
     let upload = async {
         let mut buffer = [0_u8; 16 * 1024];

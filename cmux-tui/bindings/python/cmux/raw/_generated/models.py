@@ -1709,6 +1709,13 @@ class MoveTabRequest:
 
 
 @dataclass(frozen=True)
+class MoveTabToWorkspaceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-workspace/request'
+    surface: Id
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MoveTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-terminal/request'
     terminal_id: str
@@ -2168,7 +2175,6 @@ class SubscribeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/subscribe/request'
     surface: Union[Id, None, MissingType] = field(default=MISSING)
     tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = field(default=MISSING)
-    presence_only: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3006,6 +3012,7 @@ __all__ = [
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
+    'MoveTabToWorkspaceRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
     'NewBrowserTabRequest',

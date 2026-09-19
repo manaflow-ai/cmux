@@ -159,6 +159,9 @@ class GeneratedClientMixin:
     def move_tab(self, surface: Id, pane: Id, index: int) -> EmptyResult:
         return self._invoke_command('move-tab', MoveTabRequest(surface=surface, pane=pane, index=index))
 
+    def move_tab_to_workspace(self, surface: Id, *, workspace: Union[Id, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('move-tab-to-workspace', MoveTabToWorkspaceRequest(surface=surface, workspace=workspace))
+
     def move_terminal(self, terminal_id: str, workspace_key: str, *, terminal_incarnation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> MoveTerminalResult:
         return self._invoke_command('move-terminal', MoveTerminalRequest(terminal_id=terminal_id, workspace_key=workspace_key, terminal_incarnation=terminal_incarnation, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
 
@@ -318,8 +321,8 @@ class GeneratedClientMixin:
     def split(self, pane: Id, dir: SplitDirection, *, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('split', SplitRequest(pane=pane, dir=dir, cols=cols, rows=rows))
 
-    def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING, presence_only: Union[bool, None, MissingType] = MISSING) -> Any:
-        return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events, presence_only=presence_only))
+    def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
+        return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
 
     def swap_pane(self, pane: Id, *, dir: Union[PaneDirection, None, MissingType] = MISSING, target: Union[Id, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('swap-pane', SwapPaneRequest(pane=pane, dir=dir, target=target))
@@ -404,6 +407,7 @@ GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMAND
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_tab.__cmux_command__ = COMMANDS['move-tab']
+GeneratedClientMixin.move_tab_to_workspace.__cmux_command__ = COMMANDS['move-tab-to-workspace']
 GeneratedClientMixin.move_terminal.__cmux_command__ = COMMANDS['move-terminal']
 GeneratedClientMixin.move_workspace.__cmux_command__ = COMMANDS['move-workspace']
 GeneratedClientMixin.new_browser_tab.__cmux_command__ = COMMANDS['new-browser-tab']

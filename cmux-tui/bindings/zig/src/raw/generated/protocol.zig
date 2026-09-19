@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9";
+pub const ir_sha256 = "016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -3097,6 +3097,26 @@ pub fn moveTab(client: anytype, request: MoveTabRequest) !wire.Decoded(MoveTabRe
     );
 }
 
+pub const MoveTabToWorkspaceRequest = struct {
+    surface: Id,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const MoveTabToWorkspaceResult = EmptyResult;
+
+pub fn moveTabToWorkspace(client: anytype, request: MoveTabToWorkspaceRequest) !wire.Decoded(MoveTabToWorkspaceResult) {
+    return client.callTyped(
+        MoveTabToWorkspaceResult,
+        .{
+            .name = "move-tab-to-workspace",
+            .authority = "control",
+            .since = 12,
+            .capability = "tab-workspace-move-v1",
+        },
+        request,
+    );
+}
+
 pub const MoveTerminalRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
@@ -4274,7 +4294,6 @@ pub const SubscribeRequestTreeEvents = enum {
 };
 
 pub const SubscribeRequest = struct {
-    presence_only: wire.Field(bool) = .absent,
     surface: wire.Field(Id) = .absent,
     tree_events: wire.Field(SubscribeRequestTreeEvents) = .absent,
 };
@@ -4289,7 +4308,6 @@ pub fn subscribe(client: anytype, request: SubscribeRequest) !client_runtime.Str
             .since = 5,
             .capability = null,
             .fields = &.{
-                .{ .name = "presence_only", .since = 12, .capability = "presence-v1" },
                 .{ .name = "surface", .since = 9, .capability = "surface-subscribe-filter" },
                 .{ .name = "tree_events", .since = 7, .capability = null },
             },
@@ -5438,7 +5456,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 114;
+pub const command_count: usize = 115;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
@@ -5489,6 +5507,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "move-tab-to-workspace", .authority = "control", .since = 12, .capability = "tab-workspace-move-v1", .stream = null },
     .{ .name = "move-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "move-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },

@@ -91,6 +91,7 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
@@ -222,6 +223,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
+        TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
@@ -1241,6 +1243,11 @@ enum Command {
         pane: PaneId,
         index: usize,
     },
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+    },
     MoveWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1461,6 +1468,7 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::MoveTab { surface, .. }
+            | Self::MoveTabToWorkspace { surface, .. }
             | Self::CloseSurface { surface }
             | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
@@ -12401,6 +12409,10 @@ fn handle_command_with_cancellation(
                 "registry_id":registry_id,
                 "generation":generation,
             }))
+        }
+        Command::MoveTabToWorkspace { surface, workspace } => {
+            mux.move_tab_to_workspace(surface, workspace)?;
+            Ok(json!({}))
         }
         Command::MoveTab { surface, pane, index } => {
             let valid = mux.with_state(|state| {

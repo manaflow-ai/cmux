@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9";
+inline constexpr std::string_view kProtocolIrSha256 = "016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -192,6 +192,7 @@ struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveTabRequest;
+struct MoveTabToWorkspaceRequest;
 struct MoveTerminalRequest;
 struct MoveWorkspaceRequest;
 struct NewBrowserTabRequest;
@@ -1629,6 +1630,12 @@ struct MoveTabRequest {
     friend bool operator==(const MoveTabRequest&, const MoveTabRequest&) = default;
 };
 
+struct MoveTabToWorkspaceRequest {
+    Id surface{};
+    Field<Id> workspace{};
+    friend bool operator==(const MoveTabToWorkspaceRequest&, const MoveTabToWorkspaceRequest&) = default;
+};
+
 struct MoveTerminalRequest {
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
@@ -2547,7 +2554,6 @@ enum class SubscribeRequestTreeEvents {
 };
 
 struct SubscribeRequest {
-    Field<bool> presence_only{};
     Field<Id> surface{};
     Field<SubscribeRequestTreeEvents> tree_events{};
     friend bool operator==(const SubscribeRequest&, const SubscribeRequest&) = default;
@@ -3918,6 +3924,12 @@ template <>
 struct Codec<MoveTabRequest> {
     static Result<Json> encode(const MoveTabRequest& value);
     static Result<MoveTabRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveTabToWorkspaceRequest> {
+    static Result<Json> encode(const MoveTabToWorkspaceRequest& value);
+    static Result<MoveTabToWorkspaceRequest> decode(const Json& value);
 };
 
 template <>

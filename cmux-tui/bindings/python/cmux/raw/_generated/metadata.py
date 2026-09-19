@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e999c6a8ee616adfbcd5015a5355382d628772d63e3347e633c0632c304097a9'
+IR_SHA256 = '016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d'
 
 
 @dataclass(frozen=True)
@@ -662,6 +662,18 @@ COMMANDS = {
             'index': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-workspace': CommandMetadata(
+        'move-tab-to-workspace',
+        'control',
+        12,
+        'tab-workspace-move-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
         },
     ),
     'move-terminal': CommandMetadata(
@@ -1374,7 +1386,6 @@ COMMANDS = {
         ('frontend',),
         'subscribe',
         {
-            'presence_only': CommandFieldMetadata(12, 'presence-v1'),
             'surface': CommandFieldMetadata(9, 'surface-subscribe-filter'),
             'tree_events': CommandFieldMetadata(7, None),
         },

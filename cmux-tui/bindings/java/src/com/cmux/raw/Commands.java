@@ -59,6 +59,7 @@ public final class Commands {
     public static final CommandMetadata MINT_TERMINAL_RENDERER = new CommandMetadata("mint-terminal-renderer", Authority.FRONTEND, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TAB = new CommandMetadata("move-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MOVE_TAB_TO_WORKSPACE = new CommandMetadata("move-tab-to-workspace", Authority.CONTROL, 12, "tab-workspace-move-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_TERMINAL = new CommandMetadata("move-terminal", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_WORKSPACE = new CommandMetadata("move-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("expected_generation", 7L), Map.entry("expected_revision", 7L), Map.entry("key", 7L), Map.entry("mutation_id", 7L), Map.entry("origin", 7L)), Map.ofEntries(Map.entry("key", "workspace-registry-v1")));
     public static final CommandMetadata NEW_BROWSER_TAB = new CommandMetadata("new-browser-tab", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
@@ -112,7 +113,7 @@ public final class Commands {
     public static final CommandMetadata SHUTDOWN_DAEMON = new CommandMetadata("shutdown-daemon", Authority.LOCAL_ADMIN, 9, null, StreamKind.NONE, Map.ofEntries(Map.entry("force", 10L)), Map.ofEntries(Map.entry("force", "daemon-handoff-force-v1")));
     public static final CommandMetadata SIDEBAR_PLUGIN = new CommandMetadata("sidebar-plugin", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SPLIT = new CommandMetadata("split", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("presence_only", 12L), Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("presence_only", "presence-v1"), Map.entry("surface", "surface-subscribe-filter")));
+    public static final CommandMetadata SUBSCRIBE = new CommandMetadata("subscribe", Authority.FRONTEND, 5, null, StreamKind.SUBSCRIBE, Map.ofEntries(Map.entry("surface", 9L), Map.entry("tree_events", 7L)), Map.ofEntries(Map.entry("surface", "surface-subscribe-filter")));
     public static final CommandMetadata SWAP_PANE = new CommandMetadata("swap-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_EVENTS = new CommandMetadata("terminal-events", Authority.CONTROL, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -177,6 +178,7 @@ public final class Commands {
         values.put("mint-terminal-renderer", MINT_TERMINAL_RENDERER);
         values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
         values.put("move-tab", MOVE_TAB);
+        values.put("move-tab-to-workspace", MOVE_TAB_TO_WORKSPACE);
         values.put("move-terminal", MOVE_TERMINAL);
         values.put("move-workspace", MOVE_WORKSPACE);
         values.put("new-browser-tab", NEW_BROWSER_TAB);
