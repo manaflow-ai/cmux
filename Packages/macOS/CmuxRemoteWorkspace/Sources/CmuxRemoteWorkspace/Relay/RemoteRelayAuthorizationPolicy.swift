@@ -315,7 +315,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         surfaceIDs: Set<UUID>
     ) -> SelectorFailure? {
         if let key, Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key),
-           !(value is NSNull), !(value is String) {
+           !(value is String) {
             return SelectorFailure(code: "remote_relay_surface_denied", message: "Relay selector is invalid")
         }
         if let dictionary = value as? [String: Any] {
@@ -357,7 +357,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
               Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key) else {
             return nil
         }
-        if value is NSNull { return nil }
         guard let raw = value as? String,
               let id = UUID(uuidString: raw) else {
             return SelectorFailure(

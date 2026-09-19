@@ -7,6 +7,20 @@ struct RemoteRelayCoreRPCPolicyTests {
     private let owner = UUID()
     private let surface = UUID()
 
+    @Test("capabilities filter exact method names without adding unsupported grants")
+    func capabilityDiscovery() {
+        let methods = RemoteRelayCommandPolicy().permittedMethods(from: [
+            "system.ping", "workspace.list", "surface.send_text", "system.capabilities",
+            "system.exec", "system.command_spec", "workspace.create", "surface.respawn", "browser.open",
+            "workspace.list.future", "ping", "capabilities"
+        ])
+        #expect(methods == ["system.ping", "workspace.list", "surface.send_text", "system.capabilities"])
+        #expect(decision("surface.send_text", [:]) != .allowed)
+        #expect(decision("surface.send_text", [
+            "workspace_id": owner.uuidString, "surface_id": UUID().uuidString, "text": "id\n"
+        ]) != .allowed)
+    }
+
     @Test("workspace discovery defaults only to authenticated provenance")
     func workspaceDiscovery() {
         #expect(decision("workspace.list", [:]) == .allowed)
