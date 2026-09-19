@@ -26,7 +26,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         super.tearDown()
     }
 
-    func testDefaultPlacementCreatesSplit() throws {
+    func testSplitPlacementCreatesSplit() throws {
         try verifyLinkPlacement("split", expectedPanes: 2)
     }
 
@@ -45,7 +45,6 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
             "-browserDisabledOverride", "NO",
             "-browserOpenTerminalLinksInCmuxBrowser", "YES",
             "-browserInterceptTerminalOpenCommandInCmuxBrowser", "YES",
-            "-browserTerminalLinkBrowserPlacement", placement,
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
@@ -85,6 +84,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
                 return false
             }
         ), "Probes: \(socketProbeResults). Socket diagnostics: \(readState(fixture.appendingPathComponent("socket.json")))")
+        try selectPlacementInSettings(placement, app: app)
         let source = try XCTUnwrap(readState(stateURL)["surfaceId"] as? String)
         let workspace = try XCTUnwrap(rpc("workspace.current")["workspace_id"] as? String)
         let initial = try surfaces(workspace)
@@ -147,20 +147,47 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         output.lifetime = .keepAlways
         add(output)
         XCTAssertTrue(wrapperFinished, wrapperOutput)
-        XCTAssertTrue(wrapperOutput.contains("OK surface="), wrapperOutput)
-        let openedBrowser = try XCTUnwrap(try browsers(workspace).last?["id"] as? String)
+        let openedBrowser = try XCTUnwrap(try browsers(workspace).first {
+            $0["id"] as? String != clickedBrowser["id"] as? String
+        }?["id"] as? String)
         _ = try rpc("surface.focus", ["workspace_id": workspace, "surface_id": openedBrowser])
         attach(app, name: "\(placement)-after-open-command")
 
         if placement == "samePane" {
-            let explicit = try rpc("browser.open_split", [
+            let explicit = try rpc("surface.split", [
                 "workspace_id": workspace, "surface_id": source,
-                "url": "about:blank", "focus": true,
+                "type": "browser", "direction": "down", "url": "about:blank", "focus": true,
             ])
-            XCTAssertEqual(explicit["created_split"] as? Bool, true)
+            XCTAssertNotEqual(explicit["pane_id"] as? String, sourcePane)
             XCTAssertEqual(try panes(workspace).count, expectedCommandPanes + 1)
             attach(app, name: "samePane-manual-browser-split")
         }
+    }
+
+    private func selectPlacementInSettings(_ placement: String, app: XCUIApplication) throws {
+        _ = try rpc("settings.open", ["target": "browser", "activate": true])
+        let settings = app.windows["cmux.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        let search = settings.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.click()
+        search.typeKey("a", modifierFlags: .command)
+        search.typeText("browser.terminalLinkBrowserPlacement")
+        let result = settings.outlines.firstMatch.staticTexts["Terminal Link Placement"].firstMatch
+        XCTAssertTrue(result.waitForExistence(timeout: 5))
+        result.click()
+
+        let picker = settings.popUpButtons["SettingsTerminalLinkBrowserPlacementPicker"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 5))
+        picker.click()
+        let title = placement == "samePane" ? "Tab in Same Pane" : "Split Right"
+        let option = app.menuItems[title]
+        XCTAssertTrue(option.waitForExistence(timeout: 5))
+        option.click()
+        XCTAssertTrue(poll { picker.value as? String == title })
+        attach(app, name: "\(placement)-settings-picker")
+        settings.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(poll { !settings.exists })
     }
 
     private func rpc(_ method: String, _ params: [String: Any] = [:]) throws -> [String: Any] {

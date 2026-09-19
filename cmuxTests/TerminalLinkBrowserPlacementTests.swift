@@ -96,6 +96,34 @@ struct TerminalLinkBrowserPlacementTests {
         }
     }
 
+    @Test("Background links preserve the selected browser and its visibility")
+    func backgroundLinkPreservesSelectedBrowser() throws {
+        try withDefaults { defaults in
+            let workspace = Workspace()
+            defer { workspace.teardownAllPanels() }
+            let source = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.paneId(forPanelId: source))
+            let selected = try #require(workspace.newBrowserSurface(inPane: pane, focus: true))
+            selected.noteWebViewVisibility(true, reason: "fixture")
+            let coordinator = TerminalLinkOpenCoordinator(
+                defaults: defaults,
+                containerResolver: { _, _ in workspace },
+                externalOpen: { _ in Issue.record("Unexpected external open"); return false }
+            )
+            #expect(coordinator.open(TerminalLinkOpenRequest(
+                rawValue: "https://example.com/background",
+                sourceWorkspaceId: workspace.id,
+                sourcePanelId: source,
+                workingDirectory: nil,
+                focus: false
+            )))
+            #expect(workspace.panels.values.filter { $0 is BrowserPanel }.count == 2)
+            #expect(workspace.effectiveSelectedPanelId(inPane: pane) == selected.id)
+            #expect(workspace.focusedPanelId == selected.id)
+            #expect(selected.webViewLifecycleTopPayload()["visible_in_ui"] as? Bool == true)
+        }
+    }
+
     @Test("Default and invalid placement retain split-right behavior", arguments: ["split", "invalid", ""])
     func splitFallback(rawValue: String) throws {
         try withDefaults { defaults in
@@ -131,7 +159,7 @@ struct TerminalLinkBrowserPlacementTests {
             defer { try? FileManager.default.removeItem(at: root) }
             let file = root.appendingPathComponent("cmux.json")
             try #"{"browser":{"terminalLinkBrowserPlacement":"samePane"}}"#.write(to: file, atomically: true, encoding: .utf8)
-            defaults.removeObject(forKey: "browserTerminalLinkBrowserPlacement")
+            defaults.removeObject(forKey: terminalLinkPlacementKey)
             let store = CmuxSettingsFileStore(
                 primaryPath: file.path,
                 fallbackPath: nil,
@@ -158,7 +186,8 @@ struct TerminalLinkBrowserPlacementTests {
     func socketRespectsTerminalOrigin() throws {
         // `browser.open_split` is the production socket handler and reads
         // UserDefaults.standard, so this integration fixture must temporarily
-        // configure the process-wide store. All other tests use an isolated suite.
+        // configure it. This synchronous MainActor job restores the value
+        // before another main-actor terminal-link action can run.
         let defaults = UserDefaults.standard
         let key = terminalLinkPlacementKey
         let original = defaults.object(forKey: key)
@@ -198,8 +227,8 @@ struct TerminalLinkBrowserPlacementTests {
 
     @Test("Socket links resolve a Dock tab alias to its owning pane")
     func dockSocketUsesSourceAlias() throws {
-        // The socket handler intentionally reads UserDefaults.standard; keep
-        // this integration test scoped to one suite and restore the value.
+        // As above, the real socket handler requires the process-wide store;
+        // mutation and restoration stay in one synchronous MainActor job.
         let defaults = UserDefaults.standard
         let key = terminalLinkPlacementKey
         let original = defaults.object(forKey: key)

@@ -1,4 +1,5 @@
 import AppKit
+import struct CmuxSettings.BrowserCatalogSection
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -71,7 +72,7 @@ struct CloudGuestURLRoutingTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(false, forKey: BrowserAvailabilitySettings.disabledKey)
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
-        defaults.set("samePane", forKey: "browserTerminalLinkBrowserPlacement")
+        defaults.set("samePane", forKey: BrowserCatalogSection().terminalLinkBrowserPlacement.userDefaultsKey)
         let workspace = UUID()
         let panel = UUID()
         let container = CloudGuestURLTestContainer()
