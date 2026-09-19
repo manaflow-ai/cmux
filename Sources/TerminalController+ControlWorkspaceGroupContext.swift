@@ -314,7 +314,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         }
         let anchorCwd = group.liveAnchorWorkspaceId
             .flatMap { anchorId in
-                tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
+                tabManager.tabs.first(where: { $0.id == anchorId })?.presentedWorkspaceDirectory
             }
         let configStore = AppDelegate.shared?.mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.cmuxConfigStore
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement

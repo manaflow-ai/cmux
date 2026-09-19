@@ -347,7 +347,7 @@ extension TerminalController: ControlSystemContext {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
         }
-        let presentedDirectory = workspace.presentedCurrentDirectory ?? ""
+        let presentedDirectory = workspace.presentedWorkspaceDirectory ?? ""
         let trimmedPresentedDirectory = presentedDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return ControlExtensionSidebarWorkspace(
             workspaceID: workspace.id,

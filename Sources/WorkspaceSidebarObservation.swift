@@ -216,6 +216,7 @@ private struct SidebarObservationState: Equatable {
     let gitBranch: SidebarGitBranchState?
     let panelGitBranches: [UUID: SidebarGitBranchState]
     let pullRequest: SidebarPullRequestState?
+    let assignedPullRequest: SidebarPullRequestState?
     let panelPullRequests: [UUID: SidebarPullRequestState]
     let remoteConfiguration: WorkspaceRemoteConfiguration?
     let remoteConnectionState: WorkspaceRemoteConnectionState
@@ -305,8 +306,11 @@ extension Workspace {
     }
 
     func makeSidebarObservationPublisher() -> AnyPublisher<Void, Never> {
+        let presentedDirectory = Publishers.CombineLatest($currentDirectory, $workspaceDirectory)
+            .map { current, assigned in assigned ?? current }
+            .removeDuplicates()
         let workspaceFields = Publishers.CombineLatest4(
-            $currentDirectory,
+            presentedDirectory,
             $extensionSidebarProjectRootPath,
             panelsPublisher.map(SidebarPanelObservationState.init),
             $panelDirectories
@@ -320,7 +324,7 @@ extension Workspace {
         let gitFields = Publishers.CombineLatest4(
             sidebarMetadata.gitBranchPublisher,
             sidebarMetadata.panelGitBranchesPublisher,
-            sidebarMetadata.pullRequestPublisher,
+            sidebarMetadata.pullRequestPublisher.combineLatest($workspacePullRequest),
             sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(
@@ -358,7 +362,8 @@ extension Workspace {
                     progress: metadataFields.3,
                     gitBranch: gitFields.0,
                     panelGitBranches: gitFields.1,
-                    pullRequest: gitFields.2,
+                    pullRequest: gitFields.2.0,
+                    assignedPullRequest: gitFields.2.1,
                     panelPullRequests: gitFields.3,
                     remoteConfiguration: remoteFields.0,
                     remoteConnectionState: remoteFields.1,

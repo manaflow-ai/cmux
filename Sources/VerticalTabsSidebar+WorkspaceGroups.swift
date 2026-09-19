@@ -21,7 +21,7 @@ extension VerticalTabsSidebar {
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
-        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
+        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.presentedWorkspaceDirectory }
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
@@ -174,7 +174,7 @@ extension VerticalTabsSidebar {
         let isAnchorActive = liveAnchorId.map { tabManager.selectedTabId == $0 } ?? false
         let isMultiSelected = liveAnchorId.map { selectedTabIds.contains($0) } ?? false
             && selectedTabIds.count > 1
-        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.currentDirectory }
+        let anchorCwd = liveAnchorId.flatMap { renderContext.workspaceById[$0]?.presentedWorkspaceDirectory }
         let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
         let effectiveColor = group.customColor ?? resolvedConfig?.color
         let effectiveIcon = RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
