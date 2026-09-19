@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxWorkspaces
 import Foundation
@@ -16,6 +17,19 @@ import Foundation
 /// same grace a reconnect uses, and a failure is explained inside the pane with Retry.
 @MainActor
 extension Workspace {
+    /// The pane that initiated the request owns its error, regardless of later
+    /// focus changes. A hidden source tab must not cover the tab replacing it.
+    var cloudPaneCreationFailureSourceView: NSView? {
+        guard let panelID = cloudPaneCreationFailureStore.failure?.sourcePanelID,
+              let paneID = paneId(forPanelId: panelID),
+              let surfaceID = surfaceIdFromPanelId(panelID),
+              bonsplitController.selectedTab(inPane: paneID)?.id == surfaceID else { return nil }
+        if let terminal = panels[panelID] as? TerminalPanel { return terminal.hostedView }
+        if let browser = panels[panelID] as? BrowserPanel { return browser.webView }
+        return nil
+    }
+
+
     /// The cloud resource behind a panel, when the panel projects one.
     func cloudProjectedResource(forPanel panelID: UUID, catalog: SurfaceCatalog? = nil) -> SurfaceResource? {
         let catalog = catalog ?? SurfaceCatalog.shared
@@ -57,8 +71,14 @@ extension Workspace {
     /// projects a cloud resource: the already-created empty pane receives the machine's
     /// new terminal as its first tab. Returns false when the source is not cloud-anchored.
     func routeCloudPaneUISplit(from sourcePanelID: UUID, into newPane: PaneID, orientation: SplitOrientation) -> Bool {
-        guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else { return false }
-        return routeCloudPaneTerminalCreate(
+        guard SurfaceCatalog.shared.hasCloudProjection(panelID: sourcePanelID, workspaceID: id) else { return false }
+        // Projection identity survives a missing provider graph during restore
+        // or reconnect. A handled Cloud split must not seed a local shell.
+        guard let resource = cloudProjectedResource(forPanel: sourcePanelID) else {
+            closeUntouchedPane(newPane)
+            return true
+        }
+        let routed = routeCloudPaneTerminalCreate(
             near: resource, sourcePanelID: sourcePanelID,
             destination: .tab(workspaceID: id, paneID: newPane.id.uuidString, index: nil),
             preferredRemoteWorkspaceID: SurfaceCatalog.shared.projection(forPanel: sourcePanelID)?.remoteWorkspaceID,
@@ -66,6 +86,8 @@ extension Workspace {
             splitDirection: orientation == .horizontal ? .right : .down,
             pendingPane: newPane
         )
+        if !routed { closeUntouchedPane(newPane) }
+        return true
     }
 
     /// Routes a Cmd+T-style new tab in a pane whose selected tab projects a cloud
@@ -105,11 +127,14 @@ extension Workspace {
             // No pane exists yet for this request, so the ambiguity is reported on
             // the workspace card rather than inside a pane.
             Task { @MainActor in
-                self.presentCloudPaneCreationFailure(
-                    machine: machine,
-                    error: SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: ""),
-                    requestID: requestID
-                )
+                try? await CloudTerminalCreationCoordinator.perform(
+                    recorder: AppDelegate.shared?.cloudOperations,
+                    onFailure: { error, context in
+                        self.presentCloudPaneCreationFailure(machine: machine, error: error, requestID: requestID, context: context, sourcePanelID: sourcePanelID)
+                    }
+                ) {
+                    throw SurfaceCatalogError.ambiguousRemotePlacement(resource.id, workspaceID: "")
+                }
             }
             if let pendingPane { closeUntouchedPane(pendingPane) }
             return true
@@ -240,14 +265,16 @@ extension Workspace {
             defer { onFinish() }
             // Focus was granted when the pane appeared; adoption must not steal it
             // back from wherever the user has typed since.
-            let result = try await catalog.project(
-                created.id,
-                into: destination,
-                focus: false,
-                reuseExisting: true,
-                remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil,
-                adopting: reservation
-            )
+            let result = try await CloudOperationContext.phase(.materialize) {
+                try await catalog.project(
+                    created.id,
+                    into: destination,
+                    focus: false,
+                    reuseExisting: true,
+                    remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil,
+                    adopting: reservation
+                )
+            }
             self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: result.projection.panelID)
             return result
         }
@@ -268,7 +295,8 @@ extension Workspace {
             },
             discardProjection: { projection in
                 catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-            }
+            },
+            operations: AppDelegate.shared?.cloudOperations
         )
     }
 
@@ -281,10 +309,10 @@ extension Workspace {
 
     /// Publishes a non-modal failure card for a cloud terminal request.
     @MainActor
-    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID) {
+    func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error, requestID: UUID, context: CloudOperationContext? = nil, sourcePanelID: UUID? = nil) {
         #if DEBUG
         cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
         #endif
-        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID)
+        cloudPaneCreationFailureStore.present(machine: machine, error: error, requestID: requestID, context: context, sourcePanelID: sourcePanelID ?? focusedPanelId)
     }
 }

@@ -380,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "แชร์กับทีม",
+      "makePrivate": "ตั้งเป็นส่วนตัว",
+      "privateImportHint": "บัญชีใหม่เป็นส่วนตัว แชร์บัญชีเพื่อให้ Cloud VM ของทีมนี้ใช้งานได้",
+      "description": "บัญชีที่แชร์พร้อมใช้งานสำหรับ Cloud VM ของทีมนี้ บัญชีส่วนตัวใช้ได้เฉพาะผู้ที่เพิ่มบัญชีนั้นเท่านั้น",
+      "cancelAction": "ยกเลิก"
     }
   },
   "community": {
@@ -1003,10 +1010,10 @@
       "targetTitle": "เลือกหน้าต่างผิดหรือคลิกถูกบล็อก",
       "targetBody": "ตรวจสอบแอปอีกครั้งและเลือกองค์ประกอบจากสถานะปัจจุบัน หากหน้าต่างอื่นบังเป้าหมาย ให้แสดงหน้าต่างที่ต้องการแล้วตรวจสอบก่อนลองใหม่ อย่าใช้พิกัดหรือดัชนีเก่าซ้ำ",
       "productLink": "ภาพรวม cmux Computer Use",
-    "copyTitle": "คัดลอกพรอมต์ Computer Use",
-    "copyPrompt": "คัดลอกพรอมต์",
-    "copiedPrompt": "คัดลอกแล้ว",
-    "installPrompt": "ใช้สกิล $cmux-cua หากไม่มีให้ติดตั้งด้วยตัวติดตั้งสกิลตามปกติ หากขาดสิทธิ์ให้บอกฉันเปิดการตั้งค่า cmux → Computer Use ตรวจสอบก่อนทำและยืนยันหลังทุกการเปลี่ยนแปลง\n\nงาน: [อธิบายงานที่นี่]"
+      "copyTitle": "คัดลอกพรอมต์ Computer Use",
+      "copyPrompt": "คัดลอกพรอมต์",
+      "copiedPrompt": "คัดลอกแล้ว",
+      "installPrompt": "ใช้สกิล $cmux-cua หากไม่มีให้ติดตั้งด้วยตัวติดตั้งสกิลตามปกติ หากขาดสิทธิ์ให้บอกฉันเปิดการตั้งค่า cmux → Computer Use ตรวจสอบก่อนทำและยืนยันหลังทุกการเปลี่ยนแปลง\n\nงาน: [อธิบายงานที่นี่]"
     },
     "remoteTmux": {
       "moshContrast": "สำหรับการสลับระหว่างเครือข่าย ให้ใช้ cmux mosh-tmux ซึ่งจะเปิดเทอร์มินัล Mosh ที่ผสานรวมอย่างสมบูรณ์และแนบกับ tmux session ที่มีชื่อ โดยไม่ได้แทนที่การสะท้อน workspace, tab และ split แบบเนทีฟที่โหมดควบคุม tmux ผ่าน SSH มีให้"
@@ -1330,7 +1337,7 @@
       "plusButtonScreenshotAlt": "เมนูคลิกขวาของปุ่มบวกใน cmux แสดง Worktree Agents, New Terminal และ New Browser",
       "plusButtonScreenshotCaption": "เมนูคลิกขวาเรียงตามลำดับจาก ui.newWorkspace.contextMenu",
       "newWorkspaceButton": "แอ็กชันกำหนดเองของปุ่มบวก",
-      "newWorkspaceButtonDesc": "ใช้ <action>ui.newWorkspace.action</action> เพื่อ override สิ่งที่ปุ่มบวกทำ ใช้ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (หรือ alias <rightClick>rightClick</rightClick>) เพื่อกำหนดเมนูคลิกขวาที่เรียงลำดับแล้ว รายการเมนูอาจเป็น action IDs, action objects หรือ <separator>{ \"type\": \"separator\" }</separator> หากไม่ได้ตั้งค่า เมนูจะแสดง cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) พร้อมปุ่มลัดปัจจุบัน รายการคลาวด์จะแสดงเมื่อเปิดใช้งาน Cloud Machines เท่านั้น",
+      "newWorkspaceButtonDesc": "ใช้ <action>ui.newWorkspace.action</action> เพื่อ override สิ่งที่ปุ่มบวกทำ ใช้ <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (หรือ alias <rightClick>rightClick</rightClick>) เพื่อกำหนดเมนูคลิกขวาที่เรียงลำดับแล้ว รายการเมนูอาจเป็น action IDs, action objects หรือ <separator>{ \"type\": \"separator\" }</separator> หากไม่ได้ตั้งค่า เมนูจะแสดง cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) พร้อมปุ่มลัดปัจจุบัน รายการคลาวด์จะแสดงเมื่อเปิดใช้งาน Cloud Machines เท่านั้น",
       "newWorkspaceWorktreeNote": "ตัวอย่างนี้ทำให้การคลิกปุ่มบวกตามปกติรัน action <action>worktree-agents</action> คำสั่ง workspace จาก <commands>commands</commands> ใช้ terminal setup ที่มองเห็นได้เพื่อสร้าง Git <worktree>worktree</worktree> ก่อน Codex และ Claude เริ่มพร้อมกัน รอไฟล์ state เฉพาะ workspace แล้ว cd เข้า directory ที่สร้างขึ้นก่อน exec",
       "simpleCommands": "คำสั่งแบบง่าย",
       "simpleCommandsDesc": "คำสั่งแบบง่ายรันคำสั่ง shell ในเทอร์มินัลที่กำลังโฟกัสอยู่:",

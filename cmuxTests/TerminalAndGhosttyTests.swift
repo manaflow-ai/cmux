@@ -5612,11 +5612,12 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240)
         )
+        let originalContentView = window.contentView
         let portal = makeTrackedPortal(window: window)
         _ = portal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
@@ -5641,13 +5642,14 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         defer { window.orderOut(nil) }
         realizeWindowLayout(window)
 
+        let originalContentView = window.contentView
         let browserPortal = WindowBrowserPortal(window: window)
         let terminalPortal = makeTrackedPortal(window: window)
         _ = browserPortal.webViewAtWindowPoint(NSPoint(x: 1, y: 1))
         _ = terminalPortal.viewAtWindowPoint(NSPoint(x: 1, y: 1))
 
-        guard let contentView = window.contentView,
-              let container = contentView.superview else {
+        guard let contentView = originalContentView,
+              let container = window.contentView else {
             XCTFail("Expected content container")
             return
         }
@@ -6578,7 +6580,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         let baselineWindows = Self.suiteBaselineWindowNumbers ?? []
         let leakedPortalWindows = NSApp.windows.filter { window in
             guard !baselineWindows.contains(window.windowNumber) else { return false }
-            guard let container = window.contentView?.superview else { return false }
+            guard let container = window.contentView else { return false }
             return container.subviews.contains { $0 is WindowTerminalHostView }
         }
         XCTAssertTrue(

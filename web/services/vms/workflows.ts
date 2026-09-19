@@ -3801,8 +3801,8 @@ function requireUserVm(input: ExistingVmAccessInput) {
 }
 
 function callerStillOwnsBillingScope(input: ExistingVmAccessInput, vm: CloudVmRow): boolean {
-  const billingTeamId = vm.billingTeamId?.trim();
-  if (!billingTeamId) return true;
+  const billingTeamId = vm.ownerTeamId?.trim();
+  if (!billingTeamId) return false;
   if (billingTeamId === input.userId) return true;
   if (!input.teamIds) return false;
   return new Set(input.teamIds).has(billingTeamId);

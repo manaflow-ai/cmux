@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxPhonePush
 import UIKit
 import UserNotifications
 import cmuxFeature
@@ -54,6 +55,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
+        Self.rememberPeerKey(from: notification.request.content.userInfo)
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
         let present = await pushCoordinator?.shouldPresentInForeground(
             workspaceId: ids.workspaceId,
@@ -69,6 +71,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         didReceive response: UNNotificationResponse
     ) async {
         let request = response.notification.request
+        Self.rememberPeerKey(from: request.content.userInfo)
         // A swipe/clear of a cmux banner delivers the custom dismiss action
         // (enabled on both cmux terminal categories via `.customDismissAction`).
         // Forward it to the Mac so the desktop banner + store entry clear too.
@@ -97,6 +100,8 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
                 surfaceId: ids.surfaceId,
                 macDeviceId: ids.macDeviceId,
                 macInstanceTag: ids.macInstanceTag,
+                macInstallationID: ids.macInstallationID,
+                macBuildID: ids.macBuildID,
                 retargetsToLiveSurfaceOwner: ids.retargetsToLiveSurfaceOwner
             )
             await pushCoordinator?.handleDismiss(
@@ -167,13 +172,70 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     }
 
     private nonisolated static func dismissedIDs(from userInfo: [AnyHashable: Any]) -> [String] {
-        guard let cmux = userInfo["cmux"] as? [String: Any],
+        guard let cmux = decryptedCmux(from: userInfo),
               let ids = cmux["dismissedIds"] as? [String] else {
             return []
         }
         return ids
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
+    }
+
+    private nonisolated static func rememberPeerKey(from userInfo: [AnyHashable: Any]) {
+        // Push data is never allowed to establish a peer-key pin. Pins are
+        // installed by the authenticated pairing/session exchange.
+    }
+
+    private nonisolated static func decryptedCmux(from userInfo: [AnyHashable: Any]) -> [String: Any]? {
+        guard let original = userInfo["cmux"] as? [String: Any],
+              let raw = original["encryptedPayloads"] as? [[String: Any]] else {
+            return userInfo["cmux"] as? [String: Any]
+        }
+        guard
+              let installation = try? PhonePushKeyStore.current(
+                  bundleID: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
+                  accessGroup: configuredKeychainAccessGroup()
+              ) else { return nil }
+        let candidates = raw.compactMap { try? JSONSerialization.data(withJSONObject: $0) }
+            .compactMap { try? JSONDecoder().decode(PhonePushEncryptedPayload.self, from: $0) }
+        guard let envelope = candidates.first(where: {
+            $0.installationID == installation.installationID
+                && $0.tuple.iosInstallationID == installation.installationID
+                && $0.tuple.iosBuildID == (Bundle.main.bundleIdentifier ?? "dev.cmux.ios")
+        }),
+              PhonePushActiveAccountStore.current() == envelope.tuple.accountID,
+              let sender = PhonePushPeerKeyStore.pinnedDescriptor(for: envelope.tuple),
+              let data = try? PhonePushCrypto.decrypt(
+                  envelope: envelope,
+                  tuple: envelope.tuple,
+                  recipientInstallationID: installation.installationID,
+                  recipientKeyID: installation.keyID,
+                  trustedSenderKeyID: sender.keyID,
+                  senderPublicKey: sender.publicKey,
+                  privateKey: installation.privateKey
+              ), let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        var merged: [String: Any] = [:]
+        for key in ["encryptedPayloads", "macDeviceId", "macInstanceTag", "correlationId"] {
+            if let value = original[key] { merged[key] = value }
+        }
+        for key in ["kind", "badgeCount", "hideContent", "correlationId", "expirationEpochSeconds", "title", "subtitle", "body", "retargetsToLiveSurfaceOwner", "replyShape", "category", "workspaceId", "surfaceId", "macDeviceId", "macInstanceTag", "notificationId", "notificationIds", "macPushPublicKey", "macInstallationID", "macBuildID"] {
+            if let value = payload[key] { merged[key] = value }
+        }
+        if let notificationIds = payload["notificationIds"] {
+            merged["dismissedIds"] = notificationIds
+        }
+        return merged
+    }
+
+    private nonisolated static func configuredKeychainAccessGroup() -> String? {
+        guard let value = (Bundle.main.object(
+            forInfoDictionaryKey: "CMUXKeychainAccessGroup"
+        ) as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty,
+              !value.contains("$(") else { return nil }
+        return value
     }
 
     @MainActor
@@ -193,16 +255,20 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
         surfaceId: String?,
         macDeviceId: String?,
         macInstanceTag: String?,
+        macInstallationID: String?,
+        macBuildID: String?,
         retargetsToLiveSurfaceOwner: Bool
     ) {
-        guard let cmux = userInfo["cmux"] as? [String: Any] else {
-            return (nil, nil, nil, nil, true)
+        guard let cmux = decryptedCmux(from: userInfo) else {
+            return (nil, nil, nil, nil, nil, nil, true)
         }
         return (
             cmux["workspaceId"] as? String,
             cmux["surfaceId"] as? String,
             cmux["macDeviceId"] as? String,
             cmux["macInstanceTag"] as? String,
+            cmux["macInstallationID"] as? String,
+            cmux["macBuildID"] as? String,
             cmux["retargetsToLiveSurfaceOwner"] as? Bool ?? true
         )
     }
@@ -218,7 +284,7 @@ final class CmuxAppDelegate: NSObject, @preconcurrency UIApplicationDelegate, UN
     /// matches no Mac notification, so forwarding it would mark the wrong (or no)
     /// notification read. Returning `nil` degrades cleanly to "no dismiss-sync".
     private nonisolated static func notificationID(from request: UNNotificationRequest) -> String? {
-        guard let cmux = request.content.userInfo["cmux"] as? [String: Any],
+        guard let cmux = decryptedCmux(from: request.content.userInfo),
               let id = (cmux["notificationId"] as? String)?.trimmingCharacters(in: .whitespaces),
               !id.isEmpty else {
             return nil
