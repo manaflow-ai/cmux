@@ -321,6 +321,19 @@ struct SidebarAccountMenuButton: View {
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
         .accessibilityIdentifier("SidebarAccountMenuButton")
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxToggleAccountTeamMenu)) { _ in
+            // Signed out there is no picker to show, so route the shortcut to
+            // the same sign-in the button itself starts. Otherwise the key
+            // would look dead to a signed-out user.
+            guard isSignedIn else {
+                _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "shortcut.account"
+                )
+                return
+            }
+            isPopoverPresented.toggle()
+        }
     }
 }
 
@@ -349,11 +362,25 @@ struct SidebarAccountPopover: View {
                         // cloud workspace and machine in this window belongs to,
                         // so it has to be visible wherever the account is.
                         if let teamName = presentation.activeTeamName {
-                            Text(teamName)
-                                .cmuxFont(size: 11)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .accessibilityIdentifier("SidebarAccountActiveTeamName")
+                            HStack(spacing: 4) {
+                                Text(teamName)
+                                    .cmuxFont(size: 11)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .accessibilityIdentifier("SidebarAccountActiveTeamName")
+                                if accountFlow?.isProActive == true {
+                                    Text(String(localized: "sidebar.account.plan.pro", defaultValue: "Pro"))
+                                        .cmuxFont(size: 10, weight: .semibold)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                                .fill(Color.secondary.opacity(0.15))
+                                        )
+                                        .accessibilityIdentifier("SidebarAccountPlanBadge")
+                                }
+                            }
                         } else if !identity.email.isEmpty && identity.email != identity.displayName {
                             Text(identity.email)
                                 .cmuxFont(size: 11)

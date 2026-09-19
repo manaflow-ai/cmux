@@ -1,6 +1,16 @@
 import CmuxSettingsUI
 import SwiftUI
 
+extension Notification.Name {
+    /// Opens (or closes) the sidebar account and team popover.
+    ///
+    /// The popover's presentation state belongs to the footer button's own
+    /// view, so every other entrypoint — the configurable
+    /// `toggleAccountTeamMenu` shortcut, the command palette — reaches it
+    /// through this one notification rather than keeping its own copy.
+    static let cmuxToggleAccountTeamMenu = Notification.Name("cmux.toggleAccountTeamMenu")
+}
+
 /// What the account popover's team section shows, decided without SwiftUI so
 /// the rules are testable on their own.
 ///
