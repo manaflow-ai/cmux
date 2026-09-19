@@ -110,7 +110,8 @@ extension ContentView {
         environment: [String: String],
         bundleResourceURL: URL?,
         configuredExecutablePaths: [AgentSessionProviderID: String],
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        includeStandardSearchDirectories: Bool = true
     ) -> Set<AgentSessionProviderID> {
         guard let bundleResourceURL else { return [] }
         let cliURL = bundleResourceURL
@@ -127,6 +128,7 @@ extension ContentView {
             environment: environment,
             fileManager: fileManager,
             bundleResourceURL: bundleResourceURL,
+            includeStandardSearchDirectories: includeStandardSearchDirectories,
             configuredExecutablePaths: configuredExecutablePaths
         )
         let searchDirectories = resolver.resolvedSearchDirectories()
@@ -145,7 +147,8 @@ extension ContentView {
         environment: [String: String],
         bundleResourceURL: URL?,
         configuredExecutablePaths: [AgentSessionProviderID: String],
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        includeStandardSearchDirectories: Bool = true
     ) -> Bool {
         guard let bundleResourceURL else { return false }
         let cliURL = bundleResourceURL
@@ -162,6 +165,7 @@ extension ContentView {
             environment: environment,
             fileManager: fileManager,
             bundleResourceURL: bundleResourceURL,
+            includeStandardSearchDirectories: includeStandardSearchDirectories,
             configuredExecutablePaths: configuredExecutablePaths
         )
         return (try? resolver.resolve(provider)) != nil

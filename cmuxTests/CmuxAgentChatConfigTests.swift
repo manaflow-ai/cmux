@@ -521,6 +521,9 @@ struct CmuxAgentChatConfigTests {
         localContext.setBool(CommandPaletteContextKeys.hasWorkspace, true)
         localContext.setBool(ContentView.commandPaletteWorkspaceIsRemoteKey, false)
         #expect(both.allSatisfy { $0.when(localContext) })
+        #expect(both[0].subtitle(localContext) == "cmux claude-teams")
+        #expect(both[1].subtitle(localContext) == "cmux codex-teams")
+        #expect(ContentView.commandPaletteAgentLauncherContributions(availableProviders: []).isEmpty)
 
         var remoteContext = localContext
         remoteContext.setBool(ContentView.commandPaletteWorkspaceIsRemoteKey, true)
@@ -544,60 +547,69 @@ struct CmuxAgentChatConfigTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let providerBin = root.appendingPathComponent("provider-bin", isDirectory: true)
+        let configuredBin = root.appendingPathComponent("configured-bin", isDirectory: true)
         let bundleResources = root.appendingPathComponent("Resources", isDirectory: true)
         let bundleBin = bundleResources.appendingPathComponent("bin", isDirectory: true)
         try fileManager.createDirectory(at: providerBin, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: configuredBin, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: bundleBin, withIntermediateDirectories: true)
 
-        let claudeURL = providerBin.appendingPathComponent("claude", isDirectory: false)
+        let configuredClaudeURL = configuredBin.appendingPathComponent("claude-custom", isDirectory: false)
         let codexURL = providerBin.appendingPathComponent("codex", isDirectory: false)
         let cliURL = bundleBin.appendingPathComponent("cmux", isDirectory: false)
-        try writeAgentLauncherExecutable(at: claudeURL)
+        try writeAgentLauncherExecutable(at: configuredClaudeURL)
         try writeAgentLauncherExecutable(at: cliURL)
 
         let environment = ["PATH": providerBin.path, "HOME": root.path]
+        let configuredPaths: [AgentSessionProviderID: String] = [.claude: configuredClaudeURL.path]
         #expect(ContentView.commandPaletteAvailableAgentLauncherProviders(
             environment: environment,
             bundleResourceURL: bundleResources,
-            configuredExecutablePaths: [:],
-            fileManager: fileManager
+            configuredExecutablePaths: configuredPaths,
+            fileManager: fileManager,
+            includeStandardSearchDirectories: false
         ) == [.claude])
         #expect(ContentView.commandPaletteAgentLauncherIsAvailable(
             provider: .claude,
             environment: environment,
             bundleResourceURL: bundleResources,
-            configuredExecutablePaths: [:],
-            fileManager: fileManager
+            configuredExecutablePaths: configuredPaths,
+            fileManager: fileManager,
+            includeStandardSearchDirectories: false
         ))
         #expect(!ContentView.commandPaletteAgentLauncherIsAvailable(
             provider: .codex,
             environment: environment,
             bundleResourceURL: bundleResources,
-            configuredExecutablePaths: [:],
-            fileManager: fileManager
+            configuredExecutablePaths: configuredPaths,
+            fileManager: fileManager,
+            includeStandardSearchDirectories: false
         ))
 
         try writeAgentLauncherExecutable(at: codexURL)
         #expect(ContentView.commandPaletteAvailableAgentLauncherProviders(
             environment: environment,
             bundleResourceURL: bundleResources,
-            configuredExecutablePaths: [:],
-            fileManager: fileManager
+            configuredExecutablePaths: configuredPaths,
+            fileManager: fileManager,
+            includeStandardSearchDirectories: false
         ) == [.claude, .codex])
 
         try fileManager.removeItem(at: cliURL)
         #expect(ContentView.commandPaletteAvailableAgentLauncherProviders(
             environment: environment,
             bundleResourceURL: bundleResources,
-            configuredExecutablePaths: [:],
-            fileManager: fileManager
+            configuredExecutablePaths: configuredPaths,
+            fileManager: fileManager,
+            includeStandardSearchDirectories: false
         ).isEmpty)
         #expect(!ContentView.commandPaletteAgentLauncherIsAvailable(
             provider: .claude,
             environment: environment,
             bundleResourceURL: bundleResources,
-            configuredExecutablePaths: [:],
-            fileManager: fileManager
+            configuredExecutablePaths: configuredPaths,
+            fileManager: fileManager,
+            includeStandardSearchDirectories: false
         ))
     }
 
