@@ -168,7 +168,9 @@ impl App {
             MouseEventKind::ScrollDown => self.wheel(x, y, WHEEL_ROWS),
             MouseEventKind::ScrollUp => self.wheel(x, y, -WHEEL_ROWS),
             MouseEventKind::Down(MouseButton::Left) => self.press(x, y, m.modifiers),
+            MouseEventKind::Drag(MouseButton::Left) if matches!(self.overlay, Overlay::Menu(_)) => {}
             MouseEventKind::Drag(MouseButton::Left) => self.drag(x, y),
+            MouseEventKind::Up(MouseButton::Left) if matches!(self.overlay, Overlay::Menu(_)) => self.menu_release(x, y),
             MouseEventKind::Up(MouseButton::Left) => self.release(),
             MouseEventKind::Down(MouseButton::Right) => {
                 if let Overlay::Menu(_) = self.overlay {
@@ -176,9 +178,30 @@ impl App {
                 }
                 if matches!(self.overlay, Overlay::None) {
                     self.context_menu(x, y);
+                    // Held down: the drag highlights, the release picks.
+                    self.menu_pressed = matches!(self.overlay, Overlay::Menu(_));
                 }
             }
+            // The hover set above moves the highlight while a button is held.
+            MouseEventKind::Drag(MouseButton::Right) => {}
+            MouseEventKind::Up(MouseButton::Right) => self.menu_release(x, y),
             _ => {}
+        }
+    }
+
+    /// A button came up with the menu open: run the item under the pointer
+    /// when a press armed the menu; over no item, the menu stays for a click.
+    pub(super) fn menu_release(&mut self, x: u16, y: u16) {
+        if !self.menu_pressed {
+            return;
+        }
+        self.menu_pressed = false;
+        if let Overlay::Menu(m) = &self.overlay {
+            if let Some(i) = m.item_at(x, y) {
+                let a = m.items[i].action.clone();
+                self.overlay = Overlay::None;
+                self.run_menu_action(a);
+            }
         }
     }
 
@@ -204,12 +227,14 @@ impl App {
             self.on_button(&action);
             return;
         }
-        // Context menu: a row runs, anywhere else closes.
+        // Context menu: a press on a row arms it (the release runs it),
+        // a press anywhere else closes the menu.
         if let Overlay::Menu(m) = &self.overlay {
-            let picked = m.item_at(x, y).map(|i| m.items[i].action.clone());
-            self.overlay = Overlay::None;
-            if let Some(a) = picked {
-                self.run_menu_action(a);
+            if m.item_at(x, y).is_some() {
+                self.menu_pressed = true;
+            } else {
+                self.overlay = Overlay::None;
+                self.menu_pressed = false;
             }
             return;
         }

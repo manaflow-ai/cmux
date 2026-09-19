@@ -108,6 +108,10 @@ pub struct App {
     /// Discriminant of the overlay drawn last frame, to reset dialog scroll on change.
     pub last_overlay: u8,
     pub hover: Option<(u16, u16)>,
+    /// A mouse button went down with the context menu open (or opened it):
+    /// the item under the pointer runs on release, so press, drag, release
+    /// picks like a native menu. A release over no item leaves the menu open.
+    pub menu_pressed: bool,
     pub selection: Option<Selection>,
     /// Plain text of the rows drawn last frame, for copy.
     pub rows_cache: Vec<String>,
@@ -247,6 +251,21 @@ impl App {
                 self.attach(&id);
             }
         }
+    }
+
+    /// Re-ask the daemon for harnesses and status (after a reconnect).
+    pub(super) fn refresh_harnesses(&mut self) {
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            if let Ok(v) = client.request(method::MUX_HARNESSES, json!({})).await {
+                let names: Vec<String> = v.get("harnesses").and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default();
+                let _ = tx.send(AppMsg::Agents(names, v.get("defaultHarness").and_then(Value::as_str).map(str::to_owned)));
+            }
+            if let Ok(v) = client.request(method::MUX_STATUS, json!({})).await {
+                let _ = tx.send(AppMsg::Status(v));
+            }
+        });
     }
 
     pub(super) fn attach(&mut self, id: &str) {

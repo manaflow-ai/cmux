@@ -83,7 +83,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             "  Ctrl-t   create a session: pick an agent, name it, choose a directory",
             "  ?        all keys",
             "",
-            "  From a shell:  acpmux new -u claude -n my-task",
+            "  From a shell:  acpmux new -m claude -n my-task",
         ];
         for (i, l) in lines.iter().enumerate() {
             if (i as u16) < inner.height {

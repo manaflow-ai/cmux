@@ -3,6 +3,7 @@
 use super::*;
 
 pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
+    let mut client = client;
     let mut notes = client
         .notifications()
         .await
@@ -47,6 +48,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         sidebar_drag: None,
         last_overlay: 0,
         hover: None,
+        menu_pressed: false,
         selection: None,
         rows_cache: Vec::new(),
         row_meta: Vec::new(),
@@ -139,9 +141,24 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             }
             n = notes.recv() => {
                 match n {
-                    Some(Message::Notification { method: m, params }) => app.on_notification(&m, params.unwrap_or(Value::Null)),
-                    Some(_) => {}
-                    None => { app.status = "daemon connection closed".into(); break Ok(()); }
+                    Some(Message::Notification { method: m, params }) if m != method::MUX_DISCONNECTED => app.on_notification(&m, params.unwrap_or(Value::Null)),
+                    Some(Message::Request { .. }) | Some(Message::Response { .. }) => {}
+                    Some(Message::Notification { .. }) | None => {
+                        // The daemon went away (restart, update, crash). Come
+                        // back on the new one instead of dying with a bare
+                        // "connection closed".
+                        let reason = client.closed("attached to the daemon").to_string();
+                        app.report_error(reason.clone());
+                        app.status = "daemon connection closed; reconnecting…".into();
+                        terminal.draw(|f| draw(f, &mut app))?;
+                        match reconnect(&mut app).await {
+                            Ok(new_notes) => {
+                                notes = new_notes;
+                                client = app.client.clone();
+                            }
+                            Err(e) => break Err(e),
+                        }
+                    }
                 }
             }
             m = rx.recv() => {
@@ -192,4 +209,38 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         println!("acpmux: agents keep running. Web dashboard: {u}");
     }
     result
+}
+
+/// Wait for a daemon to come back (starting one if none does), then rebuild
+/// the client side: watch, session list, harness list, and the attachment
+/// of the selected session with its transcript replayed.
+async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let mut delay = std::time::Duration::from_millis(300);
+    loop {
+        tokio::time::sleep(delay).await;
+        match crate::daemon::connect(true).await {
+            Ok(c) => {
+                c.request(method::MUX_WATCH, json!({"enabled": true})).await?;
+                let sessions = c.request(method::MUX_SESSIONS, json!({})).await?;
+                let notes = c.notifications().await.ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
+                let build = c.daemon_build().unwrap_or_else(|| "?".into());
+                app.client = c;
+                app.sessions = sessions.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
+                app.sort_sessions();
+                app.refresh_harnesses();
+                if let Some(id) = app.selected_id() {
+                    app.attach(&id);
+                }
+                app.status = format!("reconnected to the daemon (build {build})");
+                return Ok(notes);
+            }
+            Err(e) => {
+                if std::time::Instant::now() > deadline {
+                    return Err(anyhow::anyhow!("daemon connection closed and no daemon came back within 60s: {e}"));
+                }
+                delay = (delay * 2).min(std::time::Duration::from_secs(3));
+            }
+        }
+    }
 }

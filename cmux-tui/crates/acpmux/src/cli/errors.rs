@@ -84,6 +84,9 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     }
     let msg = e.to_string();
     let lower = msg.to_lowercase();
+    if lower.contains("connection closed") {
+        return AppError::new(Code::Runtime, "daemon_closed", msg).retryable();
+    }
     if lower.contains("no session matches") || lower.contains("unknown session") || lower.contains("not found") && lower.contains("session") {
         return AppError::new(Code::NoSession, "no_session", msg);
     }
@@ -119,6 +122,10 @@ mod tests {
         assert_eq!(classify(&anyhow::anyhow!("cursor_future: afterSeq 9 is beyond the last event 3")).code, Code::Usage);
         assert_eq!(classify(&anyhow::anyhow!("turn timed out after 5s")).code, Code::Timeout);
         assert_eq!(classify(&anyhow::anyhow!("something broke")).code, Code::Runtime);
+        let closed = classify(&acpmux::client::closed_error("waiting", Some("abc 2026-01-01")));
+        assert_eq!(closed.detail, "daemon_closed");
+        assert!(closed.retryable);
+        assert!(closed.message.contains("while waiting") && closed.message.contains("daemon.log"), "{}", closed.message);
         let app = AppError::new(Code::PermissionDenied, "all_denied", "every permission was denied").with_session("abc");
         let e: anyhow::Error = app.clone().into();
         assert_eq!(classify(&e).code, Code::PermissionDenied);

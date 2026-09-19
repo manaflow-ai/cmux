@@ -78,7 +78,11 @@ work but are hidden from help.
 Every command takes `--json` before it for machine output; errors then go to stderr as one
 `{"error": {"code", "detail", "message", "sessionId", "retryable"}}` object and nothing is
 printed on stdout. Exit codes are stable: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout,
-4 no such session, 5 every permission in the turn was denied, 130 interrupted.
+4 no such session, 5 every permission in the turn was denied, 130 interrupted. A closed daemon socket is never reported as a bare "connection closed": the
+message says what was in flight, whether the daemon is still running, exited without cleanup, or
+was shut down, which build it ran when that differs from the CLI's, and where the log is
+(`detail: daemon_closed`, retryable). The TUI reconnects on its own when the daemon restarts and
+re-attaches the selected session.
 
 ```
 acpmux run -m codex --cwd ~/proj "fix the failing test"      # new session, send, print only the reply

@@ -195,7 +195,8 @@ async fn wait_match(client: Arc<Client>, ids: &[(String, String)], matcher: &Mat
             },
             None => next.await,
         };
-        let Some(Message::Notification { method: m, params }) = m else { return Err(anyhow!("daemon connection closed")) };
+        let Some(Message::Notification { method: m, params }) = m else { return Err(client.closed("following the session events")) };
+        if m == method::MUX_DISCONNECTED { return Err(client.closed("following the session events")); }
         let p = params.unwrap_or(Value::Null);
         let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
         let Some((name, id, t)) = transcripts.iter_mut().find(|(_, id, _)| *id == sid) else { continue };
@@ -444,6 +445,9 @@ pub(crate) async fn tail(client: Arc<Client>, key: &str, last: u64, since: Optio
     }
     while let Some(m) = notes.recv().await {
         if let Message::Notification { method: m, params } = m {
+            if m == method::MUX_DISCONNECTED {
+                return Err(client.closed("following the session"));
+            }
             let p = params.unwrap_or(Value::Null);
             if p.get("sessionId").and_then(Value::as_str) != Some(id.as_str()) {
                 continue;

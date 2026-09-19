@@ -93,11 +93,13 @@ impl Hub {
         *session.turn.lock().unwrap() = None;
         // A process that died without answering: say what it printed last.
         if let Err(e) = &mut result {
-            if e.message == "agent process closed" {
+            let bare = e.message == "agent process closed" || e.message == "Internal error" || (e.code == -32603 && e.message.len() < 40);
+            if bare {
                 let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                if let Some(last) = tail.iter().rev().find(|l| !l.trim().is_empty()) {
+                // The last stderr line that is not a stack frame or a wrapper tag.
+                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")) {
                     let agent = session.meta().harness;
-                    e.message = format!("agent process closed ({agent}): {}", last.trim());
+                    e.message = format!("{} ({agent}): {last}", e.message);
                 }
             }
         }

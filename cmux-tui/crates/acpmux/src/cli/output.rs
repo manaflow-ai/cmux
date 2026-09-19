@@ -165,8 +165,9 @@ pub(crate) async fn stream_prompt(client: Arc<Client>, id: &str, text: &str, ste
                 }
             }
             n = notes.recv() => {
-                let Some(m) = n else { return Err(anyhow!("daemon connection closed")) };
+                let Some(m) = n else { return Err(client.closed("streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
+                if m == method::MUX_DISCONNECTED { return Err(client.closed("streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if agent_activity(&m, &p) {
@@ -259,6 +260,9 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
     let mut assistant_len = 0usize;
     while let Some(m) = notes.recv().await {
         let Message::Notification { method: m, params } = m else { continue };
+        if m == method::MUX_DISCONNECTED {
+            return Err(client.closed("streaming the session"));
+        }
         let p = params.unwrap_or(Value::Null);
         if p.get("sessionId").and_then(Value::as_str) != Some(id) {
             continue;
@@ -386,8 +390,9 @@ async fn collect_once(client: Arc<Client>, id: &str, text: &str, opts: CollectOp
                 }
             }
             n = notes.recv() => {
-                let Some(m) = n else { return Err(anyhow!("daemon connection closed")) };
+                let Some(m) = n else { return Err(client.closed("streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
+                if m == method::MUX_DISCONNECTED { return Err(client.closed("streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if agent_activity(&m, &p) {

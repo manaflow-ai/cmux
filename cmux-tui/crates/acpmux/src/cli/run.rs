@@ -140,7 +140,7 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             let sessions = v.get("sessions").and_then(Value::as_array).cloned().unwrap_or_default();
             if sessions.is_empty() {
-                println!("no sessions (create one: acpmux new -u codex -n my-task)");
+                println!("no sessions (create one: acpmux new -m codex -n my-task)");
                 return Ok(());
             }
             println!("{:<24} {:<8} {:<13} {:>5} {:<6} {}", "NAME", "AGENT", "STATUS", "TURNS", "AGE", "LAST");
