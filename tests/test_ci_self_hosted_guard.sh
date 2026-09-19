@@ -1292,6 +1292,29 @@ check_signing_intermediate_imports
 check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
+check_agent_notification_paths_cover_its_suites() {
+  # The workflow reruns suites that ci.yml's shards already run, so it should
+  # start only for changes that can affect them. Each suite it names needs its
+  # own path trigger; a blanket cmuxTests/** trigger starts it for every test.
+  local file="$ROOT_DIR/.github/workflows/agent-notification-tests.yml" suite failed=0
+  if grep -qE "^[[:space:]]+- cmuxTests/\*\*[[:space:]]*$" "$file"; then
+    echo "FAIL: agent-notification-tests.yml must not trigger on all of cmuxTests/**"
+    failed=1
+  fi
+  for suite in $(sed -n 's/^[[:space:]]*unit_test_suites:[[:space:]]*//p' "$file" | tr ',' ' '); do
+    # AgentNotificationRegressionTests -> cmuxTests/AgentNotification*.swift
+    if ! grep -E "^[[:space:]]+- cmuxTests/" "$file" | sed -E 's/^[[:space:]]+- cmuxTests\///; s/\*.*$//' | while read -r prefix; do
+      case "$suite" in "$prefix"*) exit 1 ;; esac
+    done; then
+      continue
+    fi
+    echo "FAIL: agent-notification-tests.yml runs $suite but no cmuxTests/ path trigger matches it"
+    failed=1
+  done
+  [ "$failed" -eq 0 ] || exit 1
+  echo "PASS: agent notification paths cover exactly the suites the workflow runs"
+}
+
 check_dmg_signing_uses_build_keychain
 check_create_dmg_uses_run_local_npm_prefix
 check_gui_smoke_unsupported_launch_handling
@@ -1300,3 +1323,4 @@ check_no_ci_swift_package_skips
 check_web_db_behavior_tests
 check_web_test_runner_behavior
 check_tmux_terminal_nightly_isolation
+check_agent_notification_paths_cover_its_suites
