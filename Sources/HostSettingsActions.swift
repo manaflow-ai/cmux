@@ -184,13 +184,13 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
-    func createCustomSidebar(named name: String) -> CustomSidebarOnboardingResult {
+    func createCustomSidebar() -> CustomSidebarOnboardingResult {
         guard let template = CustomSidebarOnboardingAssets().starterTemplate() else {
             return .templateUnavailable
         }
         return installCustomSidebarTemplate(
             template,
-            name: name,
+            name: template.suggestedName,
             uniquingIfNeeded: true
         )
     }
@@ -239,13 +239,9 @@ final class HostSettingsActions: SettingsHostActions {
         case let .created(createdName, fileURL):
             PreferredEditorService(defaults: .standard).open(fileURL)
             return .created(name: createdName)
-        case .invalidName:
-            return .invalidName
-        case .alreadyExists:
-            return .alreadyExists
         case .invalidTemplate:
             return .templateUnavailable
-        case .failed:
+        case .invalidName, .alreadyExists, .failed:
             return .writeFailed
         }
     }
