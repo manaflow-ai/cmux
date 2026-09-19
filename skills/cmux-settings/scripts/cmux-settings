@@ -13,7 +13,7 @@ Usage:
   cmux-settings set <dotted.path> <v>   set value (v parsed as JSON, falls back to string)
   cmux-settings unset <dotted.path>     remove value at path
   cmux-settings list-supported          print every settings path the schema recognizes
-  cmux-settings validate                check JSON parses and all set keys are recognized
+  cmux-settings validate                run cmux's semantic validator on the full config
   cmux-settings open                    open the file in $EDITOR (or VS Code, then TextEdit)
 
 Examples:
@@ -202,6 +202,103 @@ def parse_value(raw: str) -> Any:
         return raw
 
 
+def find_cmux_cli() -> str | None:
+    for env_name in ("CMUX_CLI_BIN", "CMUX_CLI", "CMUX_BUNDLED_CLI_PATH"):
+        candidate = os.environ.get(env_name)
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return shutil.which("cmux")
+
+
+def semantic_scope_for(path: Path) -> str:
+    resolved = path.expanduser().resolve()
+    global_paths = {
+        DEFAULT_PATH.expanduser().resolve(),
+        (Path.home() / ".config" / "cmux" / "settings.json").resolve(),
+    }
+    if resolved in global_paths:
+        return "global"
+    if resolved.parent.name == ".cmux":
+        return "project"
+    return "global"
+
+
+def report_validation_failure(result: subprocess.CompletedProcess[str]) -> None:
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        payload = None
+
+    found_issue = False
+    if isinstance(payload, dict):
+        findings = payload.get("findings")
+        if isinstance(findings, list):
+            for finding in findings:
+                if not isinstance(finding, dict):
+                    continue
+                issues = finding.get("issues")
+                if isinstance(issues, list):
+                    for issue in issues:
+                        if not isinstance(issue, dict):
+                            continue
+                        path = issue.get("path", "$")
+                        message = issue.get("message", "invalid configuration")
+                        print(f"error: {path}: {message}", file=sys.stderr)
+                        found_issue = True
+                if not issues and finding.get("status") == "error":
+                    message = finding.get("message")
+                    if isinstance(message, str):
+                        print(f"error: {message}", file=sys.stderr)
+                        found_issue = True
+    if not found_issue:
+        detail = result.stderr.strip() or result.stdout.strip()
+        if detail:
+            print(detail, file=sys.stderr)
+
+
+def validate_file_with_cmux(path: Path, scope: str) -> bool:
+    cli = find_cmux_cli()
+    if cli is None:
+        print(
+            "error: cmux CLI is required for semantic config validation; "
+            "set CMUX_CLI_BIN if it is not on PATH",
+            file=sys.stderr,
+        )
+        return False
+    result = subprocess.run(
+        [
+            cli,
+            "--json",
+            "config",
+            "validate",
+            "--path",
+            str(path),
+            "--scope",
+            scope,
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        return True
+    report_validation_failure(result)
+    return False
+
+
+def validate_candidate(data: dict[str, Any], source_path: Path) -> bool:
+    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", delete=False, suffix=".cmux.json"
+    ) as tmp:
+        tmp.write(encoded)
+        candidate = Path(tmp.name)
+    try:
+        return validate_file_with_cmux(candidate, semantic_scope_for(source_path))
+    finally:
+        candidate.unlink(missing_ok=True)
+
+
 def flatten(prefix: str, value: Any) -> list[str]:
     if isinstance(value, dict):
         out: list[str] = []
@@ -309,6 +406,8 @@ def cmd_set(args: argparse.Namespace) -> int:
     if not changed:
         print(f"unchanged: {args.key} = {json.dumps(value)}")
         return 0
+    if not validate_candidate(data, path):
+        return 1
     atomic_write(path, data)
     print(f"set: {args.key} = {json.dumps(value)}")
     return 0
@@ -320,6 +419,8 @@ def cmd_unset(args: argparse.Namespace) -> int:
     if not unset_at(data, split_path(args.key)):
         print(f"unchanged: {args.key} (not present)")
         return 0
+    if not validate_candidate(data, path):
+        return 1
     atomic_write(path, data)
     print(f"unset: {args.key}")
     return 0
@@ -341,46 +442,14 @@ def cmd_list_supported(args: argparse.Namespace) -> int:
 
 def cmd_validate(args: argparse.Namespace) -> int:
     path = Path(args.file)
-    data = load_settings(path)
-    supported = set(supported_paths())
-    if not supported:
-        print(
-            "warn: could not load schema path list; only checked JSON parses",
-            file=sys.stderr,
-        )
-        print(f"ok: {path} parses")
-        return 0
-    unknown: list[str] = []
-    # Keep this in sync with top-level structural keys in web/data/cmux.schema.json.
-    structural = {
-        "$schema",
-        "schemaVersion",
-        "actions",
-        "ui",
-        "commands",
-        "vault",
-        "newWorkspaceCommand",
-        "surfaceTabBarButtons",
-        "rightSidebar",
-    }
-    for top, value in data.items():
-        if top in structural:
-            continue
-        if not isinstance(value, dict):
-            unknown.append(top)
-            continue
-        for full in flatten(top, value):
-            if full in supported:
-                continue
-            if any(full.startswith(s + ".") for s in supported):
-                continue
-            unknown.append(full)
-    if unknown:
-        print("unknown settings keys:")
-        for u in unknown:
-            print(f"  {u}")
-        return 1
-    print(f"ok: {path} parses and all settings keys are recognized")
+    scope = semantic_scope_for(path)
+    if path.exists():
+        if not validate_file_with_cmux(path, scope):
+            return 1
+    else:
+        if not validate_candidate(load_settings(path), path):
+            return 1
+    print(f"ok: {path} passes semantic validation")
     return 0
 
 
