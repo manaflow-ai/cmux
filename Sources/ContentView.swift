@@ -2249,8 +2249,8 @@ struct ContentView: View {
         }
     }
 
-    private func syncTrafficLightInset() {
-        let inset = workspacePresentationModeRuntimeCache.titlebarSettings.tabBarLeadingInset(
+    private func syncTrafficLightInset(titlebarSettings: WorkspaceTitlebarSettings = WorkspaceTitlebarSettings()) {
+        let inset = titlebarSettings.tabBarLeadingInset(
             isSidebarVisible: sidebarState.isVisible,
             isFullScreen: isFullScreen,
             trafficLightInset: CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset),
@@ -2260,7 +2260,7 @@ struct ContentView: View {
     }
 
     private func handleWorkspacePresentationModeChange(_ settings: WorkspaceTitlebarSettings) {
-        workspacePresentationModeRuntimeCache.titlebarSettings = settings
+        workspacePresentationModeRuntimeCache.isMinimalMode = settings.isMinimalMode
         if let observedWindow {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 isFullScreen,
@@ -2275,7 +2275,7 @@ struct ContentView: View {
         }
         schedulePortalGeometrySynchronize()
         updateSidebarResizerBandState()
-        syncTrafficLightInset()
+        syncTrafficLightInset(titlebarSettings: settings)
     }
 
     private func applyTitlebarDebugChromeChange() {
@@ -3327,7 +3327,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 true,
                 in: window,
-                isMinimalMode: workspacePresentationModeRuntimeCache.titlebarSettings.isHidden
+                isMinimalMode: WorkspaceTitlebarSettings().isHidden
             )
             AppDelegate.shared?.fullscreenControlsViewModel = fullscreenControlsViewModel
             syncTrafficLightInset()
@@ -3340,7 +3340,7 @@ struct ContentView: View {
             windowChrome.nativeTitlebarBackdropCoordinator.setTitlebarControlsHidden(
                 false,
                 in: window,
-                isMinimalMode: workspacePresentationModeRuntimeCache.titlebarSettings.isHidden
+                isMinimalMode: WorkspaceTitlebarSettings().isHidden
             )
             AppDelegate.shared?.fullscreenControlsViewModel = nil
             syncTrafficLightInset()
