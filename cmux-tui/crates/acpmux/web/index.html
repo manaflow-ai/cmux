@@ -231,6 +231,8 @@
   const theme = new URLSearchParams(location.search).get('theme');
   // ?open=1 starts every turn's work unfolded (screenshots, debugging).
   const openAll = new URLSearchParams(location.search).get('open') === '1';
+  // ?session=<id or name> opens that session (the TUI's "Open in web dashboard").
+  const wantSession = new URLSearchParams(location.search).get('session') || '';
   if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
   const token = new URLSearchParams(location.search).get('token') || '';
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(token);
@@ -254,7 +256,9 @@
       const a = await call('_acpmux/harnesses', {});
       agents = a.harnesses || {}; defaultHarness = a.defaultHarness;
       try { const st = await call('_acpmux/status', {}); renderHosts(st.peers || []); } catch (e) {}
+      const wanted = wantSession && state.sessions.find((x) => x.sessionId === wantSession || x.name === wantSession || x.name.endsWith('/' + wantSession));
       if (selected) attach(selected, true);
+      else if (wanted) select(wanted.sessionId);
       else if (state.sessions.length) select(state.sessions[0].sessionId);
       else openNew();
     };

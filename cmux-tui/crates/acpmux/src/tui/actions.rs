@@ -350,8 +350,13 @@ impl App {
             Action::PageDown => self.with_viewport(|v| v.page_down()),
             Action::Web => {
                 if let Some(u) = &self.web_url {
-                    let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(u).spawn();
-                    self.status = format!("opened {u}");
+                    // Deep link to the selected session; the token stays out of the status bar.
+                    let url = match self.selected_id() {
+                        Some(id) => format!("{u}&session={id}"),
+                        None => u.clone(),
+                    };
+                    let _ = std::process::Command::new(if cfg!(target_os = "macos") { "open" } else { "xdg-open" }).arg(&url).spawn();
+                    self.status = "opened the web dashboard".into();
                 }
             }
             Action::AddHost => match args {
