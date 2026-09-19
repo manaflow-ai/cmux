@@ -289,6 +289,10 @@ final class HostSettingsActions: SettingsHostActions {
             throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.cliMissing)
         }
 
+        return try await Self.runLocalTmuxCLI(executableURL: cliURL, arguments: arguments)
+    }
+
+    nonisolated static func runLocalTmuxCLI(executableURL cliURL: URL, arguments: [String]) async throws -> Data {
         return try await Task.detached(priority: .userInitiated) {
             let process = Process()
             let stdout = Pipe()

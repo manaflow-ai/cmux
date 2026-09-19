@@ -10,6 +10,27 @@ import Testing
 
 @Suite("Local tmux session-list decoder")
 struct HostSettingsActionsLocalTmuxTests {
+    @Test("Cancellation reaches the local tmux CLI", .timeLimit(.minutes(1)))
+    func cancellationStopsCLI() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let completion = directory.appendingPathComponent("completed")
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await HostSettingsActions.runLocalTmuxCLI(
+                executableURL: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "sleep 1; touch \"$1\"", "fixture", completion.path]
+            )
+        }
+        do {
+            _ = try await task.value
+            Issue.record("Cancelled CLI request succeeded")
+        } catch is CancellationError {
+            #expect(!FileManager.default.fileExists(atPath: completion.path))
+        }
+    }
+
     /// Decodes authoritative CLI rows and preserves live-first display ordering.
     @Test func decodesAuthoritativeSessionListAndOrdersLiveFirst() throws {
         let managedID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
