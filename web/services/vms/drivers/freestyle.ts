@@ -973,6 +973,15 @@ export class FreestyleProvider implements VMProvider {
             // clone boot; attach performs the strict announcement before
             // handing out the private daemon route.
             if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
+            // Resizing and installing the guest adapter are independent
+            // provider operations. Keep both on the critical path, because a
+            // create must never publish a machine that lacks its adapter or
+            // requested shape, but issue them together so their network waits
+            // overlap. This is the largest safe reduction available without a
+            // provider-side warm-pool claim: each operation still completes
+            // before this method returns and either failure still rolls back
+            // the whole machine.
+            const setupTasks: Promise<void>[] = [];
             if (options.imageSize) {
               // One snapshot per size: the machine already boots at the shape
               // that was sold, so nothing is read back and nothing is grown.
@@ -985,16 +994,24 @@ export class FreestyleProvider implements VMProvider {
               });
             } else {
               // A size-less image boots at its snapshot's resources and only a
-              // grow-only resize raises them. Size first so the machine the
-              // daemon comes up on is the one that was sold.
-              await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span, data.resources);
+              // grow-only resize raises them. Start it before the adapter
+              // install so the two independent provider calls overlap.
+              setupTasks.push(this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span, data.resources));
             }
             // The baked supervisor is already bringing the daemon up; the only
-            // per-machine input it needs is the model-plane env file.
-
-            // The in-VM shim is a separate convenience layer over the baked
-            // daemon and is installed idempotently for agents and peer links.
-            await this.installGuestCli(vm, vmId, options.promptIdentity);
+            // per-machine input it needs is the model-plane env file. The
+            // in-VM shim is a separate convenience layer over that daemon and
+            // is installed idempotently for agents and peer links.
+            // The resource reporter is advisory and has no bearing on
+            // attach/readiness. Run it as a peer task so its systemd setup
+            // cannot serialize behind the adapter's filesystem write.
+            setupTasks.push(this.installGuestCli(vm, vmId, options.promptIdentity, { installResourceReporter: false }));
+            setupTasks.push(this.ensureResourceReporter(vm, vmId));
+            const setupResults = await Promise.allSettled(setupTasks);
+            const setupFailure = setupResults.find(
+              (result): result is PromiseRejectedResult => result.status === "rejected",
+            );
+            if (setupFailure) throw setupFailure.reason;
             // The baked supervisor announces the VPC interface on clone boot
             // and every 30 seconds. Waiting for a second guest-side `ip` probe
             // here made create pay a redundant network round trip and turned
@@ -1713,7 +1730,12 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+  private async installGuestCli(
+    vm: Vm,
+    vmId: string,
+    promptIdentity?: GuestPromptIdentity,
+    options: { readonly installResourceReporter?: boolean } = {},
+  ): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
@@ -1731,7 +1753,7 @@ export class FreestyleProvider implements VMProvider {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
     }
-    await this.ensureResourceReporter(vm, vmId);
+    if (options.installResourceReporter !== false) await this.ensureResourceReporter(vm, vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
