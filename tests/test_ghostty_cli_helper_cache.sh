@@ -43,7 +43,8 @@ mkdir -p "$ROOT_DIR/scripts" "$ROOT_DIR/ghostty"
 cp "$SOURCE_ROOT/scripts/build-ghostty-cli-helper.sh" "$SOURCE_ROOT/scripts/ghostty-zig-version.sh" "$ROOT_DIR/scripts/"
 git -C "$ROOT_DIR/ghostty" init -q
 printf 'fixture\n' > "$ROOT_DIR/ghostty/build.zig"
-git -C "$ROOT_DIR/ghostty" add build.zig
+printf 'fixture\n' > "$ROOT_DIR/ghostty/build.zig.zon"
+git -C "$ROOT_DIR/ghostty" add build.zig build.zig.zon
 git -C "$ROOT_DIR/ghostty" -c user.name=Fixture -c user.email=fixture@example.invalid commit -q -m fixture
 FIRST="$TMP_DIR/first"
 SECOND="$TMP_DIR/second"
