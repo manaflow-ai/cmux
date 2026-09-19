@@ -118,6 +118,29 @@ describe("Cloud Bash prompt", () => {
     `)).toBe("1|__cmux_prompt_name|:|printf user-hook|");
   });
 
+  test("reports the working directory to the daemon with OSC 7 using only builtins", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    // A space and a multi-byte character: the daemon parses the report as a
+    // file URL, so every byte outside the unreserved set is percent-encoded.
+    const cwd = path.join(directory, "cmux tést dir");
+    mkdirSync(cwd);
+    const encoded = Array.from(Buffer.from(cwd, "utf8"), (byte) => {
+      const char = String.fromCharCode(byte);
+      return /[A-Za-z0-9/_.~-]/.test(char) ? char : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+    }).join("");
+    const output = bash(directory, `
+      . '${directory}/prompt.bash'
+      PATH=/does-not-exist
+      HOSTNAME=test-host
+      cd '${cwd}'
+      false
+      __cmux_prompt_name
+      printf '|status=%s' "$?"
+    `);
+    expect(output).toBe(`\u001b]7;file://test-host${encoded}\u0007|status=1`);
+  });
+
   test("renders successive prompts in a real interactive Bash terminal", () => {
     const directory = fixture();
     install(directory, "brave-blue-otter", 100);
