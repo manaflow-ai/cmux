@@ -120,6 +120,11 @@ def load_json(proc: subprocess.CompletedProcess[str], label: str) -> dict:
     return value
 
 
+def paired(left: list, right: list):
+    require(len(left) == len(right), "Localized list length changed")
+    return zip(left, right)
+
+
 def check_localized_catalog(cli_path: str) -> None:
     """Exercise shipped translations through the executable's app-bundle lookup."""
     with tempfile.TemporaryDirectory(prefix="cmux-workflow-localization-") as tmpdir:
@@ -154,26 +159,32 @@ def check_localized_catalog(cli_path: str) -> None:
             require(localized.keys() == english.keys(), f"{language}: JSON keys changed")
             require(localized["commands"] == english["commands"], f"{language}: commands changed")
             require(localized["summary"] != english["summary"], f"{language}: untranslated summary")
-            for base, translated in zip(english["examples"], localized["examples"], strict=True):
+            for base, translated in paired(english["examples"], localized["examples"]):
                 require(base.keys() == translated.keys(), f"{language}: example keys changed")
                 for field in ["id", "config_files", "source"]:
                     require(base[field] == translated[field], f"{language}: invariant {field} changed")
                 for field in ["title", "summary", "fit", "creates", "requires", "instantiate", "adapt"]:
                     require(base[field] != translated[field], f"{language}: untranslated {base['id']}.{field}")
+                    if isinstance(base[field], list):
+                        for original_item, localized_item in paired(base[field], translated[field]):
+                            if original_item in {"codex", "claude"}:
+                                require(original_item == localized_item, f"{language}: executable name changed")
+                            else:
+                                require(original_item != localized_item, f"{language}: untranslated item in {base['id']}.{field}")
                     require(literals.findall(str(base[field])) == literals.findall(str(translated[field])),
                             f"{language}: command/path syntax changed in {base['id']}.{field}")
                 for primitive in base["primitives"]:
                     if "." in primitive or primitive.startswith("cmux "):
                         require(primitive in translated["primitives"], f"{language}: primitive syntax changed")
-            for base, translated in zip(english["saved_layouts"]["steps"], localized["saved_layouts"]["steps"], strict=True):
+            for base, translated in paired(english["saved_layouts"]["steps"], localized["saved_layouts"]["steps"]):
                 require(base["command"] == translated["command"], f"{language}: layout command changed")
                 require(base["label"] != translated["label"], f"{language}: layout label untranslated")
             require(english["saved_layouts"]["description"] != localized["saved_layouts"]["description"],
                     f"{language}: saved layout description untranslated")
-            for base, translated in zip(english["saved_layouts"]["native_surfaces"], localized["saved_layouts"]["native_surfaces"], strict=True):
+            for base, translated in paired(english["saved_layouts"]["native_surfaces"], localized["saved_layouts"]["native_surfaces"]):
                 require(base != translated, f"{language}: native entry point untranslated")
                 require(literals.findall(base) == literals.findall(translated), f"{language}: native placeholder changed")
-            for base, translated in zip(english["adapt_and_save"], localized["adapt_and_save"], strict=True):
+            for base, translated in paired(english["adapt_and_save"], localized["adapt_and_save"]):
                 require(base != translated, f"{language}: adaptation guidance untranslated")
                 require(literals.findall(base) == literals.findall(translated), f"{language}: guidance syntax changed")
         japanese = run_cli(str(executable), ["docs", "workflows"], "ja")
