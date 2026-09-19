@@ -23,6 +23,11 @@
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
     },
+    "displayName": {
+      "title": "اسم الجهاز غير صالح",
+      "message": "يجب أن يكون اسم الجهاز نصًا قابلًا للطباعة لا يزيد عن {maxLength} حرفًا.",
+      "action": "استخدم اسمًا أقصر بدون أحرف تحكم، أو اتركه فارغًا لمسحه."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "تتطلب الأجهزة بسعة {memory} GiB اشتراك cmux {plan}. تدعم خطتك حتى {max} GiB.",

@@ -101,12 +101,7 @@ extension CloudWorkspaceRenameService {
             guard let resource = catalog.resources[projection.resource],
                   let workspace = environment.workspace(projection.workspaceID),
                   workspace.panels[projection.panelID] != nil else { continue }
-            if resource.kind == .terminal {
-                workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: resource.detail)
-            } else {
-                workspace.clearRemotePanelDirectory(panelId: projection.panelID)
-                continue
-            }
+            guard resource.kind == .terminal else { continue }
             if workspace.panelTitles[projection.panelID] != resource.cloudProcessDisplayTitle {
                 _ = workspace.updatePanelTitle(panelId: projection.panelID, title: resource.cloudProcessDisplayTitle)
             }
