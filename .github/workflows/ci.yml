@@ -1234,6 +1234,22 @@ jobs:
             -only-testing:cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests \
             test-without-building
 
+      - name: Run Cloud workspace rename surface parity regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The tolerant full-suite step can accept Swift Testing assertion
+          # failures when XCTest reports "0 unexpected". Keep #12986's
+          # three-surface name parity non-tolerant so a local title cache can
+          # never again outlive the accepted daemon name on one surface.
+          set -euo pipefail
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/CloudWorkspaceRenameSurfaceParityTests \
+            test-without-building
+
       - name: Run terminal portal visibility regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
