@@ -132,6 +132,56 @@ import Testing
         #expect(coordinator.availableTeams.map(\.id) == ["team_a"])
     }
 
+    @Test func switchingTheTeamChangesWhatCloudCallsAreScopedTo() async throws {
+        // Every Cloud client (VMClient, RemotesClient, CoderouterClient,
+        // AIAccountsClient, DeviceRegistryClient, PresenceHeartbeatClient)
+        // reads `resolvedTeamID` at call time, so this is the value that
+        // decides which team a cloud request lands in.
+        let (coordinator, _, store) = try await signedIn(teams: [
+            CMUXAuthTeam(id: "team_a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team_b", displayName: "Beta"),
+        ])
+        #expect(coordinator.resolvedTeamID == "team_a")
+
+        coordinator.selectedTeamID = "team_b"
+
+        #expect(coordinator.resolvedTeamID == "team_b")
+        #expect(store.string(forKey: "selected_team") == "team_b")
+    }
+
+    @Test func switchingTheTeamFencesWorkCapturedForThePreviousTeam() async throws {
+        // A cloud read started under team A must not install its result after
+        // the user switched to team B, or one team's machines appear in the
+        // other's sidebar. Consumers gate on isAuthenticatedTeamScopeCurrent.
+        let (coordinator, _, _) = try await signedIn(teams: [
+            CMUXAuthTeam(id: "team_a", displayName: "Alpha"),
+            CMUXAuthTeam(id: "team_b", displayName: "Beta"),
+        ])
+        let scopeForTeamA = try #require(coordinator.authenticatedTeamScope)
+        #expect(coordinator.isAuthenticatedTeamScopeCurrent(scopeForTeamA))
+
+        coordinator.selectedTeamID = "team_b"
+
+        #expect(coordinator.isAuthenticatedTeamScopeCurrent(scopeForTeamA) == false)
+        let scopeForTeamB = try #require(coordinator.authenticatedTeamScope)
+        #expect(scopeForTeamB.teamID == "team_b")
+        #expect(scopeForTeamB.generation != scopeForTeamA.generation)
+    }
+
+    @Test func aTeamTheUserIsNotAMemberOfNeverBecomesTheCloudScope() async throws {
+        let (coordinator, _, _) = try await signedIn(
+            teams: [CMUXAuthTeam(id: "team_a", displayName: "Alpha")]
+        )
+
+        coordinator.selectedTeamID = "team_someone_elses"
+
+        // The selection is stored, but nothing cloud-facing may use it: the
+        // resolved id falls back to a team the user actually belongs to, and
+        // no scope is published for the stranger team.
+        #expect(coordinator.resolvedTeamID == "team_a")
+        #expect(coordinator.authenticatedTeamScope?.teamID == "team_a")
+    }
+
     @Test func signOutDuringCreateKeepsTheTeamOffTheSignedOutSession() async throws {
         let (coordinator, client, _) = try await signedIn(teams: [])
         await client.setThrowOnListTeams(AuthError.networkError)
