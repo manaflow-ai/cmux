@@ -46,7 +46,7 @@ private struct FixedMemoryPressureFootprintSampler: MemoryPressureFootprintSampl
 private struct FixedMemoryPressureAggregateSampler: MemoryPressureAggregateSampling {
     let sample: MemoryPressureAggregateSample
 
-    func sample(at sampledAt: Date) -> MemoryPressureAggregateSample {
+    func sample(at sampledAt: Date) async -> MemoryPressureAggregateSample {
         sample.withSampledAt(sampledAt)
     }
 }

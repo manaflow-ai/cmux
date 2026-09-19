@@ -235,10 +235,26 @@ extension TerminalController {
             return response
         }
 
-        if request.method == "system.top" { return await v2SystemTopAsync(request) }
+        if request.method == "system.top" {
+            let response = await v2SystemTopAsync(request)
+            if let result = Self.controlCallResult(fromEncodedResponse: response) {
+                socketReadSnapshotStore.publishResponse(
+                    method: request.method,
+                    params: request.params,
+                    result: result
+                )
+            }
+            return response
+        }
         if request.method == "system.memory" {
             let result = await v2SystemMemory(params: request.params.mapValues(\.foundationObject))
-            return Self.v2Encoder.response(id: request.id, Self.controlCallResult(fromLegacy: result))
+            let typedResult = Self.controlCallResult(fromLegacy: result)
+            socketReadSnapshotStore.publishResponse(
+                method: request.method,
+                params: request.params,
+                result: typedResult
+            )
+            return Self.v2Encoder.response(id: request.id, typedResult)
         }
 
         if request.method == "surface.read_text" {
