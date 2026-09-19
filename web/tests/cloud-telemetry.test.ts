@@ -116,3 +116,42 @@ describe("Cloud diagnostic boundary", () => {
     expect(authCalls).toBe(0);
   });
 });
+
+describe("shared development error destination", () => {
+  test("routes client and server errors to the dev dataset with backend identity", async () => {
+    const { cloudAxiomConfiguration, exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
+    const configuration = cloudAxiomConfiguration({
+      CMUX_CLOUD_AXIOM_TOKEN: "test-token",
+      CMUX_CLOUD_TELEMETRY_ID_KEY: "k".repeat(32),
+      CMUX_DEV_BUILD_TAG: "errhub",
+      CMUX_DEV_BUILD_COMMIT: "a".repeat(40),
+      CMUX_DEV_BUILD_SOURCE_SHA256: "b".repeat(64),
+    } as NodeJS.ProcessEnv)!;
+    expect(configuration.tracesDataset).toBe("cmux-dev-otel-traces");
+    expect(configuration.errorsDataset).toBe("cmux-dev-otel-traces");
+    const parsed = parseCloudTelemetryBatch(batch(), now)!;
+    const sent: { url: string; body: any }[] = [];
+    await exportCloudDiagnostics(["client", "server"].map((source) => ({
+      userId: "private-account", eventId: source, attempts: 1,
+      payload: { client: parsed.client, span: parsed.spans[0]!, source: source as "client" | "server" },
+    })), configuration, (async (url, init) => {
+      sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      return new Response("{}");
+    }) as typeof fetch);
+    const errors = sent.find((item) => item.url.includes("/ingest/"))!.body;
+    expect(errors.map((item: any) => item.source)).toEqual(["client", "server"]);
+    expect(errors[0].backend_tag).toBe("errhub");
+    expect(errors[0].backend_revision).toBe("a".repeat(40));
+    expect(errors[0].backend_source_sha256).toBe("b".repeat(64));
+    expect(JSON.stringify(sent)).not.toContain("private-account");
+  });
+
+  test("hosted production never follows a dev tag into a dev dataset", async () => {
+    const { cloudAxiomConfiguration } = await import("../services/observability/cloudTelemetryExport");
+    const config = cloudAxiomConfiguration({
+      VERCEL_ENV: "production", CMUX_DEV_BUILD_TAG: "errhub",
+      CMUX_CLOUD_AXIOM_TOKEN: "test", CMUX_CLOUD_TELEMETRY_ID_KEY: "k".repeat(32),
+    } as NodeJS.ProcessEnv)!;
+    expect(config.errorsDataset).toBe("cmux-cloud-errors-prod");
+  });
+});
