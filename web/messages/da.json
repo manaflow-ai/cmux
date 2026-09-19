@@ -23,6 +23,11 @@
       "message": "Cloud VM'er kræver en cmux Pro-plan.",
       "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
     },
+    "displayName": {
+      "title": "Ugyldigt maskinnavn",
+      "message": "Maskinnavne skal være læsbar tekst på højst {maxLength} tegn.",
+      "action": "Brug et kortere navn uden kontroltegn, eller lad det være tomt for at rydde det."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maskiner med {memory} GiB kræver cmux {plan}. Din plan understøtter op til {max} GiB.",

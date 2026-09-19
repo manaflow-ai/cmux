@@ -29,7 +29,7 @@ CONTROLLER = ROOT / "Sources" / "TerminalController.swift"
 CONTRACT = ROOT / "docs" / "cli-contract.md"
 SKILL_DIR = ROOT / "skills" / "cmux-cloud-vm"
 COMMANDS_MD = SKILL_DIR / "references" / "commands.md"
-BUNDLED_SKILL = ROOT / "Resources" / "cloud-agent-skill.md"
+BUNDLED_SKILL = ROOT / "Resources" / "en.lproj" / "cloud-agent-skill.md"
 
 # Every skill file whose `cmux vm …` examples must name real verbs.
 SKILL_FILES = [
