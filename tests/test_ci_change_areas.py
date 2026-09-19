@@ -44,6 +44,27 @@ def test_docs_only_skips_expensive_areas() -> None:
     assert_areas(["docs/ci.md", "README.md"], macos=False, web=False)
 
 
+def test_agent_instructions_and_skill_docs_skip_expensive_areas() -> None:
+    assert_areas(
+        [
+            "CLAUDE.md",
+            "AGENTS.md",
+            "Packages/iOS/AGENTS.md",
+            "skills/cmux-testing/references/local-vs-ci-validation.md",
+            "skills/cmux/SKILL.md",
+        ],
+        macos=False,
+        web=False,
+    )
+
+
+def test_bundled_and_executable_skill_files_run_macos() -> None:
+    # The app bundles skills/cmux-cua as a folder resource.
+    assert_areas(["skills/cmux-cua/SKILL.md"], macos=True, web=False)
+    assert_areas(["skills/cmux-settings/scripts/cmux-settings"], macos=True, web=False)
+    assert_areas(["skills/cmux-browser/agents/openai.yaml"], macos=True, web=False)
+
+
 def test_cli_contract_doc_runs_macos_contract_tests() -> None:
     assert_areas(["docs/cli-contract.md"], macos=True, web=False)
 
