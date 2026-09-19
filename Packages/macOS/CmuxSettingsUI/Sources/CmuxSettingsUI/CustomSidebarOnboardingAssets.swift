@@ -1,22 +1,28 @@
 import Foundation
 
-public struct CustomSidebarExampleOption: Identifiable, Equatable, Sendable {
-    public let id: String
-    public let title: String
-    public let suggestedName: String
-
-    public init(id: String, title: String, suggestedName: String) {
-        self.id = id
-        self.title = title
-        self.suggestedName = suggestedName
-    }
+struct CustomSidebarExampleOption: Identifiable, Equatable, Sendable {
+    let id: String
+    let title: String
+    let suggestedName: String
 }
 
+/// A validated source template that the host can copy into the user's sidebar directory.
 public struct CustomSidebarTemplate: Equatable, Sendable {
+    /// Suggested file stem for the generated sidebar.
     public let suggestedName: String
+
+    /// File extension understood by the existing custom-sidebar validator.
     public let fileExtension: String
+
+    /// Sidebar source copied into the user's custom-sidebar directory.
     public let source: String
 
+    /// Creates a custom-sidebar template.
+    ///
+    /// - Parameters:
+    ///   - suggestedName: Suggested file stem for the generated sidebar.
+    ///   - fileExtension: File extension accepted by the custom-sidebar runtime.
+    ///   - source: Sidebar source text.
     public init(suggestedName: String, fileExtension: String, source: String) {
         self.suggestedName = suggestedName
         self.fileExtension = fileExtension
@@ -24,18 +30,30 @@ public struct CustomSidebarTemplate: Equatable, Sendable {
     }
 }
 
+/// Outcome returned by host-owned custom-sidebar onboarding actions.
 public enum CustomSidebarOnboardingResult: Equatable, Sendable {
+    /// A sidebar file was created successfully.
     case created(name: String)
+
+    /// The requested file name cannot be used safely.
     case invalidName
+
+    /// A discovered sidebar already uses the requested name.
     case alreadyExists
+
+    /// A bundled starter or example could not be loaded or validated.
     case templateUnavailable
+
+    /// The host could not write the sidebar file.
     case writeFailed
 }
 
-/// Small files bundled with Settings so onboarding works in installed builds
-/// without embedding sidebar source text in the SwiftUI view.
-public enum CustomSidebarOnboardingAssets {
-    public static var examples: [CustomSidebarExampleOption] {
+/// Loads the small starter and example files bundled with CmuxSettingsUI.
+public struct CustomSidebarOnboardingAssets: Sendable {
+    /// Creates an asset loader for the package's bundled onboarding files.
+    public init() {}
+
+    var examples: [CustomSidebarExampleOption] {
         [
             CustomSidebarExampleOption(
                 id: "focus",
@@ -50,16 +68,23 @@ public enum CustomSidebarOnboardingAssets {
         ]
     }
 
-    public static func starterTemplate() -> CustomSidebarTemplate? {
+    /// Loads the known-good interpreted-Swift starter sidebar.
+    ///
+    /// - Returns: The bundled starter template, or nil when its resource is unavailable.
+    public func starterTemplate() -> CustomSidebarTemplate? {
         loadTemplate(resource: "starter", fileExtension: "swift", suggestedName: "my-sidebar")
     }
 
-    public static func exampleTemplate(id: String) -> CustomSidebarTemplate? {
+    /// Loads one bundled custom-sidebar example.
+    ///
+    /// - Parameter id: Stable example identifier from the Settings onboarding menu.
+    /// - Returns: The matching bundled template, or nil when the identifier or resource is unavailable.
+    public func exampleTemplate(id: String) -> CustomSidebarTemplate? {
         guard let option = examples.first(where: { $0.id == id }) else { return nil }
         return loadTemplate(resource: option.id, fileExtension: "js", suggestedName: option.suggestedName)
     }
 
-    private static func loadTemplate(
+    private func loadTemplate(
         resource: String,
         fileExtension: String,
         suggestedName: String
