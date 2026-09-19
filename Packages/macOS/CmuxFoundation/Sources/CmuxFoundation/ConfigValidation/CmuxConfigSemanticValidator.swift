@@ -19,7 +19,7 @@ public struct CmuxConfigSemanticIssue: Equatable, Sendable {
 /// Offline semantic validation for cmux.json.
 ///
 /// The constraint vocabulary lives in web/data/cmux.schema.json and is embedded
-/// into the CLI by scripts/generate-cmux-config-schema.py. Keep validation here
+/// into CmuxFoundation by scripts/generate-cmux-config-schema.py. Keep validation here
 /// generic: adding a setting constraint belongs in the schema, not in another
 /// command-specific lookup table.
 public struct CmuxConfigSemanticValidator {
@@ -388,9 +388,9 @@ public struct CmuxConfigSemanticValidator {
         }
         if let left = lhs as? [String: Any], let right = rhs as? [String: Any] {
             guard Set(left.keys) == Set(right.keys) else { return false }
-            return left.allSatisfy { key, value in
-                guard let other = right[key] else { return false }
-                return jsonEqual(value, other)
+            return left.allSatisfy { entry in
+                guard let other = right[entry.key] else { return false }
+                return jsonEqual(entry.value, other)
             }
         }
         return false
