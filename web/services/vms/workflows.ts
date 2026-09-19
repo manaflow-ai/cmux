@@ -685,7 +685,10 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
-        displayName: create.vm.slug ?? undefined,
+        // The display label is reserved with the row before provider work starts.
+        // Passing it here makes the first guest prompt correct and removes the
+        // blocking post-create rename on current backends.
+        displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
