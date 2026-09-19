@@ -3,7 +3,9 @@
 This package depends on XcodeProj, which in turn depends on PathKit. PathKit 1.0.1
 uses a Swift 4.2 manifest and cannot participate in Xcode explicit-module
 compilation caching, so cmux temporarily mirrors that dependency to the public
-`manaflow-ai/PathKit` 1.0.2 fork.
+`manaflow-ai/PathKit` 1.0.2 fork. The fork is based on `kylef/PathKit` tag
+1.0.1, changes only the Swift tools-version line, and does not imply upstream
+endorsement.
 
 SwiftPM does not inherit mirror configuration from a parent repository when a
 package is resolved directly. Use the tracked mirror explicitly for standalone
