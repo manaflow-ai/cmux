@@ -201,12 +201,23 @@ final class SidebarHelpMenuUITests: XCTestCase {
             sidebarHelpPollUntil(timeout: 6.0) { app.windows["Settings"].exists },
             "Expected the Help menu to reopen Settings after closing it"
         )
+
+        settings.typeKey("w", modifierFlags: [.command])
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 3.0) { app.windows.count == 1 && !settings.exists },
+            "Expected Settings to close before exercising Cmd+,"
+        )
+
         app.typeKey(",", modifierFlags: [.command])
-        XCTAssertTrue(settings.exists, "Expected Cmd+, to keep the existing Settings window open")
+        XCTAssertTrue(
+            sidebarHelpPollUntil(timeout: 6.0) { settings.exists && app.windows.count == 2 },
+            "Expected Cmd+, to reopen the existing Settings surface"
+        )
+        app.typeKey(",", modifierFlags: [.command])
         XCTAssertEqual(
             app.windows.count,
             2,
-            "Expected Cmd+, to reuse the single Settings window instead of creating a duplicate"
+            "Expected a repeated Cmd+, to reuse the single Settings window instead of creating a duplicate"
         )
     }
 
