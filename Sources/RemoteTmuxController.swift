@@ -589,12 +589,15 @@ final class RemoteTmuxController {
                 let result = try await self.transport(for: host).runTmux(
                     ["new-session", "-d", "-P", "-F", "#{session_name}"]
                 )
-                // Revalidate across the ssh round trip: the manager's window may have
-                // closed (skip — the detached session is picked up on the next
-                // attach), and the user may have moved on (mirror, don't steal focus).
-                // This precedes the failure check so a closed window is never told
-                // about a failure it can no longer act on.
-                guard AppDelegate.shared?.windowId(for: manager) != nil else { return }
+                // Revalidate across the ssh round trip: the manager must still be
+                // a REGISTERED main-window context. `windowId(for:)` would also
+                // answer for a closed window's recoverable route and resurrect a
+                // dead manager, so it is deliberately not used here. On a closed
+                // window, skip — the detached session is picked up on the next
+                // attach. This precedes the failure check so a closed window is
+                // never told about a failure it can no longer act on.
+                guard AppDelegate.shared?.mainWindowContexts.values
+                    .contains(where: { $0.tabManager === manager }) == true else { return }
                 let name = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard result.succeeded, !name.isEmpty else {
                     self.reportNewSessionFailure(host, result.stderr, manager)
@@ -609,7 +612,8 @@ final class RemoteTmuxController {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: new-session on active mirror's host failed: \(error)")
                 #endif
-                guard AppDelegate.shared?.windowId(for: manager) != nil else { return }
+                guard AppDelegate.shared?.mainWindowContexts.values
+                    .contains(where: { $0.tabManager === manager }) == true else { return }
                 self.reportNewSessionFailure(host, error.localizedDescription, manager)
             }
         }
