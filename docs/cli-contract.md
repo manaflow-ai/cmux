@@ -603,6 +603,7 @@ Docs topics:
 | `docs api` | Print API docs and raw CLI contract resources. |
 | `docs browser` | Print browser automation docs and raw browser skill resources. |
 | `docs agents` | Print agent integration docs and raw integration resources. |
+| `docs workflows` | Print the saved-layout lifecycle plus the shipped workflow-example catalog. `--json` exposes stable example ids, task-fit cues, created/configured surfaces, config files, primitives, requirements, instantiation/adaptation guidance, source recipe links, and save-as-layout steps without a socket. Aliases include `templates`, `presets`, `examples`, and `layouts`. |
 
 Settings subcommands:
 
