@@ -4,9 +4,8 @@ enum CloudTreeRowGrid {
     /// Width of the outline's native disclosure control; content starts
     /// `disclosureGap` after it. The native caret keeps its own artwork.
     static let disclosureSlot: CGFloat = 16
-    /// Small separation between the caret and its row content. Keeping this
-    /// below the tree indent makes group headers read as one shared outline
-    /// rather than disconnected columns.
+    /// A gap smaller than the tree indent keeps carets and content together
+    /// so group headers read as one shared outline.
     static let disclosureGap: CGFloat = 2
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
