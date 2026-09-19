@@ -76,7 +76,7 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
             return String::new();
         }
         let cwd = s.get("cwd").and_then(Value::as_str).unwrap_or("");
-        let project = std::path::Path::new(cwd).file_name().map(|f| f.to_string_lossy().into_owned()).filter(|p| !p.is_empty()).unwrap_or_else(|| shorten_path(cwd));
+        let project = project_label(cwd);
         match s.get("peer").and_then(Value::as_str) {
             Some(p) => format!("{p} · {project}"),
             None => project,

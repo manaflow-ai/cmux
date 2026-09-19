@@ -34,10 +34,10 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
             .selected_session()
             .and_then(|s| {
                 let cwd = s.get("cwd").and_then(Value::as_str)?;
-                let base = std::path::Path::new(cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(cwd));
+                let base = project_label(cwd);
                 Some(match s.get("peer").and_then(Value::as_str) { Some(p) => format!("{p} · {base}"), None => base })
             })
-            .or_else(|| app.draft().map(|d| std::path::Path::new(&d.cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()))
+            .or_else(|| app.draft().map(|d| project_label(&d.cwd)))
             .unwrap_or_default();
         let mut x = area.x + 2;
         let right = area.x + area.width;
@@ -76,7 +76,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     if let Some(d) = app.draft() {
         // Codex app: a centered headline naming the project, the settings
         // as one muted line under it. The composer below is where to type.
-        let project = std::path::Path::new(&d.cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(&d.cwd));
+        let project = project_label(&d.cwd);
         let headline = format!("What should we build in {project}?");
         let settings = format!("{}{}  ·  {}  ·  {}", d.peer.as_deref().map(|p| format!("{p} / ")).unwrap_or_default(), d.harness, d.model.as_deref().unwrap_or("default model"), d.policy);
         let top = inner.y + inner.height / 3;
@@ -131,7 +131,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         let project = app
             .selected_session()
             .and_then(|s| s.get("cwd").and_then(Value::as_str))
-            .map(|cwd| std::path::Path::new(cwd).file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_else(|| shorten_path(cwd)))
+            .map(project_label)
             .unwrap_or_default();
         let headline = if project.is_empty() { "What should we build?".to_owned() } else { format!("What should we build in {project}?") };
         let top = inner.y + inner.height / 3;

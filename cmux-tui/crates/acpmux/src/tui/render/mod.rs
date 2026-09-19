@@ -492,6 +492,22 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
     rows
 }
 
+/// The project label for a directory: its last segment, or `~` for a home
+/// directory (local or a peer's), so a session started in $HOME does not
+/// read as a project named after the user.
+pub fn project_label(cwd: &str) -> String {
+    let home = dirs::home_dir().map(|h| h.to_string_lossy().into_owned()).unwrap_or_default();
+    let trimmed = cwd.trim_end_matches('/');
+    if !home.is_empty() && trimmed == home.trim_end_matches('/') {
+        return "~".into();
+    }
+    let parts: Vec<&str> = trimmed.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.len() == 2 && matches!(parts[0], "Users" | "home") {
+        return "~".into();
+    }
+    std::path::Path::new(trimmed).file_name().map(|f| f.to_string_lossy().into_owned()).filter(|p| !p.is_empty()).unwrap_or_else(|| shorten_path(cwd))
+}
+
 /// What a session is called in the sidebar and header: its title (the
 /// first prompt) when its name was generated (`codex`, `codex-3`), else
 /// the name the user gave it.
@@ -713,11 +729,19 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
             app.overlay = Overlay::Directory { text };
         }
     }
+    // Link runs are re-printed after the frame; drop any that a dialog,
+    // menu or toast now covers, or their text would show through it.
+    if !matches!(app.overlay, Overlay::None) {
+        let d = app.dialog_rect;
+        let covered = |x: u16, y: u16, w: u16| y >= d.y && y < d.y + d.height && x < d.x + d.width && x + w > d.x;
+        app.link_cells.retain(|l| !covered(l.x, l.y, l.text.width() as u16));
+    }
     if let Some((text, _)) = &app.toast {
         let label = format!(" {text} ");
         let w = (label.width() as u16).min(transcript.width);
         let r = Rect { x: transcript.x + transcript.width.saturating_sub(w + 1), y: transcript.y + transcript.height.saturating_sub(2), width: w, height: 1 };
         f.buffer_mut().set_stringn(r.x, r.y, &label, w as usize, c.toast());
+        app.link_cells.retain(|l| !(l.y == r.y && l.x < r.x + r.width && l.x + l.text.width() as u16 > r.x));
     }
 }
 
