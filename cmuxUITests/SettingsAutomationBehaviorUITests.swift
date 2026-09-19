@@ -63,6 +63,9 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
         static let openAccessDialogCancel = "Cancel"
         static let openAccessWarningPrefix = "Warning: Full open access makes the control socket"
 
+        static let rulesTitle = "Automation Rules"
+        static let rulesReloadRequested = "Reload requested."
+
         // Claude Code Integration subtitles.
         static let claudeOn = "Sidebar shows Claude session status and notifications."
         static let claudeOff = "Claude Code runs without cmux integration."
@@ -135,6 +138,47 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
             return true
         }
         return false
+    }
+
+    // MARK: - TIER 1: Existing automation rules are discoverable and reloadable
+
+    func testAutomationRulesCardExposesNativeActionsAndReloadsEngine() {
+        let app = makeLaunchedApp()
+        let window = openAutomation(app)
+        defer { closeSettings(app, window) }
+
+        XCTAssertTrue(
+            poll(timeout: 4.0) { window.staticTexts[L.rulesTitle].exists },
+            "Automation Rules card should be visible in Settings > Automation"
+        )
+
+        let editButton = requireElement(
+            candidates: [
+                window.buttons["SettingsAutomationRulesEditButton"],
+                window.descendants(matching: .any)["SettingsAutomationRulesEditButton"],
+            ],
+            timeout: 4.0,
+            description: "automation rules edit button"
+        )
+        XCTAssertTrue(editButton.exists, "Automation Rules should expose the existing config file")
+
+        let reloadButton = requireElement(
+            candidates: [
+                window.buttons["SettingsAutomationRulesReloadButton"],
+                window.descendants(matching: .any)["SettingsAutomationRulesReloadButton"],
+            ],
+            timeout: 4.0,
+            description: "automation rules reload button"
+        )
+        if !reloadButton.isHittable, window.scrollViews.firstMatch.exists {
+            window.scrollViews.firstMatch.swipeUp()
+        }
+        reloadButton.click()
+
+        XCTAssertTrue(
+            poll(timeout: 4.0) { window.staticTexts[L.rulesReloadRequested].exists },
+            "Reload should route to the running automation engine"
+        )
     }
 
     // MARK: - TIER 1: Socket Control Mode reveals/hides the password subrow
