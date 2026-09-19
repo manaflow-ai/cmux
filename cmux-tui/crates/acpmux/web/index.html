@@ -274,9 +274,10 @@
       try { const st = await call('_acpmux/status', {}); renderHosts(st.peers || []); } catch (e) {}
       const wanted = wantSession && state.sessions.find((x) => x.sessionId === wantSession || x.name === wantSession || x.name.endsWith('/' + wantSession));
       if (selected) attach(selected, true);
+      else if (wantSession === 'new') startDraft();
       else if (wanted) select(wanted.sessionId);
       else if (state.sessions.length) select(state.sessions[0].sessionId);
-      else openNew();
+      else startDraft();
     };
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
@@ -297,6 +298,15 @@
   // ---------- state
   const state = { sessions: [], transcripts: new Map(), details: new Map() };
   let selected = null, agents = {}, defaultHarness = null, attached = new Set();
+  // Codex app: "New session" is an empty conversation with the composer
+  // ready; the session is created on the first message.
+  let draft = null;
+  function startDraft() {
+    const cur = state.sessions.find((x) => x.sessionId === selected);
+    draft = { harness: defaultHarness || Object.keys(agents)[0] || '', policy: (cur && cur.policy) || 'ask', cwd: (cur && !cur.peer && cur.cwd) || draft && draft.cwd || '' };
+    selected = null; document.title = 'acpmux';
+    renderList(); renderBar(); renderLog(true); $('#input').focus(); $('#side').classList.remove('open');
+  }
 
   function setSessions(list) { state.sessions = list; sortSessions(); renderList(); }
   function sortSessions() { state.sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)); }
@@ -420,9 +430,26 @@
       if (id === selected) { renderLog(true); renderBar(); }
     } catch (e) { attached.delete(id); console.warn('attach', e); }
   }
-  function select(id) { selected = id; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
+  function select(id) { selected = id; draft = null; document.title = 'acpmux'; if (workingEl) { workingEl.remove(); workingEl = null; } renderList(); renderBar(); renderLog(true); attach(id); $('#input').focus(); $('#side').classList.remove('open'); }
   async function send(steer) {
-    const text = $('#input').value.trim(); if (!text || !selected) return;
+    const text = $('#input').value.trim(); if (!text) return;
+    if (draft && !selected) {
+      const meta = { harness: draft.harness, policy: draft.policy };
+      const params = { mcpServers: [], _meta: { acpmux: meta } };
+      if (draft.cwd) params.cwd = draft.cwd;
+      $('#input').value = ''; autosize();
+      try {
+        const r = await call('session/new', params);
+        const ns = r._meta && r._meta.acpmux; if (ns) upsertSession(ns);
+        select(r.sessionId);
+        const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
+        t.items.push({ type: 'user', text, steer: false, local: true, at: Date.now() }); touch(t, t.items.length - 1);
+        t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); scheduleRender(true);
+        call('session/prompt', { sessionId: selected, prompt: [{ type: 'text', text }] }).catch((e) => toast('error: ' + e.message));
+      } catch (err) { toast('error: ' + err.message); $('#input').value = text; autosize(); }
+      return;
+    }
+    if (!selected) return;
     $('#input').value = ''; autosize();
     const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
     const busy = t.status === 'running' || t.status === 'waiting';
@@ -514,6 +541,7 @@
 
   // ---------- rendering: header + composer chips
   function renderBar() {
+    if (draft && !selected) { renderDraftBar(); return; }
     const s = state.sessions.find((x) => x.sessionId === selected);
     const d = state.details.get(selected) || {};
     const t = state.transcripts.get(selected);
@@ -551,6 +579,16 @@
     $('#chip-effort').hidden = !eff || eff.currentValue === 'default';
     renderPerm(t);
   }
+  function renderDraftBar() {
+    $('#proj').textContent = draft.cwd ? projectOf(draft.cwd) : ''; $('#sep').hidden = !draft.cwd; $('#title').textContent = 'New session';
+    $('#status').textContent = ''; $('#usage').textContent = ''; $('#btn-steer').hidden = true;
+    $('#policy').value = draft.policy; $('#policy-label').textContent = policyLabel(draft.policy); $('#chip-policy').classList.toggle('warm', draft.policy === 'approve-all');
+    $('#chip-mode').hidden = true; $('#chip-effort').hidden = true;
+    const sel = $('#model'); sel.innerHTML = '';
+    for (const name of Object.keys(agents)) sel.add(new Option(name, name));
+    sel.value = draft.harness; $('#model-label').textContent = draft.harness || 'harness'; $('#chip-model').style.pointerEvents = '';
+    $('#perm').hidden = true; $('#perm').innerHTML = '';
+  }
   function renderPerm(t) {
     const el = $('#perm'); const perm = t && pendingPermission(t);
     if (!perm) { el.hidden = true; el.innerHTML = ''; return; }
@@ -571,6 +609,7 @@
     const log = $('#log');
     const t = state.transcripts.get(selected);
     const s = state.sessions.find((x) => x.sessionId === selected);
+    if (!selected && draft) { log.innerHTML = hero('What should we build' + (draft.cwd ? ' in ' + projectOf(draft.cwd) : '') + '?', 'Type below and press Enter to start. ') + ''; const h = log.querySelector('.hero div'); const a = document.createElement('a'); a.href = '#'; a.textContent = 'Name, directory…'; a.style.color = 'var(--link)'; a.onclick = (e) => { e.preventDefault(); openNew(); }; h.appendChild(a); col = null; return; }
     if (!selected) { log.innerHTML = hero('What should we build?', 'Pick a session on the left, or start one.'); col = null; return; }
     if (!t) { log.innerHTML = '<div class="empty">loading…</div>'; col = null; return; }
     log.innerHTML = ''; renderedCount = 0; t.dirty.clear();
@@ -734,11 +773,12 @@
     for (const name of Object.keys(agents)) sel.add(new Option(name, name));
     if (defaultHarness) sel.value = defaultHarness;
     const cur = state.sessions.find((x) => x.sessionId === selected);
-    $('#new-cwd').value = (cur && cur.cwd) || $('#new-cwd').value || '';
+    if (draft) { sel.value = draft.harness; $('#new-policy').value = draft.policy; }
+    $('#new-cwd').value = (draft && draft.cwd) || (cur && cur.cwd) || $('#new-cwd').value || '';
     $('#new-name').value = ''; $('#new-prompt').value = '';
     $('#dlg-new').showModal(); $('#new-name').focus();
   }
-  $('#btn-new').onclick = openNew;
+  $('#btn-new').onclick = startDraft;
   $('#new-cancel').onclick = () => $('#dlg-new').close();
   $('#form-new').onsubmit = async (e) => {
     e.preventDefault();
@@ -764,8 +804,8 @@
   $('#btn-rename').onclick = async () => { if (!selected) return; const s = state.sessions.find((x) => x.sessionId === selected); const name = prompt('New name:', s ? s.name.replace(/^[^/]+\//, '') : ''); if (!name) return; try { await call('_acpmux/rename', { sessionId: selected, newName: name }); } catch (e) { toast('error: ' + e.message); } };
   $('#btn-kill').onclick = async () => { if (!selected) return; if (!confirm('Stop the agent for this session? The log stays and it can resume later.')) return; try { await call('_acpmux/kill', { sessionId: selected, purge: false }); } catch (e) { toast('error: ' + e.message); } };
   $('#mode').onchange = () => call('session/set_mode', { sessionId: selected, modeId: $('#mode').value }).catch((e) => toast(e.message));
-  $('#model').onchange = () => call('session/set_model', { sessionId: selected, modelId: $('#model').value }).then(() => attach(selected, true)).catch((e) => toast(e.message));
-  $('#policy').onchange = () => call('_acpmux/set_policy', { sessionId: selected, policy: $('#policy').value }).then((s) => upsertSession(s)).catch((e) => toast(e.message));
+  $('#model').onchange = () => { if (draft && !selected) { draft.harness = $('#model').value; renderBar(); return; } call('session/set_model', { sessionId: selected, modelId: $('#model').value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); };
+  $('#policy').onchange = () => { if (draft && !selected) { draft.policy = $('#policy').value; renderBar(); return; } call('_acpmux/set_policy', { sessionId: selected, policy: $('#policy').value }).then((s) => upsertSession(s)).catch((e) => toast(e.message)); };
   const input = $('#input');
   const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 240) + 'px'; $('#btn-send').disabled = !input.value.trim(); };
   input.addEventListener('input', autosize);
@@ -774,7 +814,7 @@
     else if (e.key === 'Escape') { notify('session/cancel', { sessionId: selected }); }
   });
   document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openNew(); }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); startDraft(); }
     const t = selected && state.transcripts.get(selected); const perm = t && pendingPermission(t);
     if (perm && document.activeElement !== input && !$('#dlg-new').open) {
       if (e.key === 'y') { const o = perm.options.find((x) => x.kind.startsWith('allow')); if (o) call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: o.id }); }
