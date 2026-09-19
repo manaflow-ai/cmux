@@ -15,6 +15,10 @@ import GhosttyKit
 /// (`Workspace+CloudTerminalReservation`).
 @MainActor
 extension Workspace {
+    private static var cloudManualMirrorTabTitle: String {
+        String(localized: "panel.cloudTerminal.title", defaultValue: "terminal")
+    }
+
     /// Inserts a manual-mirror terminal in `destination` and returns its native surface.
     ///
     /// - Parameters:
@@ -113,13 +117,13 @@ extension Workspace {
         isLoading: Bool
     ) throws -> UUID {
         panels[panel.id] = panel
-        panelTitles[panel.id] = panel.displayTitle
+        panelTitles[panel.id] = Self.cloudManualMirrorTabTitle
         guard let tab = bonsplitController.createTab(
-            title: panel.displayTitle,
+            title: Self.cloudManualMirrorTabTitle,
             icon: panel.displayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: panel.isDirty,
-            isLoading: isLoading,
+            isLoading: false,
             isPinned: false,
             inPane: pane
         ) else {
@@ -148,13 +152,13 @@ extension Workspace {
         let previousPane = bonsplitController.focusedPaneId
         let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
         panels[panel.id] = panel
-        panelTitles[panel.id] = panel.displayTitle
+        panelTitles[panel.id] = Self.cloudManualMirrorTabTitle
         let tab = Bonsplit.Tab(
-            title: panel.displayTitle,
+            title: Self.cloudManualMirrorTabTitle,
             icon: panel.displayIcon,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: panel.isDirty,
-            isLoading: isLoading,
+            isLoading: false,
             isPinned: false
         )
         bindSurface(tab.id, toPanelId: panel.id)
@@ -186,10 +190,12 @@ extension Workspace {
         return panel.id
     }
 
-    /// Flags or clears the tab-strip spinner of a pane whose terminal is still arriving.
+    /// Cloud terminal creation stays quiet in the tab strip while the remote pane arrives.
+    /// Keep this seam for callers that bracket creation/retry state without exposing a
+    /// transient loading indicator to the user.
     func setCloudManualMirrorTabLoading(panelID: UUID, _ isLoading: Bool) {
-        guard let tabID = surfaceIdFromPanelId(panelID) else { return }
-        bonsplitController.updateTab(tabID, isLoading: isLoading)
+        _ = panelID
+        _ = isLoading
     }
 
     /// The live workspace with `id` in any window, or nil once it was retired.
