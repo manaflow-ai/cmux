@@ -42,12 +42,14 @@ extension TabManager {
     func applyCreationWorkspaceCustomization(
         to workspace: Workspace,
         explicitTitle: String?,
-        explicitTitleSource: Workspace.CustomTitleSource
+        explicitTitleSource: Workspace.CustomTitleSource,
+        repairInitialTabTitle: Bool = true
     ) {
         guard let explicitTitle else { return }
         workspace.setCustomTitle(explicitTitle, source: explicitTitleSource)
         recordWorkspaceCustomTitle(workspace, source: explicitTitleSource)
-        if let panelId = workspace.focusedPanelId,
+        if repairInitialTabTitle,
+           let panelId = workspace.focusedPanelId,
            let surfaceId = workspace.surfaceIdFromPanelId(panelId) {
             // Workspace construction admits automatic titles before this
             // explicit custom-title path runs. Keep the initial Bonsplit tab

@@ -1,4 +1,3 @@
-import CmuxTerminalCore
 import CmuxWorkspaces
 import Foundation
 
@@ -9,7 +8,7 @@ extension Workspace {
         // that PTY startup ended. Raw titles remain untrusted until the managed
         // shell reports activity; explicit custom-title APIs bypass this path.
         let boundary = RestoredPanelTitleBoundary(
-            internallySeededInput: internallySeededInput.flatMap { AutomaticTerminalTitle($0)?.value },
+            internallySeededInput: internallySeededInput,
             shellState: panelShellActivityStates[panelId] ?? .unknown
         )
         if boundary.isReleased {
