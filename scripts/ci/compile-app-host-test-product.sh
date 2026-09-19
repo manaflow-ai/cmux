@@ -53,7 +53,6 @@ resolve() {
     fi
     [ "$attempt" -lt 3 ] || break
     echo "Package resolution failed on attempt $attempt, retrying..." >&2
-    sleep $((attempt * 5))
   done
   echo "Failed to resolve Swift packages after 3 attempts" >&2
   return 1

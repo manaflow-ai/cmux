@@ -132,8 +132,6 @@ if [ "$resolving" -eq 1 ]; then
 fi
 STUB
 chmod +x "$TMP_DIR/bin/xcodebuild"
-printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP_DIR/bin/sleep"
-chmod +x "$TMP_DIR/bin/sleep"
 export STUB_RESOLVE_ATTEMPTS="$TMP_DIR/resolve-attempts.txt"
 export STUB_XCODEBUILD_ARGS="$TMP_DIR/args.txt"
 
