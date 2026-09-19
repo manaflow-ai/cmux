@@ -54,7 +54,10 @@ public struct CustomSidebarsSection: View {
         }
         .task {
             startObservingSettings()
-            refreshDiscoveredSidebars()
+            for await names in await hostActions.customSidebarNamesUpdates() {
+                guard !Task.isCancelled else { break }
+                discoveredSidebars = names
+            }
         }
     }
 

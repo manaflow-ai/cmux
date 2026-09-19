@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxWorkspaces
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSwiftRenderUI
 import CmuxFoundation
 import Foundation
 import OSLog
@@ -182,6 +183,10 @@ final class HostSettingsActions: SettingsHostActions {
         CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(
             sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
         )
+    }
+
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]> {
+        await CustomSidebarDiscovery(directory: CmuxExtensionSidebarSelection.customSidebarsDirectory).updates()
     }
 
     func createCustomSidebar() -> CustomSidebarOnboardingResult {
