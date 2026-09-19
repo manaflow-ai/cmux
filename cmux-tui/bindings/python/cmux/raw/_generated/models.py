@@ -501,6 +501,30 @@ class GetCellPixelsResult:
 
 
 @dataclass(frozen=True)
+class GuestUrlAcknowledgeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlAcknowledgeResult'
+    accepted: bool
+
+
+@dataclass(frozen=True)
+class GuestUrlClaimResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlClaimResult'
+    claimed: bool
+
+
+@dataclass(frozen=True)
+class GuestUrlOpenResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlOpenResult'
+    opened: bool
+
+
+@dataclass(frozen=True)
+class GuestUrlSubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GuestUrlSubscribeResult'
+    url_open_ready: bool
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -1685,6 +1709,13 @@ class MoveTabRequest:
 
 
 @dataclass(frozen=True)
+class MoveTabToWorkspaceRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-tab-to-workspace/request'
+    surface: Id
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class MoveTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-terminal/request'
     terminal_id: str
@@ -2173,6 +2204,32 @@ class UndoLayoutRequest:
 class UnregisterBrowserProviderRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unregister-browser-provider/request'
     pass
+
+
+@dataclass(frozen=True)
+class UrlOpenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open/request'
+    terminal_id: str
+    url: str
+
+
+@dataclass(frozen=True)
+class UrlOpenClaimRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-claim/request'
+    request_id: str
+
+
+@dataclass(frozen=True)
+class UrlOpenResultRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-result/request'
+    opened: bool
+    request_id: str
+
+
+@dataclass(frozen=True)
+class UrlOpenSubscribeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/url-open-subscribe/request'
+    terminal_ids: List[str]
 
 
 @dataclass(frozen=True)
@@ -2665,6 +2722,16 @@ class TreeChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class UrlOpenEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/url-open/payload'
+    terminal_id: str
+    event: Literal['url-open']
+    request_id: str
+    url: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class VtStateEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/vt-state/payload'
     surface: Id
@@ -2758,7 +2825,7 @@ Pane = Union[LivePane, DeadPane]
 PresenceAnchor = Union[PresenceAnchorCell, PresenceAnchorPoint]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PresenceChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PresenceChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2815,6 +2882,10 @@ __all__ = [
     'FrontendJournalEventViewport',
     'FrontendProjection',
     'GetCellPixelsResult',
+    'GuestUrlAcknowledgeResult',
+    'GuestUrlClaimResult',
+    'GuestUrlOpenResult',
+    'GuestUrlSubscribeResult',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
@@ -2942,6 +3013,7 @@ __all__ = [
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
+    'MoveTabToWorkspaceRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
     'NewBrowserTabRequest',
@@ -3002,6 +3074,10 @@ __all__ = [
     'TerminalEventsRequest',
     'UndoLayoutRequest',
     'UnregisterBrowserProviderRequest',
+    'UrlOpenRequest',
+    'UrlOpenClaimRequest',
+    'UrlOpenResultRequest',
+    'UrlOpenSubscribeRequest',
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
@@ -3048,6 +3124,7 @@ __all__ = [
     'TerminalRegistryChangedEvent',
     'TitleChangedEvent',
     'TreeChangedEvent',
+    'UrlOpenEvent',
     'VtStateEvent',
     'WindowTitleRequestedEvent',
     'WorkspaceAddedEvent',
