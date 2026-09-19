@@ -480,8 +480,29 @@ actor SearchIndex {
 
 extension URL {
     static var cmuxSearchDatabaseURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("cmux", isDirectory: true)
+        cmuxSearchDatabaseURL(
+            applicationSupportDirectory: FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            )[0],
+            bundleIdentifier: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        )
+    }
+
+    static func cmuxSearchDatabaseURL(
+        applicationSupportDirectory: URL,
+        bundleIdentifier: String
+    ) -> URL {
+        let trimmedBundleIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let namespace = trimmedBundleIdentifier.isEmpty ? "com.cmuxterm.app" : trimmedBundleIdentifier
+        let safeNamespace = namespace.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+
+        return applicationSupportDirectory
+            .appendingPathComponent(safeNamespace, isDirectory: true)
             .appendingPathComponent("search.db", isDirectory: false)
     }
 }
