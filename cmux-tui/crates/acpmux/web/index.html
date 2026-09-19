@@ -170,6 +170,8 @@
   .composer .steer { color: var(--muted); font-size: 13px; }
   .hero { display: grid; place-items: center; height: 100%; text-align: center; color: var(--muted); }
   .hero h2 { font-size: 22px; font-weight: 500; color: var(--ink); margin: 0 0 8px; }
+  .hero h2 a { color: inherit; text-decoration: underline; text-decoration-color: var(--dim); text-underline-offset: 4px; }
+  .hero h2 a:hover { text-decoration-color: var(--ink); }
   dialog { border: 1px solid var(--rule); border-radius: 14px; background: var(--panel); color: var(--ink); padding: 0; width: min(520px, 92vw); }
   dialog::backdrop { background: rgba(0,0,0,.45); }
   dialog form { display: grid; gap: 12px; padding: 18px 20px; }
@@ -611,7 +613,13 @@
     const log = $('#log');
     const t = state.transcripts.get(selected);
     const s = state.sessions.find((x) => x.sessionId === selected);
-    if (!selected && draft) { log.innerHTML = hero('What should we build' + (draft.cwd ? ' in ' + projectOf(draft.cwd) : '') + '?', 'Type below and press Enter to start. ') + ''; const h = log.querySelector('.hero div'); const a = document.createElement('a'); a.href = '#'; a.textContent = 'Name, directory…'; a.style.color = 'var(--link)'; a.onclick = (e) => { e.preventDefault(); openNew(); }; h.appendChild(a); col = null; return; }
+    if (!selected && draft) {
+      // Codex app: the project name is the link to change it (and the name).
+      const where = draft.cwd ? projectOf(draft.cwd) : 'a directory';
+      log.innerHTML = '<div class="hero"><div><h2>What should we build ' + (draft.cwd ? 'in ' : '') + '<a href="#" id="draft-where" title="Name and directory">' + esc(where) + '</a>?</h2>Type below and press Enter to start.</div></div>';
+      $('#draft-where').onclick = (e) => { e.preventDefault(); openNew(); };
+      col = null; return;
+    }
     if (!selected) { log.innerHTML = hero('What should we build?', 'Pick a session on the left, or start one.'); col = null; return; }
     if (!t) { log.innerHTML = '<div class="empty">loading…</div>'; col = null; return; }
     log.innerHTML = ''; renderedCount = 0; t.dirty.clear();
