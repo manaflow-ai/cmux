@@ -284,7 +284,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if hasDesktop, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources([desktopDisplayResource()], on: machine, info: info, from: self)
         }
-        async let stats = try? client.stats(id: machineID)
+        async let stats = sampledStats(client: client)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         // A decoded snapshot is not automatically an authorization boundary. It
@@ -1323,6 +1323,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             break
         }
         return updated
+    }
+
+    /// Skip unsupported readings instead of requesting a non-retryable 501 on each refresh.
+    private func sampledStats(client: VMClient) async -> VMStats? {
+        guard capabilities.stats else { return nil }
+        return try? await client.stats(id: machineID)
     }
 
     private func ports(
