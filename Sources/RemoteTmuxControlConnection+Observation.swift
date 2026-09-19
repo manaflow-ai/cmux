@@ -55,6 +55,10 @@ extension RemoteTmuxControlConnection {
     ///   - onConnectionStateChanged: fires on every ``ConnectionState`` transition
     ///     (e.g. `.connected` → `.reconnecting` on a transport loss), so consumers
     ///     can show a disconnected/reconnecting indicator without tearing down.
+    ///   - onAuthRequired: fires when a RECONNECT failed because the host wants
+    ///     interactive authentication the pipe-backed reconnect cannot service.
+    ///     Retrying stops when it fires; the consumer runs the supplied `ssh` argv
+    ///     under a tty and then calls ``resumeAfterInteractiveAuth()``.
     @discardableResult
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
@@ -66,7 +70,8 @@ extension RemoteTmuxControlConnection {
         onTopologyChanged: (() -> Void)? = nil,
         onReconnectReady: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
-        onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
+        onConnectionStateChanged: ((ConnectionState) -> Void)? = nil,
+        onAuthRequired: ((_ sshArgv: [String]) -> Bool)? = nil
     ) -> ObserverToken {
         observers.add(
             onPaneOutput: onPaneOutput,
@@ -78,7 +83,8 @@ extension RemoteTmuxControlConnection {
             onTopologyChanged: onTopologyChanged,
             onReconnectReady: onReconnectReady,
             onExit: onExit,
-            onConnectionStateChanged: onConnectionStateChanged
+            onConnectionStateChanged: onConnectionStateChanged,
+            onAuthRequired: onAuthRequired
         )
     }
 
