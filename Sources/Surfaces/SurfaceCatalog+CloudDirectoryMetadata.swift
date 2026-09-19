@@ -5,7 +5,10 @@ extension SurfaceCatalog {
     /// current in the tree or CLI. A Cloud terminal's directory counts only once the machine's
     /// accepted state is current; a requested launch directory or a stale graph is withheld.
     func resourceForPresentation(_ resource: SurfaceResource) -> SurfaceResource {
-        guard resource.kind == .terminal, !resource.machine.isLocal,
+        // Cloud VM freshness is tracked in `cloudStateObservations`; device
+        // mirrors receive their directory from the synced workspace record and
+        // intentionally have no CloudVM observation to consult.
+        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
               cloudStateObservations[resource.machine]?.freshness != .current else { return resource }
         var result = resource
         result.detail = nil
