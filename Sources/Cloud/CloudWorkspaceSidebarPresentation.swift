@@ -16,9 +16,14 @@ struct CloudWorkspaceSidebarPresentation {
         var machineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
         if let id = workspace.cloudVMID { machineIDs.insert(id) }
         guard !machineIDs.isEmpty else { return nil }
-        let identities = machineIDs.sorted().map { id -> String in
+        let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
             let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
-            return name.isEmpty || name == id ? id : "\(name) (\(id))"
+            return (id, name.isEmpty ? id : name)
+        })
+        // Keep stable IDs in badge help/accessibility, not in width-dependent row text.
+        let identities = machineIDs.sorted().map { id -> String in
+            let name = names[id] ?? id
+            return name == id ? id : "\(name) (\(id))"
         }
         machineLabel = String.localizedStringWithFormat(
             String(localized: "sidebar.cloudWorkspace.label", defaultValue: "Cloud workspace on %@"),
@@ -44,11 +49,9 @@ struct CloudWorkspaceSidebarPresentation {
                 : [directory]
         }
         let full = zip(entries, paths).map { entry, paths -> String in
-            let name = state.machineNames[entry.identity]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? entry.identity
-            let identity = name.isEmpty || name == entry.identity ? entry.identity : "\(name) (\(entry.identity))"
-            return "\(identity) · \(paths.first ?? Self.unavailableDirectory)"
+            "\(names[entry.identity] ?? entry.identity) · \(paths.first ?? Self.unavailableDirectory)"
         }.joined(separator: " | ")
-        let compact = zip(entries, paths).map { "\($0.identity) · \($1.last ?? Self.unavailableDirectory)" }.joined(separator: " | ")
+        let compact = zip(entries, paths).map { "\(names[$0.identity] ?? $0.identity) · \($1.last ?? Self.unavailableDirectory)" }.joined(separator: " | ")
         directoryCandidates = full == compact ? [full] : [full, compact]
     }
 }

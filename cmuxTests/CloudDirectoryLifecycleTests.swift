@@ -196,8 +196,14 @@ struct CloudDirectoryLifecycleTests {
                 usesLastSegmentPath: usesLastSegmentPath
             ))
             let full = "\(expected) · /home/cmux/a"
-            #expect(presentation.directoryCandidates == (usesLastSegmentPath
-                ? [full, "\(expected) · …/a"] : [full]))
+            if usesLastSegmentPath {
+                #expect(presentation.directoryCandidates.count == 2)
+                #expect(presentation.directoryCandidates.first?.hasSuffix("/home/cmux/a") == true)
+                #expect(presentation.directoryCandidates.last == "\(expected) · …/a")
+            } else {
+                #expect(presentation.directoryCandidates == [full])
+            }
+            #expect(presentation.directoryCandidates.allSatisfy { $0.hasPrefix("\(expected) · ") })
             #expect(presentation.machineLabel.contains(expected))
             #expect(presentation.machineLabel.contains(fixture.machine.rawValue))
         }
