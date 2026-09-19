@@ -30,7 +30,7 @@ struct CloudDirectoryLifecycleTests {
         fixture.workspace.focusPanel(second)
         #expect(fixture.workspace.presentedCurrentDirectory == "/srv/background")
         #expect(fixture.workspace.title == "My explicit task title")
-        #expect(fixture.workspace.currentDirectory == "/Users/alice/local-checkout")
+        #expect(try !fixture.sidebarText().contains("local-checkout"))
     }
 
     @Test("Remote cd updates an unselected workspace without changing selection")
