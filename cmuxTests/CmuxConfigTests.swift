@@ -377,6 +377,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtonSourcePath, localConfigURL.path)
         XCTAssertEqual(store.surfaceTabBarButtons.first?.terminalCommand, "codex --yolo")
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["start-codex"], globalConfigURL.path)
+        XCTAssertEqual(store.surfaceTabBarActionReferenceIDs["start-codex"], "start-codex")
     }
 
     func testDecodeActionIconObjectsSupportAllFormats() throws {
