@@ -30,7 +30,8 @@ async function withStatsFixture(
   const requests: string[] = [];
   const writes: unknown[] = [];
   const row = {
-    id: "fixture-row", userId: "fixture-owner", billingTeamId: options.team ? "fixture-team" : null,
+    id: "fixture-row", userId: "fixture-owner", ownerTeamId: options.team ? "fixture-team" : "fixture-owner",
+    billingTeamId: options.team ? "fixture-team" : null,
     provider: "freestyle", providerVmId: "vm-fixture", providerMetadata: {}, status: "running",
   } as CloudVmRow;
   const client = new Freestyle({
