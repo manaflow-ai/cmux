@@ -1293,12 +1293,10 @@ check_signing_intermediate_helper_behavior
 check_sentry_cli_install_portability
 check_sentry_cli_helper_behavior
 check_no_paid_overflow_fallbacks() {
-  # `vars.X || 'label'` resolves to the label whenever the variable is missing,
-  # and repository variables are not exposed to pull requests from forks. So a
-  # fallback is where every fork pull request runs. Warp is the paid overflow
-  # provider: on 2026-09-19 fork pull requests put 13 runner-hours on it in one
-  # day through these fallbacks while main ran on Blacksmith. Warp stays
-  # available as an explicit workflow_dispatch choice; it must not be a default.
+  # Repository variables are not exposed to pull requests from forks, so the
+  # `vars.X || 'label'` fallback is where every fork pull request runs. Warp is
+  # the paid overflow provider: allowed as an explicit workflow_dispatch choice,
+  # never as a default.
   local hits
   hits="$(grep -rnE "\\|\\|[[:space:]]*'warp-" "$ROOT_DIR/.github/workflows" || true)"
   if [ -n "$hits" ]; then
