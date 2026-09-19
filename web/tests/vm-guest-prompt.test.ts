@@ -42,7 +42,7 @@ describe("Cloud Bash prompt", () => {
       .digest("hex");
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
       bashrc: "bd10a566dba17a1ad7c519badfa2587df2dc4b2cb0e9ca9c380fe9fc15fbe89f",
-      prompt: "499ea91eb393055483918b1de75329ec94d77c58ffab4396f72fe2c8719441d1",
+      prompt: "71dd0bdc75bf70c12de5e01c9844b2801a37c5d0bbb80e346b00e2199f502134",
     });
   });
 
@@ -115,7 +115,7 @@ describe("Cloud Bash prompt", () => {
       __cmux_prompt_name
       printf '%s|' "$?"
       printf '%s|' "\${PROMPT_COMMAND[@]}"
-    `)).toBe("1|__cmux_prompt_name|:|printf user-hook|");
+    `).replace(/\u001b\]7;[^\u0007]*\u0007/g, "")).toBe("1|__cmux_prompt_name|:|printf user-hook|");
   });
 
   test("reports the working directory to the daemon with OSC 7 using only builtins", () => {
@@ -147,7 +147,7 @@ describe("Cloud Bash prompt", () => {
     // System rc, Ubuntu user defaults, then the user's cmux source line.
     writeFileSync(path.join(directory, "startup.bash"), `. '${directory}/bashrc'\nPS1='ubuntu> '\n. '${directory}/bashrc'\n`);
     const result = spawnSync("python3", ["-c", String.raw`
-import fcntl, os, pathlib, pty, select, signal, struct, subprocess, sys, termios, time
+import fcntl, os, pathlib, pty, re, select, signal, struct, subprocess, sys, termios, time
 root = pathlib.Path(sys.argv[1])
 (root / ".inputrc").write_text("set enable-bracketed-paste off\n")
 (root / ".hushlogin").touch()
@@ -165,7 +165,9 @@ def until(marker):
     deadline = time.monotonic() + 3
     while marker not in output:
         if time.monotonic() > deadline: raise AssertionError(repr(output))
-        if select.select([master], [], [], 0.1)[0]: output += os.read(master, 65536)
+        if select.select([master], [], [], 0.1)[0]:
+            # The prompt hook reports the cwd (OSC 7) right before each prompt.
+            output = re.sub(rb"\x1b\]7;[^\x07]*\x07", b"", output + os.read(master, 65536))
 try:
     until(b"@brave-blue-otter")
     (root / "vm-name").write_text("renamed-box\n")
