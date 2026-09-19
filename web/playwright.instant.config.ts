@@ -17,6 +17,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 2 : 0,
+  failOnFlakyTests: !!process.env.CI,
   use: {
     baseURL: externalBaseURL ?? `http://127.0.0.1:${port}`,
   },
