@@ -1,18 +1,6 @@
 import Foundation
 import CmuxBrowser
 
-private func browserAutomationBoolParam(_ params: [String: Any], keys: [String]) -> Bool {
-    for key in keys {
-        if let value = params[key] as? Bool { return value }
-        if let value = params[key] as? NSNumber { return value.boolValue }
-        if let value = params[key] as? String,
-           ["1", "true", "yes", "on"].contains(value.lowercased()) {
-            return true
-        }
-    }
-    return false
-}
-
 enum BrowserImportAutomation {
     static func importCookies(
         params: [String: Any],
@@ -197,5 +185,17 @@ enum BrowserImportAutomation {
             }
         }
         return result
+    }
+
+    private static func browserAutomationBoolParam(_ params: [String: Any], keys: [String]) -> Bool {
+        for key in keys {
+            if let value = params[key] as? Bool { return value }
+            if let value = params[key] as? NSNumber { return value.boolValue }
+            if let value = params[key] as? String,
+               ["1", "true", "yes", "on"].contains(value.lowercased()) {
+                return true
+            }
+        }
+        return false
     }
 }
