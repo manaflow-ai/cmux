@@ -14,7 +14,9 @@ import Testing
         try await CloudTuiManualIOConnectionTests.withResourceConnection(clock: clock) { channel, peer in
             let command = Task {
                 try await recorder.perform(.workspace, foreground: false) {
-                    try await channel.request(CloudTuiRequest("session.ping"), timeout: .seconds(30))
+                    try await CloudOperationContext.phase(.process) {
+                        try await channel.request(CloudTuiRequest("session.ping"), timeout: .seconds(30))
+                    }
                 }
             }
             defer { command.cancel() }
@@ -32,6 +34,7 @@ import Testing
         #expect(!failed.isRunning)
         #expect(failed.outcome == .timeout)
         #expect(failed.failure == .timeout)
+        #expect(failed.steps.first?.failure == .timeout)
         #expect(failed.isVisibleInMachinesPanel)
         #expect(CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.timedOut).isRetryable)
 
