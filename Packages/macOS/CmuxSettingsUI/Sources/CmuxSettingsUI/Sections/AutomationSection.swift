@@ -25,6 +25,9 @@ public struct AutomationSection: View {
     @State private var kiroLevelModel: DefaultsValueModel<String>
     @State private var portBaseModel: DefaultsValueModel<Int>
     @State private var portRangeModel: DefaultsValueModel<Int>
+    @State private var ampInstallState: AgentIntegrationInstallState = .checking
+    @State private var ampActionInFlight = false
+    @State private var ampActionMessage: String?
     @State private var socketPasswordDraft: String = ""
     @State private var socketPasswordStatus: SocketPasswordStatus?
     @State private var showOpenAccessConfirmation: Bool = false
@@ -394,6 +397,10 @@ public struct AutomationSection: View {
 
     @ViewBuilder
     private var ampCard: some View {
+        let presentation = AgentIntegrationPresentation(
+            isEnabled: ampModel.current,
+            installState: ampInstallState
+        )
         SettingsCard {
             SettingsCardRow(
                 configurationReview: .json("automation.ampIntegration"),
@@ -408,7 +415,74 @@ public struct AutomationSection: View {
                     .accessibilityIdentifier("SettingsAmpHooksToggle")
             }
             SettingsCardDivider()
+            SettingsCardRow(
+                String(localized: "settings.automation.integration.install.status", defaultValue: "Hook installation"),
+                subtitle: ampInstallSubtitle(presentation.displayState)
+            ) {
+                HStack(spacing: 8) {
+                    ForEach(presentation.availableActions, id: \.self) { action in
+                        Button(ampActionTitle(action)) {
+                            performAmpAction(action)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(ampActionInFlight)
+                    }
+                }
+            }
+            if ampActionInFlight {
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.horizontal, 14)
+            }
+            if let ampActionMessage {
+                Text(ampActionMessage)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 14)
+            }
+            SettingsCardDivider()
             SettingsCardNote(String(localized: "settings.automation.amp.note", defaultValue: "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."))
+        }
+        .task { await refreshAmpInstallState() }
+    }
+
+    private func ampInstallSubtitle(_ state: AgentIntegrationDisplayState) -> String {
+        switch state {
+        case .checking: return String(localized: "settings.automation.integration.install.checking", defaultValue: "Checking hook status…")
+        case .disabled: return String(localized: "settings.automation.integration.install.disabled", defaultValue: "Integration is disabled.")
+        case .missing: return String(localized: "settings.automation.integration.install.missing", defaultValue: "Hooks are missing.")
+        case .installed: return String(localized: "settings.automation.integration.install.installed", defaultValue: "Hooks are installed and current.")
+        case .stale: return String(localized: "settings.automation.integration.install.stale", defaultValue: "Hooks are out of date or broken.")
+        case .conflict: return String(localized: "settings.automation.integration.install.conflict", defaultValue: "Another hook configuration needs attention.")
+        case .unavailable: return String(localized: "settings.automation.integration.install.unavailable", defaultValue: "Hook installation is unavailable.")
+        }
+    }
+
+    private func ampActionTitle(_ action: AgentIntegrationInstallAction) -> String {
+        switch action {
+        case .install: return String(localized: "settings.automation.integration.install.action", defaultValue: "Install")
+        case .repair: return String(localized: "settings.automation.integration.repair.action", defaultValue: "Repair")
+        case .remove: return String(localized: "settings.automation.integration.remove.action", defaultValue: "Remove")
+        case .openInstructions: return String(localized: "settings.automation.integration.instructions.action", defaultValue: "Instructions")
+        }
+    }
+
+    private func refreshAmpInstallState() async {
+        ampInstallState = await hostActions.agentIntegrationInstallState(.amp)
+    }
+
+    private func performAmpAction(_ action: AgentIntegrationInstallAction) {
+        ampActionInFlight = true
+        ampActionMessage = nil
+        Task { @MainActor in
+            let result = await hostActions.performAgentIntegrationAction(action, for: .amp)
+            ampActionInFlight = false
+            if result.succeeded {
+                await refreshAmpInstallState()
+            } else {
+                ampActionMessage = result.message
+            }
         }
     }
 
