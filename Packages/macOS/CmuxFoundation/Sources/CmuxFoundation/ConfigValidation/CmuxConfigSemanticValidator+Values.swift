@@ -35,21 +35,70 @@ extension CmuxConfigSemanticValidator {
     }
 
     func typeDescription(_ typeSpec: Any) -> String {
-        if let type = typeSpec as? String { return type }
-        if let types = typeSpec as? [String] { return types.joined(separator: " or ") }
-        return "valid JSON value"
+        if let type = typeSpec as? String {
+            return localizedType(type)
+        }
+        if let types = typeSpec as? [String] {
+            return types.map(localizedType).joined(separator: " / ")
+        }
+        return CmuxConfigValidationLocalization.string(
+            "config.validation.type.jsonValue",
+            defaultValue: "valid JSON value"
+        )
     }
 
     func kindDescription(_ value: Any) -> String {
-        if value is NSNull { return "null" }
-        if isJSONBoolean(value) { return "boolean" }
-        if value is String { return "string" }
-        if value is [Any] { return "array" }
-        if value is [String: Any] { return "object" }
+        if value is NSNull { return localizedType("null") }
+        if isJSONBoolean(value) { return localizedType("boolean") }
+        if value is String { return localizedType("string") }
+        if value is [Any] { return localizedType("array") }
+        if value is [String: Any] { return localizedType("object") }
         if let number = jsonNumber(value) {
-            return number.rounded() == number ? "integer" : "number"
+            return localizedType(number.rounded() == number ? "integer" : "number")
         }
         return String(describing: type(of: value))
+    }
+
+    func localizedType(_ type: String) -> String {
+        switch type {
+        case "null":
+            return CmuxConfigValidationLocalization.string(
+                "config.validation.type.null",
+                defaultValue: "null"
+            )
+        case "boolean":
+            return CmuxConfigValidationLocalization.string(
+                "config.validation.type.boolean",
+                defaultValue: "boolean"
+            )
+        case "string":
+            return CmuxConfigValidationLocalization.string(
+                "config.validation.type.string",
+                defaultValue: "string"
+            )
+        case "array":
+            return CmuxConfigValidationLocalization.string(
+                "config.validation.type.array",
+                defaultValue: "array"
+            )
+        case "object":
+            return CmuxConfigValidationLocalization.string(
+                "config.validation.type.object",
+                defaultValue: "object"
+            )
+        case "number":
+            return CmuxConfigValidationLocalization.string(
+                "config.validation.type.number",
+                defaultValue: "number"
+            )
+        case "integer":
+            return CmuxConfigValidationLocalization.string(
+                "config.validation.type.integer",
+                defaultValue: "integer"
+            )
+        default:
+            return type
+        }
     }
 
     func isJSONBoolean(_ value: Any) -> Bool {
@@ -125,7 +174,12 @@ extension CmuxConfigSemanticValidator {
     func displayChoices(_ values: [Any]) -> String {
         let rendered = values.prefix(8).map(displayJSON)
         if values.count > rendered.count {
-            return rendered.joined(separator: ", ") + " (+\(values.count - rendered.count) more)"
+            let suffix = CmuxConfigValidationLocalization.format(
+                "config.validation.choices.more",
+                defaultValue: "(+%lld more)",
+                Int64(values.count - rendered.count)
+            )
+            return rendered.joined(separator: ", ") + " " + suffix
         }
         return rendered.joined(separator: ", ")
     }
