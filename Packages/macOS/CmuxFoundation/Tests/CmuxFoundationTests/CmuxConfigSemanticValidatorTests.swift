@@ -92,6 +92,29 @@ struct CmuxConfigSemanticValidatorTests {
         )
     }
 
+    @Test("future schema versions tolerate unknown additions but still validate known fields")
+    func futureSchemaCompatibility() throws {
+        let futureExtension = try issues([
+            "schemaVersion": 2,
+            "futureSection": ["newKey": true],
+            "app": ["appearance": "dark"],
+        ])
+        #expect(futureExtension.isEmpty)
+
+        let invalidKnownField = try issues([
+            "schemaVersion": 2,
+            "futureSection": ["newKey": true],
+            "app": ["appearance": "neon"],
+        ])
+        #expect(
+            contains(
+                invalidKnownField,
+                path: "$.app.appearance",
+                message: "must be one of"
+            )
+        )
+    }
+
     @Test("project scope rejects global settings while keeping project hooks legal")
     func enforcesProjectScope() throws {
         let globalOnly = try issues(
