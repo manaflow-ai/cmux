@@ -535,7 +535,7 @@ function requireGoMetadataShape(planId: string, metadata: Record<string, unknown
   return requireGoShape(planId, hasVmResourceReservationMetadata(metadata) ? vmResourceReservationFromMetadata(metadata) : null);
 }
 
-export function createVm(input: {
+type CreateVmInput = {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
   readonly billingTeamId: string;
@@ -575,7 +575,23 @@ export function createVm(input: {
    */
   readonly modelPlane?: VmModelPlaneProvisioner;
   readonly timing?: VmTimingSink;
-}): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
+};
+
+function createVmBeginInput(input: CreateVmInput): CreateVmInput {
+  if (!isPaidVmPlan(input.billingPlanId)) return input;
+  return {
+    ...input,
+    // Reserve the logical CPU and memory profile when memoryMb is present,
+    // while retaining the baked image's actual disk claim. A direct caller
+    // may instead provide only imageSize; in that form the image is the
+    // authoritative request.
+    resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go"
+      ? GO_VM_RESERVATION
+      : vmResourceReservationForCreate({ memoryMb: input.memoryMb, imageSize: input.imageSize })),
+  };
+}
+
+export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
     const runtimeBudgetSeconds = yield* requireGoCreate(input);
     yield* requireMemoryPlan(input.billingPlanId, requestedCreateMemory(input as { memoryMb?: number; imageSize?: { memoryMb: number }; resourceReservation?: { memoryMb: number } }));
@@ -583,19 +599,7 @@ export function createVm(input: {
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
     // Record paid machine shapes for snapshot, fork, and resize recovery.
-    const beginInput = isPaidVmPlan(input.billingPlanId)
-      ? {
-        ...input,
-        // Reserve the logical CPU and memory profile when memoryMb is present,
-        // while retaining the baked image's actual disk claim. A direct caller
-        // may instead provide only imageSize; in that form the image is the
-        // authoritative request.
-        resourceReservation: input.resourceReservation ?? (input.billingPlanId === "go" ? GO_VM_RESERVATION : vmResourceReservationForCreate({
-          memoryMb: input.memoryMb,
-          imageSize: input.imageSize,
-        })),
-      }
-      : input;
+    const beginInput = createVmBeginInput(input);
 
     // The owner's network row and the create row do not depend on each other,
     // so the request pays the slower of the two reads, not their sum. A network

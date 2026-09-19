@@ -429,10 +429,7 @@ async function parseCreateRequest(
   const candidate = (raw ?? {}) as Record<string, unknown>;
   const invalid = invalidCreateFieldResponse(candidate, request);
   if (invalid) return { ok: false, response: invalid };
-  const displayName = normalizedDisplayName(candidate.displayName ?? null);
-  if (displayName === undefined) {
-    return { ok: false, response: jsonResponse({ error: DISPLAY_NAME_VALIDATION_MESSAGE }, 400) };
-  }
+  const displayName = normalizedDisplayName(candidate.displayName ?? null) ?? null;
   const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
   const body: CreateBody = {
     displayName,
@@ -459,6 +456,17 @@ function invalidCreateRequestResponse(message: string, action: string, details: 
 
 /** The first field-level 400 for a create body, in the order the fields are documented. */
 function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Response | null {
+  return invalidCreateDisplayNameResponse(candidate) ?? invalidCreateFieldResponseWithoutDisplayName(candidate, request);
+}
+
+function invalidCreateDisplayNameResponse(candidate: Record<string, unknown>): Response | null {
+  if (candidate.displayName !== undefined && normalizedDisplayName(candidate.displayName) === undefined) {
+    return jsonResponse({ error: DISPLAY_NAME_VALIDATION_MESSAGE }, 400);
+  }
+  return null;
+}
+
+function invalidCreateFieldResponseWithoutDisplayName(candidate: Record<string, unknown>, request: Request): Response | null {
   if (candidate.image !== undefined && typeof candidate.image !== "string") {
     return invalidCreateRequestResponse(
       "`image` must be a string when provided.",
