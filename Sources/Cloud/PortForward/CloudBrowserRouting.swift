@@ -19,6 +19,48 @@ struct CloudBrowserRouting {
         return proxy
     }
 
+    /// Installs the promptless WebSocket bridge used by WKWebView, whose page
+    /// WebSocket implementation does not consistently honor `proxyConfigurations`.
+    @MainActor
+    static func websocketBridgeScript(endpoint: CloudBrowserProxyEndpoint, address: String) -> String? {
+        guard let token = endpoint.websocketToken else { return nil }
+        let host = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let encodedHost = host.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        let encodedToken = token.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+        return """
+        (() => {
+          if (window.__cmuxCloudWebSocketBridgeInstalled) return;
+          const targetHost = '\(encodedHost)'.toLowerCase();
+          const token = '\(encodedToken)';
+          const NativeWebSocket = window.WebSocket;
+          if (typeof NativeWebSocket !== 'function') return;
+          window.__cmuxCloudWebSocketBridgeInstalled = true;
+          const rewrite = (input) => {
+            let parsed;
+            try { parsed = new URL(input, document.baseURI); } catch (_) { return null; }
+            if (parsed.protocol !== 'ws:' || parsed.hostname.toLowerCase() !== targetHost) return null;
+            const target = `${parsed.hostname}:${parsed.port || '80'}`;
+            parsed.protocol = 'ws:';
+            parsed.hostname = '127.0.0.1';
+            parsed.port = String(\(endpoint.port));
+            parsed.pathname = '/__cmux_ws__/' + target + parsed.pathname;
+            return parsed.href;
+          };
+          const CmuxWebSocket = function(input, protocols) {
+            const rewritten = rewrite(input);
+            if (!rewritten) return protocols === undefined ? new NativeWebSocket(input) : new NativeWebSocket(input, protocols);
+            const values = protocols === undefined ? [] : (Array.isArray(protocols) ? protocols.slice() : [protocols]);
+            const auth = 'cmux-proxy-' + token;
+            if (!values.includes(auth)) values.push(auth);
+            return new NativeWebSocket(rewritten, values);
+          };
+          CmuxWebSocket.prototype = NativeWebSocket.prototype;
+          Object.setPrototypeOf(CmuxWebSocket, NativeWebSocket);
+          window.WebSocket = CmuxWebSocket;
+        })();
+        """
+    }
+
     /// Favicons use the page's authenticated browser route and cookies, rather than the OS network.
     @MainActor
     static func favicon(url: URL, webView: WKWebView) async throws -> (Data, URLResponse) {

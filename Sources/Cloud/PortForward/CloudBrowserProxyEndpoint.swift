@@ -6,6 +6,7 @@ struct CloudBrowserProxyEndpoint: Sendable, Equatable, Decodable, CustomStringCo
     let port: UInt16
     let username: String
     let password: String
+    let websocketToken: String? = nil
 
     var description: String { "CloudBrowserProxyEndpoint(\(host):\(port))" }
     var debugDescription: String { description }

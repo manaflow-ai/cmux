@@ -401,7 +401,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
     var requests: [Request] { lock.withLock { capturedRequests } }
     var authorizedTargets: [String] { lock.withLock { capturedTargets } }
     var endpoint: CloudBrowserProxyEndpoint {
-        CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)")
+        CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
 
     init(address: String, marker: String) throws {
@@ -465,7 +465,17 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
         }
         do {
             try await connection.startAndWaitUntilReady(queue: queue)
-            let greeting = try await connection.receiveExactly(3)
+            let first = try await connection.receiveExactly(1)
+            if first[0] == UInt8(ascii: "G") {
+                var buffered = Data(first)
+                let bridge = try await readRequest(connection, buffered: &buffered)
+                guard bridge.target.hasPrefix("/__cmux_ws__/") else { return }
+                guard bridge.headers["sec-websocket-protocol"]?.contains("cmux-proxy-ws-token") == true else { return }
+                try await connection.sendAll(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: cmux-proxy-ws-token\r\n\r\n".utf8))
+                try await Task.sleep(for: .seconds(5))
+                return
+            }
+            let greeting = [first[0]] + try await connection.receiveExactly(2)
             guard greeting[0] == 0x05, greeting[2] == 0x02 else { return }
             try await connection.sendAll(Data([0x05, 0x02]))
             let authHeader = try await connection.receiveExactly(2)
