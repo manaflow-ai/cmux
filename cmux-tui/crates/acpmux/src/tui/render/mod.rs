@@ -547,6 +547,20 @@ pub fn shorten_tool_title(title: &str) -> String {
     joined.replacen("Read file ", "Read ", 1).replacen("Write file ", "Write ", 1).replacen("Edit file ", "Edit ", 1)
 }
 
+/// "just now", "5m ago", "3h ago", "2d ago".
+pub fn age_label(ms: u64) -> String {
+    let s = ms / 1000;
+    if s < 60 {
+        "just now".into()
+    } else if s < 3600 {
+        format!("{}m ago", s / 60)
+    } else if s < 86_400 {
+        format!("{}h ago", s / 3600)
+    } else {
+        format!("{}d ago", s / 86_400)
+    }
+}
+
 /// "1m 7s", "12s", "1h 2m".
 pub fn duration_label(ms: u64) -> String {
     let s = ms / 1000;
@@ -732,6 +746,44 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
         Overlay::Directory { text } => {
             draw_directory(f, area, &text, app, hover);
             app.overlay = Overlay::Directory { text };
+        }
+    }
+    // Codex app: hovering a sidebar row shows a card with the full title,
+    // the directory, the harness and model, and how long ago it moved.
+    if matches!(app.overlay, Overlay::None) && app.sidebar_drag.is_none() {
+        if let Some((row, idx)) = app.hover.and_then(|(hx, hy)| app.sidebar_rows.iter().find(|(r, _)| hx >= r.x && hx < r.x + r.width && hy >= r.y && hy < r.y + r.height).cloned()) {
+            let ndrafts = app.drafts.len();
+            if idx >= ndrafts {
+                if let Some(s) = app.sessions.get(idx - ndrafts).cloned() {
+                    let title = session_title(&s);
+                    let name = s.get("name").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let cwd = s.get("cwd").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let harness = s.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let model = s.get("model").and_then(Value::as_str).unwrap_or("").to_owned();
+                    let age = s.get("updatedAt").and_then(Value::as_u64).map(|t| age_label(now_ms().saturating_sub(t))).unwrap_or_default();
+                    let line1 = if title == name { title.clone() } else { format!("{title}  ·  {name}") };
+                    let mut line2 = format!("▢ {}", shorten_path(&cwd));
+                    if !harness.is_empty() {
+                        line2.push_str(&format!("  ·  {harness}"));
+                    }
+                    if !model.is_empty() && model != "default" {
+                        line2.push_str(&format!(" · {model}"));
+                    }
+                    if !age.is_empty() {
+                        line2.push_str(&format!("  ·  {age}"));
+                    }
+                    let w = (line1.width().max(line2.width()) as u16 + 4).min(main.width.saturating_sub(4)).max(12);
+                    let x = sidebar.x + sidebar.width + 1;
+                    let y = row.y.min(area.y + area.height.saturating_sub(5));
+                    let r = Rect { x, y, width: w, height: 4 };
+                    let buf = f.buffer_mut();
+                    fill(buf, r, c.prompt());
+                    composer::rounded_border(buf, r, c.prompt_border());
+                    buf.set_stringn(r.x + 2, r.y + 1, &truncate(&line1, w as usize - 4), w as usize - 4, c.prompt().add_modifier(Modifier::BOLD));
+                    buf.set_stringn(r.x + 2, r.y + 2, &truncate(&line2, w as usize - 4), w as usize - 4, c.prompt().fg(c.status_dim_fg));
+                    app.link_cells.retain(|l| !(l.y >= r.y && l.y < r.y + r.height && l.x < r.x + r.width && l.x + l.text.width() as u16 > r.x));
+                }
+            }
         }
     }
     // Link runs are re-printed after the frame; drop any that a dialog,

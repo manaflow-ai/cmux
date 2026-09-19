@@ -12,7 +12,12 @@ enum Entry {
     Header(String),
     Row(usize),
     Blank,
+    /// "Show more (N)" under a group that is cut at its first rows.
+    More(String, usize),
 }
+
+/// Rows a project shows before "Show more", as in the Codex app.
+const GROUP_ROWS: usize = 6;
 
 pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     let c = app.chrome;
@@ -92,19 +97,28 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         members.entry(g).or_default().push(i);
     }
     let mut entries: Vec<Entry> = Vec::new();
+    let selected = app.selected;
     for g in order {
         let idxs = members.remove(&g).unwrap_or_default();
         if !g.is_empty() {
             if !entries.is_empty() {
                 entries.push(Entry::Blank);
             }
-            entries.push(Entry::Header(g));
+            entries.push(Entry::Header(g.clone()));
         }
-        entries.extend(idxs.into_iter().map(Entry::Row));
+        // A long group shows its first rows and a "Show more"; the group
+        // holding the selection is always open so the keys can reach it.
+        let open = g.is_empty() || app.expanded_groups.contains(&g) || idxs.len() <= GROUP_ROWS + 1 || idxs.iter().skip(GROUP_ROWS).any(|&i| i == selected);
+        if open {
+            entries.extend(idxs.into_iter().map(Entry::Row));
+        } else {
+            let hidden = idxs.len() - GROUP_ROWS;
+            entries.extend(idxs.into_iter().take(GROUP_ROWS).map(Entry::Row));
+            entries.push(Entry::More(g, hidden));
+        }
     }
     let body_y = area.y + 2;
     let body_h = area.height.saturating_sub(2 + footer_h) as usize;
-    let selected = app.selected;
     let sel_pos = entries.iter().position(|e| matches!(e, Entry::Row(i) if *i == selected)).unwrap_or(0);
     let offset = if body_h == 0 { 0 } else { sel_pos.saturating_sub(body_h.saturating_sub(1)).min(entries.len().saturating_sub(body_h)) };
     app.sidebar_offset = offset;
@@ -113,6 +127,17 @@ pub(super) fn draw_sidebar(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
         let y = body_y + line as u16;
         match entry {
             Entry::Blank => {}
+            Entry::More(group, hidden) => {
+                let label = format!("Show more ({hidden})");
+                let rect = Rect { x: area.x, y, width: area.width - 1, height: 1 };
+                let hot = hovered_row(app.hover, y);
+                let style = if hot { ground.bg(c.sidebar_selected_bg).fg(c.status_fg) } else { ground.fg(c.sidebar_dim_fg) };
+                if hot {
+                    paint_row(buf, y, style);
+                }
+                buf.set_stringn(area.x + 3, y, &label, content_w.saturating_sub(4), style);
+                app.buttons.push((rect, ButtonAction::ShowGroup(group.clone())));
+            }
             Entry::Header(name) => {
                 buf.set_stringn(area.x + 1, y, "▢", 1, ground.fg(c.sidebar_dim_fg));
                 buf.set_stringn(area.x + 3, y, &truncate(name, content_w.saturating_sub(4)), content_w.saturating_sub(4), ground.fg(c.sidebar_dim_fg));

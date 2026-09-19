@@ -131,6 +131,8 @@ pub struct App {
     pub cursor_pos: Option<(u16, u16)>,
     /// Sidebar rows drawn last frame: (rect, session index).
     pub sidebar_rows: Vec<(Rect, usize)>,
+    /// Project groups the user opened past their first rows ("Show more").
+    pub expanded_groups: std::collections::HashSet<String>,
     pub sidebar_offset: usize,
     pub toast: Option<(String, Instant)>,
     pub(super) last_click: Option<(Instant, u16, u16, u8)>,
