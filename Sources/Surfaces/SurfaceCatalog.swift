@@ -119,17 +119,11 @@ final class SurfaceCatalog {
         self.cloudWorkspaceProjectionCoordinator = cloudWorkspaceProjectionCoordinator ?? CloudWorkspaceProjectionCoordinator(
             environment: .init(workspaces: cloudWorkspaceRenameService.environment)
         )
-        // A pending rename is visible the moment it is admitted and gone the
-        // moment it fails: the snapshot projects it, and local titles follow it
-        // through the same reconciliation an accepted graph uses.
-        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] machine in
-            guard let self else { return }
-            self.notifyChange()
-            guard let state = self.cloudStates[machine] else { return }
-            self.cloudWorkspaceRenameService.reconcileRemoteState(
-                machine: machine, state: state, catalog: self,
-                observation: self.cloudStateObservations[machine] ?? .current
-            )
+        // A pending rename is visible in the snapshot the moment it is admitted
+        // and gone the moment it fails; local pane and workspace titles keep
+        // their own provenance rules and follow the accepted graph.
+        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] _ in
+            self?.notifyChange()
         }
     }
 
