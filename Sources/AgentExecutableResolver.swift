@@ -26,9 +26,20 @@ struct AgentExecutableResolver {
         self.configuredExecutablePaths = configuredExecutablePaths
     }
 
+    /// Resolves one provider using the current process and runtime search paths.
     func resolve(_ provider: AgentSessionProviderID) throws -> AgentSessionLaunchPlan {
+        try resolve(provider, searchDirectories: resolvedSearchDirectories())
+    }
+
+    /// Resolves one provider against a caller-supplied search-directory snapshot.
+    ///
+    /// Batch availability checks use this overload so version-manager directories
+    /// are enumerated once and shared across provider probes.
+    func resolve(
+        _ provider: AgentSessionProviderID,
+        searchDirectories: [String]
+    ) throws -> AgentSessionLaunchPlan {
         let executableName = provider.executableName
-        let searchDirectories = resolvedSearchDirectories()
         if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
             return launchPlan(provider: provider, executableURL: configuredURL, searchDirectories: searchDirectories)
         }
