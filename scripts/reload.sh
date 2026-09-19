@@ -1280,8 +1280,10 @@ if [[ -n "$TAG" ]]; then
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
-  cleanup_stale_cli_pointer_target || true
-  cleanup_stale_tag_state "$TAG_SLUG" || true
+  if [[ "$BUILD_ONLY" -ne 1 ]]; then
+    cleanup_stale_cli_pointer_target || true
+    cleanup_stale_tag_state "$TAG_SLUG" || true
+  fi
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -1367,7 +1369,7 @@ reload_finalize() {
   fi
   echo "==> reload succeeded in ${elapsed}s"
   echo "==> log: $RELOAD_LOG"
-  if [[ -n "${APP_PATH:-}" ]]; then
+  if [[ "$BUILD_ONLY" -ne 1 && -n "${APP_PATH:-}" ]]; then
     echo
     echo "App path:"
     echo "  $APP_PATH"
@@ -1385,7 +1387,7 @@ reload_finalize() {
       echo "  cd web && CMUX_PORT=$CMUX_DEV_PORT CMUX_PORT_RANGE=$CMUX_DEV_PORT_RANGE CMUX_PORT_END=$CMUX_DEV_PORT_END CMUX_AUTH_CALLBACK_SCHEME=cmux-dev-$TAG_SLUG bun dev"
     fi
   fi
-  if [[ -x "${CLI_PATH:-}" ]]; then
+  if [[ "$BUILD_ONLY" -ne 1 && -x "${CLI_PATH:-}" ]]; then
     echo
     echo "CLI path:"
     echo "  $CLI_PATH"
@@ -1411,6 +1413,10 @@ reload_finalize() {
   if [[ "$BUILD_ONLY" -eq 1 ]]; then
     echo
     echo "Build-only validation complete. The running tagged app, cmuxd, and tag state were left unchanged."
+    if [[ -n "${TAG_APP_STAGING_PATH:-}" && -e "$TAG_APP_STAGING_PATH" ]]; then
+      remove_app_bundle_output "$TAG_APP_STAGING_PATH"
+      echo "==> removed temporary build-only artifact"
+    fi
   elif [[ "$LAUNCH" -eq 0 ]]; then
     echo
     echo "Build complete. Pass --launch to open the app, or cmd-click the path above."
@@ -1701,7 +1707,7 @@ fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
 
-if [[ -n "${TAG_SLUG:-}" ]]; then
+if [[ "$BUILD_ONLY" -ne 1 && -n "${TAG_SLUG:-}" ]]; then
   TMP_COMPAT_DERIVED_LINK="/tmp/cmux-${TAG_SLUG}"
   if [[ "$DERIVED_DATA" != "$TMP_COMPAT_DERIVED_LINK" ]]; then
     ABS_DERIVED_DATA="$(cd "$DERIVED_DATA" && pwd)"
@@ -1729,7 +1735,9 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       CMUX_AUTH_CALLBACK_SCHEME_VALUE="cmux-dev-${TAG_SLUG}"
-      echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
+      if [[ "$BUILD_ONLY" -ne 1 ]]; then
+        echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
+      fi
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       set_plist_url_scheme "$INFO_PLIST" "$CMUX_AUTH_CALLBACK_SCHEME_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
