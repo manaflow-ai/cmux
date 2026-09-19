@@ -2762,6 +2762,32 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
+  test("create configures the first guest prompt with the stored display name", async () => {
+    const requested = testCloudVmRow({ displayName: "Build box", slug: "calm-heron" });
+    const running = { ...requested, status: "running" as const, providerVmId: "named-vm" };
+    let promptName: string | undefined;
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: requested }),
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      markCreateRunning: () => Effect.succeed(running),
+      setDisplayName: () => unusedDatabaseEffect("rename during create"),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: (_provider, options) => Effect.sync(() => {
+        promptName = options.promptIdentity?.name;
+        return testVmHandle({ providerVmId: "named-vm" });
+      }),
+    };
+    const result = await Effect.runPromise(createVm({
+      userId: requested.userId, billingCustomerType: "team", billingTeamId: requested.billingTeamId,
+      billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: requested.imageId,
+      displayName: "Build box",
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(promptName).toBe("build-box");
+    expect(result.displayName).toBe("Build box");
+  });
+
   dbTest("create reserves the display name atomically and an idempotent replay preserves it", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;

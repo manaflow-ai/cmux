@@ -1,3 +1,4 @@
+import { normalizedDisplayName, DISPLAY_NAME_VALIDATION_MESSAGE } from "../../../services/vms/displayName";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
@@ -283,6 +284,7 @@ export async function POST(request: Request): Promise<Response> {
         imageVersion: imageSelection.imageVersion,
         provider,
         idempotencyKey,
+        displayName: body.displayName,
         persistentHome: homeVolumeRequested && candidate.persistentHome === true,
         perMachineHome: homeVolumeRequested && candidate.perMachineHome === true,
         memoryMb,
@@ -359,6 +361,7 @@ async function unsupportedCreateOptionResponse(
 }
 
 type CreateBody = {
+  readonly displayName: string | null;
   readonly image?: string;
   readonly kind?: VmImageKind;
   readonly provider?: ProviderId;
@@ -426,8 +429,13 @@ async function parseCreateRequest(
   const candidate = (raw ?? {}) as Record<string, unknown>;
   const invalid = invalidCreateFieldResponse(candidate, request);
   if (invalid) return { ok: false, response: invalid };
+  const displayName = normalizedDisplayName(candidate.displayName ?? null);
+  if (displayName === undefined) {
+    return { ok: false, response: jsonResponse({ error: DISPLAY_NAME_VALIDATION_MESSAGE }, 400) };
+  }
   const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
   const body: CreateBody = {
+    displayName,
     image: typeof candidate.image === "string" ? candidate.image : undefined,
     kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
     provider: candidate.provider as ProviderId | undefined,

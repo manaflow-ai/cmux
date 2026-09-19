@@ -545,6 +545,8 @@ export function createVm(input: {
   readonly image: string;
   readonly imageVersion?: string | null;
   readonly idempotencyKey?: string;
+  /** Stored before provisioning so the first guest prompt already has its chosen name. */
+  readonly displayName?: string | null;
   /**
    * "Your computer" semantics: mount a per-user persistent volume as the machine's home so
    * the sandbox is disposable compute around durable data. The volume name is derived from
