@@ -28,6 +28,23 @@ struct CustomSidebarDiscoveryTests {
         try await expect(["one"], from: &updates)
     }
 
+    @Test
+    func cancellationFinishesTheUpdateStreamWithoutWaitingForAnotherFilesystemEvent() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let stream = await CustomSidebarDiscovery(directory: root).updates()
+        let task = Task { () -> [String]? in
+            var iterator = stream.makeAsyncIterator()
+            _ = await iterator.next()
+            return await iterator.next()
+        }
+        await Task.yield()
+        task.cancel()
+        #expect(await task.value == nil)
+    }
+
     private func expect(_ names: [String], from updates: inout AsyncStream<[String]>.Iterator) async throws {
         while let snapshot = await updates.next() {
             if snapshot == names { return }
