@@ -67,7 +67,10 @@ export function GuiModeContextStrip({ context }: { context: GuiModeSessionContex
     "aria-label": context.copy?.modeLabel ?? "Context",
     className: "gui-mode-agent-context-strip",
   },
-    h("span", { className: "gui-mode-agent-context-folder" }, "▱", folderName),
+    h("span", { className: "gui-mode-agent-context-folder", title: context.workingDirectory },
+      h("svg", { width: 13, height: 13, viewBox: "0 0 16 16", fill: "none", "aria-hidden": true },
+        h("path", { d: "M2 4h4l1.5 2H14v7H2V4Z", stroke: "currentColor", strokeWidth: 1.2, strokeLinejoin: "round" }),
+      ), folderName),
     h("span", { className: "gui-mode-agent-context-separator", "aria-hidden": true }, "·"),
     h("span", null, context.copy?.localLabel ?? "Local"),
     context.gitBranch

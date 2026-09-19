@@ -125,16 +125,24 @@ export async function submitGuiModePrompt(
   );
 }
 
+export type GuiModeTerminalResult = {
+  workingDirectory: string;
+  gitBranch?: string;
+  output: string;
+  exitCode: number;
+};
+
 export async function executeGuiModeTerminal(
   command: string,
   requestId: string = makeGuiModeRequestId(),
-  terminalPanelId?: string,
-): Promise<{ workspaceId: string; panelId: string }> {
-  return callNativeWithTimeout<{ workspaceId: string; panelId: string }>(
-    "guiMode.executeTerminal",
-    { command, requestId, terminalPanelId },
-    5000,
+): Promise<GuiModeTerminalResult> {
+  return callNativeWithTimeout<GuiModeTerminalResult>(
+    "guiMode.executeTerminal", { command, requestId }, 65000,
   );
+}
+
+export function cancelGuiModeTerminal(requestId: string): Promise<unknown> {
+  return callNative("guiMode.cancelTerminal", { requestId });
 }
 
 export async function cancelGuiModeSubmit(requestId: string): Promise<{ cancelled: true }> {

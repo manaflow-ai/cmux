@@ -1,4 +1,5 @@
 import AppKit
+import CMUXAgentLaunch
 import UniformTypeIdentifiers
 import WebKit
 
@@ -23,8 +24,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var isProviderStartPending = false
     private var isGuiModeSubmitPending = false
     private var guiModeSubmitRequestID: String?
-    private var guiModeTerminalPanelID: UUID?
-    private var guiModeTerminalResults: [String: [String: String]] = [:]
+    private var guiShell: GuiShellSession?
     private var processStore = AgentSessionProcessStore()
     nonisolated private static let imagePreviewMaxBytes = 512 * 1024
     nonisolated private static let imagePreviewTotalMaxBytes = 2 * 1024 * 1024
@@ -155,6 +155,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     func close() {
         isClosed = true
         processStore.closeAll()
+        if let guiShell { Task { await guiShell.close() } }
+        guiShell = nil
         if let webView {
             webView.removeFromSuperview()
             webView.stopLoading()
@@ -373,25 +375,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             guiModeSubmitRequestID = nil
             return ["cancelled": true]
         case "guiMode.executeTerminal":
-            let requestID = request.string("requestId") ?? request.id
-            if let cachedResult = guiModeTerminalResults[requestID] {
-                return cachedResult
-            }
-            let result = try Self.handleGuiModeTerminal(
-                request,
-                rendererKind: rendererKind,
-                panelId: panelId,
-                workspaceId: workspaceId,
-                terminalPanelId: guiModeTerminalPanelID
-            )
-            if let panelID = result["panelId"], let value = UUID(uuidString: panelID) {
-                guiModeTerminalPanelID = value
-            }
-            guiModeTerminalResults[requestID] = result
-            if guiModeTerminalResults.count > 32 {
-                guiModeTerminalResults.removeValue(forKey: guiModeTerminalResults.keys.sorted().first ?? requestID)
-            }
-            return result
+            return try await executeGuiTerminal(request)
+        case "guiMode.cancelTerminal":
+            await guiShell?.cancel(requestID: try request.requiredString("requestId"))
+            return ["cancelled": true]
         case "app.pickFiles":
             return await pickLocalFiles()
         case "provider.list":
@@ -457,7 +444,8 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                 permissionMode: request.permissionMode(),
                 text: request.requiredRawString("text"),
                 modelID: request.string("modelId"),
-                reasoningEffort: request.string("reasoningEffort")
+                reasoningEffort: request.string("reasoningEffort"),
+                workingDirectory: workingDirectory
             )
             return ["sent": true]
         case "provider.stop":
@@ -466,6 +454,42 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)
         }
+    }
+
+    private func executeGuiTerminal(_ request: AgentSessionBridgeRequest) async throws -> [String: Any] {
+        guard rendererKind == .guiMode, !isClosed,
+              let location = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId, preferredWorkspaceId: workspaceId),
+              let panel = location.workspace.panels[panelId] as? AgentSessionPanel,
+              location.workspace.allowsLocalDirectoryFallback(panelId: panelId) else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        let command = try request.requiredRawString("command")
+        let requestID = request.string("requestId") ?? request.id
+        if guiShell == nil {
+            var environment = ProcessInfo.processInfo.environment
+            environment.merge(cmuxAgentEnvironmentOverrides()) { _, value in value }
+            environment["CMUX_SOCKET_PATH"] = TerminalController.shared.currentSocketPathForRemoteRestore()
+            guiShell = GuiShellSession(
+                workingDirectory: panel.workingDirectory ?? location.workspace.currentDirectory,
+                environment: AgentSessionLaunchPlan.withCmuxRuntimeEnvironment(environment)
+            )
+        }
+        let result = try await guiShell!.execute(command: command, requestID: requestID)
+        guard !isClosed, let current = AppDelegate.shared?.workspaceContainingPanel(panelId: panelId, preferredWorkspaceId: workspaceId),
+              current.workspace.panels[panelId] === panel else { throw AgentSessionBridgeError.invalidRequest }
+        if workingDirectory != result.workingDirectory {
+            current.workspace.clearPanelGitBranch(panelId: panelId)
+            // Non-Codex transports choose cwd at launch; next Send restarts them.
+            if initialProviderID != .codex { processStore.closeAll() }
+        }
+        panel.updateWorkingDirectory(result.workingDirectory)
+        workingDirectory = result.workingDirectory
+        current.tabManager.updateReportedSurfaceDirectory(
+            tabId: current.workspace.id, surfaceId: panelId, directory: result.workingDirectory
+        )
+        let branch = current.workspace.panelGitBranches[panelId]?.branch ?? ""
+        sendEvent(["type": "app.workingDirectory", "workingDirectory": result.workingDirectory, "gitBranch": branch])
+        return ["workingDirectory": result.workingDirectory, "output": result.output, "exitCode": result.exitCode, "gitBranch": branch]
     }
 
     private func cmuxAgentEnvironmentOverrides() -> [String: String] {

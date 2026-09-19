@@ -161,23 +161,4 @@ extension AgentSessionWebRendererCoordinator {
         return ["workspaceId": workspace.id.uuidString]
     }
 
-    static func handleGuiModeTerminal(
-        _ request: AgentSessionBridgeRequest,
-        rendererKind: AgentSessionRendererKind,
-        panelId: UUID,
-        workspaceId: UUID,
-        terminalPanelId: UUID?
-    ) throws -> [String: String] {
-        guard rendererKind == .guiMode else { throw AgentSessionBridgeError.unsupportedMethod(request.method) }
-        let command = try request.requiredString("command").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else { throw AgentSessionBridgeError.missingParameter("command") }
-        let requestedTerminalPanelID = request.string("terminalPanelId").flatMap(UUID.init(uuidString:))
-        let result = try GuiModeWorkspaceCoordinator().executeTerminalCommand(
-            command: command,
-            sourcePanelId: panelId,
-            preferredWorkspaceId: workspaceId,
-            terminalPanelId: requestedTerminalPanelID
-        )
-        return ["workspaceId": result.workspaceId.uuidString, "panelId": result.panelId.uuidString]
-    }
 }

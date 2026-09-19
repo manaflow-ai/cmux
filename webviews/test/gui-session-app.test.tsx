@@ -87,13 +87,26 @@ test("Terminal mode runs inline, updates the GUI directory and keeps a separate 
     act(() => mode("Terminal").click());
     expect(dom.window.document.querySelector(".ProseMirror")?.textContent).toBe("");
     expect(dom.window.document.querySelector(".gui-mode-agent-model-trigger") === null).toBe(true);
-    expect(dom.window.document.querySelector(".permissions-root") === null).toBe(true);
+    expect(dom.window.document.querySelector("[aria-label=\"Change permissions\"]") === null).toBe(true);
     app.type("cd '/tmp/Project One' && pwd"); app.enter(); app.enter();
     await waitFor(() => dom.window.document.querySelector(".gui-mode-agent-context-strip")?.textContent?.includes("Project One") === true);
     expect(app.requests.filter((request) => request.method === "guiMode.executeTerminal").length).toBe(1);
     expect(dom.window.document.querySelector(".gui-mode-terminal-result")?.textContent).toContain("/tmp/Project One");
     act(() => mode("Chat").click());
     expect(dom.window.document.querySelector(".ProseMirror")?.textContent).toBe("Chat draft");
+  } finally { await app.cleanup(); }
+});
+
+test("failed Terminal command retains its draft and does not fail the chat session", async () => {
+  const app = await mount(false, async () => ({ workingDirectory: "/tmp", output: "cd: no such directory: missing", exitCode: 1 }));
+  try {
+    const terminal = [...dom.window.document.querySelectorAll<HTMLButtonElement>("[role=tab]")].find((tab) => tab.textContent === "Terminal")!;
+    act(() => terminal.click());
+    app.type("cd missing"); app.enter();
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-terminal-result")?.textContent?.includes("no such directory") === true);
+    expect(dom.window.document.querySelector(".ProseMirror")?.textContent).toBe("cd missing");
+    expect(dom.window.document.querySelector(".codex-notice-turn") === null).toBe(true);
+    expect(app.requests.some((request) => request.method === "provider.start")).toBe(false);
   } finally { await app.cleanup(); }
 });
 

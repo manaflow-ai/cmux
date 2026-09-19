@@ -55,3 +55,18 @@ let results = CodexSessionResumeVerifier().verifyBatch(
     fileManager: fixtureFileManager
 )
 ```
+
+## GUI shell commands
+
+`GuiShellSession` owns a persistent noninteractive zsh process for a GUI pane.
+The native pane captures its working directory and routing environment at creation;
+`execute(command:requestID:)` returns bounded combined output, exit status, and
+shell cwd. Apply that cwd through the workspace's directory-report path and pass it
+on the next agent turn. Stable request IDs prevent completed retries from running
+commands twice. Commands receive closed stdin; interactive terminal applications
+are outside this command-composer interface. Call `cancel(requestID:)` to stop a
+command, or `close()` when destroying its pane.
+
+Package tests use temporary directories and an explicit `HOME`/`PATH`, including
+compound `cd`, quoted directories, exports, failures, duplicate requests, bounded
+output, deadlines, and shell exit/recovery. They do not need cmux or GUI access.

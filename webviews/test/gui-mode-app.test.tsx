@@ -378,7 +378,7 @@ test("confirmed user cancellation does not issue a second cancellation", async (
   }
 }, 15000);
 
-test("terminal mode executes commands and reuses its terminal panel", async () => {
+test("terminal mode executes commands without targeting another panel", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id='root'></div></body></html>", {
     url: "file:///tmp/gui-mode.html",
   });
@@ -390,7 +390,7 @@ test("terminal mode executes commands and reuses its terminal panel", async () =
       postedMessages.push(message);
       if (message.method === "app.context") return Promise.resolve({ ok: true, value: { guiMode: context } });
       if (message.method === "guiMode.executeTerminal") {
-        return Promise.resolve({ ok: true, value: { workspaceId: "workspace-1", panelId: "terminal-1" } });
+        return Promise.resolve({ ok: true, value: { workingDirectory: "/tmp", output: "/tmp\n", exitCode: 0 } });
       }
       return Promise.resolve({ ok: true, value: { workspaceId: "workspace-1" } });
     },
@@ -411,7 +411,7 @@ test("terminal mode executes commands and reuses its terminal panel", async () =
       method: "guiMode.executeTerminal",
       params: { command: "cd /tmp" },
     });
-    await waitFor(() => dom.window.document.querySelector(".gui-mode-terminal-status")?.textContent === "cd /tmp");
+    await waitFor(() => dom.window.document.querySelector(".gui-mode-terminal-status")?.textContent === "/tmp\n");
 
     pasteIntoPromptEditor(dom, "pwd");
     await waitFor(() => dom.window.document.querySelector(".gui-mode-editor .ProseMirror")?.textContent?.includes("pwd") === true);
@@ -420,7 +420,7 @@ test("terminal mode executes commands and reuses its terminal panel", async () =
     await waitFor(() => postedMessages.filter((message) => message.method === "guiMode.executeTerminal").length === 2);
     expect(postedMessages.at(-1)).toMatchObject({
       method: "guiMode.executeTerminal",
-      params: { command: "pwd", terminalPanelId: "terminal-1" },
+      params: { command: "pwd" },
     });
   } finally {
     flushSync(() => root.unmount());

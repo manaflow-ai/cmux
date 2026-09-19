@@ -304,3 +304,36 @@
 @media (prefers-reduced-motion: reduce) {
   .gui-mode-thinking-dots > span { animation: none; opacity: 0.7; }
 }
+
+/* Terminal mode is a command surface: only controls that affect the shell. */
+.gui-mode-agent-shell .gui-terminal-surface {
+  border: 1px solid var(--agent-border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.gui-terminal-composer { padding: 10px 12px 8px; }
+.gui-terminal-header { display: flex; align-items: center; justify-content: space-between; }
+.gui-terminal-header .gui-mode-agent-mode-toggle { margin: 0; }
+.gui-terminal-command-row { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
+.gui-terminal-prompt { color: var(--agent-muted); font: 22px var(--font-mono); }
+.gui-terminal-command-row .gui-mode-agent-input-wrapper { flex: 1 1 auto; min-width: 0; }
+.gui-terminal-command-row .ProseMirror { font-family: var(--font-mono); min-height: 24px; max-height: 96px; overflow: auto; }
+.gui-terminal-run {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 28px;
+  width: 28px; height: 28px; border: 0; border-radius: 8px;
+  color: var(--color-token-dropdown-background); background: var(--agent-text);
+}
+.gui-terminal-run:disabled { opacity: 0.35; }
+.gui-terminal-run:focus-visible { outline: 2px solid var(--agent-accent); outline-offset: 3px; }
+.gui-terminal-progress { color: var(--agent-muted); font-size: var(--text-xs); }
+.gui-mode-agent-shell .gui-mode-agent-context-strip {
+  width: 100%; margin: 0; padding: 3px 12px; border: 0; border-radius: 0; background: transparent;
+}
+.gui-terminal-header .gui-mode-agent-context-strip { width: auto; min-width: 0; justify-content: flex-end; margin-left: 12px; padding: 0; }
+.gui-terminal-header .gui-mode-agent-context-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gui-terminal-header .gui-mode-agent-context-folder svg { flex-shrink: 0; }
+.gui-mode-terminal-result { border-top: 1px solid var(--agent-border); padding: 8px 2px; }
+.gui-terminal-result-heading { display: flex; justify-content: space-between; gap: 12px; font-size: var(--text-xs); color: var(--agent-muted); }
+.gui-terminal-result-heading code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gui-mode-terminal-result pre { margin: 8px 0 0; max-height: min(12rem, 30vh); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 var(--font-mono); color: var(--agent-text); }
+.gui-mode-terminal-result[data-failed="true"] .gui-terminal-result-heading > span { color: var(--agent-danger); }

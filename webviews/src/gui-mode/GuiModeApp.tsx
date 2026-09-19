@@ -84,6 +84,7 @@ export function GuiModeApp() {
 
 function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; taskPrompt?: string }) {
   const [prompt, setPrompt] = useState("");
+  const [workingDirectory, setWorkingDirectory] = useState(context.workingDirectory);
   const [mode, setMode] = useState<GuiModeMode>("chat");
   const [selectedProviderId, setSelectedProviderId] = useState(context.selectedProviderId);
   const [selectedModelId, setSelectedModelId] = useState(
@@ -95,7 +96,6 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
   const [permissionMode, setPermissionMode] = useState("default");
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [includeCurrentFolder, setIncludeCurrentFolder] = useState(false);
-  const terminalPanelId = useRef<string | null>(null);
   const terminalRequestId = useRef<string | null>(null);
   const [terminalStatus, setTerminalStatus] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -115,7 +115,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
     : reasoningOptions.includes("xhigh") ? "xhigh" : reasoningOptions[0] ?? "default";
   const trimmedPrompt = prompt.trim();
   const visibleTaskPrompt = taskPrompt?.trim() ?? "";
-  const currentFolderName = context.workingDirectory?.split("/").filter(Boolean).at(-1)
+  const currentFolderName = workingDirectory?.split("/").filter(Boolean).at(-1)
     ?? context.copy.folderFallback
     ?? "cmux";
   const emptyTitle = (context.copy.emptyTitle ?? "What should we build in cmux?")
@@ -129,12 +129,12 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
     if (mode === "terminal") {
       const requestId = terminalRequestId.current ?? makeGuiModeRequestId();
       terminalRequestId.current = requestId;
-      void executeGuiModeTerminal(trimmedPrompt, requestId, terminalPanelId.current ?? undefined)
+      void executeGuiModeTerminal(trimmedPrompt, requestId)
         .then((result) => {
-          terminalPanelId.current = result.panelId;
           terminalRequestId.current = null;
-          setPrompt("");
-          setTerminalStatus(trimmedPrompt);
+          setWorkingDirectory(result.workingDirectory);
+          if (result.exitCode === 0) setPrompt("");
+          setTerminalStatus(result.output);
         })
         .catch(() => setError(context.copy.terminalErrorMessage ?? context.copy.errorMessage))
         .finally(() => setIsSubmitting(false));
@@ -142,8 +142,8 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
     }
     const requestId = makeGuiModeRequestId();
     activeRequestId.current = requestId;
-    const promptWithContext = includeCurrentFolder && context.workingDirectory
-      ? `In ${context.workingDirectory}: ${trimmedPrompt}`
+    const promptWithContext = includeCurrentFolder && workingDirectory
+      ? `In ${workingDirectory}: ${trimmedPrompt}`
       : trimmedPrompt;
     void submitGuiModePrompt(promptWithContext, selectedProvider.id, requestId, {
       modelId: selectedModel?.id,
@@ -176,7 +176,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
           setIsSubmitting(false);
         }
       });
-  }, [canSubmit, context.copy, context.workingDirectory, includeCurrentFolder, mode, permissionMode, reasoningEffort, selectedModel?.id, selectedProvider.id, trimmedPrompt]);
+  }, [canSubmit, context.copy, workingDirectory, includeCurrentFolder, mode, permissionMode, reasoningEffort, selectedModel?.id, selectedProvider.id, trimmedPrompt]);
   const cancel = useCallback(() => {
     const requestId = activeRequestId.current;
     if (!requestId) return;
@@ -355,7 +355,7 @@ function GuiModeHomePage({ context, taskPrompt }: { context: GuiModeContext; tas
           ),
         ),
         h("div", { className: "gui-mode-context-strip", "aria-label": context.copy.contextLabel ?? "Context" },
-          h("span", { className: "gui-mode-context-folder" }, guiModeFolderIcon(), context.workingDirectory?.split("/").filter(Boolean).at(-1) ?? context.copy.folderFallback ?? "Current folder"),
+          h("span", { className: "gui-mode-context-folder" }, guiModeFolderIcon(), workingDirectory?.split("/").filter(Boolean).at(-1) ?? context.copy.folderFallback ?? "Current folder"),
           h("span", { className: "gui-mode-context-divider", "aria-hidden": true }, "·"),
           h("span", null, context.copy.localLabel ?? "Local"),
           context.gitBranch

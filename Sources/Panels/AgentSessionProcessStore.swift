@@ -27,15 +27,9 @@ final class AgentSessionProcessStore {
         let sessionId = UUID().uuidString
         let process = Process()
         let launchArguments = plan.arguments
-        var mergedEnvironment = plan.environment
-        mergedEnvironment.merge(environmentOverrides) { _, override in override }
-        let launchPlan = AgentSessionLaunchPlan(
-            provider: plan.provider,
-            executableURL: plan.executableURL,
-            arguments: plan.arguments,
-            environment: mergedEnvironment
+        let launchEnvironment = plan.environment(
+            overridingWorkingDirectory: workingDirectory, overrides: environmentOverrides
         )
-        let launchEnvironment = launchPlan.environment(overridingWorkingDirectory: workingDirectory)
         process.executableURL = plan.executableURL
         process.arguments = launchArguments
         process.environment = launchEnvironment
@@ -144,7 +138,7 @@ final class AgentSessionProcessStore {
     func writeLine(
         sessionId: String,
         permissionMode: AgentSessionPermissionMode = .standard,
-        text: String, modelID: String? = nil, reasoningEffort: String? = nil
+        text: String, modelID: String? = nil, reasoningEffort: String? = nil, workingDirectory: String? = nil
     ) async throws {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
@@ -155,6 +149,7 @@ final class AgentSessionProcessStore {
             guard let codexAppServerSession = session.codexAppServerSession else {
                 throw AgentSessionBridgeError.providerNotReady(session.providerID.displayName)
             }
+            if let workingDirectory { codexAppServerSession.updateWorkingDirectory(workingDirectory) }
             try await codexAppServerSession.submit(text, permissionMode: permissionMode, modelID: modelID, reasoningEffort: reasoningEffort)
         case .claude:
             try await writeClaudeStreamJSON(text, to: session.inputWriter)

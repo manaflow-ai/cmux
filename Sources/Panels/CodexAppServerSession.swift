@@ -11,7 +11,7 @@ final class CodexAppServerSession {
     private static let maxQueuedInputCount = 1
     private static let maxQueuedInputBytes = 64 * 1024
 
-    private let workingDirectory: String?
+    private var workingDirectory: String?
     let writeData: DataWriter
     private let outputSink: OutputSink
     private let activitySink: ActivitySink
@@ -52,6 +52,10 @@ final class CodexAppServerSession {
         self.turnCompleteSink = turnCompleteSink
         self.failureSink = failureSink
         self.modelsSink = modelsSink
+    }
+
+    func updateWorkingDirectory(_ directory: String) {
+        workingDirectory = directory
     }
 
     func start() async throws {
@@ -586,6 +590,7 @@ final class CodexAppServerSession {
                 ]
             ]
         ]
+        if let workingDirectory { params["cwd"] = workingDirectory }
         for (key, value) in permissionMode.codexTurnOverrides {
             params[key] = value
         }

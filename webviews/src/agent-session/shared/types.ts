@@ -64,6 +64,7 @@ export type GuiModeSessionContext = {
     taskTitle?: string;
     terminalMode?: string;
     terminalPlaceholder?: string;
+    terminalErrorMessage?: string;
     voiceAction?: string;
     voiceDescription?: string;
     voiceTitle?: string;
@@ -178,6 +179,11 @@ export type AgentSessionAttachment = {
 };
 
 export type AgentEvent =
+  | {
+      type: "app.workingDirectory";
+      workingDirectory: string;
+      gitBranch?: string;
+    }
   | {
       type: "provider.models";
       sessionId: string;

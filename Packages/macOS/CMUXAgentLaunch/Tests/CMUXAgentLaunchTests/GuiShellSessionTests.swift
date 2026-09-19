@@ -12,15 +12,15 @@ struct GuiShellSessionTests {
         let shell = GuiShellSession(workingDirectory: root.path, environment: ["HOME": root.path, "PATH": "/usr/bin:/bin"])
         let first = try await shell.execute(command: "cd 'Project One' && export GUI_CHECK=kept && pwd", requestID: "first")
         #expect(first.exitCode == 0)
-        #expect(first.workingDirectory == child.path)
+        #expect(URL(fileURLWithPath: first.workingDirectory).resolvingSymlinksInPath().path == child.resolvingSymlinksInPath().path)
         let next = try await shell.execute(command: "printf '%s' $GUI_CHECK; pwd", requestID: "next")
         #expect(next.output.contains("kept"))
-        #expect(next.workingDirectory == child.path)
+        #expect(URL(fileURLWithPath: next.workingDirectory).resolvingSymlinksInPath().path == child.resolvingSymlinksInPath().path)
         let back = try await shell.execute(command: "cd - && pwd", requestID: "back")
-        #expect(back.workingDirectory == root.path)
+        #expect(URL(fileURLWithPath: back.workingDirectory).resolvingSymlinksInPath().path == root.resolvingSymlinksInPath().path)
         let failed = try await shell.execute(command: "cd no-such-directory", requestID: "failed")
         #expect(failed.exitCode != 0)
-        #expect(failed.workingDirectory == root.path)
+        #expect(URL(fileURLWithPath: failed.workingDirectory).resolvingSymlinksInPath().path == root.resolvingSymlinksInPath().path)
         await shell.close()
     }
 
@@ -39,7 +39,7 @@ struct GuiShellSessionTests {
     }
 
     @Test func timeoutAndExitAllowANewCommand() async throws {
-        let shell = GuiShellSession(workingDirectory: "/tmp", environment: ["PATH": "/usr/bin:/bin"], timeout: .milliseconds(100))
+        let shell = GuiShellSession(workingDirectory: "/tmp", environment: ["PATH": "/usr/bin:/bin"], timeout: .seconds(2))
         await #expect(throws: GuiShellError.self) { try await shell.execute(command: "sleep 30", requestID: "timeout") }
         let next = try await shell.execute(command: "pwd", requestID: "recovered")
         #expect(next.exitCode == 0)

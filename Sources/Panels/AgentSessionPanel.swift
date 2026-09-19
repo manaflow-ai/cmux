@@ -78,6 +78,10 @@ final class AgentSessionPanel: Panel {
         workingDirectory = nil
     }
 
+    func updateWorkingDirectory(_ directory: String) {
+        workingDirectory = directory
+    }
+
     var guiModePage: GuiModePanelPage { guiModeState.page }
     var guiModePrompt: String? { guiModeState.prompt }
     var guiModeProviderID: GuiModeProviderID { guiModeState.providerID }

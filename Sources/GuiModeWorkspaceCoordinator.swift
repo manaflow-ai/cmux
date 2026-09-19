@@ -80,50 +80,6 @@ final class GuiModeWorkspaceCoordinator {
         }
     }
 
-    /// Runs one terminal-mode command, reusing the command panel when it still exists.
-    @discardableResult
-    func executeTerminalCommand(
-        command: String,
-        sourcePanelId: UUID,
-        preferredWorkspaceId: UUID,
-        terminalPanelId: UUID?
-    ) throws -> (workspaceId: UUID, panelId: UUID) {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty,
-              let app = AppDelegate.shared,
-              let location = app.workspaceContainingPanel(
-                  panelId: sourcePanelId,
-                  preferredWorkspaceId: preferredWorkspaceId
-              ) else {
-            throw AgentSessionBridgeError.invalidRequest
-        }
-
-        if let terminalPanelId,
-           let terminal = location.workspace.terminalPanel(for: terminalPanelId) {
-            let result = terminal.sendInputResult(trimmedCommand + "\n")
-            switch result {
-            case .sent, .queued:
-                return (location.workspace.id, terminal.id)
-            case .inputQueueFull, .surfaceUnavailable, .processExited:
-                break
-            }
-        }
-
-        guard let pane = location.workspace.paneId(forPanelId: sourcePanelId)
-                ?? location.workspace.bonsplitController.focusedPaneId
-                ?? location.workspace.bonsplitController.allPaneIds.first,
-              let terminal = location.workspace.splitPaneWithNewTerminal(
-                  targetPane: pane,
-                  orientation: .horizontal,
-                  insertFirst: false,
-                  workingDirectory: location.workspace.currentDirectory,
-                  initialInput: trimmedCommand + "\n"
-              ) else {
-            throw AgentSessionBridgeError.invalidRequest
-        }
-        return (location.workspace.id, terminal.id)
-    }
-
     @discardableResult
     private func installGuiPanel(in workspace: Workspace, state: GuiModePanelState) -> AgentSessionPanel? {
         let previousPanelId = workspace.focusedPanelId

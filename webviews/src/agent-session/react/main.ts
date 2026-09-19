@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { activityGlyph } from "../shared/activityGlyph";
-import { callNative, NativeBridgeError, subscribeToAgentEvents } from "../shared/bridge";
+import { callNative, subscribeToAgentEvents } from "../shared/bridge";
 import { makeClientId } from "../shared/ids";
 import {
   CODEX_BUTTON_BASE,
@@ -74,7 +74,9 @@ import {
   GuiModeProviderPicker,
   GuiModeWelcome,
 } from "../../gui-mode/GuiModeSessionChrome";
-import { executeGuiModeTerminal } from "../../gui-mode/bridge";
+import { executeGuiModeTerminal, cancelGuiModeTerminal } from "../../gui-mode/bridge";
+
+import { GuiModeTerminalComposer, type TerminalCommandResult } from "../../gui-mode/GuiModeTerminalComposer";
 
 import { useSessionSubmission } from "./useSessionSubmission";
 
@@ -297,9 +299,10 @@ function SessionSurface({
   const isGuiMode = state.context?.renderer === "guiMode";
   const guiModeContext = state.context?.guiMode ?? {};
   const [composerMode, setComposerMode] = useState<"chat" | "terminal">("chat");
-  const [terminalCommandStatus, setTerminalCommandStatus] = useState("");
+  const [terminalInput, setTerminalInput] = useState("");
+  const [terminalResult, setTerminalResult] = useState<TerminalCommandResult | null>(null);
+  const isTerminalMode = isGuiMode && composerMode === "terminal";
   const [terminalCommandPending, setTerminalCommandPending] = useState(false);
-  const terminalPanelId = useRef<string | undefined>(undefined);
   const terminalRequestId = useRef<string | undefined>(undefined);
   const [guiModelId, setGuiModelId] = useState(guiModeContext.selectedModelId ?? "gpt-6-astra");
   const [guiReasoningEffort, setGuiReasoningEffort] = useState(
@@ -343,8 +346,8 @@ function SessionSurface({
     })) autoSubmittedGuiPrompt.current = prompt;
   }, [state, submission, guiModelId, guiReasoningEffort]);
   const canSend = isGuiMode && composerMode === "terminal"
-    ? state.input.trim().length > 0 && !terminalCommandPending
-    : submission.canSubmit && (state.input.length > 0 || attachments.length > 0);
+    ? terminalInput.trim().length > 0 && !terminalCommandPending
+    : !terminalCommandPending && submission.canSubmit && (state.input.length > 0 || attachments.length > 0);
   const autoStartAlreadyAttempted = provider ? state.autoStartAttemptedProviderIds.includes(provider.id) : false;
   const showStart = canStart && (provider?.autoStart !== true || autoStartAlreadyAttempted);
   const canConfigurePermissions = provider?.id === "codex";
@@ -357,9 +360,9 @@ function SessionSurface({
   const isAutoContextOn = autoContextSetting ?? (workspaceContextItem != null);
   const shouldShowIdeContextIndicator = workspaceContextItem != null && isAutoContextOn;
   const composerLayout = useMeasuredComposerLayout(state.input, attachments.length > 0);
-  // GUI Mode keeps the editor in the Codex multiline layout so long prompts
-  // grow naturally instead of being clipped by the footer controls.
-  const isSingleLineComposer = !isGuiMode && composerLayout.isSingleLine;
+  const isSingleLineComposer = isGuiMode
+    ? composerMode === "terminal"
+    : composerLayout.isSingleLine;
   const footerCollapse = useMeasuredFooterControlCollapse([
     {
       canHideLabel: reasoningEffortLabel != null,
@@ -379,6 +382,9 @@ function SessionSurface({
     ? { hideControl: false, hideLabel: false }
     : (footerCollapse.state["ide-context"] ?? { hideControl: false, hideLabel: false });
   const editorRef = useRef<PromptEditorHandle | null>(null);
+  useLayoutEffect(() => {
+    if (isGuiMode) editorRef.current?.focus();
+  }, [composerMode, isGuiMode]);
   const [menuKind, setMenuKind] = useState<ComposerMenuKind>(null);
   const [menuQuery, setMenuQuery] = useState("");
   const [menuIndex, setMenuIndex] = useState(0);
@@ -391,27 +397,27 @@ function SessionSurface({
   const menuItems = menuKind ? composerMenuItems(menuKind, state, menuQuery) : [];
   const highlightedMenuIndex = menuItems.length === 0 ? -1 : Math.min(menuIndex, menuItems.length - 1);
   const submit = () => {
-    const currentInput = editorRef.current?.getText() ?? state.input;
+    const currentInput = editorRef.current?.getText() ?? (isTerminalMode ? terminalInput : state.input);
     if (isGuiMode && composerMode === "terminal") {
       const command = currentInput.trim();
-      if (command.length === 0 || terminalCommandPending) return;
+      if (command.length === 0 || terminalRequestId.current) return;
       setTerminalCommandPending(true);
-      setTerminalCommandStatus(command);
-      const requestId = terminalRequestId.current ?? makeClientId();
+      setTerminalResult(null);
+      const requestId = makeClientId();
       terminalRequestId.current = requestId;
-      void executeGuiModeTerminal(command, requestId, terminalPanelId.current).then((result) => {
-        terminalPanelId.current = result.panelId;
+      void executeGuiModeTerminal(command, requestId).then((result) => {
+        dispatch({ type: "event", event: { type: "app.workingDirectory", workingDirectory: result.workingDirectory, gitBranch: result.gitBranch } });
+        setTerminalResult({ command, output: result.output, exitCode: result.exitCode });
+        if (result.exitCode === 0) setTerminalInput((current) => current === currentInput ? "" : current);
+      }).catch(() => {
+        setTerminalResult({ command, output: guiModeContext.copy?.terminalErrorMessage ?? state.context?.copy.requestFailed ?? "", exitCode: 1 });
+      }).finally(() => {
         terminalRequestId.current = undefined;
-        dispatch({ type: "setInput", input: "" });
-      }).catch((error) => {
-        dispatch({ type: "failed", message: messageForError(error, state) });
-        if (!(error instanceof NativeBridgeError && error.code === "timeout")) {
-          terminalRequestId.current = undefined;
-        }
-      }).finally(() => setTerminalCommandPending(false));
+        setTerminalCommandPending(false);
+      });
       return;
     }
-    const canSubmit = submission.canSubmit && (currentInput.length > 0 || attachments.length > 0);
+    const canSubmit = !terminalRequestId.current && submission.canSubmit && (currentInput.length > 0 || attachments.length > 0);
     if (!canSubmit) {
       return;
     }
@@ -680,19 +686,20 @@ function SessionSurface({
       : "text-base [&_.ProseMirror]:leading-5",
     minHeight: isSingleLineComposer ? "1.25rem" : "2.75rem",
     singleLine: isSingleLineComposer,
-    value: state.input,
+    value: isTerminalMode ? terminalInput : state.input,
     ariaLabel: isGuiMode && composerMode === "terminal"
       ? guiModeContext.copy?.terminalPlaceholder ?? "Run a terminal command"
       : state.context?.copy.promptPlaceholder ?? "",
     placeholder: isGuiMode && composerMode === "terminal"
       ? guiModeContext.copy?.terminalPlaceholder ?? "Run a terminal command"
       : state.context?.copy.promptPlaceholder ?? "",
-    onAutocompleteChange: updateComposerAutocomplete,
-    onAutocompleteKeyDown: handleComposerAutocompleteKey,
-    onPlanModeShortcut: togglePlanMode,
-    onTextChange: (input: string) => dispatch({ type: "setInput", input }),
+    onAutocompleteChange: isTerminalMode ? undefined : updateComposerAutocomplete,
+    onAutocompleteKeyDown: isTerminalMode ? undefined : handleComposerAutocompleteKey,
+    onPlanModeShortcut: isTerminalMode ? undefined : togglePlanMode,
+    onTextChange: (input: string) => isTerminalMode ? setTerminalInput(input) : dispatch({ type: "setInput", input }),
     onSubmit: submit,
     onTriggerToken: (token: "@" | "$") => {
+      if (isTerminalMode) return;
       setMenuKind(token === "@" ? "mention" : "skill");
       setMenuQuery("");
       setMenuIndex(0);
@@ -920,32 +927,34 @@ function SessionSurface({
           ),
         ),
       );
-  const composerControls = h(
-    "div",
-    { className: CODEX_COMPOSER_INNER },
-    isGuiMode
-      ? h(GuiModeModeToggle, {
-          context: guiModeContext,
-          mode: composerMode,
-          onChange: (nextMode: "chat" | "terminal") => {
-            setComposerMode(nextMode);
-            setTerminalCommandStatus("");
-            editorRef.current?.focus();
-          },
-        })
-      : null,
-    composerControlsContent,
-    isGuiMode && terminalCommandStatus
-      ? h("div", { className: "gui-mode-agent-terminal-status", role: "status" }, terminalCommandStatus)
-      : null,
-  );
+  const changeComposerMode = (nextMode: "chat" | "terminal") => {
+    setComposerMode(nextMode);
+    setMenuKind(null);
+    setProviderMenuOpen(false);
+    setAddContextMenuOpen(false);
+    setPermissionsMenuOpen(false);
+    editorRef.current?.focus();
+  };
+  const composerControls = isTerminalMode
+    ? h(GuiModeTerminalComposer, {
+        context: guiModeContext, copy: state.context?.copy, editor: composerInputWrapper,
+        pending: terminalCommandPending, canSend, result: terminalResult,
+        onModeChange: changeComposerMode, onSubmit: submit,
+        onCancel: () => {
+          if (terminalRequestId.current) void cancelGuiModeTerminal(terminalRequestId.current).catch(() => {});
+        },
+      })
+    : h("div", { className: CODEX_COMPOSER_INNER },
+        isGuiMode ? h(GuiModeModeToggle, { context: guiModeContext, mode: composerMode, onChange: changeComposerMode }) : null,
+        composerControlsContent,
+      );
   const showPlanSuggestion =
-    !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
+    !isTerminalMode && !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
   const isGuiThinking = isGuiMode && (submission.isPending || state.isTurnActive === true);
 
   return h(
     "section",
-    { className: `agent-shell${isGuiMode ? " gui-mode-agent-shell" : ""}`, "data-codex-window-type": "electron" },
+    { className: `agent-shell${isGuiMode ? " gui-mode-agent-shell" : ""}`, "data-codex-window-type": "electron", "data-composer-mode": composerMode },
     isGuiMode && state.transcript.length === 0
       ? h(GuiModeWelcome, { context: guiModeContext })
       : h(TranscriptThread, {
@@ -998,15 +1007,15 @@ function SessionSurface({
               {
                 className:
                   CODEX_COMPOSER_SURFACE + " " +
-                  (isSingleLineComposer ? "overflow-visible rounded-full" : isGuiMode ? "overflow-visible rounded-3xl" : "overflow-y-auto rounded-3xl"),
+                  (isTerminalMode ? "gui-terminal-surface" : isSingleLineComposer ? "overflow-visible rounded-full" : isGuiMode ? "overflow-visible rounded-3xl" : "overflow-y-auto rounded-3xl"),
               },
               composerControls,
             ),
           ),
         ),
-        isGuiMode ? h(GuiModeContextStrip, { context: guiModeContext }) : null,
+        isGuiMode && !isTerminalMode ? h(GuiModeContextStrip, { context: guiModeContext }) : null,
       ),
-      h(RateLimitFooter, { state, providerDisplayName: provider?.displayName ?? renderer }),
+      !isTerminalMode ? h(RateLimitFooter, { state, providerDisplayName: provider?.displayName ?? renderer }) : null,
     ),
   );
 }

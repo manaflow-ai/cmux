@@ -11,6 +11,32 @@ import Testing
 @MainActor
 struct AgentSessionRuntimeTests {
     @Test
+    func changedDirectoryIsSentOnTheNextCodexTurnWithoutReplacingTheThread() async throws {
+        let (requests, continuation) = AsyncStream<String>.makeStream()
+        let session = CodexAppServerSession(
+            workingDirectory: "/tmp/initial",
+            writeData: { continuation.yield(String(decoding: $0, as: UTF8.self)) },
+            outputSink: { _, _ in }
+        )
+        defer { continuation.finish() }
+        var iterator = requests.makeAsyncIterator()
+        try await session.start()
+        _ = await iterator.next()
+        session.consumeStdout(#"{"id":1,"result":{}}"# + "\n")
+        _ = await iterator.next()
+        _ = await iterator.next()
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"same-thread"}}}"# + "\n")
+        session.updateWorkingDirectory("/tmp/Project One")
+        try await session.submit("pwd")
+        let line = try #require(await iterator.next())
+        let request = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(request["method"] as? String == "turn/start")
+        #expect(params["threadId"] as? String == "same-thread")
+        #expect(params["cwd"] as? String == "/tmp/Project One")
+    }
+
+    @Test
     func commentaryCompletionKeepsTheTurnActiveThroughTools() async throws {
         var completions = 0
         let session = CodexAppServerSession(

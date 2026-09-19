@@ -6,8 +6,8 @@ struct AgentSessionLaunchPlan: Equatable, Sendable {
     let arguments: [String]
     let environment: [String: String]
 
-    func environment(overridingWorkingDirectory workingDirectory: String?) -> [String: String] {
-        var launchEnvironment = environment
+    func environment(overridingWorkingDirectory workingDirectory: String?, overrides: [String: String] = [:]) -> [String: String] {
+        var launchEnvironment = environment.merging(overrides) { _, value in value }
         if provider == .opencode,
            launchEnvironment["OPENCODE_SERVER_PASSWORD"]?.isEmpty != false {
             launchEnvironment["OPENCODE_SERVER_USERNAME"] = launchEnvironment["OPENCODE_SERVER_USERNAME"].flatMap { value in
