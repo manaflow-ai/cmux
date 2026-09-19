@@ -204,10 +204,10 @@
     <span class="spacer"></span>
     <span id="usage" class="usage"></span>
     <span class="acts">
-      <button id="btn-cancel" title="Cancel the running turn">Cancel</button>
-      <button id="btn-fork" title="Fork this session with its history">Fork</button>
-      <button id="btn-rename" title="Rename">Rename</button>
-      <button id="btn-kill" title="Stop the agent; the log stays">Stop</button>
+      <button id="btn-cancel" hidden title="Cancel the running turn">Cancel</button>
+      <button id="btn-fork" hidden title="Fork this session with its history">Fork</button>
+      <button id="btn-rename" hidden title="Rename">Rename</button>
+      <button id="btn-kill" hidden title="Stop the agent; the log stays">Stop</button>
       <button id="toggle-side" hidden>Sessions</button>
     </span>
   </div>
@@ -552,6 +552,7 @@
     const stEl = $('#status'); stEl.textContent = st === 'waiting' || (s && s.pendingPermissions > 0) ? 'needs permission' : (st === 'disconnected' || st === 'unreachable' || st === 'closed') ? st : ''; stEl.className = 'st' + (st === 'disconnected' || st === 'unreachable' ? ' bad' : '');
     $('#usage').textContent = t && t.usage && t.usage.size ? Math.round(t.usage.used / 1000) + 'k / ' + Math.round(t.usage.size / 1000) + 'k' : (t && t.usage ? Math.round(t.usage.used / 1000) + 'k tokens' : '');
     $('#btn-steer').hidden = !(st === 'running');
+    for (const id of ['btn-cancel', 'btn-fork', 'btn-rename', 'btn-kill']) $('#' + id).hidden = !s;
     // Policy chip.
     const policy = (s && s.policy) || 'ask'; $('#policy').value = policy; $('#policy-label').textContent = policyLabel(policy); $('#chip-policy').classList.toggle('warm', policy === 'approve-all');
     // Mode chip: only when the harness has more than one mode and it is not the plain default.
@@ -582,6 +583,7 @@
   function renderDraftBar() {
     $('#proj').textContent = draft.cwd ? projectOf(draft.cwd) : ''; $('#sep').hidden = !draft.cwd; $('#title').textContent = 'New session';
     $('#status').textContent = ''; $('#usage').textContent = ''; $('#btn-steer').hidden = true;
+    for (const id of ['btn-cancel', 'btn-fork', 'btn-rename', 'btn-kill']) $('#' + id).hidden = true;
     $('#policy').value = draft.policy; $('#policy-label').textContent = policyLabel(draft.policy); $('#chip-policy').classList.toggle('warm', draft.policy === 'approve-all');
     $('#chip-mode').hidden = true; $('#chip-effort').hidden = true;
     const sel = $('#model'); sel.innerHTML = '';
