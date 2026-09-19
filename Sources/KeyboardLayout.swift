@@ -61,6 +61,31 @@ class KeyboardLayout {
         return nil
     }
 
+    /// Returns whether the key starts a dead-key composition in the active layout.
+    /// This deliberately ignores the Option-as-Alt translation used by Ghostty:
+    /// AppKit must see the original event so the composition can be completed.
+    static func isDeadKey(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+            return false
+        }
+        let layoutData = unsafeBitCast(layoutDataPointer, to: CFData.self)
+        guard let bytes = CFDataGetBytePtr(layoutData) else { return false }
+        let keyboardLayout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        var deadKeyState: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var length = 0
+        let status = UCKeyTranslate(
+            keyboardLayout, keyCode, UInt16(kUCKeyActionDisplay),
+            translationModifierKeyState(for: modifierFlags, mode: .textInput),
+            UInt32(LMGetKbdType()), 0, &deadKeyState, chars.count, &length, &chars
+        )
+        return status == noErr && deadKeyState != 0
+    }
+
     /// Translate a physical keyCode using the current input source exactly as
     /// text input would, including Option/Shift and without ASCII fallback.
     static func textInputCharacter(
