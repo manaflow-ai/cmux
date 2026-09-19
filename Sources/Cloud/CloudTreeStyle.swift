@@ -205,3 +205,135 @@ enum CloudTreeStyleStore {
         }
     }
 }
+
+/// Runtime geometry knobs used by the DEBUG Cloud sidebar lab. Keeping these
+/// values in one store lets the lab tune the same row and outline metrics used
+/// by the live sidebar, without forking a second renderer for the preview.
+struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
+    var referenceInset: Double = 12
+    var disclosureSlot: Double = 16
+    var disclosureGap: Double = 4
+    var dotSlot: Double = 10
+    var dotGap: Double = 8
+    var detailGap: Double = 6
+    var trailingGap: Double = 10
+    var machineLineSpacing: Double = 1
+    var rowHeight: Double = 24
+    var indentPerLevel: Double = 10
+    var iconSlot: Double = 16
+    var iconGap: Double = 7
+    var machineVerticalPadding: Double = 3
+
+    static let `default` = Self()
+}
+
+enum CloudSidebarDebugSettings {
+    static let defaultsKey = "cloudTree.debugMetrics"
+    static let didChangeNotification = Notification.Name("cmux.cloudTree.debugMetricsDidChange")
+
+    private static let defaults = UserDefaults.standard
+
+    static var metrics: CloudSidebarDebugMetrics {
+#if DEBUG
+        guard let data = defaults.data(forKey: defaultsKey),
+              let value = try? JSONDecoder().decode(CloudSidebarDebugMetrics.self, from: data) else {
+            return .default
+        }
+        return value
+#else
+        return .default
+#endif
+    }
+
+    static func update(_ metrics: CloudSidebarDebugMetrics) {
+#if DEBUG
+        if let data = try? JSONEncoder().encode(metrics) {
+            defaults.set(data, forKey: defaultsKey)
+        }
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+#else
+        _ = metrics
+#endif
+    }
+
+    static func reset() {
+#if DEBUG
+        defaults.removeObject(forKey: defaultsKey)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+#endif
+    }
+
+    static func apply(_ metrics: CloudSidebarDebugMetrics) {
+        update(metrics)
+    }
+
+    static func copyPayload(_ metrics: CloudSidebarDebugMetrics? = nil) -> String {
+        let metrics = metrics ?? Self.metrics
+        return """
+        cloudTreeStyle=\(CloudTreeStyleStore.current.id)
+        referenceInset=\(metrics.referenceInset)
+        disclosureSlot=\(metrics.disclosureSlot)
+        disclosureGap=\(metrics.disclosureGap)
+        dotSlot=\(metrics.dotSlot)
+        dotGap=\(metrics.dotGap)
+        detailGap=\(metrics.detailGap)
+        trailingGap=\(metrics.trailingGap)
+        machineLineSpacing=\(metrics.machineLineSpacing)
+        rowHeight=\(metrics.rowHeight)
+        indentPerLevel=\(metrics.indentPerLevel)
+        iconSlot=\(metrics.iconSlot)
+        iconGap=\(metrics.iconGap)
+        machineVerticalPadding=\(metrics.machineVerticalPadding)
+        """
+    }
+
+    static func resolvedStyle(
+        _ base: CloudTreeStyle,
+        metrics: CloudSidebarDebugMetrics? = nil
+    ) -> CloudTreeStyle {
+#if !DEBUG
+        return base
+#else
+        let metrics = metrics ?? Self.metrics
+        CloudTreeStyle(
+            id: base.id + ".debug." + [
+                metrics.referenceInset,
+                metrics.disclosureSlot,
+                metrics.disclosureGap,
+                metrics.dotSlot,
+                metrics.dotGap,
+                metrics.detailGap,
+                metrics.trailingGap,
+                metrics.machineLineSpacing,
+                metrics.rowHeight,
+                metrics.indentPerLevel,
+                metrics.iconSlot,
+                metrics.iconGap,
+                metrics.machineVerticalPadding
+            ].map { String($0) }.joined(separator: "-"),
+            name: base.name,
+            rowHeight: CGFloat(metrics.rowHeight),
+            machineRowLayout: base.machineRowLayout,
+            leafLayout: base.leafLayout,
+            iconTreatment: base.iconTreatment,
+            groupLabelStyle: base.groupLabelStyle,
+            metaPlacement: base.metaPlacement,
+            machineBand: base.machineBand,
+            monospacedText: base.monospacedText,
+            rowSeparators: base.rowSeparators,
+            indentPerLevel: CGFloat(metrics.indentPerLevel),
+            machineNameSize: base.machineNameSize,
+            titleSize: base.titleSize,
+            detailSize: base.detailSize,
+            groupLabelSize: base.groupLabelSize,
+            iconSize: base.iconSize,
+            iconSlot: CGFloat(metrics.iconSlot),
+            iconGap: CGFloat(metrics.iconGap),
+            showsGroupCounts: base.showsGroupCounts,
+            showsViewBadges: base.showsViewBadges,
+            showsMachineStats: base.showsMachineStats,
+            machineVerticalPadding: CGFloat(metrics.machineVerticalPadding)
+        )
+#endif
+    }
+}

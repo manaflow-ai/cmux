@@ -663,6 +663,9 @@ struct cmuxApp: App {
                     Button("Cloud Tree Style Gallery…") {
                         CloudTreeStyleGalleryWindowController.shared.show()
                     }
+                    Button("Cloud Sidebar Spacing Lab…") {
+                        CloudSidebarDebugLabWindowController.shared.show()
+                    }
                     Menu("Cloud Terminal Error Style") {
                         Button("Preview in Selected Terminal") {
                             guard let workspace = activeTabManager.selectedWorkspace,
@@ -1608,6 +1611,7 @@ struct cmuxApp: App {
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
+        CloudSidebarDebugLabWindowController.shared.show()
         PDFPreviewChromeDebugWindowController.shared.show()
         FeedPreviewWindowController.shared.show()
         FeedTextEditorDebugWindowController.shared.show()
@@ -1876,6 +1880,9 @@ private struct DebugWindowControlsView: View {
                         Button("Menu Bar Extra Debug…") {
                             MenuBarExtraDebugWindowController.shared.show()
                         }
+                        Button("Cloud Sidebar Spacing Lab…") {
+                            CloudSidebarDebugLabWindowController.shared.show()
+                        }
                         Button(
                             String(
                                 localized: "debug.menu.pdfPreviewChromeDebug",
@@ -1912,6 +1919,7 @@ private struct DebugWindowControlsView: View {
                             BonsplitTabBarDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
                             MenuBarExtraDebugWindowController.shared.show()
+                            CloudSidebarDebugLabWindowController.shared.show()
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()
