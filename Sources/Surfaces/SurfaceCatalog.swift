@@ -42,7 +42,8 @@ final class SurfaceCatalog {
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     private var cloudProjectionIndex = Set<CloudProjectionKey>()
     private var cloudProjectionIndexDirty = true
-    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true } }
+    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true; noteProjectionChanges(from: oldValue) } }
+    var projectionVersions: [SurfaceMachineID: UInt64] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
     private(set) var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
@@ -84,7 +85,7 @@ final class SurfaceCatalog {
     private let maximumTrackedMaterializations: Int
     private let materializationClock: any Clock<Duration>
     private var projectionEndReasons: [UUID: SurfaceProjectionEndReason] = [:]
-    private var pendingRestoredProjections = SurfaceProjectionRestoreStore()
+    var pendingRestoredProjections = SurfaceProjectionRestoreStore()
 
     /// Focus/select behavior the app uses to bring an existing projection forward.
     var focusProjection: ((SurfaceProjection) -> Void)?
@@ -198,6 +199,7 @@ final class SurfaceCatalog {
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
+        projectionVersions[machine] = nil
         notifyChange()
     }
 
@@ -580,6 +582,7 @@ final class SurfaceCatalog {
     /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
     func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+        try validateOwnership(of: [id], at: destination)
         let scope = beginProjectionMutation(for: [id])
         defer { endProjectionMutation(scope) }
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
@@ -716,6 +719,7 @@ final class SurfaceCatalog {
             trackMaterialization(token, for: provider)
             let task = Task { @MainActor [weak self] in
                 do {
+                    try self?.validateOwnership(of: [id], at: destination)
                     let projection = try await provider.materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
                     self?.finishInFlightProject(key, token: token, provider: provider, result: .success(projection))
                 } catch {
@@ -1211,9 +1215,6 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
-    func projections(of id: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == id }.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
-    }
 
     /// Resolves an agent-provided remote placement against the latest accepted
     /// graph. A workspace id alone is valid only when it identifies one view;
@@ -1252,10 +1253,6 @@ final class SurfaceCatalog {
             throw SurfaceCatalogError.unavailable(id, reason: "remote workspace \(workspaceID) has no view of this resource")
         }
         return view
-    }
-
-    func projection(forPanel panelID: UUID) -> SurfaceProjection? {
-        projections.first { $0.panelID == panelID }
     }
 
     /// Returns whether the panel is backed by a non-local resource projection.

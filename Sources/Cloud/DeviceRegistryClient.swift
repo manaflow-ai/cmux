@@ -9,10 +9,9 @@ import Foundation
 /// Event-driven: it observes ``MobileHostService/statusUpdates()`` and registers
 /// whenever the advertised route set changes (e.g. the Mac moved networks or
 /// rebound to a different port), which is exactly the freshness the phone needs.
-/// Gating falls out of the routes: ``MobileHostService`` advertises no routes
-/// until the user has enabled mobile pairing, so an empty route set is never
-/// registered. There is no separate opt-in flag — the registry is core to the
-/// pairing the user already turned on, not a distinct privacy surface.
+/// The explicit iOS pairing setting gates both route publication and the
+/// registry request, so a stale status callback cannot re-register a disabled
+/// Mac.
 ///
 /// Best-effort and non-blocking, mirroring ``PhonePushClient``: a registry
 /// outage never disturbs the Mac, and pairing still works through the phone's
@@ -25,6 +24,7 @@ final class DeviceRegistryClient {
     private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
+    private var defaultsObserver: NSObjectProtocol?
     /// The scope (team + tag + routes) most recently registered, used to skip
     /// redundant POSTs. Keyed on the full scope rather than routes alone so an
     /// account/team switch with unchanged routes still re-registers in the newly
@@ -44,7 +44,18 @@ final class DeviceRegistryClient {
     /// once at the composition root (after `auth` is constructed).
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        startObserving()
+        if defaultsObserver == nil {
+            defaultsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.evaluate()
+                }
+            }
+        }
+        evaluate()
     }
 
     /// Whether a registration with `current` scope differs from what was last
@@ -54,26 +65,25 @@ final class DeviceRegistryClient {
     ///
     /// Fires (returns `true`) when the team, tag, or routes differ from the last
     /// registration. The team is part of the key so an account/team switch with
-    /// unchanged routes still registers in the new team. The routes-empty
-    /// transition (the user turned mobile pairing off) also fires once, so the
-    /// registry stops advertising stale routes; the phone already skips
-    /// empty-route instances. An unchanged scope (a connection-only
-    /// `statusUpdates()` tick) and the never-registered empty start (`nil`
-    /// previous with empty routes) are both no-ops, so the off-state is published
-    /// exactly once rather than on every empty tick.
+    /// unchanged routes still registers in the new team. An unchanged scope (a
+    /// connection-only `statusUpdates()` tick) and the never-registered empty
+    /// start (`nil` previous with empty routes) are both no-ops. Pairing opt-out
+    /// cancels observation before registering a clearing POST; the registry's
+    /// missed-heartbeat/expiry path handles any stale server projection without
+    /// making a backend request while iOS pairing is off.
     nonisolated static func shouldReRegister(
         previous: Registration?,
         current: Registration
     ) -> Bool {
         // Treat "never registered" as an empty-routes baseline in the same scope
-        // so an initial empty set (pairing off at launch) is a no-op, but a later
-        // clear, or any team/tag change, still fires.
+        // so an initial empty set is a no-op, but a later clear while pairing
+        // remains enabled, or any team/tag change, still fires.
         let baseline = previous ?? Registration(teamID: current.teamID, tag: current.tag, routes: [])
         return baseline != current
     }
 
     private func startObserving() {
-        observeTask?.cancel()
+        guard observeTask == nil else { return }
         // Registration is currently driven only by host-route changes. The dedup
         // key includes the team, so a team switch *does* re-register once the
         // next status tick arrives, but a mid-session team switch with otherwise
@@ -87,9 +97,25 @@ final class DeviceRegistryClient {
         }
     }
 
+    private func evaluate() {
+        guard MobileHostService.isListeningEnabled else {
+            observeTask?.cancel()
+            observeTask = nil
+            lastRegistration = nil
+            return
+        }
+        startObserving()
+    }
+
     private func registerIfRoutesChanged(routes: [CmxAttachRoute]) async {
         // Status, route, and foreground events share this gate. Cached routes
         // remain valid while the server owns the next registration attempt.
+        guard MobileHostService.isListeningEnabled else {
+            // Forget the last accepted scope while pairing is off. Re-enabling
+            // must POST even when the endpoint identity and routes are reused.
+            lastRegistration = nil
+            return
+        }
         guard await retryAfterGate.remainingSeconds() == nil else { return }
         guard let auth else { return }
         // Await tokens FIRST: this both gates on "signed in" and waits for launch
@@ -104,6 +130,10 @@ final class DeviceRegistryClient {
             tokens = try await auth.currentTokens()
         } catch {
             return // not signed in → nothing to do
+        }
+        guard MobileHostService.isListeningEnabled else {
+            lastRegistration = nil
+            return
         }
         // Resolve the team AFTER bootstrap, and use that same scope for both the
         // dedup decision and the request header, so a team switch with unchanged

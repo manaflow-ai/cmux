@@ -115,8 +115,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
-            pending.transferRegistry.end(pending.registration)
-            SurfaceResourceDragRegistry.shared.discard(id: pending.dragID)
+            pending.registration.end()
         }
         private func discardAllPendingDrags(
             preserving preservedWriter: CloudTreeSurfaceDragPasteboardWriter? = nil
@@ -157,8 +156,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             supersededDragSequenceNumber = activeDragSequenceNumber
             if let activeDrag {
                 self.activeDrag = nil
-                activeDrag.transferRegistry.end(activeDrag.registration)
-                SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
+                activeDrag.end()
             }
             activeDragWriter?.releaseSourceGraph()
             activeDragWriter = nil
@@ -196,8 +194,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             if let activeDrag {
                 self.activeDrag = nil
-                activeDrag.transferRegistry.end(activeDrag.registration)
-                SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
+                activeDrag.end()
             }
             activeDragWriter?.releaseSourceGraph()
             activeDragWriter = nil
@@ -225,14 +222,26 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             outlineView.indentationPerLevel = style.indentPerLevel
             reloadDataAndRestoreState(in: outlineView)
         }
-
         /// Applies the latest catalog snapshot, coalescing updates during a native drag.
         func apply(nodes: [CloudTreeNode]) {
-            if isDragging {
+            apply(nodes: nodes, allowDuringNativeDrag: false)
+        }
+
+        /// Applies a snapshot immediately after a destination accepted a drop.
+        /// AppKit's source session may send `endedAt` later, but the destination
+        /// is complete and the user should see the new order now.
+        func applyOrganization(nodes: [CloudTreeNode]) {
+            deferredNodes = nil
+            apply(nodes: nodes, allowDuringNativeDrag: true)
+        }
+
+        private func apply(nodes: [CloudTreeNode], allowDuringNativeDrag: Bool) {
+            if isDragging && !allowDuringNativeDrag {
                 deferredNodes = nodes
                 return
             }
             let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
+            expansionStore.reconcile(nodes: nodes)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
             #if DEBUG
@@ -267,7 +276,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 restoreSelection(in: outlineView)
             }
         }
-
         /// Ends a native drag and drains the latest deferred snapshot exactly once.
         private func setDragging(_ dragging: Bool) {
             guard isDragging != dragging else { return }
@@ -335,7 +343,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         // MARK: NSOutlineViewDelegate
-
         /// Creates or reuses a cell for one immutable Cloud tree node.
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? CloudTreeNode else { return nil }
@@ -354,7 +361,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldSelectItem item: Any) -> Bool {
-            true
+            (item as? CloudTreeNode)?.kind.isSelectable == true
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -401,7 +408,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                   let node = outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode else { return }
             open(node)
         }
-
         /// One place decides what "open" means per row. Every surface row is
         /// `SurfaceCatalog.project` (focusing an open pane first); machine and
         /// group rows toggle. Creation is never an open side effect: the hover
@@ -416,7 +422,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup:
                 toggle(node)
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
@@ -479,6 +485,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     nodeActions.project(row.resource.id, .split, true)
                 }
+            case .resource:
+                break
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.opensMachine, let machine = machine(id: machineID) {
@@ -486,7 +494,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             }
         }
-
         private func openMachine(_ machine: MachineSnapshot) {
             if machine.freeAccess == .expired {
                 machineActions.promptUpgrade()
@@ -517,11 +524,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Keyboard
 
         func moveSelection(by delta: Int) {
-            guard let outlineView, outlineView.numberOfRows > 0 else { return }
+            guard let outlineView, outlineView.numberOfRows > 0, delta != 0 else { return }
             let current = outlineView.selectedRow >= 0 ? outlineView.selectedRow : (delta >= 0 ? -1 : outlineView.numberOfRows)
-            let target = min(max(current + delta, 0), outlineView.numberOfRows - 1)
-            outlineView.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
-            outlineView.scrollRowToVisible(target)
+            var target = current + delta
+            while (0..<outlineView.numberOfRows).contains(target) {
+                if let node = outlineView.item(atRow: target) as? CloudTreeNode, node.kind.isSelectable {
+                    outlineView.selectRowIndexes(IndexSet(integer: target), byExtendingSelection: false)
+                    outlineView.scrollRowToVisible(target)
+                    return
+                }
+                target += delta > 0 ? 1 : -1
+            }
         }
 
         func performDisclosure(_ action: RightSidebarKeyboardNavigation.DisclosureAction) {
@@ -552,7 +565,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !needle.isEmpty else { return }
             for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? CloudTreeNode else { continue }
+                guard let node = outlineView.item(atRow: row) as? CloudTreeNode, node.kind.isSelectable else { continue }
                 if node.searchableTitle.lowercased().contains(needle) {
                     outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
                     outlineView.scrollRowToVisible(row)
@@ -690,10 +703,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     openAction: { [weak self] in self?.open(node) },
                     portURL: url
                 )
-            case .browsersGroup:
+            case .browsersGroup, .portsGroup:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
-            case .portsGroup:
-                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
+            case .resourcesPool, .resource:
+                return []
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
@@ -749,10 +762,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             if resource.id.isForwardedPort, !isLocal {
-                // Copying a port URL does not start a forward. The browser's
-                // explicit Ports table owns local forwarding addresses.
+                // Copying the private URL never creates a forward.
                 items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
-                items.append(item(String(localized: "machines.menu.setupVPN", defaultValue: "Set Up cmux VPN…")) { [machineActions, window = outlineView?.window] in machineActions.setupVPN(window) })
             } else if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })
             } else if let port = resource.port, resource.kind == .browser {
@@ -797,7 +808,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             if let address = machine.privateAddress {
                 items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
             }
-            items.append(item(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")) { [window = outlineView?.window] in actions.setupVPN(window) })
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
             // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
             if machine.capabilities.snapshot {
@@ -843,37 +853,28 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         // MARK: Drag source
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            guard let node = item as? CloudTreeNode, node.isDragSource || node.canOrganize,
-                  let group = node.dragGroup, let lead = group.resources.first,
-                  let transferRegistry = tabDragTransferRegistry() else { return nil }
+            guard let node = item as? CloudTreeNode,
+                  let registration = CloudTreeDragRegistration(
+                    node: node, registry: node.isDragSource ? tabDragTransferRegistry() : nil
+                  ) else { return nil }
             // Do not mutate the outline while AppKit is asking for this
             // writer. The `willBeginAt` callback below is the next native
             // boundary and performs any superseded-source reclamation after
             // this data-source callback has returned.
-            let dragID = SurfaceResourceDragRegistry.shared.register(group)
-            guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: dragID)
-                .register(with: transferRegistry) else {
-                SurfaceResourceDragRegistry.shared.discard(id: dragID)
-                return nil
-            }
             let writer = CloudTreeSurfaceDragPasteboardWriter(
-                dragID: dragID,
                 registration: registration,
                 sourceView: outlineView,
                 coordinator: self,
-                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil,
-                exposesProjection: node.isDragSource
+                provisionalToken: dragWriterOwnership.makeToken(), nodeID: node.canOrganize ? node.id : nil
             )
             pendingDrags[writer.provisionalToken.id] = PendingDrag(
-                dragID: dragID,
                 registration: registration,
-                transferRegistry: transferRegistry,
                 sourceView: outlineView,
                 writer: writer
             )
             latestPendingDragWriter = writer
 #if DEBUG
-            cmuxDebugLog("surfaces.drag.begin drag=\(dragID.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) lead=\(lead)")
+            cmuxDebugLog("surfaces.drag.begin drag=\(registration.id.uuidString.prefix(5)) node=\(node.id)")
 #endif
             return writer
         }
@@ -928,11 +929,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             discardAllPendingDrags(preserving: pendingWriter)
             // The promoted registration was removed with the pending map;
             // retain it as the active session's sole capability.
-            activeDrag = ActiveDrag(
-                id: pending.dragID,
-                registration: pending.registration,
-                transferRegistry: pending.transferRegistry
-            )
+            activeDrag = pending.registration
             activeDragWriter = pendingWriter
             activeDragSession = session
             activeDragSourceView = outlineView as? CloudTreeNSOutlineView
@@ -1006,8 +1003,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 #endif
             // The registration is paired with the exact source that promoted
             // this session; do not consult a potentially rebuilt environment.
-            activeDrag.transferRegistry.end(activeDrag.registration)
-            SurfaceResourceDragRegistry.shared.discard(id: activeDrag.id)
+            activeDrag.end()
             self.activeDrag = nil
         }
     }
@@ -1048,7 +1044,7 @@ final class CloudTreeContainerView: NSView {
         outlineView.target = coordinator
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
-        outlineView.registerForDraggedTypes([.cloudSidebarRow])
+        outlineView.registerForDraggedTypes([.cloudSidebarRow, DragOverlayRoutingPolicy.bonsplitTabTransferType])
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
         outlineView.onDisclosure = { [weak coordinator] action in coordinator?.performDisclosure(action) }

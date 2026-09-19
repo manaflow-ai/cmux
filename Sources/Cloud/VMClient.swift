@@ -43,10 +43,10 @@ func formattedCloudVMHTTPError(status: Int, body: String) -> String {
             Cloud VM request failed (HTTP \(status)).
 
             What to do:
-              Retry the command. If it keeps failing, copy the response body and contact support.
+              Retry the command. If it keeps failing, copy the HTTP status and contact support.
 
             Response body:
-              \(limitedSingleLine(trimmedBody.isEmpty ? "<empty>" : trimmedBody))
+              <unreadable response omitted>
             """
     }
 
@@ -58,7 +58,7 @@ func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         ?? defaultCloudVMMessage(status: status)
     let displayMessage = cloudVMString(ui?["message"]) ?? message
     let action = cloudVMString(object["action"])
-        ?? defaultCloudVMAction(status: status, errorCode: errorCode)
+        ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
@@ -117,7 +117,7 @@ private func defaultCloudVMMessage(status: Int) -> String {
     }
 }
 
-func defaultCloudVMAction(status: Int, errorCode: String) -> String {
+func defaultCloudVMAction(status: Int, errorCode: String, response: [String: Any] = [:]) -> String {
     switch errorCode {
     case "vm_active_limit_exceeded":
         return "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before retrying."
@@ -130,6 +130,21 @@ func defaultCloudVMAction(status: Int, errorCode: String) -> String {
             localized: "cloudVM.error.requiresPro.action",
             defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
+    case "vm_memory_requires_plan":
+        let details = response["details"] as? [String: Any]
+        let planId = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) ?? "max"
+        let plan: CheckoutPlan = planId == CheckoutPlan.pro.rawValue ? .pro : .max
+        let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
+        if plan == .pro {
+            return String(format: String(
+                localized: "cloudVM.error.memoryRequiresPlan.proAction",
+                defaultValue: "Larger machines need cmux Pro. Upgrade at %@, or choose a smaller machine."
+            ), checkout.absoluteString)
+        }
+        return String(format: String(
+            localized: "cloudVM.error.memoryRequiresPlan.action",
+            defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
+        ), checkout.absoluteString)
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:
@@ -303,6 +318,14 @@ struct VMPlanLimits {
     var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
+    /// Ladder sizes the plan cannot start (`[32768, 65536]` on Pro, `[]` on
+    /// Max); nil when the control plane predates the field and the client
+    /// mirror decides.
+    var lockedMemoryOptionsMb: [Int]? = nil
+    /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
+    var memoryUpgradePlanId: String? = nil
+    var memoryUpgradePlansByMb: [String: String]? = nil
+    var activeVmCount: Int? = nil
     /// The kinds the default provider can serve and the image each resolves to;
     /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
@@ -311,27 +334,6 @@ struct VMPlanLimits {
 struct VMListPage {
     let vms: [VMSummary]
     let limits: VMPlanLimits?
-}
-
-/// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
-/// Sleeping machines are never woken for a reading: they come back `asleep` with
-/// only their provisioned memory.
-struct VMStats: Equatable {
-    enum State: String, Equatable {
-        case awake
-        case asleep
-        case unknown
-    }
-
-    let state: State
-    let sampledAt: Date
-    let cpus: Int?
-    let cpuPercent: Double?
-    let loadAverage1m: Double?
-    let memoryTotalMb: Int?
-    let memoryUsedMb: Int?
-    let diskTotalMb: Int?
-    let diskUsedMb: Int?
 }
 
 struct VMBaseSummary {
@@ -572,6 +574,14 @@ struct VMSnapshotSummary: Sendable, Equatable {
     let createdAt: String
 }
 
+struct VMSCPEndpoint: Sendable {
+    let host: String
+    let port: Int
+    let username: String
+    let hostPublicKey: String
+    let expiresAtUnix: Int
+}
+
 struct VMSSHEndpoint {
     let transport: String
     let host: String
@@ -798,6 +808,11 @@ actor VMClient {
                     freeAccessWindowDays: freeAccessWindowDays,
                     freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
                     memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                    lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
+                    memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
+                        .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                    memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    activeVmCount: rawLimits["activeVmCount"] as? Int,
                     imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
                 )
             }
@@ -1180,6 +1195,22 @@ actor VMClient {
 
     /// Creates a machine. `kind` asks the backend for its desktop or shell image;
     /// `image` is the explicit override (`vm new --image`) and wins server-side.
+    /// Creates a payment confirmation URL for the signed-in app account.
+    func billingCheckout(plan: String) async throws -> [String: Any] {
+        let (data, http) = try await request("POST", path: "/api/billing/checkout", jsonBody: [
+            "plan": plan
+        ])
+        try ensureOK(http, data: data)
+        let result = try decodeJSONObject(data)
+        guard let rawURL = result["url"] as? String,
+              let url = URL(string: rawURL),
+              url.scheme == "https",
+              url.host?.isEmpty == false else {
+            throw VMClientError.malformedResponse("Checkout URL is missing. Open https://cmux.com/pricing.")
+        }
+        return result
+    }
+
     func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
@@ -1546,6 +1577,23 @@ actor VMClient {
         }
     }
 
+    func prepareSCP(id: String, publicKey: String) async throws -> VMSCPEndpoint {
+        try await withOperation(.open, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/scp-endpoint", jsonBody: ["publicKey": publicKey])
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let host = obj["host"] as? String, IPNetworkPrefix.isPrivateAddress(host),
+                  let port = obj["port"] as? Int, port == 22,
+                  let username = obj["username"] as? String, username == "cmux",
+                  let hostPublicKey = obj["hostPublicKey"] as? String,
+                  let expiresAtUnix = obj["expiresAtUnix"] as? Int else {
+                throw VMClientError.malformedResponse("Cloud SCP response was missing its private route or host key.")
+            }
+            return VMSCPEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey, expiresAtUnix: expiresAtUnix)
+        }
+    }
+
     func openAttach(
         id: String,
         requireDaemon: Bool = false,
@@ -1903,29 +1951,7 @@ actor VMClient {
             let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
-            let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-            func int(_ key: String) -> Int? {
-                if let v = obj[key] as? Int { return v }
-                if let v = obj[key] as? Double { return Int(v) }
-                return nil
-            }
-            func double(_ key: String) -> Double? {
-                if let v = obj[key] as? Double { return v }
-                if let v = obj[key] as? Int { return Double(v) }
-                return nil
-            }
-            let sampledAtMs = double("sampledAt") ?? Date().timeIntervalSince1970 * 1000
-            return VMStats(
-                state: state,
-                sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
-                cpus: int("cpus"),
-                cpuPercent: double("cpuPercent"),
-                loadAverage1m: double("loadAverage1m"),
-                memoryTotalMb: int("memoryTotalMb"),
-                memoryUsedMb: int("memoryUsedMb"),
-                diskTotalMb: int("diskTotalMb"),
-                diskUsedMb: int("diskUsedMb")
-            )
+            return VMStats(json: obj)
         }
     }
 
@@ -1946,26 +1972,7 @@ actor VMClient {
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
-            let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-            func int(_ key: String) -> Int? {
-                if let value = obj[key] as? Int { return value }
-                if let value = obj[key] as? Double { return Int(value) }
-                return nil
-            }
-            let sampledAtMs = (obj["sampledAt"] as? Double)
-                ?? (obj["sampledAt"] as? Int).map(Double.init)
-                ?? Date().timeIntervalSince1970 * 1000
-            return VMStats(
-                state: state,
-                sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
-                cpus: int("cpus"),
-                cpuPercent: int("cpuPercent").map(Double.init),
-                loadAverage1m: nil,
-                memoryTotalMb: int("memoryTotalMb"),
-                memoryUsedMb: int("memoryUsedMb"),
-                diskTotalMb: int("diskTotalMb"),
-                diskUsedMb: int("diskUsedMb")
-            )
+            return VMStats(json: obj)
         }
     }
 
@@ -1976,7 +1983,7 @@ actor VMClient {
                 "POST",
                 path: "/api/vm/\(encodedID)/open-port",
                 jsonBody: ["port": port],
-                timeoutSeconds: 60
+                timeoutSeconds: 120
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2304,6 +2311,18 @@ actor VMClient {
                 retriesLeft -= 1
                 onRetry()
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                continue
+            }
+            // The private gateway has not forwarded this request yet. Every
+            // verb is safe to retry while its tagged backend is starting.
+            if http.statusCode == 503, retriesLeft > 0,
+               resolved.host == "cmux-dev-backend-1.tail137216.ts.net",
+               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting" {
+                retriesLeft -= 1
+                onRetry()
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
+                    try await CmxRetryAfterPolicy.sleep(seconds: 2)
+                }
                 continue
             }
             if let sessionIdentity {
@@ -2638,10 +2657,7 @@ actor MachineUsageClient {
 
     func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
         return try await withOperation(.stats, foreground: false) {
-            let (data, http) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
-            guard (200...299).contains(http.statusCode) else {
-                throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
-            }
+            let (data, _) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
             return try Self.decodeTeamUsage(data)
         }
     }
@@ -2698,7 +2714,6 @@ actor MachineUsageClient {
         if let value = raw as? Double, value.isFinite { return Int(exactly: value.rounded(.towardZero)) }
         return nil
     }
-
     private nonisolated static func doubleValue(_ raw: Any?) -> Double? {
         if let value = raw as? Double, value.isFinite { return value }
         if let value = raw as? Int { return Double(value) }
@@ -2709,7 +2724,6 @@ actor MachineUsageClient {
     // Date.ISO8601FormatStyle is Sendable, so these can be nonisolated
     // constants; ISO8601DateFormatter is not and warned here.
     private nonisolated static let iso8601WithFractions = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-
     private nonisolated static let iso8601 = Date.ISO8601FormatStyle()
 
     /// `null`/absent is nil; an unparseable string is nil too, since the date
@@ -2752,22 +2766,27 @@ actor MachineUsageClient {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch let error as URLError {
-            switch error.code {
-            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
-                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
-                throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
-            default:
-                throw error
+        return try await CloudOperationContext.phase(.request) {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch let error as URLError {
+                switch error.code {
+                case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                    let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                    throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+                default:
+                    throw error
+                }
             }
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw MachineUsageClientError.malformedResponse("non-HTTP response")
-        }
+            guard let http = response as? HTTPURLResponse else {
+                throw MachineUsageClientError.malformedResponse("non-HTTP response")
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
         return (data, http)
     }
+}
 }

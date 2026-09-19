@@ -36,7 +36,7 @@ final class CloudTerminalCreationRequest {
         let data: Data
         do {
             data = try await runner.runTuiCommand(
-                arguments: ["--socket", socketPath, "--json", "session", "current", "creation", correlationKey, "resolve"],
+                arguments: CloudTuiRequest("session.creation.resolve", ["correlation_key": correlationKey]),
                 deadline: .seconds(30)
             )
         } catch {

@@ -7264,14 +7264,14 @@ struct ContentView: View {
         return snapshot
     }
 
-    /// Search keywords for the Tailscale pairing command palette entry.
+    /// Search keywords for the mobile pairing command palette entry.
     ///
     /// Kept as a single source of truth so the contribution and its behavioral
     /// test agree on what queries (e.g. `ios`, `ipados`) must surface the
     /// command. These are platform/technical terms that read the same across
     /// locales, so they are not localized.
     static let commandPaletteMobileConnectKeywords: [String] = [
-        "tailscale", "mobile", "connect", "pair", "pairing", "device",
+        "tailscale", "iroh", "mobile", "connect", "pair", "pairing", "device",
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
@@ -7620,20 +7620,13 @@ struct ContentView: View {
             CommandPaletteCommandContribution(
                 commandId: "palette.mobileConnect",
                 title: constant(
-                    String(localized: "command.mobileConnect.title", defaultValue: "Open Tailscale Pairing")
+                    String(localized: "command.mobileConnect.title", defaultValue: "Open Mobile Pairing")
                 ),
-                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")),
+                subtitle: constant(String(localized: "command.mobileConnect.subtitle", defaultValue: "Mobile")),
                 keywords: Self.commandPaletteMobileConnectKeywords,
                 when: { !$0.bool(CommandPaletteContextKeys.mobileRemoteControlManagedByPolicy) }
             )
         )
-        contributions.append(CommandPaletteCommandContribution(
-            commandId: "palette.cloudVPNSetup",
-            title: constant(String(localized: "machines.menu.privateNetwork", defaultValue: "Private Network Access…")),
-            subtitle: constant(String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")),
-            keywords: ["cloud", "vpn", "private", "network", "wireguard", "freestyle"],
-            when: { _ in CloudMachinesFeature.isEnabled }
-        ))
         contributions.append(contentsOf: Self.commandPaletteAuthCommandContributions() + Self.commandPaletteProCommandContributions())
         contributions.append(
             CommandPaletteCommandContribution(
@@ -8850,12 +8843,6 @@ struct ContentView: View {
                 preferredWindow: observedWindow,
                 enforceFeatureFlag: false,
                 debugSource: "palette.mobileConnect"
-            )
-        }
-        registry.register(commandId: "palette.cloudVPNSetup") {
-            _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(
-                preferredTabManager: tabManager,
-                preferredWindow: observedWindow
             )
         }
         registerAuthCommandHandlers(&registry)
@@ -11072,11 +11059,7 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
             defaults: defaults,
             sidebarFontSize: sidebarFontSize
         )
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshSnapshot()
             }
@@ -12407,10 +12390,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 guard let app = AppDelegate.shared else { return false }
                 switch action {
                 case .existingWorkspace(let workspaceId):
-                    if let source = app.locateBonsplitSurface(tabId: transfer.tab.id),
-                       source.workspaceId == workspaceId {
-                        return true
-                    }
                     return app.canMoveBonsplitTab(tabId: transfer.tab.id, toWorkspace: workspaceId)
                 case .newWorkspace:
                     return app.canMoveBonsplitTabToNewWorkspace(tabId: transfer.tab.id)
