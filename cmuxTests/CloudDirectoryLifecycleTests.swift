@@ -72,6 +72,38 @@ struct CloudDirectoryLifecycleTests {
         #expect(!text.contains("first"))
     }
 
+    @Test("An unconfirmed Cloud terminal withholds its requested cwd until the machine's state is current")
+    func unconfirmedCloudDirectoryIsWithheld() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        // A terminal the app just asked a machine for carries the requested
+        // directory, but no accepted state has confirmed it yet.
+        let unconfirmed = SurfaceMachineID.cloud("unconfirmed-machine")
+        let requested = SurfaceResourceID(machine: unconfirmed, kind: .terminal, key: "term_requested")
+        fixture.catalog.upsert(SurfaceResource(
+            id: requested, title: "", detail: "/srv/requested", lifecycle: .launching,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        ))
+        let local = SurfaceResourceID(machine: .local, kind: .terminal, key: "local-term")
+        fixture.catalog.upsert(SurfaceResource(
+            id: local, title: "", detail: "/Users/alice/project", lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        ))
+
+        let snapshot = fixture.catalog.snapshot
+        let presented = try #require(snapshot.resources.first { $0.id == requested })
+        #expect(presented.detail == nil)
+        #expect(fixture.catalog.resources[requested]?.detail == "/srv/requested")
+        let row = CloudTreeTerminalRow(
+            resource: presented, isOpen: true,
+            directoryIsCurrent: !snapshot.staleMachineIDs.contains(unconfirmed)
+        )
+        #expect(row.directoryText == "Directory unavailable")
+        // Confirmed Cloud terminals and local terminals keep their directories.
+        #expect(snapshot.resources.first { $0.id == fixture.resourceID(0) }?.detail == "/home/cmux/first")
+        #expect(snapshot.resources.first { $0.id == local }?.detail == "/Users/alice/project")
+    }
+
     @Test("A stale graph loses cwd trust until a fresh snapshot confirms it")
     func reconnectAndStalePublication() throws {
         let fixture = try CloudDirectoryTestFixture()
