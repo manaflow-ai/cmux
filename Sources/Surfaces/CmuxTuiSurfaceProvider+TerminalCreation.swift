@@ -30,13 +30,12 @@ extension CmuxTuiSurfaceProvider {
         // catalog must never bootstrap a second workspace during concurrent creates.
         let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
         let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
-        let argv = CloudTuiCommandLine.commandStartingIn(
-            cwd: cwd,
-            command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
-        )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(
+        // The protocol has a native cwd field. A shell wrapper would load
+        // another login profile before executing the requested terminal.
+        let argv = (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
+        let data = try await link.run(arguments: CloudTuiRequests.runArguments(
             socketPath: connected.socketPath, workspaceID: workspaceID, command: argv,
-            onExit: onExit, idempotencyKey: request.attemptKey, correlationKey: request.correlationArgument
+            onExit: onExit, cwd: cwd, idempotencyKey: request.attemptKey, correlationKey: request.correlationArgument
         ))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {

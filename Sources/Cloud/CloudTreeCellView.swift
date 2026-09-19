@@ -23,14 +23,11 @@ final class CloudTreeCellView: NSTableCellView {
         identifier = Self.identifier
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
-        // The outline and host share the compact disclosure gap rather than
-        // independently adding padding before the attention and identity slots.
+        // The outline owns the complete disclosure slot and gap. The hosted
+        // content starts at the cell edge, with no second horizontal offset.
         // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
-            displayHost.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: CloudTreeRowGrid.disclosureGap - CloudTreeNSOutlineView.cellShift
-            ),
+            displayHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -109,6 +106,8 @@ final class CloudTreeCellView: NSTableCellView {
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else if case .resource(_, let row) = node.kind {
+            setAccessibilityLabel(row.accessibilityLabel)
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }

@@ -39,12 +39,48 @@ struct CloudOperationRecorderTests {
         #expect(pasteboard.string(forType: .string) == text)
     }
 
+    @Test func terminalCreationDiagnosticsRetainFailureAndRetryIdentity() async throws {
+        let recorder = CloudOperationRecorder()
+        let finished = AsyncStream<Void>.makeStream()
+        var completions = finished.stream.makeAsyncIterator()
+        var attempts = 0
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: .cloud("test"), kind: .terminal, key: "term_test"),
+            title: "", detail: nil, lifecycle: .launching, agent: nil,
+            remoteWorkspace: nil, port: nil, url: nil
+        )
+        let coordinator = CloudTerminalCreationCoordinator(
+            create: {
+                attempts += 1
+                if attempts == 1 { throw CloudDiagnosticFailure.network }
+                return resource
+            },
+            project: { resource in
+                (SurfaceProjection(resource: resource.id, workspaceID: UUID(), panelID: UUID()), false)
+            },
+            onFailure: { _ in finished.continuation.yield(()) },
+            onSuccess: { finished.continuation.yield(()) },
+            operations: recorder
+        )
+        coordinator.start()
+        _ = await completions.next()
+        #expect(recorder.operations.first?.outcome == .failure)
+        #expect(recorder.operations.first?.failure == .network)
+        coordinator.retry()
+        _ = await completions.next()
+        #expect(recorder.operations.count == 2)
+        #expect(recorder.operations.last?.outcome == .success)
+        #expect(recorder.operations.first?.id != recorder.operations.last?.id)
+        #expect(recorder.operations.allSatisfy { $0.durationMs != nil })
+    }
+
     @Test func completedOperationsDoNotLeaveActivityChrome() async {
         let recorder = CloudOperationRecorder()
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
         let root = recorder.begin(.open)
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).count == 1)
         await recorder.finish(root)
+        #expect(recorder.operations.first?.durationMs != nil)
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
         let failed = recorder.begin(.connect)
         await recorder.finish(failed, error: CloudDiagnosticFailure.network)
@@ -85,6 +121,7 @@ struct CloudOperationRecorderTests {
         #expect(report.contains("45"))
         #expect(report.contains("server"))
         #expect(report.contains(root.traceID))
+        #expect(report.contains("total_duration_ms="))
         #expect(recorder.operations.filter(\.isVisibleInMachinesPanel).isEmpty)
     }
 
@@ -172,6 +209,14 @@ struct CloudOperationRecorderTests {
         #expect(CloudTelemetryClient.current(info: info, flavor: .stable).channel == "production")
         #expect(CloudTelemetryClient.current(info: info, flavor: .dev).channel == "dev")
         #expect(CloudTelemetryClient.current(info: info, flavor: .nightly).revision == "abcdef123")
+    }
+
+    @Test func machineUsageFailuresKeepTheirActionableCategories() {
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.notSignedIn) == .authentication)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.sessionRefreshFailed) == .sessionRefresh)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.backendUnreachable(url: "https://cmux.test", detail: "timeout")) == .network)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.httpStatus(503, "")) == .server)
+        #expect(CloudDiagnosticFailure.classify(MachineUsageClientError.malformedResponse("bad")) == .response)
     }
 }
 

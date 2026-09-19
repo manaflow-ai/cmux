@@ -34,6 +34,7 @@
 import { GUEST_CODEROUTER_SHELL } from "./guestCoderouterCli";
 import { GUEST_CMUX_MESSAGE_SHELL } from "./guestCliMessages";
 import { GUEST_CMUX_TOPOLOGY_SHELL } from "./guestTopologyCli";
+import { GUEST_BROWSER_OPENER_PATH, guestBrowserInstallCommand } from "./guestBrowser";
 
 export const GUEST_CMUX_SHIM_PATH = "/usr/local/bin/cmux";
 
@@ -46,6 +47,11 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 set -eu
 
 ${GUEST_CMUX_MESSAGE_SHELL}
+
+if [ "\${1:-}" = open-url ]; then
+  shift
+  exec ${GUEST_BROWSER_OPENER_PATH} "$@"
+fi
 
 # The daemon binary lives under the daemon's home, which depends on the image
 # layout (root daemon: /root; layout-aware bakes: the cmux user's home or the
@@ -2770,6 +2776,7 @@ export function guestCliInstallCommand(): string {
   const encoded = Buffer.from(GUEST_CMUX_SHIM, "utf8").toString("base64");
   return [
     `printf '%s' '${encoded}' | base64 -d > ${GUEST_CMUX_SHIM_PATH}.tmp`,
+    guestBrowserInstallCommand(),
     `chmod 0755 ${GUEST_CMUX_SHIM_PATH}.tmp`,
     `mv ${GUEST_CMUX_SHIM_PATH}.tmp ${GUEST_CMUX_SHIM_PATH}`,
   ].join(" && ");
