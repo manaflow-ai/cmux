@@ -71,12 +71,9 @@ public struct CuratedSettingEntry: Sendable, Hashable {
         guard let descriptor = key.userFacing else {
             preconditionFailure("Missing user-facing descriptor for \(key.id)")
         }
-        guard let section = SettingsSectionID(rawValue: descriptor.sectionID) else {
-            preconditionFailure("Unknown Settings section '\(descriptor.sectionID)' for \(key.id)")
-        }
 
         self.init(
-            section: section,
+            section: SettingsSectionID(userFacingSection: descriptor.section),
             id: descriptor.searchID,
             title: descriptor.title,
             paths: [key.id],
