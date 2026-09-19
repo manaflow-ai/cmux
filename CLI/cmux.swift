@@ -30650,11 +30650,8 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
-                if let userInput = readCodexTranscriptUserInput(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    excluding: publishedUserInputCallIds
-                ) {
+                // Scope Foundation transcript parse temporaries to one wake.
+                if let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) }) {
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
                         userInput,
@@ -30664,11 +30661,7 @@ struct CMUXCLI {
                     )
                 }
 
-                switch readCodexTranscriptFailure(
-                    path: currentTranscriptPath,
-                    turnId: turnId,
-                    requireTerminalCompletion: true
-                ) {
+                switch autoreleasepool(invoking: { readCodexTranscriptFailure(path: currentTranscriptPath, turnId: turnId, requireTerminalCompletion: true) }) {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,
