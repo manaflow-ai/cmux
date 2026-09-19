@@ -54,8 +54,16 @@ struct SidebarCloudWorkspaceBadgeTests {
         let snapshot = SidebarWorkspaceSnapshotFactory(
             workspace: workspace, settings: settings, showsAgentActivity: false
         ).makeSnapshot()
-        #expect(snapshot.cloudWorkspaceLabel == nil)
+        #expect(snapshot.cloudWorkspaceLabel?.contains("vivid-newt") == true)
         #expect(snapshot.compactDirectoryCandidates.isEmpty)
+        let cell = SidebarAppKitRowCellTests.configuredCell(
+            model: Self.makeModel(settings: settings, workspaceSnapshot: snapshot), tab: workspace
+        )
+        let badge = try #require(SidebarAppKitRowCellTests.descendants(of: cell).first {
+            ($0 as? NSImageView)?.accessibilityIdentifier() == "sidebarCloudBadge"
+        } as? NSImageView)
+        #expect(badge.isHidden)
+        #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
     }
 
     /// Ensures restored Cloud identity survives every connection presentation state.
@@ -152,7 +160,7 @@ struct SidebarCloudWorkspaceBadgeTests {
         }
         #expect(title.frame.maxX <= width)
         #expect(title.lineBreakMode == .byTruncatingTail)
-        #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == !compact)
+        #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
         let pins = images.filter { !$0.isHidden && $0.toolTip == String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close") }
         #expect(pins.count == (isPinned ? 1 : 0))

@@ -20,10 +20,6 @@ struct CloudWorkspaceSidebarPresentation {
             let name = state.machineNames[id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
             return (id, name.isEmpty ? id : name)
         })
-        var nameCounts: [String: Int] = [:]
-        for id in machineIDs {
-            nameCounts[names[id, default: id], default: 0] += 1
-        }
         // Keep stable IDs in badge help/accessibility; width-dependent rows use
         // them only when friendly names collide across machines.
         let identities = machineIDs.sorted().map { id -> String in
@@ -62,6 +58,10 @@ struct CloudWorkspaceSidebarPresentation {
                 groupIndexes[entry.identity] = grouped.count
                 grouped.append((entry.identity, [pathCandidates]))
             }
+        }
+        var nameCounts: [String: Int] = [:]
+        for group in grouped {
+            nameCounts[names[group.identity, default: group.identity], default: 0] += 1
         }
         let visibleName: (String) -> String = { id in
             let name = names[id] ?? id
