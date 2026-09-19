@@ -891,13 +891,13 @@ Options:
                          Sets app name, bundle id, and derived data path unless overridden.
                          After a successful build, terminates any running app with this tag
                          so macOS launches the freshly-built binary on cmd-click or --launch.
-                         Tagged builds use the shared dev backend, which needs a
-                         cmuxterm-hq checkout. Without one, set
-                         CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
   --launch               Launch the app after building. Without this flag, the script
                          builds and prints the app path but does not open it.
   --prod-auth            Point this tagged Debug build at production Stack auth,
                          cmux APIs, and the production Iroh broker.
+                         Without it, tagged builds use the shared dev backend, which
+                         needs a cmuxterm-hq checkout. Outside one, set
+                         CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
