@@ -90,9 +90,10 @@ struct WatcherRegistrationLifecycleTests {
         #expect(service.workspaceGitMetadataWatcherTasksByKey.isEmpty)
     }
 
-    @Test func failedForcedReplacementPreservesInstalledWatcherUntilLaterSuccess() async throws {
+    @Test(arguments: [false, true])
+    func failedForcedReplacementPreservesInstalledWatcherUntilLaterSuccess(descriptorFailure: Bool) async throws {
         let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sidebar-watcher-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-sidebar-watcher-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let path = directoryURL.path
@@ -126,9 +127,13 @@ struct WatcherRegistrationLifecycleTests {
         )
         let failedTask = try #require(service.workspaceGitMetadataWatcherTasksByKey[key])
         _ = await reader.nextRequestedDirectory()
-        await reader.resumeNext(with: descriptor(path, identity: "replacement"))
-        let failedRegistration = try #require(await gate.nextArrival())
-        await gate.complete(failedRegistration, with: nil)
+        if descriptorFailure {
+            await reader.resumeNext(with: nil)
+        } else {
+            await reader.resumeNext(with: descriptor(path, identity: "replacement"))
+            let failedRegistration = try #require(await gate.nextArrival())
+            await gate.complete(failedRegistration, with: nil)
+        }
         await failedTask.value
 
         #expect(service.workspaceGitMetadataWatchersByWatchedPathsKey[initialPathsKey] === installed)
