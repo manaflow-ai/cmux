@@ -23,6 +23,9 @@ extension AppDelegate {
                 // the policy lifts.
                 MobileHostService.shared.syncToSettings()
             },
+            enforceIncomingAccessPolicy: {
+                MobileHostService.shared.syncToSettings()
+            },
             enforceCloudPolicy: { [weak self] in
                 self?.applyManagedCloudPolicy()
             },
@@ -43,6 +46,8 @@ extension AppDelegate {
     /// boundary. Existing workspace configurations and catalog identities stay
     /// persisted; only controllers, retries, and transport tasks are stopped.
     func applyCloudFeatureFlag(enabled: Bool) {
+        devicesRegistry?.evaluate()
+        MobileHostService.shared.syncToSettings()
         if !enabled {
             MachineCreateCoordinator.shared.cancelAllForAuthTransition(cleanupCreatedMachines: false)
             CloudVMActionLauncher.shared.cancelAllForAuthTransition()
