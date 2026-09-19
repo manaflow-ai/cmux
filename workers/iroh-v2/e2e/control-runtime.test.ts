@@ -3,11 +3,13 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { join } from "node:path";
 import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
+import { issueDashboardTicket } from "../src/dashboard-auth";
 
 let mf: Miniflare;
 let descriptor: any;
 let signingKey: CryptoKey;
 let ticket = "";
+let dashboardTicket = "";
 let fixturePublicKey = "";
 let workerRoot = "";
 let persistencePath = "";
@@ -54,6 +56,10 @@ beforeAll(async () => {
   const relayPkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", relayKey.privateKey));
   const relayPem = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...relayPkcs8)).match(/.{1,64}/g)!.join("\n")}\n-----END PRIVATE KEY-----`;
   ticket = (await issueTicket(descriptor, "k1", ticketKey, Math.floor(Date.now() / 1000))).token;
+  dashboardTicket = (await issueDashboardTicket({
+    authority: { environment, projectId, teamId, userId, verifiedAt: Math.floor(Date.now() / 1000) },
+    origin: "https://cmux.com", clientInstanceId: "dashboard-runtime-test", canManageTeam: true,
+  }, "k1", ticketKey)).token;
 
   const outputDir = `/tmp/iroh-v2-control-worker-build-${Date.now()}`;
   workerRoot = outputDir;
@@ -92,6 +98,33 @@ beforeAll(async () => {
 });
 
 afterAll(async () => { await mf?.dispose(); });
+
+test("browser dashboard upgrades through the production router and loads devices", async () => {
+  const url = new URL("v2/dashboard/socket", await mf.ready);
+  url.protocol = "ws:";
+  const socket = new NodeWebSocket(url.href, ["cmux-v2-dashboard", `ticket.${dashboardTicket}`], {
+    headers: { origin: "https://cmux.com" },
+  });
+  socket.on("error", () => {});
+  try {
+    const directory = await new Promise<any>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("Dashboard directory timed out")), 3_000);
+      socket.once("error", error => { clearTimeout(timeout); reject(error); });
+      socket.on("message", raw => {
+        const frame = JSON.parse(raw.toString());
+        if (frame.schemaId === "dashboard.connected.v1") {
+          socket.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "dashboard-directory" }));
+        }
+        if (frame.requestId === "dashboard-directory") { clearTimeout(timeout); resolve(frame); }
+      });
+    });
+    expect(socket.protocol).toBe("cmux-v2-dashboard");
+    expect(directory.schemaId).toBe("dashboard.directory.v1");
+    expect(directory.directory.devices[0].descriptor.identity.deviceId).toBe("control-device");
+  } finally {
+    socket.close();
+  }
+});
 
 test("production HTTP router reaches the fixture TeamControl for directory and metadata", async () => {
   const requestId = "http-directory";

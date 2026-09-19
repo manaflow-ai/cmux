@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "Bu makine boyutu kullanılamıyor. En fazla {max} GiB seçin.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go, çalışan VM dahil iki kayıtlı VM içerir.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Bir hesap bulduysak, sonraki adımlar için e-postanı kontrol et"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "genel bakış",
       "team": "ekip",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Uzaktan kontrol cihazları",
+      "remoteAccessGroup": "uzaktan erişim"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Uzaktan kontrol cihazları",
+      "description": "Geçerli ekibinizdeki cihazlara uzaktan erişimi yönetin.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "Bu ekip için kayıtlı uzaktan kontrol cihazı yok.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "Cihazlarınıza bağlanılamadı. Yeniden bağlanılıyor…",
+      "selectTeam": "Uzaktan kontrol cihazlarını yönetmek için hesap menüsünden bir ekip seçin."
     },
     "coderouterAccounts": {
       "shareWithTeam": "Ekiple paylaş",

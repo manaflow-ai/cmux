@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "Diese Maschinengröße ist derzeit nicht verfügbar. Wählen Sie bis zu {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go umfasst zwei gespeicherte VMs einschließlich der laufenden VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Wenn wir ein Konto gefunden haben, prüfe deine E-Mail auf die nächsten Schritte"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "Übersicht",
       "team": "Team",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Geräte zur Fernsteuerung",
+      "remoteAccessGroup": "Fernzugriff"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Geräte zur Fernsteuerung",
+      "description": "Verwalte den Fernzugriff auf Geräte in deinem aktuellen Team.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "Für dieses Team sind keine Geräte zur Fernsteuerung registriert.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "Verbindung zu deinen Geräten fehlgeschlagen. Verbindung wird erneut hergestellt…",
+      "selectTeam": "Wähle im Kontomenü ein Team aus, um dessen Geräte zur Fernsteuerung zu verwalten."
     },
     "coderouterAccounts": {
       "shareWithTeam": "Mit Team teilen",

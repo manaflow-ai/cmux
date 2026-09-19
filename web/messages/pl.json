@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "Ten rozmiar maszyny jest niedostępny. Wybierz do {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go obejmuje dwie zapisane maszyny VM, w tym uruchomioną.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go obsługuje 2 vCPU, 4 GiB RAM i 16 GiB dysku.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Jeśli znaleźliśmy konto, sprawdź e-mail, aby poznać kolejne kroki"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "przegląd",
       "team": "zespół",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Urządzenia do zdalnego sterowania",
+      "remoteAccessGroup": "dostęp zdalny"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Urządzenia do zdalnego sterowania",
+      "description": "Zarządzaj zdalnym dostępem do urządzeń bieżącego zespołu.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "Ten zespół nie ma zarejestrowanych urządzeń do zdalnego sterowania.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "Nie udało się połączyć z urządzeniami. Ponowne łączenie…",
+      "selectTeam": "Wybierz zespół w menu konta, aby zarządzać jego urządzeniami do zdalnego sterowania."
     },
     "coderouterAccounts": {
       "shareWithTeam": "Udostępnij zespołowi",

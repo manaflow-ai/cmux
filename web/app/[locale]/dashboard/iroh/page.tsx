@@ -22,7 +22,7 @@ export default async function IrohDashboardPage({
         <h1 className="text-sm font-medium">{t("title")}</h1>
         <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
       </div>
-      <IrohDashboard userId={section.user.id} userEmail={section.user.primaryEmail ?? ""} />
+      <IrohDashboard userId={section.user.id} />
     </div>
   );
 }

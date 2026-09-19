@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "Цей розмір машини недоступний. Виберіть до {max} ГіБ.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go включає дві збережені ВМ, зокрема запущену.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go підтримує 2 vCPU, 4 GiB оперативної пам’яті та 16 GiB диска.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Якщо ми знайшли обліковий запис, перевірте електронну пошту, щоб дізнатися про наступні кроки"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "огляд",
       "team": "команда",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Пристрої віддаленого керування",
+      "remoteAccessGroup": "віддалений доступ"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Пристрої віддаленого керування",
+      "description": "Керуйте віддаленим доступом до пристроїв поточної команди.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "Для цієї команди не зареєстровано пристроїв віддаленого керування.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "Не вдалося підключитися до пристроїв. Повторне підключення…",
+      "selectTeam": "Виберіть команду в меню облікового запису, щоб керувати її пристроями віддаленого керування."
     },
     "coderouterAccounts": {
       "shareWithTeam": "Поділитися з командою",

@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "Este tamaño de máquina no está disponible. Elige hasta {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go incluye dos VM guardadas, incluida la VM en ejecución.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go admite 2 vCPU, 4 GiB de RAM y 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Si encontramos una cuenta, revisa tu correo para conocer los siguientes pasos"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "vista general",
       "team": "equipo",
-      "irohDevices": "IROH devices"
+      "irohDevices": "Dispositivos de control remoto",
+      "remoteAccessGroup": "acceso remoto"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "Dispositivos de control remoto",
+      "description": "Gestiona el acceso remoto a los dispositivos de tu equipo actual.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "No hay dispositivos de control remoto registrados para este equipo.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "No se pudo conectar con tus dispositivos. Reconectando…",
+      "selectTeam": "Elige un equipo en el menú de la cuenta para gestionar sus dispositivos de control remoto."
     },
     "coderouterAccounts": {
       "shareWithTeam": "Compartir con el equipo",

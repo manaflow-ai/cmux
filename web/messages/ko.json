@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "현재 이 머신 크기를 사용할 수 없습니다. {max} GiB 이하를 선택하세요.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go에는 실행 중인 VM을 포함하여 저장된 VM 두 대가 포함됩니다.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go는 2 vCPU, 4 GiB 메모리, 16 GiB 디스크를 지원합니다.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "계정을 찾았다면 이메일에서 다음 단계를 확인해 주세요"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "개요",
       "team": "팀",
-      "irohDevices": "IROH devices"
+      "irohDevices": "원격 제어 기기",
+      "remoteAccessGroup": "원격 액세스"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "원격 제어 기기",
+      "description": "현재 팀의 기기에 대한 원격 액세스를 관리하세요.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "이 팀에 등록된 원격 제어 기기가 없습니다.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "기기에 연결할 수 없습니다. 다시 연결하는 중…",
+      "selectTeam": "계정 메뉴에서 팀을 선택하여 해당 팀의 원격 제어 기기를 관리하세요."
     },
     "coderouterAccounts": {
       "shareWithTeam": "팀과 공유",

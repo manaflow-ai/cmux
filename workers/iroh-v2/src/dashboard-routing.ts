@@ -19,6 +19,10 @@ export async function routeDashboard(request: Request, services: Dependencies): 
   let requestId = "unidentified", approvedOrigin: string | null = null;
   const cors = (response: Response): Response => {
     if (!approvedOrigin) return response;
+    // A fetched upgrade response has immutable headers. Browser sockets use
+    // the Origin check above, not CORS; preserve the accepted socket verbatim.
+    if (response.status === 101) return response;
+    response = new Response(response.body, response);
     response.headers.set("access-control-allow-origin", approvedOrigin);
     response.headers.set("vary", "Origin");
     response.headers.set("cache-control", "no-store");

@@ -322,7 +322,8 @@
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH デバイス"
+      "irohDevices": "リモート操作デバイス",
+      "remoteAccessGroup": "リモートアクセス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -598,11 +599,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "リモート操作デバイス",
+      "description": "現在のチームのデバイスへのリモートアクセスを管理します。",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "このチームにはリモート操作デバイスが登録されていません。",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -613,7 +613,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "デバイスに接続できませんでした。再接続しています…",
+      "selectTeam": "アカウントメニューでチームを選択すると、そのチームのリモート操作デバイスを管理できます。"
     }
   },
   "vault": {

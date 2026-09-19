@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "ទំហំម៉ាស៊ីននេះមិនអាចប្រើបានទេ។ សូមជ្រើសរើសរហូតដល់ {max} GiB។",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go រួមបញ្ចូល VM ដែលបានរក្សាទុកពីរ រួមទាំង VM ដែលកំពុងដំណើរការ។",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go គាំទ្រ 2 vCPU, RAM 4 GiB និងថាស 16 GiB។",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "ប្រសិនបើយើងរកឃើញគណនី សូមពិនិត្យអ៊ីមែលរបស់អ្នកសម្រាប់ជំហានបន្ទាប់"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "ទិដ្ឋភាពទូទៅ",
       "team": "ក្រុម",
-      "irohDevices": "IROH devices"
+      "irohDevices": "ឧបករណ៍បញ្ជាពីចម្ងាយ",
+      "remoteAccessGroup": "ការចូលប្រើពីចម្ងាយ"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "ឧបករណ៍បញ្ជាពីចម្ងាយ",
+      "description": "គ្រប់គ្រងការចូលប្រើពីចម្ងាយទៅកាន់ឧបករណ៍ក្នុងក្រុមបច្ចុប្បន្នរបស់អ្នក។",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "មិនមានឧបករណ៍បញ្ជាពីចម្ងាយដែលបានចុះឈ្មោះសម្រាប់ក្រុមនេះទេ។",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "មិនអាចភ្ជាប់ទៅឧបករណ៍របស់អ្នកបានទេ។ កំពុងភ្ជាប់ឡើងវិញ…",
+      "selectTeam": "ជ្រើសរើសក្រុមពីម៉ឺនុយគណនី ដើម្បីគ្រប់គ្រងឧបករណ៍បញ្ជាពីចម្ងាយរបស់ក្រុម។"
     },
     "coderouterAccounts": {
       "shareWithTeam": "ចែករំលែកជាមួយក្រុម",

@@ -54,6 +54,11 @@ export function DashboardShell({
           label: t("cloudDevices"),
           active: pathname.startsWith("/dashboard/cloud"),
         },
+      ],
+    },
+    {
+      label: t("remoteAccessGroup"),
+      items: [
         {
           href: "/dashboard/iroh",
           label: t("irohDevices"),

@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "ขนาดเครื่องนี้ไม่พร้อมใช้งาน โปรดเลือกขนาดไม่เกิน {max} GiB",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go รวม VM ที่บันทึกไว้สองเครื่อง รวมเครื่องที่กำลังทำงานด้วย",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go รองรับ 2 vCPU, RAM 4 GiB และดิสก์ 16 GiB",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "หากเราพบบัญชี โปรดตรวจสอบอีเมลเพื่อดูขั้นตอนถัดไป"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "ภาพรวม",
       "team": "ทีม",
-      "irohDevices": "IROH devices"
+      "irohDevices": "อุปกรณ์ควบคุมระยะไกล",
+      "remoteAccessGroup": "การเข้าถึงระยะไกล"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "อุปกรณ์ควบคุมระยะไกล",
+      "description": "จัดการการเข้าถึงอุปกรณ์ในทีมปัจจุบันของคุณจากระยะไกล",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "ยังไม่มีอุปกรณ์ควบคุมระยะไกลที่ลงทะเบียนสำหรับทีมนี้",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "ไม่สามารถเชื่อมต่อกับอุปกรณ์ของคุณได้ กำลังเชื่อมต่อใหม่…",
+      "selectTeam": "เลือกทีมจากเมนูบัญชีเพื่อจัดการอุปกรณ์ควบคุมระยะไกลของทีม"
     },
     "coderouterAccounts": {
       "shareWithTeam": "แชร์กับทีม",

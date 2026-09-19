@@ -28,10 +28,10 @@ type DashboardOptions = {
   readonly getStackToken: () => Promise<string | null>;
   readonly onDirectory: (directory: DashboardDirectory) => void;
   readonly onError: (message: string) => void;
+  readonly retryClock?: DashboardRetryClock;
 };
 
 type Ticket = { readonly token: string; readonly expiresAt: number; readonly refreshAfter: number };
-type Connected = { readonly schemaId: "dashboard.connected.v1"; readonly teamRevision: number; readonly expiresAt: number };
 type ErrorResponse = { readonly schemaId: "error.v1"; readonly code: string; readonly retryable: boolean; readonly retryAfterMs?: number };
 type Frame = { readonly schemaId?: string; readonly requestId?: string; readonly response?: unknown; readonly directory?: DashboardDirectory; readonly revision?: number; readonly deliveryReceipt?: { readonly sequence: number; readonly token: string } } & Record<string, unknown>;
 
@@ -45,10 +45,10 @@ export class V2DashboardController {
   private readonly clientInstanceId: string;
   private socket: WebSocket | null = null;
   private stopped = false;
+  private connectionAttempt: Promise<void> | null = null;
   private revision: number | undefined;
   private ticket: Ticket | null = null;
-  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly retries: DashboardRetryScheduler;
   private reconnectDelayMs = 1_000;
   private requestCounter = 0;
   private pending = new Map<string, { resolve: (frame: Frame) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
@@ -56,6 +56,7 @@ export class V2DashboardController {
   constructor(options: DashboardOptions) {
     if (!ORIGIN_ALLOWED.test(options.origin)) throw new Error("IROH Dashboard origin is not an approved Cloudflare Worker");
     this.options = options;
+    this.retries = new DashboardRetryScheduler(options.retryClock);
     const storageKey = "cmux-iroh-v2.dashboard.client-instance";
     const storage = typeof sessionStorage === "undefined" ? null : sessionStorage;
     const existing = storage?.getItem(storageKey) ?? null;
@@ -64,19 +65,12 @@ export class V2DashboardController {
   }
 
   async start(): Promise<void> {
-    try {
-      this.ticket = await this.openSession();
-      await this.connect(this.ticket);
-      this.scheduleRefresh();
-    } catch (cause) { this.fail(cause); }
+    await this.reconnect();
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-    this.refreshTimer = null;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
+    this.retries.stop();
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(new Error("Dashboard session stopped")); }
     this.pending.clear();
     this.socket?.close(1000, "dashboard_stop");
@@ -115,6 +109,7 @@ export class V2DashboardController {
   }
 
   private async connect(ticket: Ticket): Promise<void> {
+    if (this.stopped) return;
     const previous = this.socket;
     const socket = new WebSocket(`${this.options.origin}/v2/dashboard/socket`, ["cmux-v2-dashboard", `ticket.${ticket.token}`]);
     this.socket = socket;
@@ -124,6 +119,7 @@ export class V2DashboardController {
       socket.onopen = () => undefined;
       let connected = false;
       socket.onmessage = event => {
+        if (this.stopped || this.socket !== socket) return;
         const frame = parseFrame(event.data);
         if (!frame) return;
         if (frame.deliveryReceipt && Number.isSafeInteger(frame.deliveryReceipt.sequence) && typeof frame.deliveryReceipt.token === "string") {
@@ -145,13 +141,14 @@ export class V2DashboardController {
       socket.onerror = () => { clearTimeout(timeout); reject(new Error("Dashboard socket failed")); };
       socket.onclose = event => {
         clearTimeout(timeout);
-        if (this.stopped || this.socket !== socket) return;
         if (!connected) reject(new Error(`Dashboard socket closed (${event.code})`));
-        else this.scheduleReconnect();
+        if (this.stopped || this.socket !== socket) return;
+        if (connected) this.scheduleReconnect();
       };
       });
     } catch (error) {
       if (this.socket === socket) this.socket = previous;
+      socket.close();
       throw error;
     }
     // Retire the old connection only after the replacement emitted its
@@ -207,50 +204,50 @@ export class V2DashboardController {
     if (frame.schemaId === "error.v1") pending.reject(this.errorFrom(frame)); else pending.resolve(frame);
   }
 
-  private scheduleRefresh() {
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-    const delay = Math.max(10_000, ((this.ticket?.refreshAfter ?? 0) * 1000) - Date.now());
-    this.refreshTimer = setTimeout(() => {
-      this.refreshTimer = null;
-      void this.refreshTicketMakeBeforeBreak();
-    }, delay);
+  private scheduleRefresh(delayMs?: number) {
+    if (this.stopped) return;
+    const delay = delayMs ?? Math.max(10_000, ((this.ticket?.refreshAfter ?? 0) * 1000) - this.retries.now());
+    this.retries.schedule("refresh", delay, () => this.reconnect());
   }
 
   private scheduleReconnect() {
-    if (this.stopped || this.reconnectTimer) return;
+    if (this.stopped || this.retries.has("reconnect")) return;
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 60_000);
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      void this.reconnect().catch(cause => this.fail(cause));
-    }, delay);
+    this.retries.schedule("reconnect", delay, () => this.reconnect());
   }
 
-  private async reconnect() {
-    if (this.stopped) return;
+  private reconnect(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    // A socket closing during ticket refresh joins the same attempt. Only one
+    // owner can install a replacement and decide the next retry deadline.
+    if (this.connectionAttempt) return this.connectionAttempt;
+    this.retries.cancel("refresh");
+    this.retries.cancel("reconnect");
+    const attempt = this.replaceConnection().finally(() => {
+      this.connectionAttempt = null;
+    });
+    this.connectionAttempt = attempt;
+    return attempt;
+  }
+
+  private async replaceConnection() {
     try {
       const replacement = await this.openSession();
+      if (this.stopped) return;
       await this.connect(replacement);
+      if (this.stopped) return;
       this.ticket = replacement;
+      this.retries.cancel("reconnect");
       this.scheduleRefresh();
     } catch (cause) {
       this.fail(cause);
-      this.scheduleReconnect();
+      if (this.socket?.readyState === WebSocket.OPEN) this.scheduleRefresh(60_000);
+      else this.scheduleReconnect();
     }
   }
 
-  private async refreshTicketMakeBeforeBreak() {
-    if (this.stopped) return;
-    try {
-      const replacement = await this.openSession();
-      await this.connect(replacement);
-      this.ticket = replacement;
-      this.scheduleRefresh();
-    }
-    catch (cause) { this.fail(cause); this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
-  }
-
-  private fail(cause: unknown) { this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
+  private fail(cause: unknown) { if (!this.stopped) this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
   private nextRequestId() { this.requestCounter += 1; return `${this.clientInstanceId}:${this.requestCounter}`; }
   private expectSuccess(frame: Frame, requestId: string) { if (frame.requestId !== requestId || frame.schemaId === "error.v1") throw this.errorFrom(frame); }
   private errorFrom(body: unknown): Error {
@@ -260,6 +257,48 @@ export class V2DashboardController {
     return result;
   }
   private async readJSON(response: Response): Promise<unknown> { try { return await response.json(); } catch { throw new Error(`Dashboard returned HTTP ${response.status}`); } }
+}
+
+export type DashboardRetryClock = {
+  readonly now: () => number;
+  readonly schedule: (delayMs: number, callback: () => void | Promise<void>) => () => void;
+};
+
+const dashboardRetryClock: DashboardRetryClock = {
+  now: () => Date.now(),
+  schedule: (delayMs, callback) => {
+    const timer = setTimeout(() => { void callback(); }, delayMs);
+    return () => clearTimeout(timer);
+  },
+};
+
+// Own every reconnect and ticket-refresh deadline for one team session. Stop
+// cancels scheduled work and prevents late async failures from rescheduling it.
+class DashboardRetryScheduler {
+  private stopped = false;
+  private readonly tasks = new Map<string, () => void>();
+  constructor(private readonly clock: DashboardRetryClock = dashboardRetryClock) {}
+  now() { return this.clock.now(); }
+  has(key: string) { return this.tasks.has(key); }
+  schedule(key: string, delayMs: number, action: () => Promise<void>) {
+    if (this.stopped) return;
+    this.tasks.get(key)?.();
+    const cancel = this.clock.schedule(delayMs, async () => {
+      if (this.stopped || this.tasks.get(key) !== cancel) return;
+      this.tasks.delete(key);
+      await action();
+    });
+    this.tasks.set(key, cancel);
+  }
+  cancel(key: string) {
+    this.tasks.get(key)?.();
+    this.tasks.delete(key);
+  }
+  stop() {
+    this.stopped = true;
+    for (const cancel of this.tasks.values()) cancel();
+    this.tasks.clear();
+  }
 }
 
 function parseFrame(value: unknown): Frame | null { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return parsed && typeof parsed === "object" ? parsed as Frame : null; } catch { return null; } }

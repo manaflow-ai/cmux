@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "حجم الجهاز هذا غير متاح حاليًا. اختر حجمًا يصل إلى {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "تتضمن Go جهازين افتراضيين محفوظين، بما فيهما الجهاز قيد التشغيل.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "تدعم Go معالجين افتراضيين وذاكرة 4 GiB وقرصاً بسعة 16 GiB.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "إذا عثرنا على حساب، فتحقق من بريدك الإلكتروني لمعرفة الخطوات التالية"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "نظرة عامة",
       "team": "الفريق",
-      "irohDevices": "IROH devices"
+      "irohDevices": "أجهزة التحكم عن بُعد",
+      "remoteAccessGroup": "الوصول عن بُعد"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "أجهزة التحكم عن بُعد",
+      "description": "إدارة الوصول عن بُعد إلى أجهزة فريقك الحالي.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "لا توجد أجهزة تحكم عن بُعد مسجلة لهذا الفريق.",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "تعذر الاتصال بأجهزتك. جارٍ إعادة الاتصال…",
+      "selectTeam": "اختر فريقًا من قائمة الحساب لإدارة أجهزة التحكم عن بُعد الخاصة به."
     },
     "coderouterAccounts": {
       "shareWithTeam": "مشاركة مع الفريق",

@@ -35,8 +35,7 @@
     "memoryUnavailable": {
       "message": "此机器规格当前不可用。请选择不超过 {max} GiB 的规格。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +45,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "如果我们找到了账户，请查看你的邮箱了解下一步"
   },
@@ -318,7 +318,8 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概览",
       "team": "团队",
-      "irohDevices": "IROH devices"
+      "irohDevices": "远程控制设备",
+      "remoteAccessGroup": "远程访问"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -364,11 +365,10 @@
       }
     },
     "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
+      "title": "远程控制设备",
+      "description": "管理当前团队设备的远程访问权限。",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
+      "empty": "此团队尚未注册远程控制设备。",
       "unavailable": "Dashboard authorization is unavailable.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
@@ -379,7 +379,9 @@
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "connectionError": "无法连接到您的设备。正在重新连接…",
+      "selectTeam": "从账户菜单中选择一个团队，以管理其远程控制设备。"
     },
     "coderouterAccounts": {
       "shareWithTeam": "与团队共享",
