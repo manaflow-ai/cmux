@@ -20,6 +20,26 @@ Windows also report input/output counts, failed sends, presented outputs, correl
 
 PostHog flag `ios-terminal-latency-enabled` defaults on and can stop collection remotely. Disabling clears pending samples and cancels the timer. No per-frame network or disk work is added.
 
+## Live-path traces (local diagnosis)
+
+The diagnostic spine also records per-event breadcrumbs for the live typing
+path: a `liveInput` trace per marked input batch (dispatch, send settlement,
+watermark echo, on-screen presentation, each stamped with milliseconds since
+dispatch) and `liveFrame` records for delivered frames, including every gate
+discard with its reason (stale sequence, behind pending input, replaced,
+overflow). Ordinary sessions keep the default 120-per-minute trace cap and
+sample frames one-in-eight; discards are always recorded.
+
+For an explicit local diagnosis session, launch the app with
+`CMUX_TERMINAL_TRACE_VERBOSE=1` (or set the `cmux.debug.terminalTraceVerbose`
+user default) to raise the cap and trace every frame while a typed input is
+still unacknowledged. Reproduce the latency, then export the timeline from
+Settings > Diagnostics and summarize it with
+`scripts/terminal-live-trace-report.py <export.txt> [/tmp/cmux-debug-<tag>.log]`,
+which prints per-keystroke waterfalls, stage percentiles, discard counts, and
+the dominant stage. Traces carry only opaque markers, sequence numbers, and
+surface handles, never key text or terminal content.
+
 ## Incidents and dashboard
 
 Axiom receives slow-response observations at 1000 ms, and rendering observations after three consecutive presentations at or above 250 ms. Each stage is limited to one anomaly per surface per minute. Only sustained rendering lag goes to Sentry through the existing incident policy (ten-minute signature cooldown and shared hourly budget). Rendering incidents do not advance the connectivity outage streak.

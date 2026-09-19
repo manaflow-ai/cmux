@@ -55,6 +55,14 @@ public final class DiagnosticLog: Sendable {
     /// either durable log while retaining ordinary diagnostics.
     private let terminalTraceLimiter = TerminalTraceRateLimiter()
 
+    /// Raises or restores the terminal-trace admission cap. The verbose
+    /// live-path capture (an explicit local diagnosis mode) needs roughly a
+    /// trace per keystroke and per frame; the default cap protects ordinary
+    /// sessions. Values are clamped to at least 1.
+    public nonisolated func setTerminalTraceMaximumPerMinute(_ maximum: Int) {
+        terminalTraceLimiter.setMaximumPerMinute(maximum)
+    }
+
     /// The drain task. Its closure captures only local stream/store values, so
     /// deinitialization can finish ingress and let accepted clear commands drain
     /// to their acknowledgements without retaining this log.
@@ -631,7 +639,7 @@ private final class TerminalTraceRateLimiter: @unchecked Sendable {
     private let lock = NSLock()
     private var windowStart: UInt64 = 0
     private var admitted = 0
-    private let maximumPerMinute = 120
+    private var maximumPerMinute = 120
 
     func admit(at now: UInt64) -> Bool {
         lock.lock()
@@ -643,5 +651,11 @@ private final class TerminalTraceRateLimiter: @unchecked Sendable {
         guard admitted < maximumPerMinute else { return false }
         admitted += 1
         return true
+    }
+
+    func setMaximumPerMinute(_ maximum: Int) {
+        lock.lock()
+        maximumPerMinute = max(1, maximum)
+        lock.unlock()
     }
 }

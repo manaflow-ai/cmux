@@ -124,6 +124,16 @@ final class MobileTerminalByteTee {
         var state = statesBySurfaceID[surfaceID] ?? SurfaceState()
         state.inputSequence = sequence
         statesBySurfaceID[surfaceID] = state
+        #if DEBUG
+        // Host-side leg of the live keystroke waterfall: with the phone's
+        // dispatch stamp and the frame-emit stamp this timestamp splits
+        // phone->Mac uplink from program repaint time.
+        if let sequence {
+            cmuxDebugLog(
+                "mobile.input_accept surface=\(surfaceID.uuidString.prefix(8)) marker=\(String(sequence, radix: 16))"
+            )
+        }
+        #endif
     }
 
     /// Runs one mobile input operation and records its accepted marker in the

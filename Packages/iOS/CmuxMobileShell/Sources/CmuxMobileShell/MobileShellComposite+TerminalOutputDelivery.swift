@@ -16,6 +16,13 @@ extension MobileShellComposite {
         return true
     }
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
+        if let acknowledgedSequence = renderGrid.appliedInputSequence {
+            traceLiveInputEchoAcknowledged(
+                surfaceID: renderGrid.surfaceID,
+                acknowledgedSequence: acknowledgedSequence
+            )
+        }
+        traceLiveFrameAdmitted(surfaceID: renderGrid.surfaceID, stateSeq: renderGrid.stateSeq)
         // The toolbar observes this dictionary via `isAlternateScreen`; same-value
         // writes would re-fire observers for every delivered render-grid frame.
         if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
@@ -110,6 +117,11 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(max(deliveredSeqValue, preBarrierFloorSeq ?? 0)) frame=\(renderGrid.stateSeq)"
             )
+            traceLiveFrameDiscarded(
+                surfaceID: renderGrid.surfaceID,
+                stateSeq: renderGrid.stateSeq,
+                reason: .staleSequence
+            )
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
@@ -123,6 +135,11 @@ extension MobileShellComposite {
         // dropped-frame replay is pending) must not paint an older cursor
         // frame or establish a baseline from pre-input content.
         guard !shouldDropRenderGridBehindPendingInput(renderGrid, source: source) else {
+            traceLiveFrameDiscarded(
+                surfaceID: renderGrid.surfaceID,
+                stateSeq: renderGrid.stateSeq,
+                reason: .behindPendingInput
+            )
             #if DEBUG
             MobileLatencyTrace.stamp(
                 "gate",
@@ -511,6 +528,7 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux(
                 "terminal.output.pending_overflow surface=\(surfaceID) cap=\(TerminalOutputDeliveryQueue.maxPendingDeliveries)"
             )
+            traceLiveFrameDiscarded(surfaceID: surfaceID, stateSeq: 0, reason: .droppedByOverflow)
             terminalOutputNeedsReplay(surfaceID: surfaceID)
             return false
         }
@@ -697,6 +715,10 @@ extension MobileShellComposite {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else { return }
         guard latencyMetricsEligible else { return }
         terminalLatencyObserver.framePresented(surfaceID: surfaceID, inputSequence: inputSequence, receivedAtNanos: receivedAtNanos)
+        traceLiveFramePresented(surfaceID: surfaceID, stateSeq: nil, receivedAtNanos: receivedAtNanos)
+        if let inputSequence {
+            traceLiveInputPresented(surfaceID: surfaceID, sequence: inputSequence)
+        }
     }
 
     /// Abandon the current yielded terminal-output chunk after the local render
