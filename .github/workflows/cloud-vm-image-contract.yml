@@ -1,25 +1,10 @@
 name: Cloud VM image contract
 
 on:
+  # No path filter on pull_request: a required check that never runs blocks a
+  # PR forever, so the job always reports and decides internally what to run.
   pull_request:
     branches: [main]
-    paths:
-      - web/package.json
-      - web/bun.lock
-      - web/scripts/devbox-image-common.ts
-      - web/scripts/derive-devbox-sizes.ts
-      - web/scripts/promote-devbox-image.ts
-      - web/scripts/validate-devbox-ladder.ts
-      - web/scripts/build-devbox-freestyle.ts
-      - web/scripts/verify-devbox-image.ts
-      - web/scripts/devbox-agent-launch.*
-      - web/tests/devbox-agent-launch-test.py
-      - web/scripts/check-devbox-agent-pins.ts
-      - web/services/vms/images/manifest.json
-      - web/services/vms/images/sizes.ts
-      - web/services/vms/images/devbox/**
-      - web/tests/vm-image-*.test.ts
-      - .github/workflows/cloud-vm-image-contract.yml
   push:
     branches: [main]
     paths:
@@ -59,6 +44,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The drift check reads the image inputs at each default entry's
+          # bake commit, which a shallow clone does not carry.
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -71,5 +59,21 @@ jobs:
       - name: Validate the checked-in image ladder
         run: bun run devbox:manifest:check
 
+      # The manifest is a build artifact that a promotion rewrites twelve
+      # entries of at once, so two promotions in flight collide in one file.
+      # These are the states no bake can fix: a ladder assembled from two
+      # bakes (what hand-resolving that conflict produces), or a default baked
+      # from a commit that is not on main (a branch bake, whose lineage
+      # disappears with the branch).
+      - name: Validate the image pin
+        run: bun run devbox:drift:check --pin
+
       - name: Test image contracts
-        run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts
+        run: bun test tests/vm-image-manifest.test.ts tests/vm-image-sizes.test.ts tests/vm-devbox-image.test.ts tests/vm-image-drift.test.ts
+
+      # A merged edit to the image source ships nothing until a snapshot is
+      # baked and the manifest bump lands. This step is the only place that
+      # says so. It does not gate the merge (the workflow is not required):
+      # source and image are allowed to move apart, but never silently.
+      - name: Report devbox image drift
+        run: bun run devbox:drift:check
