@@ -617,7 +617,6 @@ public final class AuthCoordinator {
     }
 
     // MARK: - State helpers
-
     /// Why a signed-in user is being published, deciding whether the session
     /// generation advances.
     enum SessionPublication {
@@ -636,7 +635,6 @@ public final class AuthCoordinator {
         /// signed-out state) is still a transition and advances.
         case revalidation
     }
-
     func applySignedInUser(
         _ user: CMUXAuthUser,
         publication: SessionPublication
@@ -685,7 +683,6 @@ public final class AuthCoordinator {
             await onSignedIn()
         }
     }
-
     /// Refresh ``availableTeams`` from the client, tolerating failure so a
     /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
@@ -693,18 +690,22 @@ public final class AuthCoordinator {
     private func refreshTeams(generation: UInt64) async {
         do {
             let client = self.client
-            let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
-                try await client.listTeams()
+            let (teams, serverSelectedTeamID) = try await runPhase(.listTeams, timeout: timeouts.network) {
+                async let teams = client.listTeams()
+                async let selectedTeamID: String? = try? await client.selectedTeamID()
+                return try await (teams, selectedTeamID)
             }
             guard generation == sessionGeneration else { return }
             authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
-            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+            selectedTeamID = Self.resolveTeamID(
+                selectedTeamID: serverSelectedTeamID ?? selectedTeamID,
+                teams: teams
+            )
         } catch {
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
         }
     }
-
     private static func resolveTeamID(
         selectedTeamID: String?,
         teams: [CMUXAuthTeam]
@@ -718,7 +719,6 @@ public final class AuthCoordinator {
         }
         return teams.first?.id
     }
-
     func clearAuthState(
         preservePendingCode: Bool = false,
         sessionTransitionAlreadyAnnounced: Bool = false

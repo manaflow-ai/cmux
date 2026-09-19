@@ -29,7 +29,16 @@ public struct AccountSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.account", defaultValue: "Account"), section: .account)
             SettingsCard {
-                AccountIdentityCard(flow: accountFlow)
+                VStack(alignment: .leading, spacing: 0) {
+                    AccountIdentityCard(flow: accountFlow)
+                    if accountFlow?.currentIdentity != nil,
+                       !(accountFlow?.availableTeams.isEmpty ?? true) {
+                        Divider()
+                        AccountTeamPicker(flow: accountFlow!)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                    }
+                }
             }
             .settingsSearchAnchors(["setting:account:account"])
             if accountFlow?.isProUpgradeAvailable ?? false {

@@ -1169,7 +1169,7 @@ class TerminalController {
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
-    private struct V2SocketRequest {
+    struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
@@ -1512,7 +1512,6 @@ class TerminalController {
             return "ERROR: reload_config busy"
         }
     }
-
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
         guard let rawTimeout = params["wait_timeout_seconds"] else {
             return 0
@@ -1532,7 +1531,6 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1575,6 +1573,8 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.team.list", "auth.team.use", "auth.team.create":
+            return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -3183,10 +3183,10 @@ class TerminalController {
             "auth.status",
             "auth.sign_in_url",
             "auth.begin_sign_in",
-            "auth.sign_out",
+            "auth.sign_out", "auth.team.list", "auth.team.use",
+            "auth.team.create",
             "vm.billing_checkout",
-            "vm.list",
-            "vm.diagnostics", "vm.file_transfer_failure",
+            "vm.list", "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",

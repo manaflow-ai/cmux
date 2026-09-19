@@ -78,6 +78,29 @@ public struct StackAuthClient: AuthClient {
         return summaries
     }
 
+    public func selectedTeamID() async throws -> String? {
+        guard let user = try await stack.getUser(or: .returnNull) else { return nil }
+        return await user.selectedTeam?.id
+    }
+
+    public func setSelectedTeam(id: String?) async throws {
+        guard let user = try await stack.getUser(or: .returnNull) else {
+            throw AuthClientError.unsupported
+        }
+        try await user.setSelectedTeam(id: id)
+    }
+
+    public func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        guard let user = try await stack.getUser(or: .returnNull) else {
+            throw AuthClientError.unsupported
+        }
+        let team = try await user.createTeam(displayName: displayName)
+        return CMUXAuthTeam(
+            id: team.id,
+            displayName: await team.displayName
+        )
+    }
+
     public func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
         try await stack.sendMagicLinkEmail(email: email, callbackUrl: callbackURL)
     }

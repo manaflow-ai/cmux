@@ -31,6 +31,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     blurbKey: "appBlurb",
     shortcuts: [
       { id: "openSettings", combos: [["⌘", ","]], description: { en: "Settings", ja: "設定" } },
+      { id: "openTeamPicker", combos: [["⌥", "⇧", "⌘", "T"]], description: { en: "Open team picker", ja: "チームピッカーを開く" } },
       { id: "reloadConfiguration", combos: [["⌘", "⇧", ","]], description: { en: "Reload configuration", ja: "構成を再読み込み" } },
       {
         id: "showHideAllWindows",

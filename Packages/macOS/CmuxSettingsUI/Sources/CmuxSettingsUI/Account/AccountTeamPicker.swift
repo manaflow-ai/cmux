@@ -12,7 +12,9 @@ struct AccountTeamPicker: View {
             selection: Binding(
                 get: { flow.selectedTeamID ?? "" },
                 set: { newValue in
-                    flow.selectedTeamID = newValue.isEmpty ? nil : newValue
+                    Task {
+                        try? await flow.selectTeam(id: newValue.isEmpty ? nil : newValue)
+                    }
                 }
             )
         ) {

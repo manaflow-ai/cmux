@@ -17,13 +17,14 @@ import Observation
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
-    private let coordinator: AuthCoordinator
+    let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
+    var teamObservationRevision: UInt64 = 0
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -38,6 +39,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
             }
         }
+        startCoordinatorObservation()
     }
 
     deinit {
@@ -47,25 +49,31 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var currentIdentity: AccountIdentity? {
+        _ = teamObservationRevision
         Self.identity(from: coordinator.currentUser)
     }
 
     var availableTeams: [AccountTeamSummary] {
+        _ = teamObservationRevision
         coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
     }
 
     var selectedTeamID: String? {
-        get { coordinator.selectedTeamID }
-        set { coordinator.selectedTeamID = newValue }
+        get {
+            _ = teamObservationRevision
+            return coordinator.selectedTeamID
+        }
     }
 
     var isWorkingOnAuth: Bool {
+        _ = teamObservationRevision
         coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
     var isAuthenticated: Bool {
+        _ = teamObservationRevision
         coordinator.isAuthenticated
     }
 
@@ -78,6 +86,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var isCompletingSignIn: Bool {
+        _ = teamObservationRevision
         coordinator.isLoading || coordinator.isRestoringSession
     }
 
