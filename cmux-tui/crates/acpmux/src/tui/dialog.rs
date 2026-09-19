@@ -238,11 +238,13 @@ pub fn footer_buttons(buf: &mut Buffer, right_x: u16, y: u16, labels: &[(&str, b
     let mut rects = Vec::new();
     let mut x = right_x;
     for (label, accent, _) in labels.iter().rev() {
+        // Codex app: filled pill buttons. Callers still write "[ Yes y ]".
+        let label = format!(" {} ", label.trim().trim_start_matches('[').trim_end_matches(']').trim());
         let w = label.width() as u16;
         x = x.saturating_sub(w);
         let r = Rect { x, y, width: w, height: 1 };
         let hovered = hover.map(|(hx, hy)| hy == y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
-        buf.set_stringn(x, y, label, w as usize, c.button(*accent, hovered));
+        buf.set_stringn(x, y, &label, w as usize, c.button(*accent, hovered));
         rects.push(r);
         x = x.saturating_sub(2);
     }

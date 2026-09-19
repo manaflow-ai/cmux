@@ -236,9 +236,15 @@ impl Chrome {
         Style::default().bg(self.prompt_input_bg).fg(self.prompt_input_fg)
     }
     pub fn button(&self, accent: bool, hovered: bool) -> Style {
-        let mut s = if accent { self.prompt().fg(self.prompt_button_accent_fg) } else { self.prompt() };
+        // Filled chips: the accent one bright on a raised ground, the plain
+        // one on the hover ground; hover brightens either.
+        let mut s = if accent {
+            Style::default().bg(self.status_active_bg).fg(self.status_active_fg).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().bg(self.prompt_button_hover_bg).fg(self.prompt_fg)
+        };
         if hovered {
-            s = s.add_modifier(Modifier::BOLD).bg(self.prompt_button_hover_bg);
+            s = s.bg(self.menu_selected_bg).fg(self.menu_selected_fg).add_modifier(Modifier::BOLD);
         }
         s
     }
