@@ -165,6 +165,36 @@ struct TerminalWindowPortalCommittedGeometryTests {
         #expect(fixture.portal.geometrySettlementPassesRemaining == 2)
     }
 
+    @Test func revealAfterAHiddenPaneStartsANewSettlementEpisode() async throws {
+        let fixture = TerminalPortalGeometryFixture()
+        defer { fixture.close() }
+        fixture.bind()
+        try await fixture.requireCommit()
+
+        // Split churn (opening a side browser) drives the pane through frames
+        // the portal refuses to show, so it hides the hosted view.
+        fixture.anchor.setFrameSize(NSSize(width: 1, height: 1))
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor)
+        await fixture.flushLayout()
+        #expect(fixture.hosted.isHidden)
+        // A hidden frame can never publish, so the entry must not stay marked:
+        // a mark that outlives its frame makes the reveal look like the same
+        // settlement episode.
+        #expect(fixture.portal.entriesByHostedId[fixture.hostedID]?.needsSettledCommit == false)
+
+        // The retries the passes scheduled while it was hidden would have spent.
+        fixture.portal.geometrySettlementPassesRemaining = 0
+
+        // The browser pane lands and the terminal is revealed, now narrower.
+        fixture.anchor.setFrameSize(NSSize(width: 260, height: 280))
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor)
+        #expect(!fixture.hosted.isHidden)
+        // Without a refilled budget the revealed size never reaches the PTY and
+        // the surface keeps rendering its pre-hide grid inside the new frame.
+        #expect(fixture.portal.geometrySettlementPassesRemaining == 4)
+        try await fixture.requireCommit()
+    }
+
     @Test func unavailableSurfaceKeepsPublicationPending() async throws {
         let fixture = TerminalPortalGeometryFixture()
         defer { fixture.close() }
