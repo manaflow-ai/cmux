@@ -261,18 +261,16 @@ struct CloudTreeTerminalRow: Equatable {
     let resource: SurfaceResource
     let isOpen: Bool
     var viewBadge: Int?
-    /// The machine holds a notification for this terminal that this Mac has
-    /// not read (per-client read state from the daemon's `read_by`).
+    var directoryIsCurrent = true
+    var machineDisplayName: String? = nil
+    /// Unread remote notification, scoped to this Mac's read state.
     var hasUnreadNotification: Bool = false
     /// The exact daemon tab represented by a workspace pointer row. Pool rows
     /// leave this nil because one terminal may have several placement names.
     var remoteView: SurfaceRemoteView? = nil
-    /// Legacy payload retained for source compatibility; flat projections always set zero.
     var hiddenTabCount: Int = 0
 
-    /// A terminal resource has one process title, but each daemon tab can have
-    /// its own user name. Workspace rows must render the placement name, or a
-    /// rename in one tab appears to change every tab in the tree.
+    /// Placement names override the shared process title only in their own workspace.
     var displayTitle: String {
         if let name = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             return name
@@ -1122,6 +1120,8 @@ enum CloudTreeNodeBuilder {
                 resource: resource,
                 isOpen: projectionIndex.isOpen(resource.id, remoteView: remoteView),
                 viewBadge: viewBadge,
+                directoryIsCurrent: !snapshot.staleMachineIDs.contains(resource.machine),
+                machineDisplayName: snapshot.machines.first { $0.id == resource.machine }?.name,
                 hasUnreadNotification: projectionIndex.hasUnreadNotification(resource.id),
                 remoteView: remoteView,
                 hiddenTabCount: hiddenTabCount
