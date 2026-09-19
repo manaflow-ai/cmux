@@ -137,6 +137,7 @@
     "discord": "Discord",
     "contact": "聯絡我們",
     "nightly": "每夜建置",
+    "rc": "候選發佈版",
     "copyright": "© {year} Manaflow",
     "language": "語言",
     "assets": "素材",
@@ -1972,6 +1973,18 @@
     "description": "cmux NIGHTLY 從 main 的最新提交自動建置。它擁有獨立的 Bundle ID，因此可以與穩定版並行運行，互不衝突。用它來測試尚未發佈的新功能。",
     "download": "下載 Mac 版 NIGHTLY",
     "warning": "每夜建置可能包含錯誤或不完整的功能。如果遇到問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上回報，並切換回穩定版。"
+  },
+  "rc": {
+    "title": "cmux 候選發佈版",
+    "subtitle": "提前幾天取得下一個穩定版",
+    "metaTitle": "cmux 候選發佈版 — 搶先體驗下一個穩定版",
+    "metaDescription": "試用 cmux 候選發佈版：下一個穩定版建置在獨立的更新頻道上提前幾天發佈。同一個應用程式，同一個 bundle ID，在設定中切換頻道。",
+    "description": "候選發佈版是 cmux 的下一個穩定版建置，提前幾天發佈，以便在推送給所有人之前找出問題。它與穩定版是同一個應用程式：直接覆蓋安裝到目前的 cmux 上，或在「設定 > App」中把現有安裝切換到候選發佈版更新頻道。候選版通過驗證後，同一個建置就會成為穩定版。",
+    "download": "下載 Mac 版候選發佈版",
+    "downloadArm64": "Apple 晶片 DMG",
+    "downloadIntel": "Intel DMG",
+    "channelHint": "已經安裝 cmux？開啟「設定 > App」，把更新頻道設為「候選發佈版」，或在 <code>~/.config/cmux/cmux.json</code> 中加入 <code>{\"updates\": {\"channel\": \"rc\"}}</code>。",
+    "warning": "候選發佈版仍可能有錯誤。如果出現問題，請在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord</discordLink> 回報。切回穩定頻道會停止候選發佈版更新，但不會降級；如需降級，請重新安裝穩定版。"
   },
   "languageSwitcher": {
     "label": "語言"

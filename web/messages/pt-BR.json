@@ -137,6 +137,7 @@
     "discord": "Discord",
     "contact": "Contato",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "Idioma",
     "assets": "Recursos",
@@ -1973,6 +1974,18 @@
     "description": "O cmux NIGHTLY é compilado automaticamente do commit mais recente no main. Ele tem seu próprio bundle ID, então funciona ao lado da versão estável sem conflitos. Use-o para testar novos recursos antes do lançamento.",
     "download": "Baixar NIGHTLY para Mac",
     "warning": "Builds nightly podem conter bugs ou recursos incompletos. Se algo quebrar, reporte no <githubLink>GitHub</githubLink> ou em <discordLink>#nightly-bugs no Discord</discordLink> e volte para a versão estável."
+  },
+  "rc": {
+    "title": "cmux Release Candidate",
+    "subtitle": "A próxima versão estável, alguns dias antes",
+    "metaTitle": "cmux Release Candidate — Acesso antecipado à próxima versão estável",
+    "metaDescription": "Experimente a release candidate do cmux: a próxima versão estável publicada alguns dias antes em seu próprio canal de atualização. Mesmo app, mesmo bundle ID, troque de canal nas Configurações.",
+    "description": "A release candidate é a próxima versão estável do cmux, publicada alguns dias antes para encontrarmos problemas antes que todos a recebam. É o mesmo app da versão estável: instale por cima do seu cmux atual ou mude uma instalação existente para o canal de atualização release candidate em Configurações > App. Quando a candidata é aprovada, a mesma build vira a versão estável.",
+    "download": "Baixar a release candidate para Mac",
+    "downloadArm64": "DMG para Apple silicon",
+    "downloadIntel": "DMG para Intel",
+    "channelHint": "Já tem o cmux? Abra Configurações > App e defina o canal de atualização como Release candidate, ou adicione <code>{\"updates\": {\"channel\": \"rc\"}}</code> em <code>~/.config/cmux/cmux.json</code>.",
+    "warning": "Release candidates ainda podem ter bugs. Se algo quebrar, relate no <githubLink>GitHub</githubLink> ou no <discordLink>Discord</discordLink>. Voltar ao canal Estável interrompe as atualizações de release candidate, mas não faz downgrade; para isso, reinstale a versão estável."
   },
   "languageSwitcher": {
     "label": "Idioma"

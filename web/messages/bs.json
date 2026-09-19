@@ -137,6 +137,7 @@
     "discord": "Discord",
     "contact": "Kontakt",
     "nightly": "Nightly",
+    "rc": "Release Candidate",
     "copyright": "© {year} Manaflow",
     "language": "Jezik",
     "assets": "Materijali",
@@ -1973,6 +1974,18 @@
     "description": "cmux NIGHTLY se automatski kompajlira iz posljednjeg commita na main. Ima vlastiti bundle ID, pa radi uporedo sa stabilnom verzijom bez konflikata. Koristite ga za testiranje novih funkcija prije objavljivanja.",
     "download": "Preuzmi NIGHTLY za Mac",
     "warning": "Nightly verzije mogu sadržavati greške ili nepotpune funkcije. Ako nešto ne radi, prijavite to na <githubLink>GitHubu</githubLink> ili u <discordLink>#nightly-bugs na Discordu</discordLink> i prebacite se na stabilnu verziju."
+  },
+  "rc": {
+    "title": "cmux Release Candidate",
+    "subtitle": "Sljedeći stabilni build, nekoliko dana ranije",
+    "metaTitle": "cmux Release Candidate — Rani pristup sljedećem stabilnom buildu",
+    "metaDescription": "Isprobajte cmux release candidate: sljedeći stabilni build objavljen nekoliko dana ranije na vlastitom kanalu ažuriranja. Ista aplikacija, isti bundle ID, kanal mijenjate u Postavkama.",
+    "description": "Release candidate je sljedeći stabilni build cmux-a, objavljen nekoliko dana ranije kako bismo uočili probleme prije nego što ga svi dobiju. To je ista aplikacija kao stabilna: instalirajte je preko trenutnog cmux-a ili prebacite postojeću instalaciju na release candidate kanal ažuriranja u Postavke > App. Kada kandidat prođe, isti build postaje stabilno izdanje.",
+    "download": "Preuzmi release candidate za Mac",
+    "downloadArm64": "DMG za Apple silicon",
+    "downloadIntel": "DMG za Intel",
+    "channelHint": "Već imate cmux? Otvorite Postavke > App i postavite kanal ažuriranja na Release candidate, ili dodajte <code>{\"updates\": {\"channel\": \"rc\"}}</code> u <code>~/.config/cmux/cmux.json</code>.",
+    "warning": "Release candidate verzije i dalje mogu imati greške. Ako se nešto pokvari, prijavite na <githubLink>GitHub</githubLink> ili na <discordLink>Discord</discordLink>. Povratak na stabilni kanal zaustavlja release candidate ažuriranja, ali ne vraća stariju verziju; za to ponovo instalirajte stabilno izdanje."
   },
   "languageSwitcher": {
     "label": "Jezik"
