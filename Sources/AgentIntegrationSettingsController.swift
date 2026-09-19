@@ -1,6 +1,12 @@
 import CmuxFoundation
 import CmuxSettingsUI
 import Foundation
+import OSLog
+
+private let agentIntegrationSettingsLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AgentIntegrationSettings"
+)
 
 /// Host-side adapter for the hook installer owned by the bundled cmux CLI.
 ///
@@ -80,13 +86,21 @@ struct AgentIntegrationSettingsController: Sendable {
         guard result.executionError == nil,
               !result.timedOut,
               result.exitStatus == 0 else {
-            let message = result.executionError
+            let diagnostics = result.executionError
                 ?? result.stderr?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? String(
+            if let diagnostics, !diagnostics.isEmpty {
+                agentIntegrationSettingsLogger.error(
+                    "Agent hook installer failed for \(integration.rawValue, privacy: .public): " +
+                    "\(diagnostics, privacy: .private)"
+                )
+            }
+            return AgentIntegrationActionResult(
+                succeeded: false,
+                message: String(
                     localized: "settings.automation.integration.install.failed",
                     defaultValue: "The hook installer could not complete the requested action."
                 )
-            return AgentIntegrationActionResult(succeeded: false, message: message)
+            )
         }
         return .success
     }
