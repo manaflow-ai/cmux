@@ -14,7 +14,7 @@ import WebKit
 /// Real WebKit requests through the production per-panel userspace proxy configuration.
 /// The fixtures replace the remote carrier, not WebKit or URL routing.
 @MainActor
-@Suite("Cloud browser SOCKS5 integration", .serialized, .timeLimit(.minutes(2)))
+@Suite("Cloud browser proxy integration", .serialized, .timeLimit(.minutes(2)))
 struct CloudBrowserProxyIntegrationTests {
     @Test("the browser carrier does not inherit app credentials")
     func browserCarrierSanitizesInheritedCredentials() {
@@ -197,7 +197,7 @@ struct CloudBrowserProxyIntegrationTests {
             #expect(posted["body"] == "body-from-\(server.marker)")
 
             // The page's own localhost/0.0.0.0 links are rewritten to this VM's
-            // private origin before WebKit's authenticated SOCKS5 proxy runs.
+            // private origin before WebKit's authenticated CONNECT proxy runs.
             let absoluteLoopback = try #require(try await panel.webView.callAsyncJavaScript("""
                 try {
                 const response = await fetch('http://localhost:8000/echo', {
@@ -226,7 +226,7 @@ struct CloudBrowserProxyIntegrationTests {
         await secondModel.retire()
     }
 
-    @Test("the SOCKS5 fixture rejects an unauthenticated client that WebKit can authenticate")
+    @Test("the CONNECT fixture rejects an unauthenticated client that WebKit can authenticate")
     func proxyCredentialsAreRequired() async throws {
         let server = try CloudBrowserProxyTestServer(address: "10.16.0.9", marker: "auth")
         try await server.start()
@@ -234,10 +234,9 @@ struct CloudBrowserProxyIntegrationTests {
         let client = NWConnection(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: server.port)!, using: .tcp)
         defer { client.cancel() }
         try await client.startAndWaitUntilReady(queue: DispatchQueue(label: "cmux.tests.cloud-browser.unauthorized"))
-        try await client.sendAll(Data([0x05, 0x01, 0x02]))
-        #expect(try await client.receiveExactly(2) == [0x05, 0x02])
-        try await client.sendAll(Data([0x01, 0x04]) + Data("bad!".utf8) + Data([0x05]) + Data("wrong".utf8))
-        #expect(try await client.receiveExactly(2) == [0x01, 0x01])
+        try await client.sendAll(Data("CONNECT 10.16.0.9:8000 HTTP/1.1\r\nHost: 10.16.0.9:8000\r\n\r\n".utf8))
+        let response = try await client.receiveExactly(12)
+        #expect(String(decoding: response, as: UTF8.self) == "HTTP/1.1 407")
         #expect(server.authorizedTargets.isEmpty)
         #expect(server.requests.isEmpty)
     }
@@ -378,8 +377,8 @@ private final class CloudBrowserProxyTestNavigation: NSObject, WKNavigationDeleg
     }
 }
 
-/// Each fixture accepts one VM address at port 8000 and requires SOCKS5 credentials.
-/// After SOCKS5 CONNECT it behaves as that VM's HTTP service, recording the unmodified Host.
+/// Each fixture accepts one VM address at port 8000 and requires Basic proxy auth.
+/// After CONNECT it behaves as that VM's HTTP service, recording the unmodified Host.
 private final class CloudBrowserProxyTestServer: @unchecked Sendable {
     struct Request: Sendable {
         let method: String
@@ -466,8 +465,8 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
         do {
             try await connection.startAndWaitUntilReady(queue: queue)
             let first = try await connection.receiveExactly(1)
+            var buffered = Data(first)
             if first[0] == UInt8(ascii: "G") {
-                var buffered = Data(first)
                 let bridge = try await readRequest(connection, buffered: &buffered)
                 guard bridge.target.hasPrefix("/__cmux_ws__/") else { return }
                 guard bridge.headers["sec-websocket-protocol"]?.contains("cmux-proxy-ws-token") == true else { return }
@@ -475,52 +474,27 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 try await Task.sleep(for: .seconds(5))
                 return
             }
-            let rest = try await connection.receiveExactly(2)
-            let greeting = [first[0]] + rest
-            guard greeting[0] == 0x05, greeting[2] == 0x02 else { return }
-            try await connection.sendAll(Data([0x05, 0x02]))
-            let authHeader = try await connection.receiveExactly(2)
-            guard authHeader[0] == 0x01 else { return }
-            let username = try await connection.receiveExactly(Int(authHeader[1]))
-            let passwordLength = try await connection.receiveExactly(1)
-            let password = try await connection.receiveExactly(Int(passwordLength[0]))
-            let expectedUsername = Array(marker.utf8)
-            let expectedPassword = Array("fixture-\(marker)".utf8)
-            guard username == expectedUsername, password == expectedPassword else {
-                try await connection.sendAll(Data([0x01, 0x01]))
+            let connect = try await readRequest(connection, buffered: &buffered)
+            let expected = "Basic " + Data("\(marker):fixture-\(marker)".utf8).base64EncodedString()
+            guard connect.headers["proxy-authorization"] == expected else {
+                try await connection.sendAll(Data("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"cmux-test\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
+                try await connection.finishSending()
                 return
             }
-            try await connection.sendAll(Data([0x01, 0x00]))
-            let requestHeader = try await connection.receiveExactly(4)
-            guard requestHeader[0] == 0x05, requestHeader[1] == 0x01, requestHeader[2] == 0x00 else { return }
-            let host: String
-            switch requestHeader[3] {
-            case 0x01:
-                let bytes = try await connection.receiveExactly(4)
-                host = bytes.map(String.init).joined(separator: ".")
-            case 0x04:
-                _ = try await connection.receiveExactly(16)
-                host = address
-            default:
+            guard connect.method == "CONNECT", connect.target == "\(address):8000" else {
+                try await connection.sendAll(Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
+                try await connection.finishSending()
                 return
             }
-            let port = try await connection.receiveExactly(2)
-            let requestedPort = Int(port[0]) * 256 + Int(port[1])
-            guard host == address, requestedPort == 8000 else { return }
-            lock.withLock { capturedTargets.append("\(host):\(requestedPort)") }
-            try await connection.sendAll(Data([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]))
-            var buffered = Data()
-            let request = try await readRequest(connection, buffered: &buffered)
+            lock.withLock { capturedTargets.append(connect.target) }
+            try await connection.sendAll(Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8))
+            var request = try await readRequest(connection, buffered: &buffered)
+            if request.method == "OPTIONS" {
+                try await connection.sendAll(Data("HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n".utf8))
+                request = try await readRequest(connection, buffered: &buffered)
+            }
             let record = Request(method: request.method, target: request.target, host: request.headers["host"] ?? "", body: request.body)
             lock.withLock { capturedRequests.append(record) }
-            if request.headers["upgrade"]?.lowercased() == "websocket" {
-                let key = request.headers["sec-websocket-key"] ?? ""
-                let acceptInput = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
-                let accept = Data(Insecure.SHA1.hash(data: acceptInput)).base64EncodedString()
-                try await connection.sendAll(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8))
-                try await Task.sleep(for: .seconds(5))
-                return
-            }
             let data: Data
             let contentType: String
             if request.target == "/asset.js" {

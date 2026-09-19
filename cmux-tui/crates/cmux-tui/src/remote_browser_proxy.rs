@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
+use base64::Engine;
 use bytes::Bytes;
 use cmux_remote::client::WorkspaceClient;
 use cmux_remote_protocol::{
@@ -197,94 +198,72 @@ async fn serve_browser_connection(
         return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token)
             .await;
     }
-    serve_socks5_connection(socket, client, workspace, allowed_hosts, credentials).await
+    serve_connect_connection(socket, client, workspace, allowed_hosts, credentials).await
 }
 
-async fn serve_socks5_connection(
+async fn serve_connect_connection(
     mut socket: TcpStream,
     client: Arc<WorkspaceClient>,
     workspace: cmux_remote_protocol::WorkspaceId,
     allowed_hosts: Arc<Vec<String>>,
     credentials: String,
 ) -> anyhow::Result<()> {
-    let deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
-    let mut byte = [0_u8; 1];
-    tokio::time::timeout_at(deadline, socket.read_exact(&mut byte)).await??;
-    if byte[0] != 0x05 {
-        return Err(anyhow!("browser proxy requires SOCKS5"));
-    }
-
-    let mut count = [0_u8; 1];
-    read_exact_until(&mut socket, &mut count, deadline).await?;
-    let mut methods = vec![0_u8; count[0] as usize];
-    read_exact_until(&mut socket, &mut methods, deadline).await?;
-    if !methods.contains(&0x02) {
-        socket.write_all(&[0x05, 0xff]).await?;
-        return Err(anyhow!(
-            "browser proxy client does not offer username/password authentication"
-        ));
-    }
-    socket.write_all(&[0x05, 0x02]).await?;
-
-    let mut auth_header = [0_u8; 2];
-    read_exact_until(&mut socket, &mut auth_header, deadline).await?;
-    if auth_header[0] != 0x01 {
-        return Err(anyhow!("unsupported SOCKS5 authentication version"));
-    }
-    let mut username = vec![0_u8; auth_header[1] as usize];
-    read_exact_until(&mut socket, &mut username, deadline).await?;
-    let mut password_length = [0_u8; 1];
-    read_exact_until(&mut socket, &mut password_length, deadline).await?;
-    let mut password = vec![0_u8; password_length[0] as usize];
-    read_exact_until(&mut socket, &mut password, deadline).await?;
-    let (expected_username, expected_password) =
-        credentials.split_once(':').ok_or_else(|| anyhow!("invalid browser proxy credentials"))?;
-    if username.as_slice() != expected_username.as_bytes()
-        || password.as_slice() != expected_password.as_bytes()
-    {
-        socket.write_all(&[0x01, 0x01]).await?;
-        return Err(anyhow!("browser proxy authentication failed"));
-    }
-    socket.write_all(&[0x01, 0x00]).await?;
-
-    let mut request_header = [0_u8; 4];
-    read_exact_until(&mut socket, &mut request_header, deadline).await?;
-    if request_header[0] != 0x05 || request_header[1] != 0x01 || request_header[2] != 0x00 {
-        send_socks_failure(&mut socket, 0x07).await?;
-        return Err(anyhow!("browser proxy only supports SOCKS5 CONNECT"));
-    }
-    let host = match request_header[3] {
-        0x01 => {
-            let mut bytes = [0_u8; 4];
-            read_exact_until(&mut socket, &mut bytes, deadline).await?;
-            std::net::Ipv4Addr::from(bytes).to_string()
+    let handshake_deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
+    let mut request = Vec::with_capacity(4096);
+    let mut buffer = [0_u8; 1024];
+    let header_end = loop {
+        let read = tokio::time::timeout_at(
+            handshake_deadline,
+            tokio::io::AsyncReadExt::read(&mut socket, &mut buffer),
+        )
+        .await??;
+        if read == 0 {
+            return Ok(());
         }
-        0x04 => {
-            let mut bytes = [0_u8; 16];
-            read_exact_until(&mut socket, &mut bytes, deadline).await?;
-            std::net::Ipv6Addr::from(bytes).to_string()
+        request.extend_from_slice(&buffer[..read]);
+        if request.len() > 16 * 1024 {
+            return Err(anyhow!("proxy request headers too large"));
         }
-        _ => {
-            send_socks_failure(&mut socket, 0x08).await?;
-            return Err(anyhow!("browser proxy only accepts literal VM addresses"));
+        if let Some(position) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position + 4;
         }
     };
-    let mut port_bytes = [0_u8; 2];
-    read_exact_until(&mut socket, &mut port_bytes, deadline).await?;
-    let port = u16::from_be_bytes(port_bytes);
+    let header = std::str::from_utf8(&request[..header_end])
+        .map_err(|_| anyhow!("proxy request is not UTF-8"))?;
+    let mut lines = header.split("\r\n");
+    let request_line = lines.next().ok_or_else(|| anyhow!("missing proxy request line"))?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().ok_or_else(|| anyhow!("missing proxy method"))?;
+    let target = request_parts.next().ok_or_else(|| anyhow!("missing proxy target"))?;
+    if method != "CONNECT" {
+        socket.write_all(b"HTTP/1.1 405 Method Not Allowed\r\nConnection: close\r\n\r\n").await?;
+        return Ok(());
+    }
+    let (host, port) = parse_connect_authority(target)?;
+    let initial_payload = request[header_end..].to_vec();
+    let auth = lines.find_map(|line| {
+        line.split_once(':')
+            .filter(|(name, _)| name.eq_ignore_ascii_case("Proxy-Authorization"))
+            .map(|(_, value)| value.trim())
+    });
+    let expected =
+        format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(credentials));
+    if !auth.is_some_and(|provided| constant_time_equal(provided.as_bytes(), expected.as_bytes())) {
+        socket.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=cmux\r\nConnection: close\r\n\r\n").await?;
+        return Ok(());
+    }
     if !allowed_hosts.iter().any(|allowed| allowed == &host) {
-        send_socks_failure(&mut socket, 0x02).await?;
-        return Err(anyhow!("browser proxy target is not an allowed VM address"));
+        socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
+        return Ok(());
     }
     if port == 0 || port == 1337 {
-        send_socks_failure(&mut socket, 0x02).await?;
-        return Err(anyhow!("browser proxy target port is not allowed"));
+        socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
+        return Ok(());
     }
-
     let route = match tokio::time::timeout_at(
-        deadline,
+        handshake_deadline,
         client.request(WorkspaceRequest::CreateRoute {
-            workspace: workspace.clone(),
+            workspace,
             host: "127.0.0.1".into(),
             port,
             policy: RoutePolicy::LoopbackOnly,
@@ -299,7 +278,7 @@ async fn serve_socks5_connection(
     let mut metadata = BTreeMap::new();
     metadata.insert("route".into(), route.0.to_string());
     let stream = match tokio::time::timeout_at(
-        deadline,
+        handshake_deadline,
         client.multiplexer().open(Service::TcpTunnel, metadata),
     )
     .await
@@ -314,7 +293,7 @@ async fn serve_socks5_connection(
             return Err(anyhow!("browser proxy tunnel open timed out"));
         }
     };
-    let opened = match tokio::time::timeout_at(deadline, stream.receive()).await {
+    let opened = match tokio::time::timeout_at(handshake_deadline, stream.receive()).await {
         Ok(Ok(Some(opened))) => opened,
         Ok(Ok(None)) => {
             let _ = stream.close().await;
@@ -340,14 +319,24 @@ async fn serve_socks5_connection(
         let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
         return Err(anyhow!("tunnel did not open"));
     }
-    socket.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
-
+    if let Err(error) = socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await {
+        let _ = stream.close().await;
+        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        return Err(error.into());
+    }
     let (mut reader, mut writer) = socket.into_split();
     let stream = Arc::new(stream);
+    if !initial_payload.is_empty()
+        && let Err(error) = stream.send(Bytes::from(initial_payload)).await
+    {
+        let _ = stream.close().await;
+        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        return Err(error.into());
+    }
     let upload = async {
         let mut buffer = [0_u8; 16 * 1024];
         loop {
-            let read = reader.read(&mut buffer).await?;
+            let read = tokio::io::AsyncReadExt::read(&mut reader, &mut buffer).await?;
             if read == 0 {
                 stream.close().await?;
                 return Ok::<(), anyhow::Error>(());

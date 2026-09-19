@@ -1,6 +1,6 @@
 import Foundation
 
-/// An authenticated, app-owned SOCKS5 endpoint. Its credential never enters a URL or log.
+/// An authenticated, app-owned browser proxy endpoint. Its credential never enters a URL or log.
 struct CloudBrowserProxyEndpoint: Sendable, Equatable, Decodable, CustomStringConvertible, CustomDebugStringConvertible {
     let host: String
     let port: UInt16
