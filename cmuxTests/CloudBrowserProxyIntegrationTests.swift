@@ -79,6 +79,7 @@ struct CloudBrowserProxyIntegrationTests {
         #expect(panel.webView.url == remote)
         #expect(try await panel.webView.evaluateJavaScript("document.body.dataset.machine") as? String == "cold")
         #expect(try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeInstalled === true") as? Bool == true, "Cloud WebSocket bridge script must run before page JavaScript")
+        #expect((try await panel.webView.evaluateJavaScript("window.__cmuxCloudWebSocketBridgeRewrite('ws://10.16.0.10:8000/_next/hmr?id=fixture')") as? String)?.contains("/__cmux_ws__/") == true, "Cloud WebSocket URLs must be rewritten to the authenticated bridge")
         let websocketDeadline = ContinuousClock.now.advanced(by: .seconds(5))
         while (try await panel.webView.evaluateJavaScript("window.cloudWebSocketState") as? String) != "open",
               ContinuousClock.now < websocketDeadline {

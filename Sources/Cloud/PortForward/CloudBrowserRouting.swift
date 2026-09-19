@@ -46,6 +46,7 @@ struct CloudBrowserRouting {
             parsed.pathname = '/__cmux_ws__/' + target + parsed.pathname;
             return parsed.href;
           };
+          window.__cmuxCloudWebSocketBridgeRewrite = rewrite;
           const CmuxWebSocket = function(input, protocols) {
             const rewritten = rewrite(input);
             if (!rewritten) return protocols === undefined ? new NativeWebSocket(input) : new NativeWebSocket(input, protocols);
