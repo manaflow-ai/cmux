@@ -155,6 +155,8 @@
 		B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500110000000000000002 /* AgentPortTrackingState.swift */; };
 		89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
 		89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */; };
+		F8A82244E6BA26464ABD2D61 /* AgentQuitTerminationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A54CB92C4419559CC96B5B6 /* AgentQuitTerminationCoordinator.swift */; };
+		F6F0F8FCF48DD40A3DB48F42 /* AgentQuitTerminationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 485E46670A8567D512AAD026 /* AgentQuitTerminationCoordinatorTests.swift */; };
 		0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */; };
 		93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */; };
 		93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */; };
@@ -4145,6 +4147,8 @@
 		B79500140000000000000002 /* AgentPortSnapshotReplacementState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortSnapshotReplacementState.swift; sourceTree = "<group>"; };
 		B79500110000000000000002 /* AgentPortTrackingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentPortTrackingState.swift; sourceTree = "<group>"; };
 		89930002AABBCCDDEEFF0003 /* AgentProcessBindingResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentProcessBindingResolution.swift; sourceTree = "<group>"; };
+		7A54CB92C4419559CC96B5B6 /* AgentQuitTerminationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/AgentQuitTerminationCoordinator.swift"; sourceTree = "<group>"; };
+		485E46670A8567D512AAD026 /* AgentQuitTerminationCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentQuitTerminationCoordinatorTests.swift; sourceTree = "<group>"; };
 		0A1107110000000000000013 /* AgentRelaunchCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelaunchCommandBuilder.swift; sourceTree = "<group>"; };
 		93840006AA11BB22CC33EE06 /* AgentRelayTTYOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYOwnershipTests.swift; sourceTree = "<group>"; };
 		93840004AA11BB22CC33EE04 /* AgentRelayTTYTargetResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRelayTTYTargetResolution.swift; sourceTree = "<group>"; };
@@ -8702,6 +8706,7 @@
 				8997D0108997D0108997D010 /* AgentHibernationController+ScopedProcessTerminationResult.swift */,
 				8997D0098997D0098997D009 /* AgentHibernationProcessExitCompletion.swift */,
 				8997D0118997D0118997D011 /* AgentHibernationProcessExitEpoch.swift */,
+				7A54CB92C4419559CC96B5B6 /* AgentQuitTerminationCoordinator.swift */,
 				8997D00B8997D00B8997D00B /* AgentHibernationProcessSnapshotCoordinator.swift */,
 				8997D0068997D0068997D006 /* AgentHibernationController+PanelLifecycle.swift */,
 				A12123000000000000000002 /* AgentHibernationController+SessionEndIntent.swift */,
@@ -10843,6 +10848,7 @@
 				F65760010000000000000002 /* AgentHibernationPlannerSwiftTests.swift */,
 				9090F0039090F0039090F003 /* AgentHibernationPanelCloseCleanupTests.swift */,
 				8997D0048997D0048997D004 /* AgentHibernationProcessTerminationTests.swift */,
+				485E46670A8567D512AAD026 /* AgentQuitTerminationCoordinatorTests.swift */,
 				A12123000000000000000008 /* AgentHibernationSessionEndIntentTests.swift */,
 				8997D0138997D0138997D013 /* AgentHibernationProcessSignalBoundaryTests.swift */,
 				8997D0128997D0128997D012 /* AgentHibernationProcessSnapshotCoordinatorTests.swift */,
@@ -12503,6 +12509,7 @@
 				B79500140000000000000001 /* AgentPortSnapshotReplacementState.swift in Sources */,
 				B79500110000000000000001 /* AgentPortTrackingState.swift in Sources */,
 				89930002AABBCCDDEEFF0001 /* AgentProcessBindingResolution.swift in Sources */,
+				F8A82244E6BA26464ABD2D61 /* AgentQuitTerminationCoordinator.swift in Sources */,
 				0A1107110000000000000012 /* AgentRelaunchCommandBuilder.swift in Sources */,
 				93840003AA11BB22CC33EE03 /* AgentRelayTTYTargetResolution.swift in Sources */,
 				110432021104320211043202 /* AgentRestoreLiveOwnerNotice.swift in Sources */,
@@ -15219,6 +15226,7 @@
 				79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */,
 				7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */,
 				79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */,
+				F6F0F8FCF48DD40A3DB48F42 /* AgentQuitTerminationCoordinatorTests.swift in Sources */,
 				93840005AA11BB22CC33EE05 /* AgentRelayTTYOwnershipTests.swift in Sources */,
 				110430011104300111043001 /* AgentRestoreLiveOwnerAdmissionTests.swift in Sources */,
 				E8DF7FD45DA2E55E4DA65B38 /* AgentResumeLaunchGuardTests.swift in Sources */,

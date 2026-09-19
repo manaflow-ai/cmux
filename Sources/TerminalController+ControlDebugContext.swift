@@ -74,6 +74,8 @@ extension TerminalController: ControlDebugContext {
 
     func controlDebugActivateApp() -> String { activateApp() }
 
+    func controlDebugQuit() -> String { requestApplicationQuit() }
+
     func controlDebugRequestWorkspaceTodoChecklistAddField() -> UUID? {
         guard let workspace = tabManager?.selectedWorkspace else { return nil }
         WorkspaceTodoActions.requestChecklistAddField(workspaceId: workspace.id)
