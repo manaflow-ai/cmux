@@ -64,6 +64,20 @@ import UIKit
 }
 
 @MainActor
+@Test func activeAccessoryForegroundFollowsSystemAppearance() {
+    let foreground = UIColor.terminalAccessoryActiveForeground
+
+    #expect(
+        foreground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+            .isEqual(UIColor.white)
+    )
+    #expect(
+        foreground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+            .isEqual(UIColor.black)
+    )
+}
+
+@MainActor
 @Test func reverseModeOSCResetsUseRawConfigDefaults() async throws {
     let runtime = try GhosttyRuntime.shared()
     let delegate = ThemeTestSurfaceDelegate()
