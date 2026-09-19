@@ -57,6 +57,18 @@ struct SocketClientCapabilityTests {
         #expect(parsed.command == command)
     }
 
+    @Test func localContainerLeaseRoundTripsAndUsesCapabilityProtocol() throws {
+        let issuer = SocketClientCapabilityAuthority(secret: secret, audience: "com.cmuxterm.test")
+        let capability = issuer.issueCapability(nonce: nonce)
+        let lease = SocketClientCapabilityLease(socketPath: "/tmp/cmux.sock", capability: capability)
+        let encoded = try JSONEncoder().encode(lease)
+        let decoded = try JSONDecoder().decode(SocketClientCapabilityLease.self, from: encoded)
+
+        #expect(decoded == lease)
+        #expect(decoded.protocolName == "_cmux_capability_v1")
+        #expect(issuer.verifies(decoded.capability))
+    }
+
     @Test func secretStoreReusesPersistentSecret() {
         let store = SocketClientCapabilitySecretStore(
             loadSecret: { secret },
