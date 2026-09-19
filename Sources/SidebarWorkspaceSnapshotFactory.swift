@@ -79,7 +79,7 @@ struct SidebarWorkspaceSnapshotFactory {
             isPinned: workspace.isPinned,
             isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
-            cloudWorkspaceLabel: cloud?.machineLabel,
+            cloudWorkspaceLabel: detailVisibility.showsBranchDirectory ? cloud?.machineLabel : nil,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

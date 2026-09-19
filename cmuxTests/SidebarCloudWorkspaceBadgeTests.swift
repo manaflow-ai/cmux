@@ -36,6 +36,28 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
     }
 
+    @Test(arguments: [
+        ("sidebarHideAllDetails", true),
+        ("sidebarShowBranchDirectory", false)
+    ])
+    func sidebarDetailSettingsHideCloudMachineInfo(defaultsKey: String, value: Bool) throws {
+        let defaults = Self.makeDefaults()
+        if defaultsKey == "sidebarHideAllDetails" {
+            defaults.set(value, forKey: SettingCatalog().sidebar.hideAllDetails.userDefaultsKey)
+        } else {
+            defaults.set(value, forKey: SettingCatalog().sidebar.showBranchDirectory.userDefaultsKey)
+        }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let workspace = Workspace(initialSurface: .cloudVMLoading)
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
+        workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace, settings: settings, showsAgentActivity: false
+        ).makeSnapshot()
+        #expect(snapshot.cloudWorkspaceLabel == nil)
+        #expect(snapshot.compactDirectoryCandidates.isEmpty)
+    }
+
     /// Ensures restored Cloud identity survives every connection presentation state.
     @Test(arguments: [false, true])
     func cloudBadgeSurvivesRestoreAndReconnect(legacyTransport: Bool) throws {
@@ -118,22 +140,30 @@ struct SidebarCloudWorkspaceBadgeTests {
         Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])),
             named: "cloud-\(Int(width))-pin\(isPinned)-active\(isActive)-compact\(compact)-dark\(dark)-scale\(magnification).png")
         #endif
-        #expect(!badge.isHidden)
-        #expect(badge.image != nil)
-        #expect(badge.toolTip == "Cloud workspace on vivid-newt")
-        #expect(badge.contentTintColor != title.textColor)
+        #expect(badge.isHidden == compact)
+        #expect((badge.image != nil) == !compact)
+        #expect(compact || badge.toolTip == "Cloud workspace on vivid-newt")
+        if !compact {
+            #expect(badge.contentTintColor != title.textColor)
+        }
         #expect(title.frame.width > 60)
-        #expect(badge.frame.maxX + 8 == title.frame.minX)
+        if !compact {
+            #expect(badge.frame.maxX + 8 == title.frame.minX)
+        }
         #expect(title.frame.maxX <= width)
         #expect(title.lineBreakMode == .byTruncatingTail)
-        #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
+        #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == !compact)
         let pins = images.filter { !$0.isHidden && $0.toolTip == String(
             localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close") }
         #expect(pins.count == (isPinned ? 1 : 0))
         if isPinned {
             let pin = try #require(pins.first)
-            #expect(pin.frame.maxX + 8 == badge.frame.minX)
-            #expect(pin.frame.midY == badge.frame.midY)
+            if !compact {
+                #expect(pin.frame.maxX + 8 == badge.frame.minX)
+            }
+            if !compact {
+                #expect(pin.frame.midY == badge.frame.midY)
+            }
         }
         let cloudTitleFrame = title.frame
         let directoryFrames = SidebarAppKitRowCellTests.descendants(of: cell)
@@ -145,7 +175,7 @@ struct SidebarCloudWorkspaceBadgeTests {
             colorSchemeIsDark: dark, isActive: isActive, magnification: magnification))
         cell.layoutSubtreeIfNeeded()
         #expect(badge.isHidden)
-        #expect(title.frame.minX < cloudTitleFrame.minX)
+        #expect(compact || title.frame.minX < cloudTitleFrame.minX)
         #expect(title.frame.maxX == cloudTitleFrame.maxX)
         #expect(cell.accessibilityLabel()?.contains("Cloud workspace") == false)
         #expect(cell.layoutContent(model: try #require(cell.currentModelForMeasurement), width: width, apply: false) == height)
