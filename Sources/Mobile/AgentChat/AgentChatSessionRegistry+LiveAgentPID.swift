@@ -27,11 +27,6 @@ extension AgentChatSessionRegistry {
     #else
     @Sendable
     #endif
-    #if compiler(>=6.2)
-    @concurrent
-    #else
-    @Sendable
-    #endif
     nonisolated static func liveAgentPIDResult(
         surfaceID: String,
         kind: ChatAgentKind,
@@ -42,15 +37,21 @@ extension AgentChatSessionRegistry {
         let snapshot = await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true, includeCMUXScope: true, includeResources: false
         )
-        guard snapshot.captureIsAvailable else { return .unavailable }
-        return .found(liveAgentPID(
+        guard snapshot.captureIsAvailable, snapshot.enumerationIsComplete else { return .unavailable }
+        guard let livePID = liveAgentPID(
             in: snapshot, surfaceID: surfaceID, kind: kind,
             matchingSessionIDs: expectedSessionIDs,
             allowUnidentifiedFallback: allowUnidentifiedFallback,
             processArgumentsAndEnvironment: CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for:)
-        ) ?? -1)
+        ) else { return .notFound }
+        return .found(livePID)
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated static func liveAgentPID(
         surfaceID: String,
         kind: ChatAgentKind,
@@ -62,7 +63,7 @@ extension AgentChatSessionRegistry {
             includeProcessDetails: true,
             includeCMUXScope: true, includeResources: false
         )
-        guard snapshot.captureIsAvailable else { return nil }
+        guard snapshot.captureIsAvailable, snapshot.enumerationIsComplete else { return nil }
         return liveAgentPID(
             in: snapshot,
             surfaceID: surfaceID,

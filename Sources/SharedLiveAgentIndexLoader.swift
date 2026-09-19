@@ -63,7 +63,7 @@ struct SharedLiveAgentIndexLoader {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
-        guard processSnapshot.captureIsAvailable, !Task.isCancelled else {
+        guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
             return (.unavailable, [], [], [])
         }
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(

@@ -22,7 +22,7 @@ extension RestorableAgentSessionIndex {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
-        guard processSnapshot.captureIsAvailable, !Task.isCancelled else { return .unavailable }
+        guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else { return .unavailable }
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
             registry: registry,

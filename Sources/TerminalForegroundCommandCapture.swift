@@ -22,18 +22,13 @@ enum TerminalForegroundCommandCapture {
     #else
     @Sendable
     #endif
-    #if compiler(>=6.2)
-    @concurrent
-    #else
-    @Sendable
-    #endif
     static func liveCommands(forTTYDevices ttyDevices: Set<Int64>) async throws -> [Int64: String] {
         guard !ttyDevices.isEmpty else { return [:] }
         try Task.checkCancellation()
         let snapshot = await CmuxTopProcessSnapshot.capture(
             includeProcessDetails: true, includeCMUXScope: false, includeResources: false
         )
-        guard snapshot.captureIsAvailable else { throw ProcessSnapshotError.unavailable }
+        guard snapshot.captureIsAvailable, snapshot.enumerationIsComplete else { throw ProcessSnapshotError.unavailable }
         let processes = Array(snapshot.processesByPID.values)
         var bestByTTY: [Int64: CmuxTopProcessInfo] = [:]
         for process in processes {

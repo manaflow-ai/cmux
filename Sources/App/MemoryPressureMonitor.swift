@@ -89,6 +89,7 @@ final class MemoryPressureMonitor {
                 aggregateSampler: self.aggregateSampler,
                 at: sampledAt
             )
+            guard !Task.isCancelled, self.initialSamplingTask != nil else { return }
             self.apply(
                 systemSeverity: self.heldSystemSeverity(at: sampledAt),
                 physicalFootprintBytes: sample.footprint,
