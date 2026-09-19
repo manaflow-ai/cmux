@@ -29,7 +29,7 @@ final class ComputerUseRuntimeService {
     let stateAuthenticationKey: Data
 
     private let bundledHelperAppURL: URL?
-    private let daemonAdmission: ComputerUseDaemonAdmissionService
+    let daemonAdmission: ComputerUseDaemonAdmissionService
     let transport: SocketTransport
     private var installedHelperURL: URL?
     private var helperLifecycleTask: Task<Void, Never>?
@@ -286,9 +286,7 @@ final class ComputerUseRuntimeService {
             onboarding.invalidateCompletion()
             await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
                 guard let self else { return }
-                for profile in ComputerUseDaemonProfile.allCases {
-                    _ = await self.publishExternalPermissionReadiness(for: profile)
-                }
+                await self.onboardingAdmission.withdraw()
             }
         }
         return status()

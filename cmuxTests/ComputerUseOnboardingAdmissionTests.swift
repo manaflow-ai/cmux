@@ -11,6 +11,28 @@ import Testing
 
 @Suite("Computer Use onboarding admission")
 struct ComputerUseOnboardingAdmissionTests {
+    @Test(arguments: ComputerUseDaemonProfile.allCases) @MainActor
+    func grantRecheckUsesTheControlProtocolForBothProfiles(profile: ComputerUseDaemonProfile) async throws {
+        let fixture = try ComputerUseOnboardingFixture()
+        defer { fixture.remove() }
+        let socket = ComputerUseRuntimeService.socketURL(for: profile, paths: fixture.paths)
+        let responder = try UnixSocketResponder(
+            path: socket.path,
+            response: #"{"ok":true,"result":{"accessibility":true,"screen_recording":true,"source":{"attribution":"driver-daemon"}}}"#
+        )
+        defer { responder.stop() }
+        let service = ComputerUseDaemonAdmissionService(paths: fixture.paths, transport: SocketTransport())
+        let peer = try #require(AgentPIDProcessIdentity(pid: ProcessInfo.processInfo.processIdentifier))
+        let status = try #require(await service.permissionStatus(at: socket, peer: peer))
+        #expect(status.accessibility && status.screenRecording && status.helperOwnsPermissions)
+        let envelope = try #require(JSONSerialization.jsonObject(
+            with: Data(try #require(responder.receivedRequests.first).utf8)
+        ) as? [String: Any])
+        let request = try #require(envelope["request"] as? [String: Any])
+        #expect(request["method"] as? String == "permissions_status")
+        #expect(envelope["host_auth_token"] as? String == "synthetic-host-capability")
+    }
+
     @Test func completionAfterDisableCannotAuthorizeTheNextEnable() {
         var phase = ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false)
         phase = phase.applying(.setEnabled(true))

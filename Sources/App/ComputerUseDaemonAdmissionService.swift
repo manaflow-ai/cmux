@@ -6,6 +6,18 @@ struct ComputerUseDaemonAdmissionService: Sendable {
     let paths: ComputerUseRuntimePaths
     let transport: SocketTransport
 
+    /// Both daemon profiles expose this control method. The Codex tool registry
+    /// deliberately omits `check_permissions` and requires a broker for tool calls.
+    func permissionStatus(at socketURL: URL, peer: AgentPIDProcessIdentity) async -> ComputerUsePermissionStatus? {
+        guard let response = await ComputerUseRuntimeService.sendDaemonRequest(
+            ["method": "permissions_status"],
+            paths: paths, transport: transport, timeout: 2,
+            expectedPeerIdentity: peer, socketURL: socketURL
+        ), response["ok"] as? Bool == true,
+           let result = response["result"] as? [String: Any] else { return nil }
+        return ComputerUsePermissionStatus(structuredContent: result)
+    }
+
     func publish(
         phase: ComputerUseRuntimePermissionPhase,
         enabled: Bool,

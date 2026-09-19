@@ -3,6 +3,15 @@ import Foundation
 
 /// Host-only setup verification, committed before either daemon admits functional tools.
 extension ComputerUseRuntimeService {
+    /// Setup completion and later revocations use the same publication/rollback path.
+    var onboardingAdmission: ComputerUseOnboardingAdmissionCoordinator {
+        ComputerUseOnboardingAdmissionCoordinator(
+            store: onboarding,
+            publish: { await self.publishExternalPermissionReadiness(for: $0) },
+            stop: { _ = await self.stopDaemon() }
+        )
+    }
+
     /// Verifies the helper can perform direct ScreenCaptureKit capture now.
     ///
     /// On macOS 26 this is the prompt-capable check for the separate private
@@ -47,19 +56,14 @@ extension ComputerUseRuntimeService {
                       self.processIdentity(for: profile) == identity
                           && AgentPIDProcessIdentity(pid: identity.pid) == identity
                   }) else { return .unavailable }
-            let admission = ComputerUseOnboardingAdmissionCoordinator(
-                store: self.onboarding,
-                publish: { await self.publishExternalPermissionReadiness(for: $0) },
-                stop: { _ = await self.stopDaemon() }
-            )
+            let admission = self.onboardingAdmission
             // Capture does not exercise Accessibility. Re-read both grants from
             // both exact peers before persisting the completion milestone.
             if result == .ready {
                 for profile in ComputerUseDaemonProfile.allCases {
                     guard let identity = expectedPeerIdentities[profile],
-                          let status = await Self.queryPermissionStatus(
-                            paths: self.paths, transport: self.transport,
-                            expectedPeerIdentity: identity, socketURL: self.socketURL(for: profile)
+                          let status = await self.daemonAdmission.permissionStatus(
+                            at: self.socketURL(for: profile), peer: identity
                           ), status.helperOwnsPermissions else {
                         await admission.withdraw()
                         return .unavailable
