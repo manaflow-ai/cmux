@@ -456,7 +456,7 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
             defaultMachineStore: store,
             allowsOperation: { true },
-            loadMachines: { XCTFail("Cmd-N must not resolve the default VM"); return [] },
+            loadMachines: { [CloudMachineDescriptor(id: "selected-machine", isDesktop: true)] },
             createWorkspace: { id, focus in
                 XCTAssertTrue(focus)
                 targets.append(id)
@@ -464,6 +464,8 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
             }
         )
         app.cloudWorkspaceOperationController = CloudWorkspaceOperationController(isAvailable: { true })
+        let windowID = app.registerMainWindowContextForTesting(tabManager: manager, cmuxConfigStore: nil)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowID) }
         XCTAssertTrue(app.performNewWorkspaceAction(tabManager: manager))
         XCTAssertFalse(app.performNewWorkspaceAction(tabManager: manager))
         await app.cloudWorkspaceOperationController?.waitForPendingOperations()
@@ -478,15 +480,23 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
         let originalIDs = manager.tabs.map(\.id)
+        app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
+            defaultMachineStore: DefaultCloudMachineStore(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+            allowsOperation: { false },
+            loadMachines: { [] },
+            createWorkspace: { _, _ in XCTFail("unavailable Cloud must not create"); return nil }
+        )
+        let windowID = app.registerMainWindowContextForTesting(tabManager: manager, cmuxConfigStore: nil)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowID) }
         XCTAssertFalse(app.performNewWorkspaceAction(tabManager: manager))
         XCTAssertEqual(manager.tabs.map(\.id), originalIDs)
     }
 
     func testNewWorkspaceMachineContextUsesFocusedMachineThenWorkspaceBinding() {
-        XCTAssertEqual(NewWorkspaceMachineContext(selection: .cloud("machine-b"), selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: true).target, .cloud("machine-b"))
-        XCTAssertEqual(NewWorkspaceMachineContext(selection: .cloud("machine-b"), selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: false).target, .cloud("machine-a"))
-        XCTAssertEqual(NewWorkspaceMachineContext(selection: .local, selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: true).target, .local)
-        XCTAssertEqual(NewWorkspaceMachineContext(selection: .pending, selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: true).target, .unavailable)
+        XCTAssertEqual(CloudWorkspaceMachineContext(selection: .cloud("machine-b"), selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: true).target, .cloud("machine-b"))
+        XCTAssertEqual(CloudWorkspaceMachineContext(selection: .cloud("machine-b"), selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: false).target, .cloud("machine-a"))
+        XCTAssertEqual(CloudWorkspaceMachineContext(selection: .local, selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: true).target, .local)
+        XCTAssertEqual(CloudWorkspaceMachineContext(selection: .pending, selectedWorkspaceCloudMachineID: "machine-a", machinesPanelOwnsFocus: true).target, .unavailable)
     }
 
     func testCmdNFromMachinesSelectionCreatesOnCapturedMachine() async throws {
@@ -505,10 +515,10 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let windowID = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager, cmuxConfigStore: nil)
         defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowID) }
         let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowID })
-        appDelegate.setNewWorkspaceMachineSelection(.cloud("machine-b"), in: tabManager)
+        appDelegate.setCloudTreeSelection(CloudTreeSelection(nodeID: "machine-b", machine: .cloud("machine-b")), in: tabManager)
         context.keyboardFocusCoordinator.noteRightSidebarInteraction(mode: .machines)
         XCTAssertTrue(appDelegate.performNewWorkspaceAction(tabManager: tabManager, debugSource: "test.cmdN.machine"))
-        appDelegate.setNewWorkspaceMachineSelection(.cloud("machine-a"), in: tabManager)
+        appDelegate.setCloudTreeSelection(CloudTreeSelection(nodeID: "machine-a", machine: .cloud("machine-a")), in: tabManager)
         await appDelegate.cloudWorkspaceOperationController?.waitForPendingOperations()
         XCTAssertEqual(createdMachine, "machine-b")
 #else
