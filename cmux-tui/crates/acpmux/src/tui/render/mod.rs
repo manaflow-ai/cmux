@@ -193,6 +193,13 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
     let vis: Vec<usize> = (0..t.items.len())
         .filter(|&i| {
             let it = &t.items[i];
+            if let Item::Permission { title, decided: Some(d), .. } = it {
+                // "✓ Allowed  Write x" right under "✎ Write x" repeats the row.
+                let echoes_tool = i > 0 && matches!(&t.items[i - 1], Item::Tool { title: tt, .. } if tt == title);
+                if d.starts_with("allow") && echoes_tool {
+                    return false;
+                }
+            }
             (show_system || !is_system_noise(it)) && !matches!(it, Item::TurnEnd { stop } if stop == "end_turn")
         })
         .collect();
@@ -667,16 +674,13 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let composer = Rect { x: main.x, y: main.y + main.height - input_h, width: main.width, height: input_h };
     // A pending permission docks as a card above the composer, Codex-app
     // style, instead of covering the conversation.
-    let pending = if matches!(app.overlay, Overlay::None) {
-        app.selected_id()
-            .and_then(|id| app.transcripts.get(&id))
-            .and_then(|t| match t.pending_permission() {
-                Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
-                _ => None,
-            })
-    } else {
-        None
-    };
+    let pending = app
+        .selected_id()
+        .and_then(|id| app.transcripts.get(&id))
+        .and_then(|t| match t.pending_permission() {
+            Some(Item::Permission { title, options, .. }) => Some((title.clone(), options.clone())),
+            _ => None,
+        });
     let card_h: u16 = if pending.is_some() && main.height > input_h + 8 { 4 } else { 0 };
     let card = Rect { x: main.x + 1, y: composer.y.saturating_sub(card_h), width: main.width.saturating_sub(2), height: card_h };
     let transcript = Rect { x: main.x, y: main.y, width: main.width, height: main.height - input_h - card_h };
