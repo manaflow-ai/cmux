@@ -184,7 +184,7 @@ pub(super) async fn serve_browser_proxy(
 }
 
 async fn serve_browser_connection(
-    mut socket: TcpStream,
+    socket: TcpStream,
     client: Arc<WorkspaceClient>,
     workspace: cmux_remote_protocol::WorkspaceId,
     allowed_hosts: Arc<Vec<String>>,
@@ -564,7 +564,6 @@ async fn send_socks_failure(socket: &mut TcpStream, code: u8) -> anyhow::Result<
     Ok(())
 }
 
-#[cfg(test)]
 pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String, u16)> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
         let end = rest.find(']').ok_or_else(|| anyhow!("invalid CONNECT authority"))?;
