@@ -98,6 +98,9 @@ extension AppDelegate {
                     items.removeLast()
                 }
                 addRenderedSection(items)
+                if CloudMachinesFeature.isEnabled, auth?.accountFlow.isAuthenticated == true {
+                    addRenderedSection([sharedTeamWindowMenuItem(windowID: context.windowId)])
+                }
             case .layouts(let rows):
                 var items: [NSMenuItem] = [
                     .sectionHeader(title: String(
@@ -258,4 +261,21 @@ extension AppDelegate {
         item.keyEquivalent = keyEquivalent
         item.keyEquivalentModifierMask = shortcut.modifierFlags
     }
+
+    func sharedTeamWindowMenuItem(windowID: UUID) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: String(localized: "command.cloudVM.teamWindow.open.title", defaultValue: "Open Team Window"),
+            action: #selector(openSharedTeamWindowMenuItem(_:)), keyEquivalent: ""
+        )
+        item.target = self
+        item.representedObject = windowID as NSUUID
+        return item
+    }
+
+    @objc private func openSharedTeamWindowMenuItem(_ sender: NSMenuItem) {
+        guard let windowID = sender.representedObject as? UUID,
+              let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }) else { return }
+        _ = performSharedTeamWindowAction(preferredWindow: resolvedWindow(for: context), debugSource: "titlebar.cloudVM.menu.teamWindow")
+    }
+
 }

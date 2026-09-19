@@ -138,11 +138,18 @@ final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable 
     private var _tunnels: [FakeProxyTunnel] = []
     private var _onFatalErrors: [@Sendable (String) -> Void] = []
     private var _failNextStarts = 0
+    private var _configurations: [WorkspaceRemoteConfiguration] = []
 
     var tunnels: [FakeProxyTunnel] {
         lock.lock()
         defer { lock.unlock() }
         return _tunnels
+    }
+
+    var configurations: [WorkspaceRemoteConfiguration] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _configurations
     }
 
     /// The fatal-error callback paired with tunnel `index`.
@@ -176,9 +183,33 @@ final class FakeTunnelProvider: RemoteProxyTunnelProviding, @unchecked Sendable 
             ])
         }
         let tunnel = FakeProxyTunnel(remotePath: remotePath, localPort: localPort, startError: startError)
+        _configurations.append(configuration)
         _tunnels.append(tunnel)
         _onFatalErrors.append(onFatalError)
         return tunnel
+    }
+}
+
+private final class FakeManagedCloudEndpointRefresher: @unchecked Sendable {
+    private let endpoint: WorkspaceRemoteWebSocketDaemonEndpoint
+    private let lock = NSLock()
+    private var _requestedVMIDs: [String] = []
+
+    init(endpoint: WorkspaceRemoteWebSocketDaemonEndpoint) {
+        self.endpoint = endpoint
+    }
+
+    var requestedVMIDs: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _requestedVMIDs
+    }
+
+    func refreshDaemonEndpoint(managedCloudVMID: String) async throws -> WorkspaceRemoteWebSocketDaemonEndpoint {
+        lock.withLock {
+            _requestedVMIDs.append(managedCloudVMID)
+        }
+        return endpoint
     }
 }
 
@@ -273,6 +304,33 @@ struct RemoteProxyBrokerTests {
         )
     }
 
+    private func makeManagedWebSocketConfiguration(token: String, expiresAtUnix: Int64) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: .websocket,
+            destination: "managed-cloud-vm",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            managedCloudVMID: "vm-123",
+            terminalStartupCommand: nil,
+            daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint(
+                url: "wss://example.invalid/daemon",
+                headers: [:],
+                token: token,
+                sessionId: "daemon-session",
+                expiresAtUnix: expiresAtUnix
+            ),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "team-window-v1",
+            skipDaemonBootstrap: true
+        )
+    }
+
     @Test("acquire starts one tunnel and delivers .connecting then .ready")
     func acquireStartsTunnel() throws {
         let provider = FakeTunnelProvider()
@@ -308,6 +366,24 @@ struct RemoteProxyBrokerTests {
         #expect(provider.tunnels.count == 1)
         let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: try #require(provider.tunnels.first).localPort)
         #expect(second.updates == [.ready(endpoint)])
+    }
+
+    @Test("renewed credentials for one managed VM share its existing broker entry")
+    func renewedManagedCredentialsShareStableTransportIdentity() {
+        let provider = FakeTunnelProvider()
+        let broker = RemoteProxyBroker(tunnelProvider: provider, clock: ManualRetryClock())
+        let first = makeManagedWebSocketConfiguration(token: "old-token", expiresAtUnix: 100)
+        let renewed = makeManagedWebSocketConfiguration(token: "new-token", expiresAtUnix: 200)
+
+        #expect(first.hasSamePersistentPTYIdentity(as: renewed))
+        #expect(first.persistentPTYIdentityLookupKeys == renewed.persistentPTYIdentityLookupKeys)
+
+        let leaseA = broker.acquire(configuration: first, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }
+        defer { leaseA.release() }
+        let leaseB = broker.acquire(configuration: renewed, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }
+        defer { leaseB.release() }
+
+        #expect(provider.tunnels.count == 1)
     }
 
     @Test("acquiring with a changed remotePath restarts the shared tunnel")
@@ -448,6 +524,43 @@ struct RemoteProxyBrokerTests {
             return false
         })
         #expect(provider.tunnels.count == 2)
+    }
+
+    @Test("a managed cloud tunnel failure renews its endpoint before restart")
+    func managedCloudFailureRenewsEndpointBeforeRestart() throws {
+        let provider = FakeTunnelProvider()
+        let clock = ManualRetryClock()
+        let renewedEndpoint = WorkspaceRemoteWebSocketDaemonEndpoint(
+            url: "wss://renewed.example.invalid/daemon",
+            headers: ["X-Lease": "renewed"],
+            token: "renewed-token",
+            sessionId: "renewed-session",
+            expiresAtUnix: 300
+        )
+        let refresher = FakeManagedCloudEndpointRefresher(endpoint: renewedEndpoint)
+        let broker = RemoteProxyBroker(
+            tunnelProvider: provider,
+            clock: clock
+        )
+        broker.configurationRefresher = { configuration in
+            guard let vmID = configuration.managedCloudVMID,
+                  let endpoint = try? await refresher.refreshDaemonEndpoint(managedCloudVMID: vmID) else { return nil }
+            return configuration.withDaemonWebSocketEndpoint(endpoint)
+        }
+        let configuration = makeManagedWebSocketConfiguration(token: "expired-token", expiresAtUnix: 100)
+
+        let lease = broker.acquire(configuration: configuration, remotePath: "/usr/local/bin/cmuxd-remote") { _ in }
+        defer { lease.release() }
+        let fatalError = try #require(provider.fatalErrorCallback(at: 0))
+        fatalError("daemon websocket failed: Socket is not connected")
+        #expect(clock.waitForSleeps(1))
+        clock.fireOldestSleep()
+
+        let deadline = Date().addingTimeInterval(5)
+        while provider.tunnels.count < 2 && Date() < deadline { usleep(10_000) }
+        #expect(refresher.requestedVMIDs == ["vm-123"])
+        #expect(provider.tunnels.count == 2)
+        #expect(provider.configurations.last?.daemonWebSocketEndpoint == renewedEndpoint)
     }
 
     @Test("PTY operations forward to the ready tunnel and throw code 40 when none is ready")

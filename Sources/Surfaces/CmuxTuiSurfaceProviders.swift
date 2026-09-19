@@ -861,6 +861,24 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         try await createRemoteWorkspace(name: name, expectedRevision: nil)
     }
 
+    /// Replays one machine-scoped creation receipt. The daemon serializes concurrent
+    /// first opens and persists the exact workspace, terminal, and tab identities.
+    /// A deleted resource fails during projection; it never silently creates a new session.
+    func resolveSharedSession(_ sessionID: String) async throws -> CmuxTuiSnapshotParser.CreatedTerminalPath {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let data = try await link.run(arguments: CloudTuiCommandLine.sharedSessionWorkspaceArguments(
+            socketPath: connected.socketPath, sessionID: sessionID
+        ))
+        guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result),
+              created.workspaceID != nil, created.tabID != nil else {
+            throw ProviderError.invalidSnapshot(machineID)
+        }
+        _ = await refreshCurrentGraph(force: true)
+        return created
+    }
+
     /// Uses the daemon's revision fence for the name lookup/create, including
     /// races with another Mac or a guest CLI, without serializing unrelated I/O.
     func getOrCreateRemoteWorkspace(name: String) async throws -> (workspace: SurfaceRemoteWorkspace, existing: Bool) {

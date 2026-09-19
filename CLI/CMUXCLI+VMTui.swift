@@ -52,6 +52,8 @@ extension CMUXCLI {
         /// target workspace is the one already on screen, so a person who waited in it
         /// can type straight away.
         var focus: Bool = true
+        /// Stable daemon creation identity, independent of mutable workspace/terminal names.
+        var sharedSessionID: String? = nil
     }
     struct VMTuiDeviceRecord: Codable {
         let deviceFingerprint: String
@@ -457,9 +459,30 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
+                let sharedReceipt: [String: Any]?
+                if let sharedSessionID = options.sharedSessionID {
+                    sharedReceipt = try client.sendV2(
+                        method: "vm.workspace_new",
+                        params: ["id": vmId, "shared_session_id": sharedSessionID, "open": false],
+                        responseTimeout: 240
+                    )
+                } else {
+                    sharedReceipt = nil
+                }
                 let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
+                let resolution: VMMachineTerminalResolution
+                if let sharedReceipt {
+                    guard let remoteWorkspaceID = sharedReceipt["remote_workspace_id"] as? String,
+                          let terminalID = sharedReceipt["terminal_id"] as? String,
+                          let tabID = sharedReceipt["tab_id"] as? String else {
+                        throw CLIError(message: "Shared session creation returned no durable terminal placement.")
+                    }
+                    resolution = .resolved(workspaceID: remoteWorkspaceID, terminalID: terminalID, tabID: tabID)
+                } else {
+                    resolution = VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog)
+                }
                 let opened: [String: Any]
-                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
+                switch resolution {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
                     var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
                     if let tabID { params["remote_tab_id"] = tabID }

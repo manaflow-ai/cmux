@@ -12880,6 +12880,7 @@ struct CMUXCLI {
         workspaceName: String?,
         windowRaw: String?,
         targetWorkspaceId: String? = nil,
+        sessionID: String? = nil,
         forceSSH: Bool,
         shouldPinWorkspaceToTop: Bool,
         focus: Bool = true,
@@ -12935,7 +12936,8 @@ struct CMUXCLI {
                 workspaceName: workspaceName,
                 targetWorkspaceId: targetWorkspaceId,
                 pinAsBase: shouldPinWorkspaceToTop,
-                focus: focus
+                focus: focus,
+                sharedSessionID: sessionID
             ),
             client: client
         )
@@ -12985,7 +12987,8 @@ struct CMUXCLI {
     ) throws {
         let (targetWorkspaceOpt, rem0) = parseOption(args, name: "--workspace")
         let (windowOpt, rem0a) = parseOption(rem0, name: "--window")
-        let (focusOpt, rem1) = parseOption(rem0a, name: "--focus")
+        let (sessionOpt, rem0b) = parseOption(rem0a, name: "--session")
+        let (focusOpt, rem1) = parseOption(rem0b, name: "--focus")
         let focus = try parseCloudVMFocusOption(focusOpt, command: "vm base open")
         let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
         let baseKind = try Self.cloudVMCreateKind(rem1, command: "vm base open")
@@ -12998,6 +13001,7 @@ struct CMUXCLI {
                   --workspace <workspace-id>
                   --window <id|ref|index>
                   --desktop, --base  \(String(localized: "cli.vm.help.legacyBaseKindFlags", defaultValue: "accepted for older scripts; Base always has a screen"))
+                  --session <session-id>
                   --focus <true|false>  false opens Base without selecting its workspace
                   --detach, -d
                 """)
@@ -13012,6 +13016,7 @@ struct CMUXCLI {
         }
 
         let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+        let sessionID = try Self.validatedVMSessionIdentifier(sessionOpt, flag: "--session")
         let vmCreateStartedAt = Date()
         // The kind only matters when Base does not exist yet; an existing Base keeps
         // its image, so a bare open never changes a machine.
@@ -13058,6 +13063,7 @@ struct CMUXCLI {
             workspaceName: Self.persistentCloudVMWorkspaceName,
             windowRaw: targetWindow,
             targetWorkspaceId: targetWorkspaceOpt,
+            sessionID: sessionID,
             forceSSH: false,
             shouldPinWorkspaceToTop: true,
             focus: focus,
@@ -18307,7 +18313,7 @@ struct CMUXCLI {
                                         integrations) — read through your session, no
                                         shell started.
               status <id>                Print provider, status, and image.
-              base open [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
+              base open [--workspace <id>] [--window <id|ref|index>] [--session <id>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
                                         \(String(localized: "cli.vm.help.baseCreate", defaultValue: "open creates it: the devbox with a VNC screen."))

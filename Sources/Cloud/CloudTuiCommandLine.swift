@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The exact argv the app hands the cmux-tui client for each cloud-tree operation.
@@ -88,6 +89,14 @@ struct CloudTuiCommandLine: Sendable {
         }
         if empty { arguments.append("--empty") }
         return arguments
+    }
+
+    /// A daemon-owned durable creation receipt resolves every teammate to the same
+    /// workspace and starter terminal. Renaming either resource cannot change this key.
+    static func sharedSessionWorkspaceArguments(socketPath: String, sessionID: String) -> [String] {
+        let digest = SHA256.hash(data: Data(sessionID.utf8)).map { String(format: "%02x", $0) }.joined()
+        return createWorkspaceArguments(socketPath: socketPath, name: sessionID)
+            + ["--idempotency-key", "cmux-shared-session-v1-" + digest]
     }
 
     /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).

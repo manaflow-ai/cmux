@@ -62,6 +62,7 @@ extension ContentView {
 }
 
 extension ContentView {
+    static let commandPaletteCloudTeamWindowCommandId = "palette.cloud.teamWindow"
     static let commandPaletteCloudForkCommandId = "palette.cloud.fork"
     static let commandPaletteCloudSnapshotCommandId = "palette.cloud.snapshot"
     static let commandPaletteCloudRestoreCommandId = "palette.cloud.restore"
@@ -82,6 +83,12 @@ extension ContentView {
         }
         let subtitle = constant(String(localized: "command.cloudVM.subtitle", defaultValue: "Cloud"))
         return [
+            CommandPaletteCommandContribution(
+                commandId: commandPaletteCloudTeamWindowCommandId,
+                title: constant(String(localized: "command.cloudVM.teamWindow.open.title", defaultValue: "Open Team Window")),
+                subtitle: subtitle,
+                keywords: ["cloud", "team", "shared", "window", "collaborate"]
+            ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudNewMachineCommandId,
                 title: constant(String(localized: "command.cloudVM.newMachine.title", defaultValue: "New Cloud Machine\u{2026}")),
@@ -140,6 +147,12 @@ extension ContentView {
     }
 
     func registerCloudCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
+        registry.register(commandId: Self.commandPaletteCloudTeamWindowCommandId) {
+            _ = AppDelegate.shared?.performSharedTeamWindowAction(
+                preferredWindow: NSApp.keyWindow,
+                debugSource: "palette.cloud.teamWindow"
+            )
+        }
         registry.register(commandId: Self.commandPaletteCloudNewMachineCommandId) {
             _ = AppDelegate.shared?.performNewCloudWorkspaceAction(
                 preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
