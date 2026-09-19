@@ -63,7 +63,16 @@ extension SidebarGitMetadataService {
     ) -> Bool {
         guard acceptWorkspaceGitMetadataWatcherRequest(for: key, request: request) else { return false }
         guard let descriptor else {
-            stopWorkspaceGitMetadataWatcher(for: key)
+            // A failed rescan cannot retire a working watcher for this same
+            // directory. A directory change still releases the old ownership.
+            let installedPathsKey = workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key]
+            let hasInstalledWatcher = workspaceGitMetadataWatcherSourceDirectoryByKey[key] == request.directory
+                && installedPathsKey.flatMap { workspaceGitMetadataWatchersByWatchedPathsKey[$0] } != nil
+            if hasInstalledWatcher {
+                finishWorkspaceGitMetadataWatcherRequest(for: key)
+            } else {
+                stopWorkspaceGitMetadataWatcher(for: key)
+            }
             return false
         }
         let watchedPathsKey = watchedPathsKey(for: descriptor)

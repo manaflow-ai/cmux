@@ -3,6 +3,13 @@ import CmuxBrowser
 
 extension TerminalController {
     func v2BrowserImportDialog(params: [String: Any]) -> V2CallResult {
+        guard let coordinator = browserDataImportCoordinator else {
+            return .err(
+                code: "not_ready",
+                message: String(localized: "browser.import.error.title", defaultValue: "Import could not start"),
+                data: nil
+            )
+        }
         let scope: BrowserImportScope?
         if params.keys.contains("scope") {
             guard let raw = v2String(params, "scope")?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
@@ -66,7 +73,7 @@ extension TerminalController {
             defaultDestinationProfileID = nil
         }
         Task { @MainActor in
-            self.browserDataImportCoordinator?.presentImportDialog(
+            coordinator.presentImportDialog(
                 defaultDestinationProfileID: defaultDestinationProfileID,
                 defaultScope: scope
             )

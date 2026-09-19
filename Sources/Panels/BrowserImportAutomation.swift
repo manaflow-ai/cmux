@@ -84,7 +84,7 @@ enum BrowserImportAutomation {
             throw BrowserImportAutomationError.noProfiles(browser.displayName)
         }
 
-        if browserAutomationBoolParam(params, keys: ["all_profiles", "all_source_profiles"]) {
+        if BrowserAutomationParameters(values: params).bool(keys: ["all_profiles", "all_source_profiles"]) {
             return browser.profiles
         }
 
@@ -129,7 +129,7 @@ enum BrowserImportAutomation {
             return profile.id
         }
 
-        guard browserAutomationBoolParam(params, keys: ["create_destination_profile", "create_profile"]) else {
+        guard BrowserAutomationParameters(values: params).bool(keys: ["create_destination_profile", "create_profile"]) else {
             throw BrowserImportAutomationError.destinationProfileNotFound(query)
         }
 
@@ -185,17 +185,5 @@ enum BrowserImportAutomation {
             }
         }
         return result
-    }
-
-    private static func browserAutomationBoolParam(_ params: [String: Any], keys: [String]) -> Bool {
-        for key in keys {
-            if let value = params[key] as? Bool { return value }
-            if let value = params[key] as? NSNumber { return value.boolValue }
-            if let value = params[key] as? String,
-               ["1", "true", "yes", "on"].contains(value.lowercased()) {
-                return true
-            }
-        }
-        return false
     }
 }

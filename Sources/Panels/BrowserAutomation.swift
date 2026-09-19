@@ -198,23 +198,6 @@ enum BrowserProfileAutomationError: LocalizedError, CustomStringConvertible {
     }
 }
 
-private func browserAutomationBoolParam(_ params: [String: Any], keys: [String]) -> Bool {
-    for key in keys {
-        if let value = params[key] as? Bool {
-            return value
-        }
-        if let value = params[key] as? String {
-            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "1", "true", "yes", "on":
-                return true
-            default:
-                continue
-            }
-        }
-    }
-    return false
-}
-
 enum BrowserProfileAutomation {
     static func list(params _: [String: Any]) async throws -> [String: Any] {
         await MainActor.run {
@@ -263,7 +246,7 @@ enum BrowserProfileAutomation {
     @MainActor
     static func clear(params: [String: Any]) async throws -> [String: Any] {
         let targets = try targetProfiles(params: params, allowAll: true)
-        let force = browserAutomationBoolParam(params, keys: ["force"])
+        let force = BrowserAutomationParameters(values: params).bool(keys: ["force"])
         if !force {
             for profile in targets {
                 let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
@@ -328,7 +311,7 @@ enum BrowserProfileAutomation {
     @MainActor
     private static func targetProfiles(params: [String: Any], allowAll: Bool) throws -> [BrowserProfileDefinition] {
         let store = BrowserProfileStore.shared
-        if allowAll, browserAutomationBoolParam(params, keys: ["all", "all_profiles"]) {
+        if allowAll, BrowserAutomationParameters(values: params).bool(keys: ["all", "all_profiles"]) {
             return store.profiles
         }
         let query = try requiredString(params, keys: ["profile", "id", "name"])
