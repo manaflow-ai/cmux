@@ -112,8 +112,29 @@ if [ "${1:-}" = "-version" ]; then
 fi
 printf '%s\n' "$@" >> "$STUB_XCODEBUILD_ARGS"
 echo "---" >> "$STUB_XCODEBUILD_ARGS"
+# Resolution reports success every time, and writes the binary artifacts only
+# from the attempt named by STUB_RESOLVE_ARTIFACTS_FROM.
+packages=""
+resolving=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -clonedSourcePackagesDirPath) packages="$2"; shift ;;
+    -resolvePackageDependencies) resolving=1 ;;
+  esac
+  shift
+done
+if [ "$resolving" -eq 1 ]; then
+  echo x >> "$STUB_RESOLVE_ATTEMPTS"
+  if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ge "${STUB_RESOLVE_ARTIFACTS_FROM:-1}" ]; then
+    mkdir -p "$packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" \
+      "$packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework"
+  fi
+fi
 STUB
 chmod +x "$TMP_DIR/bin/xcodebuild"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP_DIR/bin/sleep"
+chmod +x "$TMP_DIR/bin/sleep"
+export STUB_RESOLVE_ATTEMPTS="$TMP_DIR/resolve-attempts.txt"
 export STUB_XCODEBUILD_ARGS="$TMP_DIR/args.txt"
 
 run_script() {
@@ -155,6 +176,30 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   exit 1
 fi
 echo "PASS: the build compiles both schemes for testing with the compilation cache on"
+
+# A restored package cache can make resolution succeed without the binary
+# artifacts, and the build cannot resolve again.
+: > "$STUB_RESOLVE_ATTEMPTS"
+mkdir -p "$TMP_DIR/stale-packages/checkouts"
+if ! STUB_RESOLVE_ARTIFACTS_FROM=2 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/stale-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
+  || [ -d "$TMP_DIR/stale-packages/checkouts" ]; then
+  echo "FAIL: resolve must clear the package cache and retry when the binary artifacts are missing"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+if STUB_RESOLVE_ARTIFACTS_FROM=9 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/never-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 3 ]; then
+  echo "FAIL: resolve must fail after three attempts without the binary artifacts"
+  exit 1
+fi
+for name_and_body in "macos-compile-admission:$ADMISSION" "refresh-test-compilation-cache:$SEEDER"; do
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh resolve' <<<"${name_and_body#*:}"; then
+    echo "FAIL: the ${name_and_body%%:*} job must resolve packages through scripts/ci/compile-app-host-test-product.sh"
+    exit 1
+  fi
+done
+echo "PASS: resolve retries until the binary artifacts exist, in both jobs"
 
 if run_script bogus >/dev/null 2>&1 || run_script build only-one-arg >/dev/null 2>&1; then
   echo "FAIL: the script must reject unknown commands and short argument lists"
