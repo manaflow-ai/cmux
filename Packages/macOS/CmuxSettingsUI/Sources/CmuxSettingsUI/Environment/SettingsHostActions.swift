@@ -304,22 +304,23 @@ public struct AutomationRulesStatus: Equatable, Sendable {
     public let ruleCount: Int
     public let enabledCount: Int
     public let configExists: Bool
-    public let errorMessage: String?
+    public let hasError: Bool
 
     public init(
         configPath: String,
         ruleCount: Int,
         enabledCount: Int,
         configExists: Bool,
-        errorMessage: String? = nil
+        hasError: Bool = false
     ) {
         self.configPath = configPath
         self.ruleCount = max(0, ruleCount)
         self.enabledCount = min(max(0, enabledCount), max(0, ruleCount))
         self.configExists = configExists
-        self.errorMessage = errorMessage
+        self.hasError = hasError
     }
 
+    /// Number of configured rules that are currently disabled.
     public var disabledCount: Int {
         ruleCount - enabledCount
     }
