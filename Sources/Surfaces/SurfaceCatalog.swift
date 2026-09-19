@@ -1383,18 +1383,6 @@ final class SurfaceCatalog {
         }
     }
 
-    /// Complete export for the local control socket. This is separate from
-    /// `snapshot` because sidebar redraws do not need to copy or hash the full
-    /// remote daemon documents.
-    var export: SurfaceCatalogExport {
-        let retainedObservations = cloudStateObservations.filter { cloudStates[$0.key] != nil }
-        return SurfaceCatalogExport(
-            catalog: snapshot,
-            cloudStates: cloudStates.values.sorted { $0.machine.rawValue < $1.machine.rawValue },
-            cloudStateObservations: retainedObservations
-        )
-    }
-
     /// Observers get at most one notification per main-runloop turn: a burst of upserts
     /// (a busy shell retitling, a snapshot replacing dozens of resources) collapses into
     /// one hop, so the sidebar rebuilds once instead of once per mutation.

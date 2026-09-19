@@ -16,6 +16,13 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
+        let native = super.makeView(withIdentifier: identifier, owner: owner)
+        guard identifier == NSOutlineView.disclosureButtonIdentifier,
+              let button = native as? NSButton else { return native }
+        return (button as? CloudTreeDisclosureButton) ?? CloudTreeDisclosureButton(nativeButton: button)
+    }
+
     private var hoverTrackingArea: NSTrackingArea?
     private weak var hoveredCell: CloudTreeCellView?
 
@@ -325,7 +332,8 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         var frame = super.frameOfOutlineCell(atRow: row)
         frame.origin.x = disclosureLeading(atRow: row)
-        frame.size.width = GlobalFontMagnification.scaledSize(CloudTreeRowGrid.disclosureSlot)
+        frame.size = NSSize(width: GlobalFontMagnification.scaledSize(CloudTreeRowGrid.disclosureSlot),
+                            height: GlobalFontMagnification.scaledSize(CloudTreeRowGrid.disclosureSlot))
         if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow,
            treeStyle.machineRowLayout == .twoLine {
             // Multi-line machine rows: the chevron centers on the name line (first

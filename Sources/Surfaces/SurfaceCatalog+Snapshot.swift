@@ -122,3 +122,18 @@ extension SurfaceCatalog {
         }
     }
 }
+
+extension SurfaceCatalog {
+    /// Complete export for the local control socket. This is separate from
+    /// `snapshot` because sidebar redraws do not need to copy or hash the full
+    /// remote daemon documents.
+    var export: SurfaceCatalogExport {
+        let retainedObservations = cloudStateObservations.filter { cloudStates[$0.key] != nil }
+        return SurfaceCatalogExport(
+            catalog: snapshot,
+            cloudStates: cloudStates.values.sorted { $0.machine.rawValue < $1.machine.rawValue },
+            cloudStateObservations: retainedObservations
+        )
+    }
+
+}
