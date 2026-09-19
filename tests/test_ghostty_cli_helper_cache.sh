@@ -39,6 +39,8 @@ FIRST="$TMP_DIR/first"
 SECOND="$TMP_DIR/second"
 THIRD="$TMP_DIR/third"
 FOURTH="$TMP_DIR/fourth"
+FIFTH="$TMP_DIR/fifth"
+SIXTH="$TMP_DIR/sixth"
 
 CMUX_ZIG="$FAKE_ZIG" \
 CMUX_GHOSTTY_HELPER_CACHE_DIR="$CACHE_DIR" \
@@ -71,4 +73,16 @@ CMUX_DISABLE_GHOSTTY_HELPER_CACHE=1 \
 grep -q 'Building Ghostty CLI helper' "$TMP_DIR/third.log"
 cmp -s "$FIRST" "$THIRD"
 
-echo "PASS: Ghostty CLI helper cache reuses matching builds and honors disable switch"
+env -u HOME -u CMUX_GHOSTTY_HELPER_CACHE_DIR \
+  CMUX_ZIG="$FAKE_ZIG" \
+  "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh" \
+  --target aarch64-macos --output "$FIFTH" >"$TMP_DIR/fifth.log"
+env -u HOME -u CMUX_GHOSTTY_HELPER_CACHE_DIR \
+  CMUX_ZIG="$FAKE_ZIG" \
+  "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh" \
+  --target aarch64-macos --output "$SIXTH" >"$TMP_DIR/sixth.log"
+grep -q 'Building Ghostty CLI helper' "$TMP_DIR/fifth.log"
+grep -q 'Building Ghostty CLI helper' "$TMP_DIR/sixth.log"
+cmp -s "$FIFTH" "$SIXTH"
+
+echo "PASS: Ghostty CLI helper cache reuses matching builds, rejects tampering, and disables safely"

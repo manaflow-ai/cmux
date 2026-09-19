@@ -30,7 +30,13 @@ ZIG_REQUIRED="${ZIG_REQUIRED:-$(ghostty_minimum_zig_version "$REPO_ROOT")}"
 OUTPUT_PATH=""
 TARGET_TRIPLE=""
 UNIVERSAL="false"
-CACHE_ROOT="${CMUX_GHOSTTY_HELPER_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/ghostty-cli-helper}"
+if [[ -n "${CMUX_GHOSTTY_HELPER_CACHE_DIR:-}" ]]; then
+  CACHE_ROOT="$CMUX_GHOSTTY_HELPER_CACHE_DIR"
+elif [[ -n "${HOME:-}" ]]; then
+  CACHE_ROOT="$HOME/Library/Caches/cmux/ghostty-cli-helper"
+else
+  CACHE_ROOT=""
+fi
 CACHE_SCHEMA="ghostty-cli-helper-cache-v1"
 
 zig_binary_arch() {
@@ -46,6 +52,7 @@ target_arch_for_triple() {
 }
 
 ghostty_cache_is_safe() {
+  [[ -n "$CACHE_ROOT" ]] || return 1
   [[ "${CMUX_DISABLE_GHOSTTY_HELPER_CACHE:-0}" != "1" ]] || return 1
   [[ -d "$GHOSTTY_DIR/.git" || -f "$GHOSTTY_DIR/.git" ]] || return 1
   # A dirty or caller-owned Ghostty tree must never be substituted by a
