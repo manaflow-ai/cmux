@@ -129,7 +129,13 @@ extension CMUXCLI {
             if argument == "--path" {
                 let nextIndex = index + 1
                 guard nextIndex < arguments.count else {
-                    throw CLIError(message: "cmux config \(commandName) --path requires a path")
+                    throw CLIError(
+                        message: CmuxConfigValidationLocalization.format(
+                            "config.validation.cli.pathRequired",
+                            defaultValue: "cmux config %@ --path requires a path",
+                            commandName
+                        )
+                    )
                 }
                 paths.append(arguments[nextIndex])
                 index += 2
@@ -138,7 +144,13 @@ extension CMUXCLI {
             if argument.hasPrefix("--path=") {
                 let rawPath = String(argument.dropFirst("--path=".count))
                 guard !rawPath.isEmpty else {
-                    throw CLIError(message: "cmux config \(commandName) --path requires a path")
+                    throw CLIError(
+                        message: CmuxConfigValidationLocalization.format(
+                            "config.validation.cli.pathRequired",
+                            defaultValue: "cmux config %@ --path requires a path",
+                            commandName
+                        )
+                    )
                 }
                 paths.append(rawPath)
                 index += 1
@@ -148,7 +160,13 @@ extension CMUXCLI {
                 let nextIndex = index + 1
                 guard nextIndex < arguments.count,
                       let parsedScope = CmuxConfigSemanticScope(rawValue: arguments[nextIndex].lowercased()) else {
-                    throw CLIError(message: "cmux config \(commandName) --scope requires global or project")
+                    throw CLIError(
+                        message: CmuxConfigValidationLocalization.format(
+                            "config.validation.cli.scopeRequired",
+                            defaultValue: "cmux config %@ --scope requires global or project",
+                            commandName
+                        )
+                    )
                 }
                 scope = parsedScope
                 index += 2
@@ -157,16 +175,36 @@ extension CMUXCLI {
             if argument.hasPrefix("--scope=") {
                 let rawScope = String(argument.dropFirst("--scope=".count)).lowercased()
                 guard let parsedScope = CmuxConfigSemanticScope(rawValue: rawScope) else {
-                    throw CLIError(message: "cmux config \(commandName) --scope requires global or project")
+                    throw CLIError(
+                        message: CmuxConfigValidationLocalization.format(
+                            "config.validation.cli.scopeRequired",
+                            defaultValue: "cmux config %@ --scope requires global or project",
+                            commandName
+                        )
+                    )
                 }
                 scope = parsedScope
                 index += 1
                 continue
             }
             if argument.hasPrefix("-") {
-                throw CLIError(message: "Unknown config \(commandName) option '\(argument)'")
+                throw CLIError(
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.cli.unknownOption",
+                        defaultValue: "Unknown config %@ option '%@'",
+                        commandName,
+                        argument
+                    )
+                )
             }
-            throw CLIError(message: "Unknown config \(commandName) argument '\(argument)'. Use --path <path>.")
+            throw CLIError(
+                message: CmuxConfigValidationLocalization.format(
+                    "config.validation.cli.unknownArgument",
+                    defaultValue: "Unknown config %@ argument '%@'. Use --path <path>.",
+                    commandName,
+                    argument
+                )
+            )
         }
         return ConfigDoctorOptions(paths: paths, scope: scope)
     }
@@ -311,7 +349,10 @@ extension CMUXCLI {
                     displayPath: target.displayPath,
                     path: target.path,
                     status: "error",
-                    message: "semantic validation failed",
+                    message: CmuxConfigValidationLocalization.string(
+                        "config.validation.cli.failed",
+                        defaultValue: "semantic validation failed"
+                    ),
                     keys: dictionary.keys.sorted(),
                     byteCount: data.count,
                     issues: issues
@@ -322,7 +363,10 @@ extension CMUXCLI {
                 displayPath: target.displayPath,
                 path: target.path,
                 status: "ok",
-                message: "JSONC syntax and semantic validation passed",
+                message: CmuxConfigValidationLocalization.string(
+                    "config.validation.cli.passed",
+                    defaultValue: "JSONC syntax and semantic validation passed"
+                ),
                 keys: dictionary.keys.sorted(),
                 byteCount: data.count
             )
