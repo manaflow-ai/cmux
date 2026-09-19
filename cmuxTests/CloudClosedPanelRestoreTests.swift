@@ -12,6 +12,23 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CloudClosedPanelRestoreTests {
+    @Test("Restoring a Cloud terminal reserves a manual mirror instead of a local shell")
+    func cloudTerminalRestoreDoesNotBrieflyBecomeLocal() throws {
+        try withManager { manager in
+            let workspace = manager.addWorkspace(initialSurface: .terminal, autoWelcomeIfNeeded: false)
+            let oldID = try #require(workspace.focusedPanelId)
+            let resource = SurfaceResourceID(machine: .cloud(UUID().uuidString), kind: .terminal, key: "terminal-restore")
+            var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+            snapshot.surfaceProjections = [SurfaceProjectionRecord(panelID: oldID, resource: resource, remoteWorkspaceID: "remote-workspace", remoteTabID: "remote-tab")]
+            let remap = workspace.restoreSessionSnapshot(snapshot)
+            let restoredID = try #require(remap[oldID])
+            let panel = try #require(workspace.panels[restoredID] as? TerminalPanel)
+            #expect(panel.surface.ioMode == .manualMirror)
+            #expect(workspace.cloudPendingCreations[restoredID] != nil)
+            #expect(SurfaceCatalog.shared.projectionRecords(forWorkspace: workspace.id).contains { $0.panelID == restoredID && $0.resource == resource })
+        }
+    }
+
     @Test("Closing a deferred Cloud browser keeps the last pane empty until reopen")
     func deferredBrowserReopensWithoutTerminal() throws {
         try withManager { manager in

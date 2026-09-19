@@ -294,6 +294,7 @@ extension Workspace {
         let cloudProjectedPanelIDs = Set(
             (snapshot.surfaceProjections ?? []).filter { !$0.resource.machine.isLocal }.map(\.panelID)
         )
+        let cloudProjectionRecordsByPanelID = Dictionary((snapshot.surfaceProjections ?? []).map { ($0.panelID, $0) }, uniquingKeysWith: { first, _ in first })
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { panel in
             var panel = panel
             if cloudProjectedPanelIDs.contains(panel.id), panel.directoryIsTrustedRemoteReport != true {
@@ -320,7 +321,7 @@ extension Workspace {
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
-                restorableAgentIndex: restorableAgentIndex,
+                restorableAgentIndex: restorableAgentIndex, cloudProjectionRecordsByPanelID: cloudProjectionRecordsByPanelID,
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
@@ -1000,7 +1001,8 @@ extension Workspace {
             inPane: pane,
             snapshotWorkspaceId: nil,
             shouldRestoreSingleDefaultCloudTerminal: false,
-            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot]),
+            cloudProjectionRecord: entry.projection
         ) else { return nil }
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
         _ = reorderSurface(panelId: panelId, toIndex: min(max(entry.tabIndex, 0), maxIndex))
@@ -1035,7 +1037,8 @@ extension Workspace {
             inPane: pane,
             snapshotWorkspaceId: nil,
             shouldRestoreSingleDefaultCloudTerminal: false,
-            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot])
+            restorableAgentIndex: restoreAgentIndex(for: [entry.snapshot]),
+            cloudProjectionRecord: entry.projection
         ) else {
             _ = bonsplitController.closeTab(scaffold.tabId)
             return nil
@@ -1343,6 +1346,7 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
+        cloudProjectionRecordsByPanelID: [UUID: SurfaceProjectionRecord] = [:],
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
         let existingPanelIds = bonsplitController
@@ -1359,7 +1363,8 @@ extension Workspace {
                 inPane: paneId,
                 snapshotWorkspaceId: snapshotWorkspaceId,
                 shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
-                restorableAgentIndex: restorableAgentIndex
+                restorableAgentIndex: restorableAgentIndex,
+                cloudProjectionRecord: cloudProjectionRecordsByPanelID[oldPanelId]
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1549,13 +1554,19 @@ extension Workspace {
         inPane paneId: PaneID,
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        cloudProjectionRecord: SurfaceProjectionRecord? = nil
     ) -> UUID? {
         guard !isRetiredFromOwningTabManager else { return nil }
-        let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(
-            snapshot,
-            workspaceId: snapshotWorkspaceId ?? id
-        )
+        let snapshot = Self.repairedLegacyHermesSessionPanelSnapshot(snapshot, workspaceId: snapshotWorkspaceId ?? id)
+        if cloudProjectionRecord?.resource.machine.isLocal == false,
+           let cloudProjectionRecord,
+           let restoredCloudPanelID = reserveRestoredCloudTerminalPane(
+               snapshot: snapshot,
+               projection: cloudProjectionRecord,
+               inPane: paneId
+           ) {
+            return restoredCloudPanelID }
         let restoresUntrustedSavedDirectory = cloudVMBinding != nil ||
             (snapshot.directoryIsTrustedRemoteReport != true &&
                 (snapshot.directoryRequiresRemoteTrust == true ||

@@ -343,7 +343,7 @@ def setting(prefix):
 
 if "archive" in args:
     archive = Path(after("-archivePath"))
-    bundle_id = setting("PRODUCT_BUNDLE_IDENTIFIER=")
+    bundle_id = setting("CMUX_APP_BUNDLE_IDENTIFIER=") or setting("PRODUCT_BUNDLE_IDENTIFIER=")
     build_number = setting("CURRENT_PROJECT_VERSION=") or "1"
     marketing_version = setting("MARKETING_VERSION=") or {BETA_MARKETING_VERSION!r}
     crash_reporting_enabled = setting("CMUX_CRASH_REPORTING_ENABLED=") or "YES"
@@ -753,7 +753,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}" in archive_call,
         "beta archive command stamps the beta bundle id",
     )
     _check(
@@ -1089,7 +1089,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     ]
     archive_call = next(call for call in xcodebuild_calls if "archive" in call)
     _check(
-        f"PRODUCT_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
+        f"CMUX_APP_BUNDLE_IDENTIFIER={APPSTORE_BUNDLE_ID}" in archive_call,
         "archive command stamps com.cmux.app",
     )
     _check(
