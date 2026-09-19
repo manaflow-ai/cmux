@@ -58,7 +58,7 @@ enum CloudTuiRequests {
     static func paneCreate(paneID: String, direction: String?, command: [String], cwd: String? = nil, revision: UInt64?, key: String, correlationKey: String?) -> CloudTuiRequest {
         var fields: [String: Any] = ["pane": paneID]
         if let direction { fields["direction"] = direction } else { fields["argv"] = command }
-        if let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty { fields["cwd"] = cwd }
+        if let cwd, !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { fields["cwd"] = cwd }
         if let revision { fields["expected_revision"] = String(revision) }
         if let correlationKey { fields["correlation_key"] = correlationKey }
         return CloudTuiRequest(direction == nil ? "pane.run" : "pane.split", fields, mutation: true, key: key)

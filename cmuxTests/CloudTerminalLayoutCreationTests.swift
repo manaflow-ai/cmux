@@ -51,6 +51,31 @@ struct CloudTerminalLayoutCreationTests {
     }
 
     @Test
+    func cwdPreservesPathWhitespaceButRejectsBlankValues() {
+        let request = CloudTuiRequests.paneCreate(
+            paneID: "pane_target",
+            direction: "right",
+            command: CloudTuiCommandLine.defaultTerminalCommand,
+            cwd: " /remote/project ",
+            revision: nil,
+            key: "request-whitespace",
+            correlationKey: nil
+        )
+        #expect(request.params["cwd"] as? String == " /remote/project ")
+
+        let blank = CloudTuiRequests.paneCreate(
+            paneID: "pane_target",
+            direction: "right",
+            command: CloudTuiCommandLine.defaultTerminalCommand,
+            cwd: " \n\t",
+            revision: nil,
+            key: "request-blank",
+            correlationKey: nil
+        )
+        #expect(blank.params["cwd"] == nil)
+    }
+
+    @Test
     func revisionConflictRefreshesTheTargetAndRetainsTheMutationKey() async throws {
         let runner = LayoutCreationRunner(responses: [
             .success(try Self.snapshot()),
