@@ -6146,7 +6146,7 @@ struct CMUXCLI {
                     print(String(format: format, vmId))
                 }
 
-            case "rm", "destroy", "delete":
+            case "rm", "remove", "destroy", "delete":
                 guard let vmId = rest.first else {
                     throw CLIError(message: """
                         Usage: cmux vm rm <id>
@@ -6162,7 +6162,7 @@ struct CMUXCLI {
                     print("OK \(vmId)")
                 }
 
-            case "ssh":
+            case "ssh", "connect":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
                 guard let vmId = vmArgs.first else {
                     throw CLIError(message: """
@@ -6371,6 +6371,13 @@ struct CMUXCLI {
                       cmux vm ssh <id>
                       cmux vm shell <id>
                       cmux vm rm <id>
+
+                    Aliases are available for familiar spelling:
+                      create -> new
+                      list -> ls
+                      attach -> shell
+                      connect -> ssh
+                      remove, delete, destroy -> rm
                     """)
             }
 
@@ -18408,6 +18415,13 @@ struct CMUXCLI {
               ports <id>                Show listening TCP ports inside the VM.
               handoff <id>              Print a short attach handoff block.
               promote-template <id>     Snapshot a VM with a template-oriented name.
+
+            Aliases:
+              create                     Alias for `new`; prefer `new` in docs and scripts.
+              list                       Alias for `ls`; prefer `ls` in docs and scripts.
+              attach                     Alias for `shell`.
+              connect                    Alias for `ssh`.
+              remove, delete, destroy    Aliases for `rm`; prefer `rm` in docs and scripts.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
@@ -41161,7 +41175,7 @@ export default CMUXSessionRestore;
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())
-          vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud)
+          vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]    (alias: cloud; accepts create/list/connect/remove aliases)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

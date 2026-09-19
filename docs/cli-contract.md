@@ -290,7 +290,7 @@ VM subcommands:
 
 | Command | Contract |
 | --- | --- |
-| `vm ls`, `vm list` | List VMs. |
+| `vm ls`, `vm list` | List VMs. Alias `list` is preserved; prefer `ls` in docs and scripts. |
 | `cloud domains [list]`, `vm domains [list]` | List the account's VM-port publications (`vm.publication_list`). `--json` returns `{publications: [...]}`. |
 | `cloud domains zones`, `vm domains zones` | List custom domains owned by the account (`vm.domain_list`); `--json` returns `{domains: [...]}`. |
 | `cloud domains verify <domain>`, `vm domains verify <domain>` | Start or complete ownership/certificate verification for a custom zone (`vm.domain_verify`). The first call prints the DNS checklist; add the records and rerun it. A publication hostname resolves to its zone; generated cmux names need no verification. |
@@ -317,8 +317,8 @@ VM subcommands:
 | `vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]` | Grow an existing machine in place. CPU is 1–32 vCPUs, memory is 4–64 GiB in whole GiB, and disk is 4–256 GiB in 4 GiB steps. The server enforces account plan ceilings and returns provider-confirmed resources. |
 | `vm desktop <id>`, `vm vnc <id>` | Open the private VM desktop through the authenticated userspace hub in a browser pane. noVNC and websockify use one loopback forward; no system VPN setup is required. |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
-| `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
-| `vm ssh` | Open a cmux-managed SSH workspace for an existing VM. |
+| `vm rm`, `vm remove`, `vm destroy`, `vm delete` | Destroy a VM. Aliases are preserved; prefer `rm`. |
+| `vm ssh`, `vm connect` | Open a cmux-managed SSH workspace for an existing VM. Prefer `ssh` in docs and scripts. |
 | `vm ssh-info` | Print SSH connection info. |
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
@@ -760,6 +760,7 @@ the expected text without connecting to a cmux socket.
 - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
 - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
 - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
+
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`
