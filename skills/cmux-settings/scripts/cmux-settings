@@ -139,7 +139,7 @@ def resolved_write_path(path: Path) -> Path:
 
 def source_for_edit(path: Path, data: dict[str, Any]) -> str:
     if path.exists():
-        return path.read_text()
+        return path.read_text(encoding="utf-8")
     return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
 
 
