@@ -1031,7 +1031,12 @@ cleanup_incomplete_xcodebuild_outputs() {
   fi
   XCODEBUILD_CLEANED_OUTPUTS=1
   remove_app_bundle_output "${XCODEBUILD_SOURCE_APP_PATH:-}"
-  remove_app_bundle_output "${XCODEBUILD_TAG_APP_PATH:-}"
+  # A normal reload replaces the tagged bundle, so a stale one must not survive a
+  # failed build. Build-only never writes it, and a running tagged app executes
+  # from it, so leave it alone.
+  if [[ "${BUILD_ONLY:-0}" -ne 1 ]]; then
+    remove_app_bundle_output "${XCODEBUILD_TAG_APP_PATH:-}"
+  fi
   remove_app_bundle_output "${TAG_APP_STAGING_PATH:-}"
 }
 
