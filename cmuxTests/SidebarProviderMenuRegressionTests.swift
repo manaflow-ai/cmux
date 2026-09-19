@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+import CmuxSettingsUI
 import CmuxSidebarProviderKit
+import CmuxSwiftRenderUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -254,6 +256,110 @@ struct SidebarProviderMenuRegressionTests {
                 forProviderId: CmuxExtensionSidebarSelection.customSidebarProviderPrefix + "../\(escapedName)",
                 sidebarsDirectory: sidebarsDirectory
             ) == nil
+        )
+    }
+
+    @Test
+    func customSidebarOnboardingCreatesDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-onboarding-folder-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("sidebars", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(!FileManager.default.fileExists(atPath: directory.path))
+        let created = try CmuxExtensionSidebarSelection.ensureCustomSidebarsDirectory(directory)
+        var isDirectory: ObjCBool = false
+        #expect(created == directory)
+        #expect(FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory))
+        #expect(isDirectory.boolValue)
+    }
+
+    @Test
+    func customSidebarOnboardingCreatesValidatedStarterAndDiscoversIt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-onboarding-create-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("sidebars", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let template = try #require(CustomSidebarOnboardingAssets.starterTemplate())
+        let first = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: "my-sidebar.swift",
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: false,
+            sidebarsDirectory: directory
+        )
+        guard case let .created(name, fileURL) = first else {
+            Issue.record("Expected starter creation, got \(first)")
+            return
+        }
+
+        #expect(name == "my-sidebar")
+        #expect(fileURL.lastPathComponent == "my-sidebar.swift")
+        #expect(CustomSidebarValidator().validate(fileURL: fileURL).errorMessage == nil)
+        #expect(
+            CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(sidebarsDirectory: directory)
+                == ["my-sidebar"]
+        )
+
+        #expect(
+            CmuxExtensionSidebarSelection.writeCustomSidebar(
+                named: "my-sidebar",
+                fileExtension: template.fileExtension,
+                source: template.source,
+                uniquingIfNeeded: false,
+                sidebarsDirectory: directory
+            ) == .alreadyExists
+        )
+        #expect(
+            CmuxExtensionSidebarSelection.writeCustomSidebar(
+                named: "../escape",
+                fileExtension: template.fileExtension,
+                source: template.source,
+                uniquingIfNeeded: false,
+                sidebarsDirectory: directory
+            ) == .invalidName
+        )
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("escape.swift").path))
+    }
+
+    @Test
+    func customSidebarOnboardingCopiesBundledExampleWithoutOverwriting() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-onboarding-example-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("sidebars", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let template = try #require(CustomSidebarOnboardingAssets.exampleTemplate(id: "focus"))
+        let first = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: template.suggestedName,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: true,
+            sidebarsDirectory: directory
+        )
+        let second = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: template.suggestedName,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: true,
+            sidebarsDirectory: directory
+        )
+
+        guard case let .created(firstName, firstURL) = first,
+              case let .created(secondName, secondURL) = second else {
+            Issue.record("Expected two example copies, got \(first) and \(second)")
+            return
+        }
+
+        #expect(firstName == "focus")
+        #expect(secondName == "focus-2")
+        #expect(firstURL != secondURL)
+        #expect(CustomSidebarValidator().validate(fileURL: firstURL).errorMessage == nil)
+        #expect(CustomSidebarValidator().validate(fileURL: secondURL).errorMessage == nil)
+        #expect(
+            CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(sidebarsDirectory: directory)
+                == ["focus", "focus-2"]
         )
     }
 
