@@ -500,7 +500,26 @@ jobs:
         run: bunx playwright install --with-deps chromium
 
       - name: Instant navigation tests
-        run: bun run test:instant
+        run: |
+          set -o pipefail
+          log="$RUNNER_TEMP/web-test-instant.log"
+          set +e
+          bun run test:instant 2>&1 | tee "$log"
+          status=${PIPESTATUS[0]}
+          set -e
+
+          # The native TypeScript preview compiler can abort while Playwright
+          # starts its web server. Retry that transient compiler crash once,
+          # while preserving immediate failures for real type or test errors.
+          if [ "$status" -ne 0 ] \
+            && grep -Fq '[WebServer] $ tsgo --noEmit' "$log" \
+            && grep -Fq 'Aborted (core dumped)' "$log"; then
+            echo "::warning::native tsgo aborted during instant navigation tests; retrying once"
+            bun run test:instant
+            exit $?
+          fi
+
+          exit "$status"
 
   # Checks for in-app React webviews (currently the diff viewer; more cmux React
   # surfaces will live alongside it).
@@ -1685,7 +1704,7 @@ jobs:
       - app-host-unit-tests
       - swift-package-tests
       - agent-session-web-resources
-    if: ${{ always() }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:

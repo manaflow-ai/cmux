@@ -893,10 +893,18 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert "      - linux-preflight" in block
     assert "      - macos-compile-admission" in block
     assert "      - app-host-unit-tests" in block
-    assert "if: ${{ always() }}" in block
+    assert "if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' }}" in block
     assert 'preflight["result"] != "success"' in block
     assert 'macos == "true" and tests["result"] != "success"' in block
     assert 'tests["result"] not in {"success", "skipped"}' in block
+
+
+def test_web_instant_navigation_retries_native_tsgo_abort() -> None:
+    block = workflow_job_block("web-typecheck")
+
+    assert "grep -Fq '[WebServer] $ tsgo --noEmit' \"$log\"" in block
+    assert "grep -Fq 'Aborted (core dumped)' \"$log\"" in block
+    assert "retrying once" in block
 
 
 def test_macos_jobs_wait_for_linux_preflight() -> None:
