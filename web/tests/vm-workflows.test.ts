@@ -2780,8 +2780,10 @@ describe("VM Effect workflows", () => {
       }),
     };
     const result = await Effect.runPromise(createVm({
-      userId: requested.userId, billingCustomerType: "team", billingTeamId: requested.billingTeamId,
-      billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: requested.imageId,
+      userId: "user-workflow-usage-events",
+      billingCustomerType: "team",
+      billingTeamId: "user-workflow-usage-events",
+      billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: requested.imageId ?? "snapshot-test",
       displayName: "Build box",
     }).pipe(Effect.provide(workflowLayer(repo, provider))));
     expect(promptName).toBe("build-box");
