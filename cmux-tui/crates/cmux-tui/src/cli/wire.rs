@@ -105,7 +105,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 #[cfg(unix)]
-fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
+pub(super) fn arm_signal_interrupt(stream: &dyn transport::Stream) -> bool {
     let Ok(stream) = stream.try_clone_box() else { return false };
     std::thread::Builder::new()
         .name("cmux-cli-signal-interrupt".into())
