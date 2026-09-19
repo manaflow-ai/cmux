@@ -256,7 +256,7 @@ async fn serve_connect_connection(
         socket.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=cmux\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     }
-    if host == "127.0.0.1" && port == proxy_port {
+    if port == proxy_port {
         socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
         return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token).await;
     }

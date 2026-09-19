@@ -502,7 +502,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
             }
             lock.withLock { capturedTargets.append(connect.target) }
             try await connection.sendAll(Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8))
-            if connect.target.hasPrefix("127.0.0.1:") {
+            if connect.target.hasSuffix(":\(port)") {
                 let bridge = try await readRequest(connection, buffered: &buffered)
                 lock.withLock { capturedBridgeRequests.append(bridge.target + " | " + (bridge.headers["sec-websocket-protocol"] ?? "")) }
                 guard bridge.target.hasPrefix("/__cmux_ws__/"),
