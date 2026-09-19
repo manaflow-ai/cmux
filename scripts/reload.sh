@@ -1321,7 +1321,6 @@ RELOAD_INPUT_MANIFEST="$(printf '%s\n' \
   "tui_local=${CMUX_TUI_CLIENT_LOCAL:-}" "tui_skip=${CMUX_SKIP_CMUX_TUI_CLIENT:-0}" \
   "cloud_origin=${CMUX_DEV_BACKEND_URL:-}" "source=$RELOAD_SOURCE_CHANGE_DIGEST" \
   "ghostty=$GHOSTTY_SOURCE_DIGEST" "script=$SCRIPT_DIR/reload.sh")"
-RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "$RELOAD_INPUT_MANIFEST")"
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
@@ -1431,6 +1430,9 @@ reload_phase_finished() {
   fi
   RELOAD_PHASE_START=$SECONDS
 }
+RELOAD_PHASE_START=$SECONDS
+RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "$RELOAD_INPUT_MANIFEST")"
+reload_phase_finished input_fingerprint
 
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
