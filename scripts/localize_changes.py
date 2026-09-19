@@ -84,7 +84,7 @@ def resolve_base(root: Path, requested: str | None) -> str:
 
 def changed_files(root: Path, base: str) -> list[str]:
     tracked = {
-        line for line in run_git(root, "diff", "--name-only", "--diff-filter=ACMRT", base, "--").splitlines()
+        line for line in run_git(root, "diff", "--name-only", "--diff-filter=ACDMRT", base, "--").splitlines()
         if line
     }
     untracked = {
@@ -128,6 +128,30 @@ def decode_swift_string(literal: str) -> str:
     return "".join(result)
 
 
+def swift_call_suffix(text: str, start: int) -> str:
+    """Read through the closing call parenthesis, respecting nested calls and strings."""
+    depth = 1
+    quoted = escaped = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:index]
+    return ""
+
+
 def parse_swift_messages(path: str, text: str) -> tuple[dict[str, SwiftMessage], list[str]]:
     messages: dict[str, SwiftMessage] = {}
     attention: list[str] = []
@@ -135,7 +159,7 @@ def parse_swift_messages(path: str, text: str) -> tuple[dict[str, SwiftMessage],
         try:
             key = decode_swift_string(match.group("key"))
             source = decode_swift_string(match.group("value"))
-            comment_match = SWIFT_COMMENT.search(match.group("middle"))
+            comment_match = SWIFT_COMMENT.search(match.group("middle") + swift_call_suffix(text, match.end()))
             comment = decode_swift_string(comment_match.group("comment")) if comment_match else None
         except ValueError as error:
             attention.append(f"{path}: {error}")
@@ -277,12 +301,8 @@ def update_simple_source(path: Path, key: str, new_source: str) -> tuple[bool, s
     english = entry.value.get("localizations", {}).get("en", {})
     if "variations" in english or "substitutions" in english:
         return False, f"{path}: key {key!r} has plural/variant English; update its source manually to preserve plural semantics"
-    localizations = entry.value.get("localizations", {})
+    # The base-aware catalog diff pass stales only untouched translations.
     changes = [CATALOG.replace_locale(text, entry, "en", string_unit(new_source))]
-    for locale, localization in localizations.items():
-        if locale == "en":
-            continue
-        changes.append(CATALOG.replace_locale(text, entry, locale, mark_needs_review(localization)))
     updated = CATALOG.apply_changes(text, changes)
     CATALOG.catalog_entries(updated)
     CATALOG.atomic_write(path, updated)
@@ -295,7 +315,16 @@ def prepare_macos(root: Path, messages: list[SwiftMessage], override: Path | Non
     changed_keys: list[tuple[Path, str]] = []
     prepared = stale = 0
     seen: set[tuple[Path, str]] = set()
+    sources: dict[str, set[str]] = {}
     for message in messages:
+        sources.setdefault(message.key, set()).add(message.source)
+    conflicts = {key for key, values in sources.items() if len(values) > 1}
+    for key in sorted(conflicts):
+        locations = sorted({message.path for message in messages if message.key == key})
+        attention.append(f"{', '.join(locations)}: localization key {key!r} has multiple default values")
+    for message in messages:
+        if message.key in conflicts:
+            continue
         try:
             path = choose_catalog(root, message, paths, index, override)
         except ValueError as error:
@@ -320,7 +349,7 @@ def prepare_macos(root: Path, messages: list[SwiftMessage], override: Path | Non
             if problem:
                 attention.append(problem)
                 continue
-            stale += int(changed)
+            # Stale counts are reported by changed_catalog_keys after comparison to base.
         changed_keys.append(identity)
     return PreparationResult(changed_keys=changed_keys, prepared=prepared, stale=stale, attention=attention)
 
@@ -339,7 +368,8 @@ def changed_catalog_keys(root: Path, base: str, paths: Iterable[str]) -> Prepara
         try:
             previous_text = base_text(root, base, relative)
             previous_entries = CATALOG.catalog_entries(previous_text) if previous_text else []
-            current_entries = CATALOG.catalog_entries(path.read_text(encoding="utf-8"))
+            current_text = path.read_text(encoding="utf-8")
+            current_entries = CATALOG.catalog_entries(current_text)
         except (ValueError, json.JSONDecodeError) as error:
             attention.append(f"{relative}: cannot inspect catalog diff: {error}")
             continue
@@ -349,6 +379,8 @@ def changed_catalog_keys(root: Path, base: str, paths: Iterable[str]) -> Prepara
             previous_by_key.setdefault(entry.key, []).append(entry)
         for entry in current_entries:
             current_counts[entry.key] = current_counts.get(entry.key, 0) + 1
+        current_by_key = {entry.key: entry for entry in current_entries if current_counts[entry.key] == 1}
+        changes: list[tuple[int, int, str]] = []
         for key in sorted(current_counts):
             if current_counts[key] != 1:
                 attention.append(f"{relative}: key {key!r} is duplicated; review it manually")
@@ -357,8 +389,7 @@ def changed_catalog_keys(root: Path, base: str, paths: Iterable[str]) -> Prepara
             if len(old_matches) > 1:
                 attention.append(f"{relative}: base key {key!r} is duplicated; review it manually")
                 continue
-            current_text = path.read_text(encoding="utf-8")
-            entry = next(item for item in CATALOG.catalog_entries(current_text) if item.key == key)
+            entry = current_by_key[key]
             try:
                 current_source = CATALOG.source(entry.value)
                 old_source = CATALOG.source(old_matches[0].value) if old_matches else None
@@ -373,18 +404,19 @@ def changed_catalog_keys(root: Path, base: str, paths: Iterable[str]) -> Prepara
             old = old_matches[0]
             current_localizations = entry.value.get("localizations", {})
             old_localizations = old.value.get("localizations", {})
-            changes: list[tuple[int, int, str]] = []
+            change_count = len(changes)
             for locale, localization in current_localizations.items():
                 if locale == "en" or old_localizations.get(locale) != localization:
                     continue
                 reviewed = mark_needs_review(localization)
                 if reviewed != localization:
                     changes.append(CATALOG.replace_locale(current_text, entry, locale, reviewed))
-            if changes:
-                updated = CATALOG.apply_changes(current_text, changes)
-                CATALOG.catalog_entries(updated)
-                CATALOG.atomic_write(path, updated)
+            if len(changes) > change_count:
                 stale += 1
+        if changes:
+            updated = CATALOG.apply_changes(current_text, changes)
+            CATALOG.catalog_entries(updated)
+            CATALOG.atomic_write(path, updated)
     return PreparationResult(changed_keys=changed_keys, prepared=0, stale=stale, attention=attention)
 
 
@@ -410,9 +442,30 @@ def translation_index(work: dict) -> dict[tuple[str, str, str, str], dict]:
 
 def apply_completed(root: Path, work: dict, omissions: dict) -> int:
     grouped: dict[tuple[str, str], list[dict]] = {}
+    root = root.resolve()
+    allowed = {str(path.relative_to(root)) for path in CATALOG.discover(root)
+               if path.resolve().is_relative_to(root) and path.resolve() == path}
+    identities: set[tuple[str, str, str, str]] = set()
+    catalog_rows: dict[str, set[tuple[str, str]]] = {}
     for row in work.get("entries", []):
         if not isinstance(row, dict) or ("value" not in row and "localization" not in row):
             continue
+        identity = tuple(row.get(key) for key in ("catalog", "key", "source", "locale"))
+        if not all(isinstance(part, str) and part for part in identity):
+            raise ValueError("completed packet row requires catalog, key, source, and locale strings")
+        catalog_path, key, source, locale = identity
+        if catalog_path not in allowed or locale not in CATALOG.LOCALES:
+            raise ValueError(f"{catalog_path}: unknown catalog or locale {locale!r}")
+        if identity in identities:
+            raise ValueError(f"{key}: duplicate packet identity")
+        identities.add(identity)
+        if catalog_path not in catalog_rows:
+            catalog_rows[catalog_path] = {
+                (entry.key, CATALOG.canonical_text(CATALOG.source(entry.value)))
+                for entry in CATALOG.catalog_entries((root / catalog_path).read_text(encoding="utf-8"))
+            }
+        if (key, CATALOG.canonical_text(source)) not in catalog_rows[catalog_path]:
+            raise ValueError(f"{key}: unknown key or stale English source")
         if "value" in row and (not isinstance(row["value"], str) or not row["value"].strip()):
             continue
         if "localization" in row and not isinstance(row["localization"], dict):
@@ -487,12 +540,15 @@ def base_json(root: Path, base: str, path: str) -> dict:
 
 def web_work(root: Path, base: str, paths: Iterable[str], locales: tuple[str, ...]) -> tuple[list[dict], list[str], int]:
     english_path = "web/messages/en.json"
-    if english_path not in paths:
+    relevant = any(path == "web/i18n/routing.ts" or
+                   (path.startswith("web/messages/") and path.endswith(".json")) for path in paths)
+    if not relevant:
         missing = [locale for locale in locales if not (root / f"web/messages/{locale}.json").is_file()]
         return [], [f"web/messages/{locale}.json: missing catalog declared by web/i18n/routing.ts" for locale in missing], 0
     current_en = flatten_messages(json_at(root, english_path))
     previous_en = flatten_messages(base_json(root, base, english_path))
     changed = {key: value for key, value in current_en.items() if previous_en.get(key) != value}
+    removed = previous_en.keys() - current_en.keys()
     rows: list[dict] = []
     attention: list[str] = []
     for locale in locales:
@@ -504,7 +560,11 @@ def web_work(root: Path, base: str, paths: Iterable[str], locales: tuple[str, ..
             continue
         localized = flatten_messages(json.loads(message_path.read_text(encoding="utf-8")))
         previous_localized = flatten_messages(base_json(root, base, f"web/messages/{locale}.json"))
-        for key, source in sorted(changed.items()):
+        for key in sorted(localized.keys() - current_en.keys()):
+            attention.append(f"web/messages/{locale}.json: extra message key {key!r}; remove it to match English")
+        required = changed.keys() | (current_en.keys() - localized.keys())
+        for key in sorted(required):
+            source = current_en[key]
             value = localized.get(key)
             issues: list[str] = []
             if value is None:
@@ -518,7 +578,7 @@ def web_work(root: Path, base: str, paths: Iterable[str], locales: tuple[str, ..
                 if value is not None:
                     row["currentValue"] = value
                 rows.append(row)
-    return rows, attention, len(changed)
+    return rows, attention, len(changed) + len(removed)
 
 
 def default_work_path(root: Path) -> Path:
