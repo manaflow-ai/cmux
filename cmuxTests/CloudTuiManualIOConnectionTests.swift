@@ -142,6 +142,29 @@ import Testing
         }
     }
 
+    @Test func persistentRejectionRetainsExactTabSelectorWithoutClosingTheConnection() async throws {
+        try await Self.withResourceConnection { channel, peer in
+            let pending = Task { try await channel.request(CloudTuiRequest("tab.get", ["tab": "tab_stale"])) }
+            let requestBytes = try await Self.blocking { try Self.readLine(peer) }
+            let request = try Self.object(requestBytes)
+            let response: [String: Any] = [
+                "protocol": "cmux.protocol/2", "type": "response", "id": try #require(request["id"] as? String),
+                "ok": false, "error": ["code": "selector.not_found", "details": ["scope": "tab", "selector": "tab_stale"]]
+            ]
+            try Self.write(peer, JSONSerialization.data(withJSONObject: response) + Data([10]))
+            do {
+                _ = try await pending.value
+                Issue.record("a rejected selector must throw")
+            } catch let CloudMachineLink.LinkError.exited(status, output) {
+                #expect(status == 1)
+                let error = try Self.object(Data(output.utf8))
+                #expect((error["details"] as? [String: String])?["selector"] == "tab_stale")
+                #expect(CloudTuiDaemonAnswer.isMissingSelector(CloudMachineLink.LinkError.exited(status: status, output: output)))
+            }
+            #expect(!(await channel.isClosed))
+        }
+    }
+
     @Test func persistentCancellationRetiresOnlyOneRequestAndIgnoresItsLateReply() async throws {
         try await Self.withResourceConnection { channel, peer in
             let canceled = Task { try await channel.request(CloudTuiRequest("terminal.wait", ["terminal": "term_test", "pattern": "x"])) }

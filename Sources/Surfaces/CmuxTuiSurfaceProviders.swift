@@ -738,21 +738,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
-    /// command's output text.
-    static func isSelectorNotFound(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error)
-        return text.contains("selector.not_found") || text.contains("no terminal matches")
-    }
-
-    /// The resource CLI exposes optimistic-concurrency failures as either the
-    /// structured code or its human-readable text, depending on client version.
-    nonisolated static func isRevisionConflict(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error).lowercased()
-        return text.contains("revision conflict") || text.contains("revision.conflict")
-            || text.contains("revision_conflict") || text.contains("stale revision")
-    }
-
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, remoteView: nil, at: destination, focus: focus)
     }
@@ -1573,7 +1558,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 catalog.replaceProjection(projection, withPanel: reservation.panelID, in: projection.workspaceID, remotePlacement: nil)
                 workspace.clearCloudMaterializationFailure(surfaceID: projection.panelID)
                 SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
-                attachReservedTerminalPane(reservation, resource: terminal, remoteTabID: projection.remoteTabID)
+                attachReservedTerminalPane(reservation, resource: terminal, remoteTabID: projection.remoteTabID, restoring: true)
             }
         }
     }
