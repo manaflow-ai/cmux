@@ -190,6 +190,42 @@ describe("IROH Dashboard v2 controller", () => {
     expect(attempts).toBe(4);
   });
 
+  test("refresh and reconnect share one pending connection attempt", async () => {
+    const retryClock = new ManualClock();
+    const refreshing = Promise.withResolvers<void>();
+    const session = Promise.withResolvers<Response>();
+    let attempts = 0;
+    globalThis.fetch = (async () => {
+      attempts += 1;
+      if (attempts === 2) { refreshing.resolve(); return session.promise; }
+      return Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 30 } });
+    }) as typeof fetch;
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    const controller = new V2DashboardController({ retryClock, origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
+    try {
+      const started = controller.start();
+      const initial = await FakeSocket.waitFor(0);
+      initial.open();
+      await started;
+      const refresh = retryClock.fire(30_000);
+      await refreshing.promise;
+      initial.close();
+      const reconnect = retryClock.fire(1000);
+      session.resolve(Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 60 } }));
+      const replacement = await FakeSocket.waitFor(1);
+      replacement.open();
+      // Replaced sockets cannot acknowledge or trigger directory requests.
+      const sent = replacement.sent.length;
+      initial.message({ schemaId: "directory.changed.v1", revision: 999, deliveryReceipt: { sequence: 1, token: "stale" } });
+      expect(replacement.sent).toHaveLength(sent);
+      expect(initial.sent.some(body => body.includes("session.ack.v1"))).toBe(false);
+      expect(attempts).toBe(2);
+      await Promise.all([refresh, reconnect]);
+      expect(FakeSocket.instances).toHaveLength(2);
+      expect(retryClock.delays()).toEqual([29_000]);
+    } finally { await controller.stop(); }
+  });
+
   test("stopping while authentication is pending never opens a stale team socket", async () => {
     let resolveToken!: (value: string) => void;
     const token = new Promise<string>(resolve => { resolveToken = resolve; });
