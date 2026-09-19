@@ -16,28 +16,6 @@ private struct LocalTmuxSettingsCLIError: LocalizedError, Sendable {
     var errorDescription: String? { message }
 }
 
-private struct LocalTmuxSessionListResponse: Decodable {
-    let sessions: [Session]
-
-    struct Session: Decodable {
-        let id: String?
-        let sessionName: String
-        let cwd: String?
-        let clients: Int?
-        let managed: Bool
-        let live: Bool
-
-        enum CodingKeys: String, CodingKey {
-            case id
-            case sessionName = "session_name"
-            case cwd
-            case clients
-            case managed
-            case live
-        }
-    }
-}
-
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
 /// services (`BrowserHistoryStore`, `BrowserDataImportCoordinator`,
@@ -269,7 +247,12 @@ final class HostSettingsActions: SettingsHostActions {
 
     func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] {
         let data = try await runLocalTmuxCLI(arguments: ["local-tmux", "list", "--json"])
-        return try Self.decodeLocalTmuxSessions(data)
+        do {
+            return try LocalTmuxSessionListDecoder().decode(data)
+        } catch {
+            hostSettingsLogger.error("Bundled local-tmux CLI returned invalid session data")
+            throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.invalidResponse)
+        }
     }
 
     func startLocalTmuxSession(name: String) async throws {
@@ -299,54 +282,6 @@ final class HostSettingsActions: SettingsHostActions {
         }
         arguments.append("--json")
         _ = try await runLocalTmuxCLI(arguments: arguments)
-    }
-
-    /// Decodes the CLI session-list payload without requiring the main actor.
-    nonisolated static func decodeLocalTmuxSessions(_ data: Data) throws -> [LocalTmuxSessionSummary] {
-        let response: LocalTmuxSessionListResponse
-        do {
-            response = try JSONDecoder().decode(LocalTmuxSessionListResponse.self, from: data)
-        } catch {
-            throw invalidLocalTmuxSessionListError()
-        }
-
-        return try response.sessions.map { row in
-            guard !row.sessionName.isEmpty else {
-                throw invalidLocalTmuxSessionListError()
-            }
-
-            let logicalID: UUID?
-            if let rawID = row.id {
-                guard let parsedID = UUID(uuidString: rawID) else {
-                    throw invalidLocalTmuxSessionListError()
-                }
-                logicalID = parsedID
-            } else {
-                guard !row.managed else {
-                    throw invalidLocalTmuxSessionListError()
-                }
-                logicalID = nil
-            }
-
-            return LocalTmuxSessionSummary(
-                id: logicalID?.uuidString ?? "tmux:\(row.sessionName)",
-                logicalID: logicalID,
-                name: row.sessionName,
-                cwd: row.cwd,
-                clientCount: row.clients ?? 0,
-                isLive: row.live,
-                isManaged: row.managed
-            )
-        }
-        .sorted {
-            if $0.isLive != $1.isLive { return $0.isLive && !$1.isLive }
-            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
-    }
-
-    /// Returns the stable product-level error used for malformed CLI output.
-    nonisolated private static func invalidLocalTmuxSessionListError() -> LocalTmuxSettingsCLIError {
-        LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.invalidResponse)
     }
 
     private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {

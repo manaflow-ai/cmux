@@ -1,22 +1,18 @@
-import CmuxFoundation
 import Foundation
 import SwiftUI
 
 @MainActor
 struct LocalTmuxSettingsCard: View {
-    let hostActions: SettingsHostActions
+    @State private var model: LocalTmuxSettingsModel
 
-    @State private var sessions: [LocalTmuxSessionSummary] = []
-    @State private var liveSessionCount = 0
-    @State private var refreshGeneration = 0
-    @State private var sessionName = ""
-    @State private var isLoading = false
-    @State private var actionInFlight = false
-    @State private var errorMessage: String?
-    @State private var tasks = MainActorTaskStore<String>()
+    init(hostActions: SettingsHostActions) {
+        _model = State(initialValue: LocalTmuxSettingsModel(hostActions: hostActions))
+    }
 
     var body: some View {
-        SettingsCard {
+        @Bindable var model = model
+
+        return SettingsCard {
             SettingsCardRow(
                 configurationReview: .action,
                 searchAnchorID: "setting:terminal:session-persistence",
@@ -39,11 +35,11 @@ struct LocalTmuxSettingsCard: View {
                         .lineLimit(1)
 
                     Button(String(localized: "settings.terminal.localTmux.refresh", defaultValue: "Refresh", bundle: .module)) {
-                        refresh()
+                        model.refresh()
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isLoading || actionInFlight)
+                    .disabled(model.phase != .idle)
                     .accessibilityIdentifier("SettingsTerminalLocalTmuxRefreshButton")
 
                     Link(
@@ -73,23 +69,26 @@ struct LocalTmuxSettingsCard: View {
                 HStack(spacing: 8) {
                     TextField(
                         String(localized: "settings.terminal.localTmux.name", defaultValue: "Session name", bundle: .module),
-                        text: $sessionName
+                        text: $model.sessionName
                     )
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 170)
                     .accessibilityIdentifier("SettingsTerminalLocalTmuxNameField")
 
                     Button(String(localized: "settings.terminal.localTmux.startButton", defaultValue: "Start", bundle: .module)) {
-                        startSession()
+                        model.startSession()
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(actionInFlight || sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(
+                        model.phase != .idle
+                            || model.sessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    )
                     .accessibilityIdentifier("SettingsTerminalLocalTmuxStartButton")
                 }
             }
 
-            if let errorMessage {
+            if let errorMessage = model.errorMessage {
                 SettingsCardDivider()
                 SettingsCardRow(
                     configurationReview: .action,
@@ -100,7 +99,7 @@ struct LocalTmuxSettingsCard: View {
                 }
             }
 
-            ForEach(sessions) { session in
+            ForEach(model.sessions) { session in
                 SettingsCardDivider()
                 SettingsCardRow(
                     configurationReview: .action,
@@ -112,11 +111,11 @@ struct LocalTmuxSettingsCard: View {
                         Button(
                             String(localized: "settings.terminal.localTmux.attachButton", defaultValue: "Attach", bundle: .module)
                         ) {
-                            attach(session)
+                            model.attach(session)
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .disabled(actionInFlight)
+                        .disabled(model.phase != .idle)
                         .accessibilityIdentifier("SettingsTerminalLocalTmuxAttachButton-\(session.id)")
                     } else {
                         Text(String(localized: "settings.terminal.localTmux.stale", defaultValue: "Stale", bundle: .module))
@@ -127,17 +126,20 @@ struct LocalTmuxSettingsCard: View {
             }
         }
         .accessibilityIdentifier("SettingsTerminalLocalTmuxCard")
-        .task(id: refreshGeneration) {
-            await loadSessions(generation: refreshGeneration)
+        .task {
+            model.refresh()
+        }
+        .onDisappear {
+            model.cancel()
         }
     }
 
-    /// Renders the cached live-session count without scanning the session array from body.
+    /// Renders the model's cached live-session count without scanning rows from body.
     private var statusText: String {
-        if isLoading {
+        if model.isLoading {
             return String(localized: "settings.terminal.localTmux.checking", defaultValue: "Checking…", bundle: .module)
         }
-        if liveSessionCount == 0 {
+        if model.liveSessionCount == 0 {
             return String(localized: "settings.terminal.localTmux.none", defaultValue: "No live sessions", bundle: .module)
         }
         let liveLabel = String(
@@ -145,7 +147,7 @@ struct LocalTmuxSettingsCard: View {
             defaultValue: "Live",
             bundle: .module
         )
-        return "\(liveLabel): \(liveSessionCount)"
+        return "\(liveLabel): \(model.liveSessionCount)"
     }
 
     /// Formats one already-decoded session row for display.
@@ -168,66 +170,5 @@ struct LocalTmuxSettingsCard: View {
             parts.append(cwd)
         }
         return parts.joined(separator: " · ")
-    }
-
-    /// Loads one generation of the authoritative session snapshot.
-    private func loadSessions(generation: Int) async {
-        guard generation == refreshGeneration else { return }
-        isLoading = true
-        defer {
-            if generation == refreshGeneration {
-                isLoading = false
-            }
-        }
-        do {
-            let loadedSessions = try await hostActions.localTmuxSessions()
-            guard !Task.isCancelled, generation == refreshGeneration else { return }
-            sessions = loadedSessions
-            liveSessionCount = loadedSessions.lazy.filter(\.isLive).count
-            errorMessage = nil
-        } catch {
-            guard !Task.isCancelled, generation == refreshGeneration else { return }
-            sessions = []
-            liveSessionCount = 0
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    /// Requests a new lifecycle-bound session snapshot.
-    private func refresh() {
-        refreshGeneration &+= 1
-    }
-
-    /// Starts a named persistent session through the host-owned CLI bridge.
-    private func startSession() {
-        let name = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        actionInFlight = true
-        tasks.replaceOnMainActor("localTmuxAction") {
-            defer { actionInFlight = false }
-            do {
-                try await hostActions.startLocalTmuxSession(name: name)
-                sessionName = ""
-                errorMessage = nil
-                refreshGeneration &+= 1
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    /// Attaches the selected persistent session through the host-owned CLI bridge.
-    private func attach(_ session: LocalTmuxSessionSummary) {
-        actionInFlight = true
-        tasks.replaceOnMainActor("localTmuxAction") {
-            defer { actionInFlight = false }
-            do {
-                try await hostActions.attachLocalTmuxSession(session)
-                errorMessage = nil
-                refreshGeneration &+= 1
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
     }
 }

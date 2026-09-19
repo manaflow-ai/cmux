@@ -296,37 +296,6 @@ public protocol SettingsHostActions: AnyObject {
     func openCloudMachinesBilling()
 }
 
-/// A local tmux session exposed by the host's authoritative `cmux local-tmux list --json` output.
-public struct LocalTmuxSessionSummary: Identifiable, Equatable, Sendable {
-    /// Stable UI identity. Managed sessions use their logical UUID; unmanaged rows fall back to their tmux name.
-    public let id: String
-    /// The registry-backed logical UUID when the CLI recognizes the session as managed.
-    public let logicalID: UUID?
-    public let name: String
-    public let cwd: String?
-    public let clientCount: Int
-    public let isLive: Bool
-    public let isManaged: Bool
-
-    public init(
-        id: String,
-        logicalID: UUID?,
-        name: String,
-        cwd: String?,
-        clientCount: Int,
-        isLive: Bool,
-        isManaged: Bool
-    ) {
-        self.id = id
-        self.logicalID = logicalID
-        self.name = name
-        self.cwd = cwd
-        self.clientCount = clientCount
-        self.isLive = isLive
-        self.isManaged = isManaged
-    }
-}
-
 /// Shared localized copy for local-tmux host failures.
 public enum LocalTmuxSettingsText {
     public static var unavailable: String {
