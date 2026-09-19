@@ -188,6 +188,32 @@ def test_guard_only_change_with_app_source_runs_macos() -> None:
     )
 
 
+def test_only_a_plainly_linux_job_makes_a_test_guard_only() -> None:
+    def workflow(runs_on: str) -> str:
+        return (
+            "name: CI\njobs:\n  guard:\n"
+            "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+            "    steps:\n      - run: python3 tests/test_guard.py\n"
+            f"  other:\n    runs-on:{runs_on}\n"
+            "    steps:\n      - run: python3 tests/test_other.py\n"
+        )
+
+    for runs_on in (
+        " ${{ matrix.runner }}",
+        " ${{ needs.pick.outputs.runner }}",
+        "\n      - self-hosted\n      - arm64",
+        "\n      group: big-macs",
+        " ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}",
+        " ${{ vars.LINUX_RUNNER || vars.MACOS_RUNNER_15 }}",
+    ):
+        references = module.macos_job_test_references(workflow(runs_on))
+        assert module.is_guard_only_test("tests/test_guard.py", references), runs_on
+        assert not module.is_guard_only_test("tests/test_other.py", references), runs_on
+
+    references = module.macos_job_test_references(workflow(" ubuntu-24.04"))
+    assert module.is_guard_only_test("tests/test_other.py", references)
+
+
 def test_macos_test_references_fail_open_without_ci_workflow() -> None:
     assert module.macos_job_test_references("jobs:\n") is None
     assert module.macos_job_test_references("not a workflow") is None
