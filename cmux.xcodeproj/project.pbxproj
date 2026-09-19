@@ -2692,6 +2692,7 @@
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		FE003106 /* SessionAgentPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003006 /* SessionAgentPresentation.swift */; };
 		A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */; };
+		E7E300000000000000000001 /* SessionAutosaveCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */; };
 		A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000006 /* SessionConfigFrameEntry.swift */; };
 		A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000008 /* SessionConfigFrameRing.swift */; };
 		C71500020000000000000001 /* SessionContentWidthModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71500010000000000000001 /* SessionContentWidthModifier.swift */; };
@@ -2761,6 +2762,7 @@
 		C54860090000000000000001 /* SessionRestoreIdentityExclusions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */; };
 		9758E0059758E0059758E005 /* SessionSnapshotCodingTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */; };
 		A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */; };
+		D9E700000000000000000001 /* SessionSnapshotPersistenceWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9E700000000000000000002 /* SessionSnapshotPersistenceWriter.swift */; };
 		D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */; };
 		FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300B /* SessionTranscriptPopoverLayout.swift */; };
 		FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE00300C /* SessionTranscriptPopoverSizeModel.swift */; };
@@ -6553,6 +6555,7 @@
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		FE003006 /* SessionAgentPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentPresentation.swift; sourceTree = "<group>"; };
 		A9F100000000000000000008 /* SessionAgentSessionPanelSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAgentSessionPanelSnapshot.swift; sourceTree = "<group>"; };
+		E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionAutosaveCoordinator.swift; sourceTree = "<group>"; };
 		A74770010000000000000006 /* SessionConfigFrameEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameEntry.swift; sourceTree = "<group>"; };
 		A74770010000000000000008 /* SessionConfigFrameRing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigFrameRing.swift; sourceTree = "<group>"; };
 		C71500010000000000000001 /* SessionContentWidthModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/SessionContentWidthModifier.swift; sourceTree = "<group>"; };
@@ -6622,6 +6625,7 @@
 		C54860090000000000000002 /* SessionRestoreIdentityExclusions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreIdentityExclusions.swift; sourceTree = "<group>"; };
 		9758E0069758E0069758E006 /* SessionSnapshotCodingTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotCodingTrust.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
+		D9E700000000000000000002 /* SessionSnapshotPersistenceWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSnapshotPersistenceWriter.swift; sourceTree = "<group>"; };
 		D8684000000000000000000A /* SessionSplitContainerSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSplitContainerSnapshot.swift; sourceTree = "<group>"; };
 		FE00300B /* SessionTranscriptPopoverLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverLayout.swift; sourceTree = "<group>"; };
 		FE00300C /* SessionTranscriptPopoverSizeModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionTranscriptPopoverSizeModel.swift; sourceTree = "<group>"; };
@@ -9644,6 +9648,8 @@
 				D1320AA0D1320AA0D1320AA4 /* AppIconDockTilePlugin.swift */,
 				A5001090 /* AppDelegate.swift */,
 				7A0CE1000000000000000019 /* AppDelegate+CloudTunnel.swift */,
+				D9E700000000000000000002 /* SessionSnapshotPersistenceWriter.swift */,
+				E7E300000000000000000002 /* SessionAutosaveCoordinator.swift */,
 				C51A740000000000000000A2 /* AppDelegate+SimulatorShortcutRouting.swift */,
 				D35B00000000000000000011 /* TerminalController+BrowserDesignMode.swift */,
 				D35B00000000000000000014 /* TerminalController+AgentPromptDelivery.swift */,
@@ -13993,6 +13999,7 @@
 				A5001601 /* SentryHelper.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
 				A9F200000000000000000008 /* SessionAgentSessionPanelSnapshot.swift in Sources */,
+				E7E300000000000000000001 /* SessionAutosaveCoordinator.swift in Sources */,
 				A74770010000000000000005 /* SessionConfigFrameEntry.swift in Sources */,
 				A74770010000000000000007 /* SessionConfigFrameRing.swift in Sources */,
 				C71500020000000000000001 /* SessionContentWidthModifier.swift in Sources */,
@@ -14051,6 +14058,7 @@
 				C54860090000000000000001 /* SessionRestoreIdentityExclusions.swift in Sources */,
 				9758E0059758E0059758E005 /* SessionSnapshotCodingTrust.swift in Sources */,
 				A50016B1A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift in Sources */,
+				D9E700000000000000000001 /* SessionSnapshotPersistenceWriter.swift in Sources */,
 				D86840000000000000000009 /* SessionSplitContainerSnapshot.swift in Sources */,
 				FE00310B /* SessionTranscriptPopoverLayout.swift in Sources */,
 				FE00310C /* SessionTranscriptPopoverSizeModel.swift in Sources */,
