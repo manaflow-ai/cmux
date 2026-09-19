@@ -134,7 +134,7 @@ final class CloudPresenceOverlayView: NSView {
               geometry.columns > 0, geometry.rows > 0 else { return }
         let now = Self.now()
         for entry in entries {
-            let color = Self.palette[entry.color & 7]
+            let color = Self.palette[Int(entry.color & 7)]
             let age = age(of: entry, now: now)
             if let highlight = entry.highlight {
                 let alpha: CGFloat
@@ -163,9 +163,10 @@ final class CloudPresenceOverlayView: NSView {
     }
 
     private func cellRect(for anchor: CloudPresenceAnchor) -> CGRect? {
-        guard case let .cell(_, col, _) = anchor,
+        guard case let .cell(cell) = anchor,
               let row = anchor.viewerRow(viewerScrollOffset: geometry.scrollOffset, rows: geometry.rows),
-              col >= 0, col < geometry.columns else { return nil }
+              cell.col < UInt32(geometry.columns) else { return nil }
+        let col = Int(cell.col)
         return CGRect(
             x: geometry.contentInset.x + CGFloat(col) * geometry.cellSize.width,
             y: geometry.contentInset.y + CGFloat(row) * geometry.cellSize.height,
@@ -177,17 +178,17 @@ final class CloudPresenceOverlayView: NSView {
     /// A cell range is drawn like a text selection: partial first and last
     /// rows, full rows between. Rows off screen are skipped.
     private func drawHighlight(_ highlight: CloudPresenceHighlight, color: NSColor) {
-        guard case let .cell(_, startCol, _) = highlight.start,
-              case let .cell(_, endCol, _) = highlight.end,
+        guard case let .cell(startCell) = highlight.start,
+              case let .cell(endCell) = highlight.end,
               let startRow = highlight.start.shiftedRow(viewerScrollOffset: geometry.scrollOffset),
               let endRow = highlight.end.shiftedRow(viewerScrollOffset: geometry.scrollOffset) else { return }
         var first = (
             row: startRow,
-            col: startCol
+            col: Int(startCell.col)
         )
         var last = (
             row: endRow,
-            col: endCol
+            col: Int(endCell.col)
         )
         let shouldSwap = first.row > last.row || (first.row == last.row && first.col > last.col)
         if shouldSwap {

@@ -9,6 +9,21 @@ struct CloudTuiManualIOFrameDecoder: Sendable {
     /// Decodes a complete JSON object line, returning `nil` for malformed or
     /// unrelated messages.
     func decode(_ line: Data) -> CloudTuiManualIOFrame? {
+        if let event = try? JSONDecoder().decode(CloudTuiGenerated.Event.self, from: line),
+           case let .presenceChanged(payload) = event {
+            let entry = CloudTuiGenerated.PresenceEntry(
+                client: payload.client,
+                color: payload.color,
+                generation: payload.generation,
+                highlight: payload.highlight,
+                kind: payload.kind,
+                name: payload.name,
+                pointer: payload.pointer,
+                surface: payload.surface,
+                updatedAtMs: payload.updatedAtMs
+            )
+            return .presence(entry)
+        }
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
             return nil
         }
@@ -46,9 +61,6 @@ struct CloudTuiManualIOFrameDecoder: Sendable {
     private func decodeEvent(_ event: String, object: [String: Any]) -> CloudTuiManualIOFrame? {
         // Presence clears carry `surface: null`, so decode it before the
         // positive-surface guard that every byte-attach event requires.
-        if event == "presence-changed" {
-            return CloudPresenceEntry(json: object).map(CloudTuiManualIOFrame.presence)
-        }
         guard let surfaceID = Self.positiveUInt64(object["surface"]) else {
             if event == "overflow" { return .overflow(surfaceID: nil) }
             return nil
