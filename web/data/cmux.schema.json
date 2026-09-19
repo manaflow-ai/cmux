@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json",
   "title": "cmux.json",
-  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json supports actions, commands, notification hooks, and UI action wiring.",
+  "description": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
