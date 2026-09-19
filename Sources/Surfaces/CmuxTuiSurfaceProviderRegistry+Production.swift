@@ -18,4 +18,10 @@ extension CmuxTuiSurfaceProviderRegistry {
         )
     }
 
+    /// Kills the hub child synchronously; for `applicationWillTerminate`, where nothing
+    /// may await and an orphaned hub would keep a WireGuard session alive after quit.
+    nonisolated func terminateWireGuardHubForAppQuit() {
+        wireGuardHub?.terminateForAppQuit()
+    }
+
 }

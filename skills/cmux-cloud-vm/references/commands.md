@@ -248,8 +248,7 @@ cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-defa
 # alias: cmux vm upload
 ```
 
-The CLI calls `vm.scp_info` with a locally generated Ed25519 public key, then transfers bytes with OpenSSH/SFTP through the app's userspace WireGuard hub. Each grant request uses a fresh authenticated control connection. The guest host key comes from the authenticated backend response and is pinned for SSH. File content never enters exec commands. SHA-256 is checked before finalization; files preserve modes and directories merge into the destination. `.git`, `node_modules`, `.venv`, `__pycache__`, and `.DS_Store` are skipped unless `--no-default-excludes`; `--exclude` adds patterns. Relative paths use the `cmux` guest home. The 256 MiB limit remains. `vm.file_transfer_failure` sends only a phase, bounded failure category, and optional subprocess exit code to the signed-in app, which returns a copyable diagnostic reference. Text output gives a summary; `--json` returns `{ok, direction: "push", vm, local, remote, kind: file|directory, bytes, sha256, seconds, excluded?}`.
-
+Copies a file or directory onto the machine with system OpenSSH/SFTP through the app's private WireGuard hub. Socket `vm.scp_info {id, public_key}` returns a loopback endpoint, the verified SSH host key, username, and key expiry. Transfer failures are reported through the `vm.file_transfer_failure` socket method with a bounded phase and failure category; each grant request uses a fresh authenticated control connection. The CLI keeps the private transfer key local and verifies SHA-256 before installing the upload. File content never enters exec commands. `--secret` uses the existing cmux file receive path. See [Cloud SCP transfers](../../../docs/cloud-scp-transfers.md) for the transport contract. Directories travel as tarballs with no AppleDouble `._*` sidecars and merge into the destination; `.git`, `node_modules`, `.venv`, `__pycache__`, and `.DS_Store` are skipped unless `--no-default-excludes`; `--exclude` adds patterns. The remote path defaults to the local basename in the exec working directory (the session home: `/home/cmux` on new machines, `/root` on older images). The 256 MiB limit remains. Text output gives a one-line summary plus excludes; `--json` returns `{ok, direction: "push", vm, local, remote, kind: file|directory, bytes, sha256, seconds, excluded?}`.
 ### `cmux vm pull`
 
 ```bash
@@ -257,7 +256,7 @@ cmux vm pull <id> <remote-path> [local-path] [--json]
 # alias: cmux vm download
 ```
 
-The reverse: file or directory back to local disk (defaults to the remote basename in the current directory). `--json`: `{ok, direction: "pull", vm, remote, local, kind, bytes, sha256, seconds}`.
+Copies a file or directory back to local disk over `vm.exec` using base64 chunks (defaults to the remote basename in the current directory). `--json`: `{ok, direction: "pull", vm, remote, local, kind, bytes, sha256, seconds}`.
 
 ## Execution
 
@@ -648,6 +647,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.desktop_open` | `vm desktop`, `vm open <id>:desktop`, the split beside `vm shell` |
 | `vm.cmux_remote_info`, `vm.link_socket` | the shared machine shell and surface open path |
 | `vm.ssh_info` | provider-specific attach diagnostics surfaced by the app |
+| `vm.scp_info` | private SCP/SFTP endpoint for `vm push`, including watch and sync callers |
 | `vm.attach_info`, `vm.session_attach_info`, `vm.sessions` | legacy websocket/SSH attach transports the open path falls back to on deployments without a cmux-tui daemon (`cmux rpc` reaches them directly) |
 | `vm.tree` | the pre-catalog tree; `vm tree` uses `surface.catalog` |
 | `vm.terminal_open`, `vm.terminal_new` | older terminal verbs; `vm open <m>/<ws>/<term>` and `surface new-terminal` use `surface.project` / `surface.new_terminal` |
