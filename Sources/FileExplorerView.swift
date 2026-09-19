@@ -93,15 +93,24 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        var store: FileExplorerStore
+        var store: FileExplorerStore {
+            didSet {
+                guard oldValue !== store else { return }
+                observeStore()
+            }
+        }
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
         var placement: FileExplorerPanelPlacement
         var onFocus: (() -> Void)?
         var onContainerChange: ((FileExplorerContainerView?) -> Void)?
         weak var containerView: FileExplorerContainerView?
-        weak var outlineView: NSOutlineView?
-        private var lastRootNodeCount: Int = -1
+        weak var outlineView: NSOutlineView? {
+            didSet {
+                if oldValue !== outlineView { outlineSnapshot = nil }
+            }
+        }
+        private var outlineSnapshot: FileExplorerOutlineSnapshot?
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
@@ -138,13 +147,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 MainActor.assumeIsolated {
                     guard let self, let outlineView = self.outlineView else { return }
                     let style = FileExplorerStyle.current
-                    self.withProgrammaticOutlineUpdate {
-                        outlineView.indentationPerLevel = style.indentation
-                        outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
-                        outlineView.reloadData()
-                        self.restoreExpansionState(self.store.expandedPaths, in: outlineView)
-                        self.applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
-                    }
+                    outlineView.indentationPerLevel = style.indentation
+                    outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<outlineView.numberOfRows))
+                    self.reloadIfNeeded(forceReload: true)
                 }
             }
         }
@@ -189,7 +194,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         @MainActor
-        func reloadIfNeeded() {
+        func reloadIfNeeded(forceReload: Bool = false) {
             guard let outlineView else { return }
 
             // Update empty state vs tree visibility
@@ -199,70 +204,44 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 statusMessage: store.rootStatusMessage
             )
 
-            let newCount = store.rootNodes.count
+            let next = FileExplorerOutlineSnapshot(store: store)
+            let previous = outlineSnapshot
+            let structureChanged = previous?.storeIdentity != next.storeIdentity || previous?.structure != next.structure
+            let expansionChanged = previous?.expandedPaths != next.expandedPaths
+            let rowsChanged = previous?.rows != next.rows
+            let selectionChanged = previous?.selectedPaths != next.selectedPaths || previous?.selectedPath != next.selectedPath
+            // Install the data source before AppKit asks for counts/items during a reload.
+            // An unchanged render pass performs no outline mutations or store commands.
+            outlineSnapshot = next
+            guard forceReload || structureChanged || expansionChanged || rowsChanged || selectionChanged else { return }
             withProgrammaticOutlineUpdate {
-                if newCount != lastRootNodeCount {
-                    lastRootNodeCount = newCount
-                    let expandedPaths = store.expandedPaths
+                if forceReload || structureChanged {
                     outlineView.reloadData()
-                    restoreExpansionState(expandedPaths, in: outlineView)
-                } else {
-                    refreshLoadedNodes(in: outlineView)
+                }
+                if forceReload || structureChanged || expansionChanged {
+                    next.reconcileExpansion(in: outlineView)
+                }
+                if !forceReload && !structureChanged && rowsChanged {
+                    next.refreshRealizedCells(previous: previous, in: outlineView)
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
-            }
-        }
-
-        private func restoreExpansionState(_ expandedPaths: Set<String>, in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if expandedPaths.contains(node.path) && outlineView.isExpandable(node) {
-                    outlineView.expandItem(node)
-                }
-            }
-        }
-
-        private func refreshLoadedNodes(in outlineView: NSOutlineView) {
-            for row in 0..<outlineView.numberOfRows {
-                guard let node = outlineView.item(atRow: row) as? FileExplorerNode else { continue }
-                if node.isDirectory {
-                    let isCurrentlyExpanded = outlineView.isItemExpanded(node)
-                    let shouldBeExpanded = store.expandedPaths.contains(node.path)
-
-                    if shouldBeExpanded && !isCurrentlyExpanded && node.children != nil {
-                        outlineView.reloadItem(node, reloadChildren: true)
-                        outlineView.expandItem(node)
-                    } else if !shouldBeExpanded && isCurrentlyExpanded {
-                        outlineView.collapseItem(node)
-                    } else if node.children != nil {
-                        outlineView.reloadItem(node, reloadChildren: true)
-                        if shouldBeExpanded {
-                            outlineView.expandItem(node)
-                        }
-                    }
-                }
             }
         }
 
         // MARK: - NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-            if item == nil {
-                return store.rootNodes.count
-            }
-            guard let node = item as? FileExplorerNode else { return 0 }
-            return node.sortedChildren?.count ?? 0
+            renderedChildren(of: item).count
         }
 
         func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-            if item == nil {
-                return store.rootNodes[index]
-            }
-            guard let node = item as? FileExplorerNode,
-                  let children = node.sortedChildren else {
-                return FileExplorerNode(name: "", path: "", isDirectory: false)
-            }
-            return children[index]
+            renderedChildren(of: item)[index]
+        }
+
+        private func renderedChildren(of item: Any?) -> [FileExplorerNode] {
+            // Queries during container construction must not mark the store as
+            // rendered before the first reconciliation restores its expansion.
+            outlineSnapshot?.children(of: item) ?? []
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
@@ -283,7 +262,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 cellView = FileExplorerCellView(identifier: identifier)
             }
 
-            let gitStatus = store.gitStatusByPath[node.path]
+            let gitStatus = outlineSnapshot?.rows[ObjectIdentifier(node)]?.gitStatus
             cellView.configure(with: node, gitStatus: gitStatus)
             cellView.onHover = { [weak self] isHovering in
                 guard let self else { return }
@@ -298,15 +277,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
-            guard let node = item as? FileExplorerNode, node.isDirectory else { return false }
-            store.expand(node: node)
-            return node.children != nil
+            // AppKit also calls this from NSAccessibilityIsAttributeSettable.
+            // Capability queries must not change expansion or start I/O.
+            (item as? FileExplorerNode)?.isDirectory == true
         }
 
         func outlineView(_ outlineView: NSOutlineView, shouldCollapseItem item: Any) -> Bool {
-            guard let node = item as? FileExplorerNode else { return false }
-            store.collapse(node: node)
-            return true
+            (item as? FileExplorerNode)?.isDirectory == true
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -320,14 +297,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
             store.select(nodes: nodes, anchor: anchor ?? nodes.first)
         }
         func outlineViewItemDidExpand(_ notification: Notification) {
-            guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
+            guard !isUpdatingOutlineProgrammatically,
+                  let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if !store.isExpanded(node) {
                 store.expand(node: node)
             }
         }
 
         func outlineViewItemDidCollapse(_ notification: Notification) {
-            guard let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
+            guard !isUpdatingOutlineProgrammatically,
+                  let node = notification.userInfo?["NSObject"] as? FileExplorerNode else { return }
             if store.isExpanded(node) {
                 store.collapse(node: node)
             }
@@ -459,7 +438,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ) {
             let exactRows = store.selectedPaths.reduce(into: IndexSet()) { if let resolution = selectionResolution(for: $1, in: outlineView), resolution.isExact { $0.insert(resolution.row) } }
             if !exactRows.isEmpty {
-                withProgrammaticOutlineUpdate { outlineView.selectRowIndexes(exactRows, byExtendingSelection: false) }
+                if outlineView.selectedRowIndexes != exactRows {
+                    withProgrammaticOutlineUpdate { outlineView.selectRowIndexes(exactRows, byExtendingSelection: false) }
+                }
                 let anchorRow = store.selectedPath.flatMap { selectionResolution(for: $0, in: outlineView)?.row }
                 if scroll, let row = FileExplorerSelectionRestoration.scrollRow(anchorRow: anchorRow, exactRows: exactRows) { outlineView.scrollRowToVisible(row) }; return
             }
@@ -525,7 +506,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 if updateStore {
                     store.select(node: node)
                 }
-                outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                if outlineView.selectedRowIndexes != IndexSet(integer: row) {
+                    outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                }
                 if scroll {
                     outlineView.scrollRowToVisible(row)
                 }
@@ -1020,7 +1003,7 @@ final class FileExplorerContainerView: NSView {
         applyChromeFonts()
         fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
             self?.applyChromeFonts()
-            self?.outlineView.reloadData()
+            self?.coordinator.reloadIfNeeded(forceReload: true)
             self?.searchResultsView.rowHeight = FileExplorerSearchResultCellView.preferredRowHeight
             self?.searchResultsView.reloadData()
         }
