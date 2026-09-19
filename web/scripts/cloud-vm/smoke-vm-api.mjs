@@ -54,6 +54,11 @@ const provider = optionValue(rest, "--provider") ?? "freestyle";
 const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
+// The provider contracts allow 15 minutes for create and 5 minutes for delete.
+// Keep the smoke client alive for the full provider operation plus route overhead.
+const CREATE_REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
+const DELETE_REQUEST_TIMEOUT_MS = 6 * 60 * 1000;
+const CLEANUP_DELETE_ATTEMPTS = 2;
 
 // "default" omits the provider from the create body, exercising the same
 // server-side default-provider path real clients (CLI, Mac app) use.
@@ -73,6 +78,20 @@ const { StackServerApp } = stackModule;
 let user;
 let vmId;
 let authHeaders;
+let result;
+let beforeCount = 0;
+let operationError;
+let vmCleanupError;
+let userCleanupError;
+let vmCleanupRequired = false;
+
+class SmokeCleanupError extends Error {
+  constructor(kind, message, options) {
+    super(message, options);
+    this.name = "SmokeCleanupError";
+    this.kind = kind;
+  }
+}
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
@@ -139,6 +158,94 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   }
 }
 
+async function destroyAndVerifyVm(cleanupVmId) {
+  const destroyStartedAt = performance.now();
+  let lastDeleteError;
+  let deleted = false;
+  for (let attempt = 1; attempt <= CLEANUP_DELETE_ATTEMPTS; attempt += 1) {
+    try {
+      const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(cleanupVmId)}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      }, DELETE_REQUEST_TIMEOUT_MS);
+      const destroyText = await destroy.text();
+      if (destroy.status === 200) {
+        deleted = true;
+        break;
+      }
+      if (destroy.status === 404 && attempt > 1) {
+        // A prior delete may have completed even if its response was lost. The
+        // authenticated list check below confirms that the VM is absent.
+        deleted = true;
+        break;
+      }
+      lastDeleteError = new SmokeCleanupError(
+        "delete",
+        `DELETE /api/vm/${cleanupVmId} expected 200, got ${destroy.status}: ${destroyText} (attempt ${attempt}/${CLEANUP_DELETE_ATTEMPTS})`,
+      );
+    } catch (error) {
+      lastDeleteError = new SmokeCleanupError(
+        "delete",
+        `DELETE /api/vm/${cleanupVmId} failed (attempt ${attempt}/${CLEANUP_DELETE_ATTEMPTS}): ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+  if (!deleted) throw lastDeleteError ?? new SmokeCleanupError("delete", `DELETE /api/vm/${cleanupVmId} failed`);
+  const destroyDurationMs = Math.round(performance.now() - destroyStartedAt);
+
+  let verify;
+  try {
+    verify = await fetchWithTimeout(`${targetUrl}/api/vm`, { headers: authHeaders });
+  } catch (error) {
+    throw new SmokeCleanupError(
+      "verify",
+      `post-delete GET /api/vm failed: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
+  }
+  const verifyText = await verify.text();
+  if (verify.status !== 200) {
+    throw new SmokeCleanupError(
+      "verify",
+      `post-delete GET /api/vm expected 200, got ${verify.status}: ${verifyText}`,
+    );
+  }
+
+  let afterJson;
+  try {
+    afterJson = JSON.parse(verifyText);
+  } catch (error) {
+    throw new SmokeCleanupError("verify", "post-delete GET /api/vm returned invalid JSON", { cause: error });
+  }
+  if (!Array.isArray(afterJson.vms)) {
+    throw new SmokeCleanupError("verify", "post-delete GET /api/vm response missing vms array");
+  }
+  if (afterJson.vms.some((vm) => vm?.id === cleanupVmId)) {
+    throw new SmokeCleanupError("leak", `post-delete GET /api/vm still includes ${cleanupVmId}`);
+  }
+  if (afterJson.vms.length !== beforeCount) {
+    throw new SmokeCleanupError(
+      "leak",
+      `post-delete GET /api/vm returned ${afterJson.vms.length} VMs, expected ${beforeCount}`,
+    );
+  }
+
+  return {
+    destroyed: true,
+    destroyDurationMs,
+    leakVerified: true,
+    afterCount: afterJson.vms.length,
+  };
+}
+
+function cleanupFailurePrefix(error) {
+  if (!(error instanceof SmokeCleanupError)) return "cleanup_verify_failed_vm";
+  if (error.kind === "delete") return "cleanup_delete_failed_vm";
+  if (error.kind === "leak") return "cleanup_leaked_vm";
+  return "cleanup_verify_failed_vm";
+}
+
 try {
   const env = loadTargetEnv(project);
   requireEnvKeys(env, [
@@ -178,15 +285,17 @@ try {
   const authedText = await authed.text();
   if (authed.status !== 200) throw new Error(`authenticated GET /api/vm expected 200, got ${authed.status}: ${authedText}`);
   const authedJson = JSON.parse(authedText);
+  if (!Array.isArray(authedJson.vms)) throw new Error("authenticated GET /api/vm response missing vms array");
+  beforeCount = authedJson.vms.length;
 
-  const result = {
+  result = {
     ok: true,
     target,
     projectId,
     url: targetUrl,
     unauthStatus: unauth.status,
     authedListStatus: authed.status,
-    beforeCount: Array.isArray(authedJson.vms) ? authedJson.vms.length : null,
+    beforeCount,
   };
 
   if (claudeCheck) {
@@ -204,6 +313,9 @@ try {
   }
 
   if (shouldCreate) {
+    // A timed-out request can still complete in the provider. Keep the Stack
+    // owner until this create is followed by confirmed delete and leak checks.
+    vmCleanupRequired = true;
     const createStartedAt = performance.now();
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
@@ -212,16 +324,16 @@ try {
         ...(provider === "default" ? {} : { provider }),
         ...(image ? { image } : {}),
       }),
-    });
+    }, CREATE_REQUEST_TIMEOUT_MS);
     const createDurationMs = Math.round(performance.now() - createStartedAt);
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
     if (!created.id) throw new Error("create response missing id");
+    vmId = created.id;
     if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }
-    vmId = created.id;
 
     let attachTransport;
     let attachDurationMs;
@@ -334,16 +446,6 @@ try {
       if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")} :: ${JSON.stringify(edge)}`);
     }
 
-    const destroyStartedAt = performance.now();
-    const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
-      method: "DELETE",
-      headers: authHeaders,
-    });
-    const destroyDurationMs = Math.round(performance.now() - destroyStartedAt);
-    const destroyText = await destroy.text();
-    if (destroy.status !== 200) throw new Error(`DELETE /api/vm/${vmId} expected 200, got ${destroy.status}: ${destroyText}`);
-    vmId = undefined;
-
     Object.assign(result, {
       createdProvider: created.provider,
       imageVersion: created.imageVersion,
@@ -352,42 +454,44 @@ try {
         ? { attachSkipped: true }
         : { attachTransport, attachDurationMs }),
       ...(edge ? { edge } : {}),
-      destroyed: true,
-      destroyDurationMs,
     });
   }
-
-  console.log(JSON.stringify(result));
 } catch (error) {
+  operationError = error;
+} finally {
   if (vmId && authHeaders) {
+    const cleanupVmId = vmId;
     try {
-      const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
-        method: "DELETE",
-        headers: authHeaders,
-      });
-      if (destroy.status === 200) {
-        console.error(`cleanup_destroyed_vm=${vmId}`);
-        vmId = undefined;
-      } else {
-        const text = await destroy.text().catch(() => "");
-        console.error(`cleanup_delete_failed_vm=${vmId} status=${destroy.status} body=${text}`);
-      }
-    } catch (cleanupError) {
-      console.error(`cleanup_delete_failed_vm=${vmId} error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+      const cleanupResult = await destroyAndVerifyVm(cleanupVmId);
+      Object.assign(result, cleanupResult);
+      vmId = undefined;
+      vmCleanupRequired = false;
+      if (operationError) console.error(`cleanup_destroyed_vm=${cleanupVmId}`);
+    } catch (error) {
+      vmCleanupError = error;
+      console.error(
+        `${cleanupFailurePrefix(error)}=${cleanupVmId} error=${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
-  if (vmId) console.error(`cleanup_needed_vm=${vmId}`);
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-} finally {
-  if (user) {
+  if (user && vmCleanupRequired) {
+    console.error("cleanup_preserved_user reason=vm_cleanup_unconfirmed");
+  } else if (user) {
     try {
       await user.delete();
-    } catch (cleanupError) {
+    } catch (error) {
+      userCleanupError = error;
       console.error(
-        `cleanup_delete_user_failed error=${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+        `cleanup_delete_user_failed error=${error instanceof Error ? error.message : String(error)}`,
       );
-      process.exitCode = 1;
     }
   }
+}
+
+if (vmId) console.error(`cleanup_needed_vm=${vmId}`);
+if (operationError) console.error(operationError instanceof Error ? operationError.message : String(operationError));
+if (operationError || vmCleanupError || userCleanupError) {
+  process.exitCode = 1;
+} else {
+  console.log(JSON.stringify(result));
 }
