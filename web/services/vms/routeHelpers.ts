@@ -223,7 +223,7 @@ export function jsonResponse(
 ): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json", ...headers },
+    headers: { "content-type": "application/json", "cache-control": "private, no-store", ...headers },
   });
 }
 

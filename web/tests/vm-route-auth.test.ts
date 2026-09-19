@@ -318,6 +318,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toMatchObject({ ok: true, revoked: 2 });
     expect(revokeUserVmAccess).toHaveBeenCalledWith({ userId: "user-signout" });
   });
@@ -1776,6 +1777,7 @@ describe("VM REST auth", () => {
       context,
     );
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(openVmCmuxRemote).toHaveBeenCalledWith({
       userId: "user-1",
       billingTeamId: "team-1",

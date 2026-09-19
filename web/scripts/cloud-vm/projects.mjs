@@ -41,6 +41,8 @@ export const requiredRuntimeEnvKeys = [
   // Freestyle is the production default provider (CMUX_VM_DEFAULT_PROVIDER):
   // without credentials and a snapshot selector every create 503s.
   "CMUX_VM_FREESTYLE_ENABLED",
+  "CMUX_VM_PLAN_FREE_CREATE_CREDIT_COST",
+  "CMUX_VM_PLAN_FREE_CREATE_CREDIT_ITEM_ID",
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
   // Coderouter: the usage ledger (customer-facing usage, alert source) and
