@@ -852,6 +852,33 @@ describe("VM REST auth", () => {
     expect(createVm).not.toHaveBeenCalled();
   });
 
+  test("create carries the chosen display name into provisioning without a rename", async () => {
+    process.env.CMUX_VM_CREATE_ENABLED = "1";
+    process.env.CMUX_VM_FREESTYLE_ENABLED = "1";
+    process.env.CMUX_VM_ALLOW_UNMANIFESTED_IMAGES = "1";
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "named-machine", provider: "freestyle", image: "snapshot-test",
+      imageVersion: null, createdAt: 1_777_000_000_000, displayName: "Build box",
+    });
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST", headers: { origin: "https://cmux.test" },
+      body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", displayName: "  Build box  " }),
+    }));
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ displayName: "Build box" }));
+    expect((await response.json() as { displayName: string }).displayName).toBe("Build box");
+  });
+
+  test.each([42, "x".repeat(65), "bad\nname"])("rejects invalid create display names before allocation: %p", async (displayName) => {
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST", headers: { origin: "https://cmux.test" }, body: JSON.stringify({ displayName }),
+    }));
+    expect(response.status).toBe(400);
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
   test("the paid-plan gate answers in the client's locale", async () => {
     getUser.mockResolvedValue(freePlanStackUser());
 

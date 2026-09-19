@@ -2762,6 +2762,24 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
+  dbTest("create reserves the display name atomically and an idempotent replay preserves it", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const input = {
+      userId: "user-create-name", billingTeamId: "team-create-name", billingPlanId: "pro",
+      provider: "freestyle" as const, image: "snapshot-test", maxActiveVms: 5,
+      idempotencyKey: "named-create", displayName: "Build box",
+    };
+    const first = await Effect.runPromise(vmRepositoryLiveShape.beginCreate(input));
+    expect(first.inserted).toBe(true);
+    expect(first.vm.displayName).toBe("Build box");
+    const retryInput = { ...input, displayName: "stale retry" };
+    const replay = await Effect.runPromise(vmRepositoryLiveShape.beginCreate(retryInput));
+    expect(replay.inserted).toBe(false);
+    expect(replay.vm.id).toBe(first.vm.id);
+    expect(replay.vm.displayName).toBe("Build box");
+  });
+
   dbTest("creates one provider VM per account-scoped idempotency key and records usage", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
