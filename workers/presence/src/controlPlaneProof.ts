@@ -39,7 +39,7 @@ export type BindingProofVerification =
 
 const INVALID: BindingProofVerification = { ok: false, code: "invalid_binding_request_proof" };
 
-/** The exact signed bytes construction from web/services/iroh/crypto.ts
+/** The exact signed bytes construction from the shared Iroh crypto contract
  * bindingRequestTranscript. */
 export function bindingRequestTranscript(input: Omit<
   BindingRequestProofInput,
