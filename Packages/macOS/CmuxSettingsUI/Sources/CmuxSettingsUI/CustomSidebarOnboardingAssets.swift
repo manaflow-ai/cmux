@@ -55,10 +55,17 @@ public struct CustomSidebarOnboardingAssets: Sendable {
         let source = try? String(contentsOf: url, encoding: .utf8) else {
             return nil
         }
+        let installedSource = source
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                !line.trimmingCharacters(in: .whitespaces)
+                    .hasPrefix("//   cp Examples/CustomSidebars/")
+            }
+            .joined(separator: "\n")
         return CustomSidebarTemplate(
             suggestedName: suggestedName,
             fileExtension: fileExtension,
-            source: source
+            source: installedSource
         )
     }
 }
