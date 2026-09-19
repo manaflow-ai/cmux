@@ -209,6 +209,9 @@ actor AgentHibernationProcessSnapshotCoordinator {
             guard let identity = processIdentityProvider(pid_t(processID)) else {
                 return nil
             }
+            // Topology cannot authorize a replacement process that reused a
+            // listed PID between the census and this authoritative probe.
+            if let capturedIdentity = process.processIdentity, capturedIdentity != identity { return nil }
             guard !exitedIdentities.contains(identity) else { continue }
             guard processGroupProvider(pid_t(processID)) == processGroupID else {
                 return nil

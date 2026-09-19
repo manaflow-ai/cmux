@@ -34,25 +34,11 @@ extension CmuxTopProcessSnapshot {
         )
     }
 
-    // Probes a single process for its cmux scope via sysctl.
-    //
-    // `KERN_PROCARGS2` can fail two very different ways: transiently, because the
-    // process exited mid-probe or its pid was reused (then `kinfoProc` no longer
-    // matches the expected start-time key), or permanently, because the process
-    // belongs to another user / is protected (the kernel denies procargs for the
-    // process's whole life). We must cache the permanent case as a definitive
-    // "no readable cmux scope" — those processes are not cmux-scoped and stay in
-    // `activeKeys`, so leaving them uncached would re-run this sysctl fan-out on
-    // every poll. We must NOT cache the transient case, so a process that is
-    // simply mid-exec is retried.
-    //
-    // The discriminator is liveness: if a procargs read fails but the process is
-    // still alive with the same start time, the failure is a permanent denial and
-    // resolves to nil; otherwise it raced with exit/reuse and is `.unavailable`.
-    // Callers derive `expectedCacheKey` from a `proc_bsdinfo` snapshot of this pid
-    // in the same enumeration pass, so a pre-read `kinfoProc` check would only
-    // repeat work. The post-read guard still catches pid reuse during the
-    // `KERN_PROCARGS2` probe window.
+    // Scope belongs to this census only. A failed args read with a still-matching
+    // identity is a readable listing with unavailable scope (e.g. another user).
+    // An exit/reuse race is unavailable, and the next fresh census retries it.
+    // The post-read identity check prevents argv from a reused PID being attached
+    // to the older topology record.
     static func cmuxScopeProbe(
         for pid: Int,
         expectedCacheKey: CmuxTopProcessScopeCacheKey

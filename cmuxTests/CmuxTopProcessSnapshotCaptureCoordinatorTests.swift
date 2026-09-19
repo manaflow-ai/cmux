@@ -25,7 +25,11 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
             return values
         }
         ProcessSnapshotMeasurement().report("independent", since: baselineStart)
-        #expect(baselineReader.state.withLock { $0.counts.enumerations } == 8)
+        let before = baselineReader.state.withLock { $0.counts }
+        print("PROCESS_SNAPSHOT_FIXTURE phase=independent enumerations=\(before.enumerations) bsd=\(before.bsd) task=\(before.task) rusage=\(before.rusage) paths=\(before.paths) scope=\(before.scope) identity=\(before.identity)")
+        #expect(before.enumerations == 8)
+        #expect(before.bsd == 32768 && before.task == 32768 && before.rusage == 32768)
+        #expect(before.paths == 32768 && before.scope == 32768)
         #expect(baseline.count == 8)
 
         let reader = SyntheticProcessSnapshotReader()

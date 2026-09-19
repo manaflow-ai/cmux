@@ -27,6 +27,16 @@ struct CmuxTopProcessSampler: Sendable {
         from sampledProcesses: [proc_bsdinfo], includeResources: Bool
     ) -> [CmuxTopProcessInfo] {
         guard !sampledProcesses.isEmpty else { return [] }
+        if !includeResources {
+            var unusedCPUSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+            return sampledProcesses.compactMap { process in
+                guard !Task.isCancelled else { return nil }
+                return processInfo(
+                    from: process, includeResources: false, sampledAtNanoseconds: 0,
+                    currentCPUSamples: &unusedCPUSamples
+                )?.info
+            }
+        }
 
         var scopeKeyByPID: [Int: CmuxTopProcessScopeCacheKey] = [:]
         scopeKeyByPID.reserveCapacity(sampledProcesses.count)
@@ -123,7 +133,7 @@ struct CmuxTopProcessSampler: Sendable {
             cpuSampleKey = nil
         }
 
-        guard reader.matches(pid: pid, key: cacheKey) else { return nil }
+        guard !includeResources || reader.matches(pid: pid, key: cacheKey) else { return nil }
         return (CmuxTopProcessInfo(
             pid: pid,
             processIdentity: AgentPIDProcessIdentity(
