@@ -2143,7 +2143,10 @@ final class CmuxConfigStore: ObservableObject {
         workspaceGroupConfigs = resolvedGroupConfigs
         surfaceTabBarButtonSourcePath = configuredSurfaceTabBarButtonSourcePath
         surfaceTabBarCommandSourcePaths = resolvedButtons.terminalCommandSourcePaths
-        surfaceTabBarActionReferenceIDs = resolvedButtons.actionReferenceIDs
+        let visibleSurfaceButtonIDs = Set(resolvedWorkspaceButtons.buttons.map(\.id))
+        surfaceTabBarActionReferenceIDs = resolvedButtons.actionReferenceIDs.filter {
+            visibleSurfaceButtonIDs.contains($0.key)
+        }
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
