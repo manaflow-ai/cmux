@@ -104,6 +104,7 @@ private struct CloudTreeStyleGalleryColumn: View {
                 machines: [],
                 snapshot: snapshot,
                 localWorkspaces: localWorkspaces,
+                selectionStore: CloudTreeSelectionStore(),
                 machineActions: MachineRowActions.bound(onDidMutate: {}),
                 nodeActions: CloudTreeNodeActions.bound(
                     catalog: { SurfaceCatalog.shared },

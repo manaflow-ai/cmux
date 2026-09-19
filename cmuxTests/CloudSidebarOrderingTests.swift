@@ -104,6 +104,24 @@ struct CloudSidebarOrderingTests {
         #expect(drag.string(forType: .cloudSidebarRow) == folder.id)
     }
 
+    @Test("A data refresh clears the window-owned selection when its row disappears")
+    func refreshClearsMissingSelection() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let initial = fixture.nodes()
+        fixture.coordinator.apply(nodes: initial)
+        let selectedID = fixture.folderID("ws_2")
+        fixture.coordinator.selectionStore.value = CloudTreeSelection(
+            nodeID: selectedID,
+            machine: .cloud(fixture.machine.rawValue)
+        )
+
+        // The authoritative refresh now contains only workspace-1.
+        fixture.coordinator.apply(nodes: fixture.nodes(titles: ["cmux1"]))
+
+        #expect(fixture.coordinator.selectionStore.value == .empty)
+    }
+
     @Test("Folder drags use the shared provisional owner without exposing pane projection")
     func folderDragRetainsAndReleasesSharedOwner() throws {
         let fixture = CloudSidebarOrderingFixture()

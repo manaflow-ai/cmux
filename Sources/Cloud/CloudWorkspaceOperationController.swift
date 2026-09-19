@@ -64,6 +64,9 @@ final class CloudWorkspaceOperationController {
 
     /// Starts one keyed operation, dropping duplicate activations while the first
     /// operation is still restoring or focusing the remote workspace.
+    ///
+    /// The operation owns its user-facing error handling inside its async body;
+    /// this controller only owns task lifetime, cancellation, and keyed cleanup.
     @discardableResult
     func start(key: String, _ operation: @escaping Operation) -> Bool {
         guard isAvailable(), keyedTasks[key] == nil else { return false }
@@ -87,6 +90,14 @@ final class CloudWorkspaceOperationController {
         keyedTaskIDs[key] = operationID
         keyedTasks[key] = task
         return true
+    }
+
+    /// Releases a keyed slot before synchronous recovery UI invokes a retry.
+    /// The caller is the operation currently owning the key; the identity fence
+    /// in the deferred cleanup prevents an older task from removing a retry.
+    func releaseKeyedOperation(key: String) {
+        keyedTaskIDs.removeValue(forKey: key)
+        keyedTasks.removeValue(forKey: key)
     }
 
     func cancelAll() {

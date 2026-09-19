@@ -63,3 +63,25 @@ extension SurfaceCatalog {
     }
 
 }
+
+extension SurfaceCatalog.NewWorkspaceHost {
+    /// Interactive Cloud projection host pinned to one window's manager. The
+    /// default host resolves through the globally active window, which is
+    /// unsafe after an async Cloud request yields to another window.
+    @MainActor
+    static func appOptimisticPinned(to preferredTabManager: TabManager?) -> Self {
+        var host = Self.appOptimistic
+        guard let preferredTabManager else { return host }
+        host.create = { [weak preferredTabManager] title in
+            guard let preferredTabManager,
+                  let workspace = preferredTabManager.addWorkspaceIfActive(
+                      title: title,
+                      select: true
+                  ) else {
+                throw SurfacePaneFactory.FactoryError.workspaceNotFound(UUID())
+            }
+            return (workspace.id, workspace.focusedPanelId)
+        }
+        return host
+    }
+}

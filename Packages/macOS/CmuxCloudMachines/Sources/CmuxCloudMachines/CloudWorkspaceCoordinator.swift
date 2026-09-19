@@ -8,6 +8,8 @@ public final class CloudWorkspaceCoordinator {
     private let allowsOperation: @MainActor () -> Bool
     private let loadMachines: @MainActor () async throws -> [CloudMachineDescriptor]
     private let createWorkspace: @MainActor (String, Bool) async throws -> UUID?
+    private let createWorkspaceWithContext: (@MainActor (String, Bool, UUID) async throws -> UUID?)?
+    private var creatingMachineIDs = Set<String>()
 
     /// Whether Cloud Machines and the current authenticated account permit an action.
     public var isAvailable: Bool { allowsOperation() }
@@ -18,16 +20,19 @@ public final class CloudWorkspaceCoordinator {
     ///   - allowsOperation: Reads live feature and account availability.
     ///   - loadMachines: Loads the complete, authoritative fleet, throwing on failure.
     ///   - createWorkspace: Creates and opens a workspace on the selected machine.
+    ///   - createWorkspaceWithContext: Optionally projects into a caller-owned window identified by UUID.
     public init(
         defaultMachineStore: DefaultCloudMachineStore,
         allowsOperation: @escaping @MainActor () -> Bool,
         loadMachines: @escaping @MainActor () async throws -> [CloudMachineDescriptor],
-        createWorkspace: @escaping @MainActor (String, Bool) async throws -> UUID?
+        createWorkspace: @escaping @MainActor (String, Bool) async throws -> UUID?,
+        createWorkspaceWithContext: (@MainActor (String, Bool, UUID) async throws -> UUID?)? = nil
     ) {
         self.defaultMachineStore = defaultMachineStore
         self.allowsOperation = allowsOperation
         self.loadMachines = loadMachines
         self.createWorkspace = createWorkspace
+        self.createWorkspaceWithContext = createWorkspaceWithContext
     }
 
     /// Creates a workspace on the specified cloud machine.
@@ -53,6 +58,44 @@ public final class CloudWorkspaceCoordinator {
         try Task.checkCancellation()
         guard isAvailable,
               let id = defaultMachineStore.resolveMachineID(from: machines, isComplete: true) else { return nil }
-        return try await createOnMachine(id: id, focus: focus)
+        return try await createSelectedMachine(id, focus: focus, windowID: nil)
+    }
+
+    /// Creates a workspace on the exact machine captured by the caller.
+    ///
+    /// The fleet response is still checked so a deleted or unavailable machine
+    /// fails closed. The selected id is never replaced with the persisted
+    /// default while the asynchronous create is in flight.
+    /// - Parameters:
+    ///   - machineID: Immutable Cloud machine identity captured at invocation.
+    ///   - focus: Whether to focus the newly opened local projection.
+    ///   - windowID: Optional originating window identity for pinned projection.
+    /// - Returns: The exact created local workspace ID, or nil when unavailable.
+    /// - Throws: Cancellation, machine unavailability, or a Cloud service failure.
+    public func createOnMachine(machineID: String, focus: Bool, windowID: UUID? = nil) async throws -> UUID? {
+        guard isAvailable else { return nil }
+        let capturedMachineID = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !capturedMachineID.isEmpty else {
+            throw CloudWorkspaceCoordinatorError.machineUnavailable(machineID)
+        }
+        try Task.checkCancellation()
+        let machines = try await loadMachines()
+        try Task.checkCancellation()
+        guard isAvailable else { return nil }
+        guard machines.contains(where: { $0.id == capturedMachineID }) else {
+            throw CloudWorkspaceCoordinatorError.machineUnavailable(capturedMachineID)
+        }
+        return try await createSelectedMachine(capturedMachineID, focus: focus, windowID: windowID)
+    }
+
+    /// Default-machine and selected-machine commands share receipt ownership.
+    /// Coalesce only an in-flight request for the same resolved machine.
+    private func createSelectedMachine(_ machineID: String, focus: Bool, windowID: UUID?) async throws -> UUID? {
+        guard creatingMachineIDs.insert(machineID).inserted else { return nil }
+        defer { creatingMachineIDs.remove(machineID) }
+        if let windowID, let createWorkspaceWithContext {
+            return try await createWorkspaceWithContext(machineID, focus, windowID)
+        }
+        return try await createWorkspace(machineID, focus)
     }
 }

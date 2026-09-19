@@ -44,7 +44,7 @@ private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
 }
 
-struct WorkspaceGroupNewWorkspaceTarget {
+private struct WorkspaceGroupNewWorkspaceTarget {
     let groupId: UUID
     let referenceWorkspaceId: UUID
     let placement: WorkspaceGroupNewPlacement
@@ -621,6 +621,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var fileExplorerState: FileExplorerState?
         let keyboardFocusCoordinator: MainWindowFocusController
         var cmuxConfigStore: CmuxConfigStore?
+        /// The authoritative Machines tree selection for this window.
+        let cloudTreeSelectionStore = CloudTreeSelectionStore()
         var closeObserver: WindowCloseObserver?
         weak var window: NSWindow?
         /// Per-window Dock owned by this context and torn down with it.
@@ -8400,22 +8402,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performNewWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
-        debugSource: String = "newWorkspace"
+        debugSource: String = "newWorkspace",
+        skipConfiguredAction: Bool = false,
+        destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
+            ?? event.flatMap { mainWindowContext(forShortcutEvent: $0, debugSource: debugSource) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
-        if let manager = context?.tabManager,
-           let vmID = manager.selectedWorkspace?.cloudVMID,
-           !vmID.isEmpty {
-            // Once this intent targets a VM, an unavailable or pending cloud
-            // operation must never fall through and create a local workspace.
-            return performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: vmID)
+        if let context {
+            let target = newWorkspaceMachineContext(for: context).target
+            if case .unavailable = target {
+                NSSound.beep()
+                return false
+            }
+            guard case .cloud(let machineID) = target else {
+                return performNewWorkspaceCreationAction(
+                    initialSurface: .terminal,
+                    preferredTabManager: preferredTabManager,
+                    event: event,
+                    debugSource: debugSource,
+                    skipConfiguredAction: skipConfiguredAction
+                )
+            }
+            let hasExplicitConfiguredAction: Bool = {
+                guard !skipConfiguredAction,
+                      let action = context.cmuxConfigStore?.resolvedNewWorkspaceAction() else { return false }
+                if case .builtIn(.newWorkspace) = action.action { return false }
+                return true
+            }()
+            if !hasExplicitConfiguredAction {
+                let resolvedDestination = destination ?? {
+                    guard context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID == machineID,
+                          let group = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+                    return CloudWorkspaceGroupDestination(
+                        tabManager: context.tabManager,
+                        groupId: group.groupId,
+                        placement: group.placement,
+                        referenceWorkspaceId: group.referenceWorkspaceId,
+                        initialWorkspaceId: nil
+                    )
+                }()
+                return performNewCloudWorkspaceOnMachineAction(
+                    machineID: machineID,
+                    focus: context.tabManager.selectedTabId != nil,
+                    debugSource: debugSource,
+                    destination: resolvedDestination,
+                    windowID: context.windowId
+                )
+            }
         }
         return performNewWorkspaceCreationAction(
             initialSurface: .terminal,
             preferredTabManager: preferredTabManager,
             event: event,
-            debugSource: debugSource
+            debugSource: debugSource,
+            skipConfiguredAction: skipConfiguredAction
         )
     }
 
@@ -9387,7 +9428,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
+    private func workspaceGroupNewWorkspaceTarget(in context: MainWindowContext) -> WorkspaceGroupNewWorkspaceTarget? {
         let tabManager = context.tabManager
         guard let selectedWorkspaceId = tabManager.selectedTabId,
               let selectedWorkspace = tabManager.tabs.first(where: { $0.id == selectedWorkspaceId }),
@@ -9406,6 +9447,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             placement: configured
                 ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         )
+    }
+
+    func cloudWorkspaceGroupDestination(in context: MainWindowContext, machineID: String) -> CloudWorkspaceGroupDestination? {
+        guard context.tabManager.selectedWorkspace?.cloudVMBinding?.vmID == machineID, let group = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+        return CloudWorkspaceGroupDestination(tabManager: context.tabManager, groupId: group.groupId, placement: group.placement, referenceWorkspaceId: group.referenceWorkspaceId, initialWorkspaceId: nil)
     }
 
     private func closeInitialWorkspaceIfNeeded(
@@ -17597,16 +17643,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .builtIn(let builtIn):
             switch builtIn {
             case .newWorkspace:
-                if let vmID = context.tabManager.selectedWorkspace?.cloudVMID, !vmID.isEmpty {
-                    let didStart = performNewCloudWorkspaceOnCurrentMachineAction(
-                        tabManager: context.tabManager, vmID: vmID, destination: destination
-                    )
-                    if didStart { onExecuted?() }
-                    return didStart
-                }
-                guard context.tabManager.addWorkspaceIfActive() != nil else { return false }
-                onExecuted?()
-                return true
+                let didStart = performNewWorkspaceAction(
+                    tabManager: context.tabManager,
+                    debugSource: "configured.cmux.newWorkspace",
+                    skipConfiguredAction: true,
+                    destination: destination
+                )
+                if didStart { onExecuted?() }
+                return didStart
             case .newAgentChat: return performConfiguredNewAgentChatAction(context: context, preferredWindow: preferredWindow, onExecuted: onExecuted)
             case .cloudVM:
                 let didStart = performCloudVMAction(
