@@ -36,6 +36,11 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
+    config-home-alias) config_home="$CMUX_MOCK_CONFIG_HOME_ALIAS" ;;
+    config-home-alias-traversal)
+      config_home="$CMUX_MOCK_CONFIG_HOME_ALIAS/.config/ghostty"
+      config_suffix='../../..'
+      ;;
     published-default-alias) config_home="$CMUX_APP_HOST_HOME" ;;
     published-config-alias)
       config_category=config
@@ -70,9 +75,14 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   esac
   if [ "$emit_config_evidence" = "1" ]; then
     echo "cmux DEV [$config_category] $config_message path=$config_home/$config_suffix"
+    if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias-traversal" ]; then
+      echo "cmux DEV [default] reading configuration file path=${TEST_RUNNER_HOME}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+    fi
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias-traversal" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
@@ -252,7 +262,7 @@ CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/xcodebuild-parent-env.log" \
 CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/test-runner-home-env.log" \
 CMUX_MOCK_XCODEBUILD_PROCESS=1 \
 CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=2 \
-CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=0.1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=1 \
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
 CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
@@ -268,13 +278,13 @@ if [ "$status" -ne 124 ]; then
   exit 1
 fi
 
-if ! grep -Fq "Retrying app-host xcodebuild after 0.1s idle timeout (attempt 1/2)" "$TMP_DIR/output.log"; then
+if ! grep -Fq "Retrying app-host xcodebuild after 1s idle timeout (attempt 1/2)" "$TMP_DIR/output.log"; then
   cat "$TMP_DIR/output.log"
   echo "FAIL: wrapper did not retry after idle timeout"
   exit 1
 fi
 
-timeout_count="$(grep -Fc "Idle timed out after 0.1s" "$TMP_DIR/output.log")"
+timeout_count="$(grep -Fc "Idle timed out after 1s" "$TMP_DIR/output.log")"
 if [ "$timeout_count" -ne 2 ]; then
   cat "$TMP_DIR/output.log"
   echo "FAIL: expected two timed-out attempts, got $timeout_count"
@@ -357,6 +367,65 @@ for published_alias_evidence in published-default-alias published-config-alias; 
     exit 1
   fi
 done
+
+CONFIG_HOME_ALIAS="$TMP_DIR/app-host-home-alias"
+ln -s "$RESOLVED_APP_HOST_HOME" "$CONFIG_HOME_ALIAS"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/config-home-alias-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/config-home-alias-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/config-home-alias-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/config-home-alias-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=config-home-alias \
+CMUX_MOCK_CONFIG_HOME_ALIAS="$CONFIG_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/config-home-alias-output.log" 2>&1
+config_home_alias_status=$?
+set -e
+
+if [ "$config_home_alias_status" -ne 0 ]; then
+  cat "$TMP_DIR/config-home-alias-output.log"
+  echo "FAIL: wrapper must accept a configuration path whose resolved home is isolated"
+  exit 1
+fi
+
+mkdir -p "$RESOLVED_APP_HOST_HOME/.config/ghostty"
+# The mock still goes through the PTY wrapper; allow slow interpreter startup
+# on a loaded builder before asserting the path-validation rejection.
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/config-home-alias-traversal-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/config-home-alias-traversal-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/config-home-alias-traversal-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/config-home-alias-traversal-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=config-home-alias-traversal \
+CMUX_MOCK_CONFIG_HOME_ALIAS="$CONFIG_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=15 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/config-home-alias-traversal-output.log" 2>&1
+config_home_alias_traversal_status=$?
+set -e
+
+if [ "$config_home_alias_traversal_status" -ne 1 ] || ! grep -Fq \
+  "FAIL: Ghostty accessed configuration outside the isolated app-host home" \
+  "$TMP_DIR/config-home-alias-traversal-output.log"; then
+  cat "$TMP_DIR/config-home-alias-traversal-output.log"
+  echo "FAIL: wrapper must reject canonical aliases followed by path traversal"
+  exit 1
+fi
 
 for evidence_regression in no-config-evidence unrelated-config-token; do
   set +e
@@ -510,6 +579,161 @@ for regression in \
     "$expected_failure" "$TMP_DIR/$regression-output.log"; then
     cat "$TMP_DIR/$regression-output.log"
     echo "FAIL: wrapper must reject $regression app-host validation"
+    exit 1
+  fi
+done
+
+EXPECTED_FAILURE_OUTPUT="$TMP_DIR/expected-failure-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 1 failure (0 unexpected) in 0.001 seconds' \
+  >"$EXPECTED_FAILURE_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  126 "$EXPECTED_FAILURE_OUTPUT" \
+  >"$TMP_DIR/missing-swift-classifier-output.log" 2>&1
+missing_swift_classifier_status=$?
+set -e
+if [ "$missing_swift_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/missing-swift-classifier-output.log"
+  echo "FAIL: a missing required Swift Testing phase must never be tolerated"
+  exit 1
+fi
+
+for authoritative_failure_status in 123 124 127; do
+  set +e
+  bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$authoritative_failure_status" "$EXPECTED_FAILURE_OUTPUT" \
+    >"$TMP_DIR/authoritative-$authoritative_failure_status-output.log" 2>&1
+  authoritative_classifier_status=$?
+  set -e
+  if [ "$authoritative_classifier_status" -ne 1 ]; then
+    cat "$TMP_DIR/authoritative-$authoritative_failure_status-output.log"
+    echo "FAIL: authoritative status $authoritative_failure_status must never inherit an XCTest pass"
+    exit 1
+  fi
+done
+
+FAILED_SWIFT_TESTING_OUTPUT="$TMP_DIR/failed-swift-testing-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds' \
+  'Test run with 1 test in 1 suite failed after 0.001 seconds with 1 issue.' \
+  >"$FAILED_SWIFT_TESTING_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  125 "$FAILED_SWIFT_TESTING_OUTPUT" \
+  >"$TMP_DIR/failed-swift-classifier-output.log" 2>&1
+failed_swift_classifier_status=$?
+set -e
+if [ "$failed_swift_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/failed-swift-classifier-output.log"
+  echo "FAIL: a failed Swift Testing phase must not inherit a clean XCTest result"
+  exit 1
+fi
+
+for expected_xctest_status in 65 125; do
+  if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$expected_xctest_status" "$EXPECTED_FAILURE_OUTPUT"; then
+    echo "FAIL: ordinary expected XCTest status $expected_xctest_status must retain its tolerant classification"
+    exit 1
+  fi
+done
+
+for unknown_failure_status in 1 64 134; do
+  set +e
+  bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$unknown_failure_status" "$EXPECTED_FAILURE_OUTPUT" \
+    >"$TMP_DIR/unknown-$unknown_failure_status-output.log" 2>&1
+  unknown_classifier_status=$?
+  set -e
+  if [ "$unknown_classifier_status" -ne 1 ]; then
+    cat "$TMP_DIR/unknown-$unknown_failure_status-output.log"
+    echo "FAIL: unknown app-host status $unknown_failure_status must not inherit an expected XCTest summary"
+    exit 1
+  fi
+done
+
+UNEXPECTED_FAILURE_OUTPUT="$TMP_DIR/unexpected-failure-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 1 failure (1 unexpected) in 0.001 seconds' \
+  >"$UNEXPECTED_FAILURE_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  65 "$UNEXPECTED_FAILURE_OUTPUT" \
+  >"$TMP_DIR/unexpected-classifier-output.log" 2>&1
+unexpected_classifier_status=$?
+set -e
+if [ "$unexpected_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/unexpected-classifier-output.log"
+  echo "FAIL: unexpected XCTest failures must remain blocking"
+  exit 1
+fi
+
+# A dead app host loses the verdicts pending in that launch, and the summary
+# printed afterwards covers only the last launch. No exit status and no clean
+# summary may turn that into a pass.
+HOST_DIED_OUTPUT="$TMP_DIR/host-died-output.log"
+printf '%s\n' \
+  'Restarting after unexpected exit, crash, or test timeout; summary will include totals from previous launches.' \
+  'Executed 1 test, with 1 failure (0 unexpected) in 0.001 seconds' \
+  >"$HOST_DIED_OUTPUT"
+for host_died_status in 0 65 125; do
+  set +e
+  bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$host_died_status" "$HOST_DIED_OUTPUT" \
+    >"$TMP_DIR/host-died-$host_died_status-output.log" 2>&1
+  host_died_classifier_status=$?
+  set -e
+  if [ "$host_died_classifier_status" -ne 1 ]; then
+    cat "$TMP_DIR/host-died-$host_died_status-output.log"
+    echo "FAIL: a batch whose app host died must not pass with status $host_died_status"
+    exit 1
+  fi
+done
+
+NO_TESTS_OUTPUT="$TMP_DIR/no-tests-output.log"
+printf '%s\n' \
+  'Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds' \
+  'Test run with 0 tests in 0 suites passed after 0.001 seconds.' \
+  >"$NO_TESTS_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  0 "$NO_TESTS_OUTPUT" \
+  >"$TMP_DIR/no-tests-classifier-output.log" 2>&1
+no_tests_classifier_status=$?
+set -e
+if [ "$no_tests_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/no-tests-classifier-output.log"
+  echo "FAIL: a batch that executed no tests must not pass"
+  exit 1
+fi
+
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  0 "$TMP_DIR/output-that-was-never-written.log" \
+  >"$TMP_DIR/missing-output-classifier-output.log" 2>&1
+missing_output_classifier_status=$?
+set -e
+if [ "$missing_output_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/missing-output-classifier-output.log"
+  echo "FAIL: a batch with no captured output must not pass"
+  exit 1
+fi
+
+PASSING_XCTEST_OUTPUT="$TMP_DIR/passing-xctest-output.log"
+printf '%s\n' \
+  'Executed 3 tests, with 0 failures (0 unexpected) in 0.003 seconds' \
+  >"$PASSING_XCTEST_OUTPUT"
+PASSING_SWIFT_TESTING_OUTPUT="$TMP_DIR/passing-swift-testing-output.log"
+printf '%s\n' \
+  'Executed 0 tests, with 0 failures (0 unexpected) in 0.000 seconds' \
+  '✔ Test notificationArrives() passed after 0.001 seconds.' \
+  'Test run with 1 test in 1 suite passed after 0.001 seconds.' \
+  >"$PASSING_SWIFT_TESTING_OUTPUT"
+for passing_output in "$PASSING_XCTEST_OUTPUT" "$PASSING_SWIFT_TESTING_OUTPUT"; do
+  if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    0 "$passing_output"; then
+    cat "$passing_output"
+    echo "FAIL: a clean batch that executed tests must pass"
     exit 1
   fi
 done
