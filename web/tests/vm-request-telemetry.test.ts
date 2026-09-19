@@ -186,13 +186,15 @@ describe("vm error payloads", () => {
   });
 
   test("carry no trace id when no span is active", async () => {
-    const response = vmErrorResponse({
+    const response = runWithVmRequestContext(context(), () => vmErrorResponse({
       error: "vm_internal_error",
       status: 500,
       message: "boom",
       action: "retry",
-    });
-    const payload = await response.json() as { traceId?: string; ui: { traceId?: string } };
+    }));
+    const payload = await response.json() as { requestId?: string; traceId?: string; ui: { requestId?: string; traceId?: string } };
+    expect(payload.requestId).toBe("req-1");
+    expect(payload.ui.requestId).toBe("req-1");
     expect(payload.traceId).toBeUndefined();
     expect(payload.ui.traceId).toBeUndefined();
   });

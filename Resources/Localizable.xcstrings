@@ -225030,6 +225030,34 @@
         }
       }
     },
+    "fileExplorer.error.cloudPreviewTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud file previews are limited to 1 MB." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud ファイルのプレビューは 1 MB に制限されています。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Cloud 文件预览限制为 1 MB。" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Dateivorschauen sind auf 1 MB begrenzt." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les aperçus de fichiers Cloud sont limités à 1 Mo." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تقتصر معاينات ملفات Cloud على 1 ميجابايت." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Las vistas previas de archivos de Cloud están limitadas a 1 MB." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Cloud 檔案預覽限制為 1 MB。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Cloud 파일 미리보기는 1MB로 제한됩니다." } }
+      }
+    },
+    "fileExplorer.error.remoteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote command failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートコマンドに失敗しました" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "远程命令失败" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Remote-Befehl fehlgeschlagen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La commande distante a échoué" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل الأمر البعيد" } },
+        "es": { "stringUnit": { "state": "translated", "value": "El comando remoto falló" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "遠端指令失敗" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 명령에 실패했습니다" } }
+      }
+    },
     "fileExplorer.error.sshFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -226391,6 +226419,62 @@
             "value": "SSH 파일을 사용할 수 없음: %@"
           }
         }
+      }
+    },
+    "fileExplorer.status.remoteHomeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unable to resolve remote home: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートのホームを解決できません: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法解析远程主目录：%@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Remote-Home-Verzeichnis konnte nicht aufgelöst werden: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible de résoudre le répertoire personnel distant : %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر تحديد المجلد الرئيسي البعيد: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo resolver el directorio de inicio remoto: %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法解析遠端家目錄：%@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 홈을 확인할 수 없음: %@" } }
+      }
+    },
+    "fileExplorer.status.remoteResolvingHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resolving remote home..." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートのホームを解決中..." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在解析远程主目录..." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Remote-Home-Verzeichnis wird aufgelöst..." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Résolution du répertoire personnel distant..." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "جاري تحديد المجلد الرئيسي البعيد..." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Resolviendo el directorio de inicio remoto..." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在解析遠端家目錄..." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 홈 확인 중..." } }
+      }
+    },
+    "fileExplorer.status.remoteUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote files unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートファイルを利用できません" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "远程文件不可用" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Remote-Dateien nicht verfügbar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Fichiers distants indisponibles" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الملفات البعيدة غير متوفرة" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Archivos remotos no disponibles" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法使用遠端檔案" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 파일을 사용할 수 없음" } }
+      }
+    },
+    "fileExplorer.status.remoteUnavailableWithDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote files unavailable: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモートファイルを利用できません: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "远程文件不可用：%@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Remote-Dateien nicht verfügbar: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Fichiers distants indisponibles : %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الملفات البعيدة غير متوفرة: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Archivos remotos no disponibles: %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法使用遠端檔案：%@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 파일을 사용할 수 없음: %@" } }
       }
     },
     "filePreview.openExternally": {
@@ -231057,6 +231141,34 @@
             "value": "아직 머신이 없습니다"
           }
         }
+      }
+    },
+    "cloudVM.error.traceId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Trace ID: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トレース ID: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "跟踪 ID：%@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nachverfolgungs-ID: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "ID de suivi : %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "معرّف التتبع: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "ID de seguimiento: %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "追蹤 ID：%@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "추적 ID: %@" } }
+      }
+    },
+    "cloudVM.error.requestId": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request ID: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエスト ID: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "请求 ID：%@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Anfrage-ID: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "ID de requête : %@" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "معرّف الطلب: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "ID de solicitud: %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "請求 ID：%@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "요청 ID: %@" } }
       }
     },
     "cloudVM.error.reference": {

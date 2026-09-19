@@ -31,7 +31,7 @@ Current rules:
 - `swift-package-boundaries.md`
 - `swift-logging.md`
 - `swiftui-state-layout.md`
-- `user-facing-errors.md`
+- `user-facing-errors.md`: provider-neutral copy on all user-facing surfaces and error privacy, while preserving support IDs.
 - `readme-site-feature-parity.md`
 - `landing-page-registry-parity.md`
 - `remote-relay-authorization.md`

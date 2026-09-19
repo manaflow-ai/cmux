@@ -15,6 +15,7 @@ import {
   writeIdentitySnapshot,
 } from "../auth/identitySnapshot";
 import { hasAuthRateLimitSignal } from "./authErrors";
+import { withVmErrorReference } from "./errorReference";
 import { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
 import {
@@ -965,7 +966,7 @@ function normalizedOptionalString(value: string | null | undefined): string | nu
 }
 
 export function unauthorized(): Response {
-  return new Response(JSON.stringify({ error: "unauthorized" }), {
+  return new Response(JSON.stringify(withVmErrorReference({ error: "unauthorized" })), {
     status: 401,
     headers: { "content-type": "application/json" },
   });

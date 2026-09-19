@@ -4323,8 +4323,24 @@ class TerminalController {
         }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
-        if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
+        let ui = object?["ui"] as? [String: Any]
+        if let traceID = (
+            object?["traceId"] as? String
+                ?? object?["trace_id"] as? String
+                ?? ui?["traceId"] as? String
+                ?? ui?["trace_id"] as? String
+        ), !traceID.isEmpty {
             payload["trace_id"] = traceID
+        }
+        if let requestID = (
+            object?["requestId"] as? String
+                ?? object?["request_id"] as? String
+                ?? object?["clientRequestId"] as? String
+                ?? object?["client_request_id"] as? String
+                ?? ui?["requestId"] as? String
+                ?? ui?["request_id"] as? String
+        ), !requestID.isEmpty {
+            payload["request_id"] = requestID
         }
         return payload
     }
@@ -4370,7 +4386,21 @@ class TerminalController {
             publicObject["ui"] = publicUI
         }
         let ui = object["ui"] as? [String: Any]
-        if let trace = (object["traceId"] as? String) ?? (ui?["traceId"] as? String),
+        if let request = (
+            object["requestId"] as? String
+                ?? object["request_id"] as? String
+                ?? object["clientRequestId"] as? String
+                ?? object["client_request_id"] as? String
+                ?? ui?["requestId"] as? String
+                ?? ui?["request_id"] as? String
+        ), request.count <= 80,
+           request.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._:-".contains($0)) }) {
+            publicObject["requestId"] = request
+        }
+        if let trace = (object["traceId"] as? String)
+            ?? (object["trace_id"] as? String)
+            ?? (ui?["traceId"] as? String)
+            ?? (ui?["trace_id"] as? String),
            trace.count == 32, trace.allSatisfy(\.isHexDigit) {
             publicObject["traceId"] = trace
         }

@@ -80,13 +80,33 @@ func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         lines.append("Details:")
         lines.append(contentsOf: details.map { "  \($0)" })
     }
-    if let traceId = cloudVMString(object["traceId"]) ?? cloudVMString(ui?["traceId"]) {
+    let requestId = cloudVMString(object["requestId"])
+        ?? cloudVMString(object["request_id"])
+        ?? cloudVMString(object["clientRequestId"])
+        ?? cloudVMString(object["client_request_id"])
+        ?? cloudVMString(ui?["requestId"])
+        ?? cloudVMString(ui?["request_id"])
+    if let requestId {
+        lines.append("")
+        lines.append(cloudVMRequestIDLine(requestId: requestId))
+    }
+    if let traceId = cloudVMString(object["traceId"])
+        ?? cloudVMString(object["trace_id"])
+        ?? cloudVMString(ui?["traceId"])
+        ?? cloudVMString(ui?["trace_id"]) {
         // The support reference. Operators open the exact server trace,
         // PostHog row and Sentry event from this one id.
         lines.append("")
         lines.append(cloudVMReferenceLine(traceId: traceId))
     }
     return lines.joined(separator: "\n")
+}
+
+func cloudVMRequestIDLine(requestId: String) -> String {
+    String(
+        format: String(localized: "cloudVM.error.requestId", defaultValue: "Request ID: %@"),
+        requestId
+    )
 }
 
 func cloudVMReferenceLine(traceId: String) -> String {
@@ -2259,6 +2279,11 @@ actor VMClient {
         // retry. Waiting out Retry-After here turns a transient throttle into a short pause
         // instead of a dead-end error dialog.
         var retriesLeft = 2
+        // A stale access token can survive a foreground or launch refresh. The VM
+        // service rejects that token with 401 while the refresh token is still
+        // valid. GET requests are safe to repeat after minting a fresh token;
+        // mutation requests keep the server's explicit session rejection.
+        var unauthorizedRetryAvailable = method == "GET"
         while true {
             try Task.checkCancellation()
             if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
@@ -2304,6 +2329,28 @@ actor VMClient {
                 ) ?? 2
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy.sleep(seconds: delaySeconds) }
                 continue
+            }
+            if http.statusCode == 401, unauthorizedRetryAvailable {
+                unauthorizedRetryAvailable = false
+                retriesLeft = max(0, retriesLeft - 1)
+                do {
+                    let refreshedAccessToken = try await auth.forceRefreshAccessToken()
+                    guard let refreshedRefreshToken = await auth.refreshToken(), !refreshedRefreshToken.isEmpty else {
+                        throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
+                    }
+                    req.setValue("Bearer \(refreshedAccessToken)", forHTTPHeaderField: "Authorization")
+                    req.setValue(refreshedRefreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+                    onRetry()
+                    continue
+                } catch let error as VMClientError {
+                    throw error
+                } catch AuthError.networkError {
+                    throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
+                } catch AuthError.unauthorized {
+                    throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
+                } catch {
+                    throw VMClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "<empty>")
+                }
             }
             if retryTransientServiceUnavailable,
                retriesLeft > 0,

@@ -253,6 +253,14 @@ enum FileExplorerWorkspaceRoot: Equatable {
         isAvailable: Bool,
         unavailableDetail: String?
     )
+    case remoteCloud(
+        workspaceId: UUID,
+        vmID: String,
+        displayTarget: String,
+        rootPath: String?,
+        isAvailable: Bool,
+        unavailableDetail: String?
+    )
 }
 
 // MARK: - Local Provider
@@ -277,7 +285,7 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
 // MARK: - SSH Provider
 
 // Captured by async SSH tasks; mutable availability/root state is guarded by stateLock.
-final class SSHFileExplorerProvider: FileExplorerProvider, @unchecked Sendable {
+final class SSHFileExplorerProvider: RemoteFileExplorerProvider, @unchecked Sendable {
     private struct State: Sendable {
         var homePath: String
         var isAvailable: Bool
@@ -680,6 +688,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
 enum FileExplorerError: LocalizedError {
     case providerUnavailable
     case sshCommandFailed(String)
+    case remoteCommandFailed(String)
+    case remoteFileTooLarge
 
     var errorDescription: String? {
         switch self {
@@ -687,6 +697,10 @@ enum FileExplorerError: LocalizedError {
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed:
             return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed")
+        case .remoteFileTooLarge:
+            return String(localized: "fileExplorer.error.cloudPreviewTooLarge", defaultValue: "Cloud file previews are limited to 1 MB.")
+        case .remoteCommandFailed:
+            return String(localized: "fileExplorer.error.remoteFailed", defaultValue: "Remote command failed")
         }
     }
 }
@@ -765,6 +779,12 @@ final class FileExplorerStore: ObservableObject {
             }
             return "ssh://\(sshProvider.displayTarget):\(rootPath)"
         }
+        if let cloudProvider = provider as? CloudVMFileExplorerProvider {
+            guard !rootPath.isEmpty else {
+                return "cloud://\(cloudProvider.displayTarget)"
+            }
+            return "cloud://\(cloudProvider.displayTarget):\(rootPath)"
+        }
         return FileExplorerRootResolver.displayPath(for: rootPath, homePath: provider?.homePath)
     }
 
@@ -795,6 +815,15 @@ final class FileExplorerStore: ObservableObject {
                 isAvailable: isAvailable,
                 unavailableDetail: unavailableDetail,
                 sshTransport: sshTransport
+            )
+        case .remoteCloud(let workspaceId, let vmID, let displayTarget, let rootPath, let isAvailable, let unavailableDetail):
+            applyRemoteCloudWorkspaceRoot(
+                workspaceId: workspaceId,
+                vmID: vmID,
+                displayTarget: displayTarget,
+                rootPath: rootPath,
+                isAvailable: isAvailable,
+                unavailableDetail: unavailableDetail
             )
         }
     }
@@ -842,6 +871,11 @@ final class FileExplorerStore: ObservableObject {
                     self?.gitStatusByPath = status
                 }
             }
+        } else if provider is CloudVMFileExplorerProvider {
+            // Cloud terminals do not expose a local Git working tree. Git
+            // status belongs to the remote machine and is not inferred from
+            // this Mac's filesystem.
+            gitStatusByPath = [:]
         } else {
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
@@ -859,14 +893,14 @@ final class FileExplorerStore: ObservableObject {
         guard !ManagedFileTransferPolicy.isDisabled else {
             throw ManagedFileTransferPolicy.refusalError()
         }
-        guard let sshProvider = provider as? SSHFileExplorerProvider else {
+        guard let remoteProvider = provider as? any RemoteFileExplorerProvider else {
             throw FileExplorerError.providerUnavailable
         }
         let cacheURL = Self.remotePreviewCacheURL(
-            displayTarget: sshProvider.displayTarget,
+            displayTarget: remoteProvider.displayTarget,
             remotePath: path
         )
-        try await sshProvider.downloadFile(path: path, to: cacheURL)
+        try await remoteProvider.downloadFile(path: path, to: cacheURL)
         return cacheURL
     }
 
@@ -1183,57 +1217,124 @@ final class FileExplorerStore: ObservableObject {
         resolveRemoteHome(
             workspaceId: workspaceId,
             provider: sshProvider,
-            connection: connection
+            providerKey: [
+                connection.destination,
+                connection.port.map(String.init) ?? "",
+                connection.identityFile ?? "",
+                connection.sshOptions.joined(separator: "\u{1f}")
+            ].joined(separator: "\u{1e}")
+        )
+    }
+
+    private func applyRemoteCloudWorkspaceRoot(
+        workspaceId: UUID,
+        vmID: String,
+        displayTarget: String,
+        rootPath requestedRootPath: String?,
+        isAvailable: Bool,
+        unavailableDetail: String?
+    ) {
+        setWorkspaceRootIdentity(workspaceId)
+
+        let existingProvider = provider as? CloudVMFileExplorerProvider
+        let cloudProvider: CloudVMFileExplorerProvider
+        if let existingProvider,
+           existingProvider.vmID == vmID,
+           existingProvider.displayTarget == displayTarget,
+           existingProvider.isAvailable == isAvailable {
+            cloudProvider = existingProvider
+        } else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            cloudProvider = CloudVMFileExplorerProvider(
+                vmID: vmID,
+                displayTarget: displayTarget,
+                isAvailable: isAvailable
+            )
+            setProvider(cloudProvider, reloadIfAvailable: false)
+        }
+
+        guard isAvailable else {
+            cancelRemoteHomeResolution()
+            setRootPath("")
+            let detail = unavailableDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+            setRootStatusMessage(
+                detail?.isEmpty == false
+                    ? String(localized: "fileExplorer.status.remoteUnavailableWithDetail", defaultValue: "Remote files unavailable: \(detail!)")
+                    : String(localized: "fileExplorer.status.remoteUnavailable", defaultValue: "Remote files unavailable")
+            )
+            return
+        }
+
+        if let requestedRootPath = Self.normalizedRootPath(requestedRootPath) {
+            cancelRemoteHomeResolution()
+            setRootStatusMessage(nil)
+            setRootPath(requestedRootPath)
+            return
+        }
+
+        let currentHomePath = cloudProvider.homePath
+        if !currentHomePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            setRootStatusMessage(nil)
+            setRootPath(currentHomePath)
+            return
+        }
+
+        resolveRemoteHome(
+            workspaceId: workspaceId,
+            provider: cloudProvider,
+            providerKey: vmID
         )
     }
 
     private func resolveRemoteHome(
         workspaceId: UUID,
-        provider sshProvider: SSHFileExplorerProvider,
-        connection: SSHFileExplorerConnection
+        provider: any RemoteFileExplorerProvider,
+        providerKey: String
     ) {
         let resolutionKey = [
             workspaceId.uuidString,
-            connection.destination,
-            connection.port.map(String.init) ?? "",
-            connection.identityFile ?? "",
-            connection.sshOptions.joined(separator: "\u{1f}"),
+            providerKey,
         ].joined(separator: "\u{1e}")
 
         guard remoteHomeResolutionKey != resolutionKey else { return }
         remoteHomeResolutionTask?.cancel()
         remoteHomeResolutionKey = resolutionKey
         setRootPath("")
-        setRootStatusMessage(String(localized: "fileExplorer.status.sshResolvingHome", defaultValue: "Resolving remote home..."))
+        setRootStatusMessage(String(localized: "fileExplorer.status.remoteResolvingHome", defaultValue: "Resolving remote home..."))
 
-        remoteHomeResolutionTask = Task { [weak self, weak sshProvider] in
-            guard let sshProvider else { return }
+        remoteHomeResolutionTask = Task { [weak self, weak provider] in
+            guard let provider else { return }
             do {
-                let homePath = try await sshProvider.resolveHomePath()
-                await MainActor.run { [weak self, weak sshProvider] in
+                let homePath = try await provider.resolveHomePath()
+                await MainActor.run { [weak self, weak provider] in
                     guard let self,
-                          let sshProvider,
+                          let provider,
                           self.remoteHomeResolutionKey == resolutionKey,
-                          self.provider === sshProvider else { return }
+                          self.provider === provider else { return }
                     self.remoteHomeResolutionKey = nil
                     self.remoteHomeResolutionTask = nil
-                    sshProvider.updateAvailability(true, homePath: homePath)
+                    if let sshProvider = provider as? SSHFileExplorerProvider {
+                        sshProvider.updateAvailability(true, homePath: homePath)
+                    } else if let cloudProvider = provider as? CloudVMFileExplorerProvider {
+                        self.setProvider(cloudProvider.resolvingHome(homePath), reloadIfAvailable: false)
+                    }
                     self.setRootStatusMessage(nil)
                     self.setRootPath(homePath)
                 }
             } catch {
-                await MainActor.run { [weak self, weak sshProvider] in
+                await MainActor.run { [weak self, weak provider] in
                     guard let self,
-                          let sshProvider,
+                          let provider,
                           self.remoteHomeResolutionKey == resolutionKey,
-                          self.provider === sshProvider else { return }
+                          self.provider === provider else { return }
                     self.remoteHomeResolutionKey = nil
                     self.remoteHomeResolutionTask = nil
                     self.setRootPath("")
                     self.setRootStatusMessage(
                         String(
-                            localized: "fileExplorer.status.sshHomeFailed",
-                            defaultValue: "Unable to resolve SSH home: \(error.localizedDescription)"
+                            localized: "fileExplorer.status.remoteHomeFailed",
+                            defaultValue: "Unable to resolve remote home: \(error.localizedDescription)"
                         )
                     )
                 }

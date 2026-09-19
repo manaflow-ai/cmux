@@ -247,6 +247,13 @@
         "web/app/sitemap.ts",
         "web/app/lib/agent-page-paths.ts"
       ]
+    },
+    {
+      "path": ".github/review-bot-rules/user-facing-errors.md",
+      "description": "Source-of-truth rule for provider-neutral user-facing copy and error privacy, including all locales and copied diagnostics while preserving support IDs.",
+      "scope": [
+        "**/*"
+      ]
     }
   ]
 }

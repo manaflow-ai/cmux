@@ -86,6 +86,21 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 }
 
+private final class MockCloudFileExplorerCommandRunner: CloudFileExplorerCommandRunning, @unchecked Sendable {
+    var responses: [(String) -> VMExecResult?] = []
+    private(set) var calls: [(vmID: String, command: String, timeoutMs: Int)] = []
+
+    func run(vmID: String, command: String, timeoutMs: Int) async throws -> VMExecResult {
+        calls.append((vmID, command, timeoutMs))
+        for response in responses {
+            if let result = response(command) {
+                return result
+            }
+        }
+        return VMExecResult(exitCode: 0, stdout: "", stderr: "")
+    }
+}
+
 private final class DeferredListFileExplorerProvider: FileExplorerProvider {
     var homePath = "/home/dev"
     var isAvailable = true
@@ -314,6 +329,53 @@ struct FileExplorerStoreTests {
         #expect(transport.resolvedHomeConnections == [])
         #expect(transport.listedPaths == ["/srv/app"])
         #expect(store.displayRootPath == "ssh://dev@ubuntu-host:/srv/app")
+    }
+
+    @Test
+    func testCloudWorkspaceRootResolvesHomeAndListsRemoteDirectory() async throws {
+        let runner = MockCloudFileExplorerCommandRunner()
+        runner.responses = [
+            { command in
+                guard command.contains("printf") else { return nil }
+                return VMExecResult(exitCode: 0, stdout: "/home/cmux\n", stderr: "")
+            },
+            { command in
+                guard command.contains("scandir") else { return nil }
+                return VMExecResult(
+                    exitCode: 0,
+                    stdout: "[{\"name\":\"project\",\"path\":\"/home/cmux/project\",\"directory\":true},{\"name\":\"README.md\",\"path\":\"/home/cmux/README.md\",\"directory\":false}]",
+                    stderr: ""
+                )
+            },
+        ]
+
+        let store = FileExplorerStore()
+        let workspaceID = UUID()
+        let provider = CloudVMFileExplorerProvider(
+            vmID: "vivid-newt",
+            displayTarget: "vivid-newt",
+            isAvailable: true,
+            commandRunner: runner
+        )
+        store.setProviderForTesting(provider, reloadIfAvailable: false)
+        store.applyWorkspaceRoot(
+            .remoteCloud(
+                workspaceId: workspaceID,
+                vmID: "vivid-newt",
+                displayTarget: "vivid-newt",
+                rootPath: nil,
+                isAvailable: true,
+                unavailableDetail: nil
+            )
+        )
+
+        try await waitFor("Cloud root loaded") {
+            store.rootNodes.map(\.name) == ["project", "README.md"]
+        }
+
+        #expect(store.provider is CloudVMFileExplorerProvider)
+        #expect(store.displayRootPath == "cloud://vivid-newt:/home/cmux")
+        #expect(runner.calls.contains { $0.command.contains("find") })
     }
 
     @Test
@@ -621,6 +683,48 @@ struct FileExplorerStoreTests {
 @Suite(.serialized)
 struct FileSearchControllerTests {
     private struct WaitTimeout: Error {}
+
+    @Test
+    func testCloudFindSearchesTheVMFilesystem() async throws {
+        let runner = MockCloudFileExplorerCommandRunner()
+        let line = try JSONSerialization.data(withJSONObject: [
+            "type": "match",
+            "data": [
+                "path": ["text": "/home/cmux/project/Sources/App.swift"],
+                "lines": ["text": "let cloudNeedle = true\\n"],
+                "line_number": 7,
+                "submatches": [["start": 4]],
+            ],
+        ] as [String: Any])
+        runner.responses = [{ command in
+            guard command.contains("rg") else { return nil }
+            return VMExecResult(
+                exitCode: 0,
+                stdout: String(decoding: line, as: UTF8.self) + "\n",
+                stderr: ""
+            )
+        }]
+
+        let controller = FileSearchController(cloudCommandRunner: runner)
+        var snapshots: [FileSearchSnapshot] = []
+        controller.onSnapshotChanged = { snapshots.append($0) }
+        controller.search(
+            query: "cloudNeedle",
+            rootPath: "/home/cmux/project",
+            scope: .remoteCloud(vmID: "vivid-newt")
+        )
+
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if snapshots.last?.isSearching == false, snapshots.last?.status == .matches { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        let snapshot = try #require(snapshots.last)
+        #expect(snapshot.status == .matches)
+        #expect(snapshot.results.map(\.relativePath) == ["Sources/App.swift"])
+        #expect(runner.calls.count == 1)
+        #expect(runner.calls[0].vmID == "vivid-newt")
+    }
 
     @Test(.enabled(if: FileSearchControllerTests.hasRipgrep(), "ripgrep is required for file search behavior tests"))
     func testSearchIncludesDotfilesWithoutSearchingGitInternals() async throws {
