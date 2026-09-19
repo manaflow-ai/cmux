@@ -6614,6 +6614,22 @@ struct CMUXCLI {
             let response = try sendV1Command("close_window \(windowID)", client: client)
             print(response)
 
+        case "resize-window":
+            guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
+                throw CLIError(message: "resize-window requires --window")
+            }
+            let width = optionValue(commandArgs, name: "--width") ?? "-"
+            let height = optionValue(commandArgs, name: "--height") ?? "-"
+            for (flag, value) in [("--width", width), ("--height", height)] where value != "-" {
+                guard let points = Double(value), points.isFinite, points > 0 else {
+                    throw CLIError(message: "\(flag) must be a positive number")
+                }
+            }
+            // With neither flag the command is a frame read: the app changes
+            // nothing and reports the window's current size.
+            let response = try sendV1Command("resize_window \(windowID) \(width) \(height)", client: client)
+            print(response)
+
         case "move-workspace-to-window":
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
                 throw CLIError(message: "move-workspace-to-window requires --workspace")
@@ -11307,6 +11323,9 @@ struct CMUXCLI {
         var identityFile: String?
         var noFocus = false
         var newWindow = false
+        var transport: String?
+        var transportPort: Int?
+        var broker: String?
 
         // Intentional subset of parseSSHCommandOptions: ssh-tmux has no relay,
         // passthrough, --ssh-option, --name, or --window support.
@@ -11328,6 +11347,38 @@ struct CMUXCLI {
                     throw CLIError(message: "ssh-tmux: --identity requires a path")
                 }
                 identityFile = commandArgs[index + 1]
+                index += 2
+            case "--transport":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport requires a value (ssh or et)")
+                }
+                let raw = commandArgs[index + 1].lowercased()
+                guard raw == "ssh" || raw == "et" else {
+                    throw CLIError(message: "ssh-tmux: --transport must be ssh or et")
+                }
+                transport = raw
+                index += 2
+            case "--transport-port":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --transport-port requires a value")
+                }
+                guard let parsed = Int(commandArgs[index + 1]), parsed > 0, parsed <= 65535 else {
+                    throw CLIError(message: "ssh-tmux: --transport-port must be 1-65535")
+                }
+                transportPort = parsed
+                index += 2
+            case "--broker":
+                // A NAME, not a command: it selects one of the brokers declared under
+                // remoteTmux.brokers in cmux.json. Taking an executable here would let anything
+                // that can run the CLI pick what cmux launches.
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: "ssh-tmux: --broker requires the name of a broker declared under remoteTmux.brokers in cmux.json")
+                }
+                let name = commandArgs[index + 1].trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty, !name.hasPrefix("-") else {
+                    throw CLIError(message: "ssh-tmux: --broker requires a broker name, for example --broker corp")
+                }
+                broker = name
                 index += 2
             case "--no-focus":
                 noFocus = true
@@ -11357,6 +11408,9 @@ struct CMUXCLI {
         var params: [String: Any] = ["host": destination]
         if let port { params["port"] = port }
         if let identityFile, !identityFile.isEmpty { params["identity_file"] = identityFile }
+        if let transport { params["transport"] = transport }
+        if let transportPort { params["transport_port"] = transportPort }
+        if let broker { params["transport_broker"] = broker }
         params["activate"] = !noFocus
         if !newWindow {
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: nil)
@@ -11439,6 +11493,13 @@ struct CMUXCLI {
         process.standardInput = FileHandle.standardInput
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
+        // Mark this ssh as cmux's interactive login. It pins cmux's own ControlPath, so a
+        // site's ssh_config hooks (Match exec ProxyCommand/2FA helpers) that would normally
+        // skip work when the user's own shared master is live can see that this connection
+        // cannot ride that master and still needs a full authentication.
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_REMOTE_TMUX_AUTH"] = "1"
+        process.environment = environment
 
         // Foundation spawns the child in its OWN process group, so ssh starts as a
         // BACKGROUND job of the terminal. ssh's password / host-key / MFA prompt
@@ -18774,6 +18835,27 @@ struct CMUXCLI {
               cmux close-window --window 0
               cmux close-window --window window:1
             """
+        case "resize-window":
+            return """
+            Usage: cmux resize-window --window <id|ref|index> [--width <points>] [--height <points>]
+
+            Resize a window, keeping its top-left corner fixed: height grows or shrinks
+            downward, width rightward. Prints the resulting window frame size
+            (title bar included). With neither --width nor --height it changes
+            nothing and prints the current frame size. A height change is what
+            drives the terminal's resize path, so this is how a test reproduces
+            what a user does by dragging a window.
+
+            Flags:
+              --window <id|ref|index>   Window to resize (required)
+              --width <points>          New frame width; unchanged if omitted
+              --height <points>         New frame height; unchanged if omitted
+
+            Example:
+              cmux resize-window --window 0 --height 400
+              cmux resize-window --window window:1 --width 1200 --height 900
+              cmux resize-window --window 0        # read the current frame size
+            """
         case "move-workspace-to-window":
             return """
             Usage: cmux move-workspace-to-window --workspace <id|ref|index> --window <id|ref|index>
@@ -19113,7 +19195,8 @@ struct CMUXCLI {
             return Self.moshTmuxCommandUsage
         case "ssh-tmux":
             let help = String(localized: "cli.help.ssh-tmux", defaultValue: """
-            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
+            Usage: cmux ssh-tmux <destination> [--port <n>] [--identity <path>]
+                                 [--transport ssh|et] [--transport-port <n>] [--no-focus]
 
             Mirror a remote host's tmux sessions into the current window's sidebar over
             SSH tmux control mode (tmux -CC). Each session becomes a workspace, each
@@ -19127,13 +19210,25 @@ struct CMUXCLI {
             with no prompt. ~/.ssh/config aliases and their IdentityFile/ProxyJump/Port settings are honored.
 
             Flags:
-              --port <n>          SSH port
-              --identity <path>   SSH identity file path
-              --no-focus          Do not select the mirror workspace or focus its window
+              --port <n>            SSH port
+              --identity <path>     SSH identity file path
+              --transport <name>    ssh (default) or et. et carries the control stream over
+                                    EternalTerminal, which reconnects on its own, so the
+                                    mirror survives a network change instead of respawning.
+              --transport-port <n>  Port the transport connects to: sshd's for ssh, etserver's
+                                    for et (default 22 for ssh, 2022 for et)
+              --broker <name>       Reach the host through a broker declared under
+                                    remoteTmux.brokers in cmux.json, instead of connecting
+                                    directly. Names an entry you have already written down;
+                                    it does not take a command. Use this where the host is
+                                    only reachable through a jump host, proxy or wrapper.
+              --no-focus            Do not select the mirror workspace or focus its window
 
             Example:
               cmux ssh-tmux dev@my-host
               cmux ssh-tmux dev@my-host --port 2222 --identity ~/.ssh/id_ed25519
+              cmux ssh-tmux dev@my-host --transport et --transport-port 8080
+              cmux ssh-tmux my-host --transport et --broker corp
             """)
             let newWindowHelp = String(
                 localized: "cli.help.ssh-tmux.newWindow",
@@ -41173,6 +41268,7 @@ export default CMUXSessionRestore;
           new-window
           focus-window --window <id>
           close-window --window <id>
+          resize-window --window <id> [--width <points>] [--height <points>]
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]

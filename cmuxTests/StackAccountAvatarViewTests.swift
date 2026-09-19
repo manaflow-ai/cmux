@@ -66,7 +66,14 @@ struct StackAccountAvatarViewTests {
         }
         for y in 0..<height {
             for x in 0..<width {
-                bitmap.setColor(color(x, y).usingColorSpace(.deviceRGB) ?? .black, atX: x, y: y)
+                // setColor writes nothing for a color converted with usingColorSpace(.deviceRGB),
+                // so rebuild it from components as a device RGB color.
+                let rgb = color(x, y).usingColorSpace(.deviceRGB) ?? .black
+                bitmap.setColor(
+                    NSColor(deviceRed: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent, alpha: rgb.alphaComponent),
+                    atX: x,
+                    y: y
+                )
             }
         }
         return bitmap.representation(using: .png, properties: [:])
