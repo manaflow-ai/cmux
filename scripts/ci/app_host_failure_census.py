@@ -12,7 +12,7 @@ XCTEST_START = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' started\.")
 XCTEST_FAIL = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' failed")
 SWIFT_START = re.compile(r"(?:◇|▶) Test (.+?) started\.")
 SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
-SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?::\s*(.*))?$")
+SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?:\.\s*)?(?::\s*(.*))?$")
 SWIFT_FAIL = re.compile(r"✘ Test (.+?) failed(?: after| with)\b")
 RESTART = "Restarting after unexpected exit"
 KNOWN = re.compile(r"known issue|XCTExpectFailure", re.IGNORECASE)
@@ -95,7 +95,9 @@ def parse_log(text, run_id="unknown", job_id=None):
 
 
 def _run_id_for_file(path):
-    match = re.search(r"(?:run[-_])?(\d{6,})", path.name)
+    # Job and shard filenames often contain their own numeric IDs. Only an
+    # explicit run-<id> marker is safe to use for cross-shard deduplication.
+    match = re.search(r"run[-_](\d{6,})", path.name)
     if match:
         return match.group(1)
     # shard*.log files in a directory are one captured run.
@@ -179,6 +181,8 @@ def main(argv=None):
     if bool(args.log_dir) == bool(args.run_ids):
         parser.error("provide run IDs or --log-dir, but not both")
     records = read_log_dir(args.log_dir) if args.log_dir else download_runs(args.run_ids)
+    if not records:
+        raise SystemExit("no app-host unit-test logs were available")
     report = summarize(records)
     print(json.dumps(report, indent=2, sort_keys=True))
     if not args.json_only:
