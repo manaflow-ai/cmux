@@ -173,6 +173,10 @@ extension Workspace {
                 if let sourceTabID = source?.remoteTabID,
                    let layoutProvider = provider as? any SurfaceLayoutTerminalCreating {
                     if let remoteWorkspaceID {
+                        if catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+                            self.discardReservedCloudTerminalPane(reservation)
+                            throw CancellationError()
+                        }
                         try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
                     }
                     return try await layoutProvider.createTerminal(
@@ -183,6 +187,10 @@ extension Workspace {
                 }
                 let workingDirectory = await provider.currentWorkingDirectory(of: resource)
                 if let remoteWorkspaceID {
+                    if catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+                        self.discardReservedCloudTerminalPane(reservation)
+                        throw CancellationError()
+                    }
                     try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
                 }
                 return try await provider.createTerminal(
@@ -240,6 +248,10 @@ extension Workspace {
         let create: CloudTerminalCreationCoordinator.Create = {
             do {
                 if let remoteWorkspaceID {
+                    if catalog.isCloudWorkspaceDeletionHidden(machine: machine, workspaceID: remoteWorkspaceID) {
+                        self.discardReservedCloudTerminalPane(reservation)
+                        throw CancellationError()
+                    }
                     try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
                 }
                 return try await provider.createTerminal(

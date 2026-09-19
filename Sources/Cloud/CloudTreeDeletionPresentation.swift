@@ -5,6 +5,9 @@ import Foundation
 @MainActor
 final class CloudTreeDeletionPresentation {
     private var hiddenRoots: [String: CloudTreeNode] = [:]
+    /// Maps every displaced descendant to its hidden root once, so rollback
+    /// selection recovery does not flatten each candidate subtree repeatedly.
+    private var hiddenRootIDByNodeID: [String: String] = [:]
     private var recovery: (originalNodeID: String, fallbackNodeID: String, rootID: String)?
 
     /// - Parameters:
@@ -25,6 +28,9 @@ final class CloudTreeDeletionPresentation {
         })
         for node in CloudTreeNodeBuilder.flattened(previous) where pendingIDs.contains(node.id) {
             hiddenRoots[node.id] = node
+            for descendant in CloudTreeNodeBuilder.flattened([node]) {
+                hiddenRootIDByNodeID[descendant.id] = node.id
+            }
         }
         let nextIDs = Set(CloudTreeNodeBuilder.flattened(next).map(\.id))
         var selected = selectedNodeID
@@ -37,14 +43,14 @@ final class CloudTreeDeletionPresentation {
             }
         }
         if recovery == nil, let selectedID = selected, !nextIDs.contains(selectedID),
-           let root = hiddenRoots.values.first(where: {
-               CloudTreeNodeBuilder.flattened([$0]).contains { $0.id == selectedID }
-           }) {
+           let rootID = hiddenRootIDByNodeID[selectedID],
+           let root = hiddenRoots[rootID] {
             let fallback = CloudTreeNodeBuilder.nodeID(machine: root.machine)
             recovery = (selectedID, fallback, root.id)
             selected = fallback
         }
         hiddenRoots = hiddenRoots.filter { pendingIDs.contains($0.key) }
+        hiddenRootIDByNodeID = hiddenRootIDByNodeID.filter { pendingIDs.contains($0.value) }
         return (selected, next + Array(hiddenRoots.values))
     }
 }
