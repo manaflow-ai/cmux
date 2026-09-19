@@ -1372,6 +1372,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcher = nil
         watchedLink = nil
         changeWatcherID = nil
+        catalog.markCloudStateStale(on: machine, reason: "event_feed_ended")
         scheduleRefresh()
     }
     private func handle(_ change: CloudMachineLink.Change, from link: CloudMachineLink) async {
@@ -1498,11 +1499,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             scheduleStateRecoveryRefresh()
         }
     }
-    /// Coalesces malformed, unknown, and relationship-invalid events behind one bounded
-    /// snapshot refresh. A daemon can emit many bad lines during a protocol mismatch; one
-    /// pending task and a finite budget protect both the machine and the UI from a refresh
-    /// storm while preserving a visible warning after recovery is exhausted.
+    /// Coalesces event-feed barriers behind bounded snapshot recovery. Until it succeeds,
+    /// retained graph data is diagnostic history, not a current directory report.
     private func scheduleStateRecoveryRefresh() {
+        catalog.markCloudStateStale(on: machine, reason: "event_feed_recovery")
         guard stateRecoveryCount < Self.stateRecoveryLimit else {
             eventsFeedWarning = "state_recovery_exhausted"
             stateRecoveryRefreshQueued = false
