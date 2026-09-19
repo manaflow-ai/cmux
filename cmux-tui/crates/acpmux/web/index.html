@@ -4,139 +4,206 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>acpmux</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
+  /* Codex desktop app palette: near-black ground, a shade lighter rail, soft
+     greys for chrome, one warm accent for full access. Light via the OS. */
   :root {
-    --bg: #f2f4f6; --panel: #ffffff; --ink: #17212b; --muted: #5f6d7a; --rule: #cfd6dc; --grid: #e6eaee;
-    --acp: #5f6d7a; --acp-soft: #e6eaee; --warn: #b06a12; --warn-soft: #f6e7cf; --bad: #b3261e; --bad-soft: #f7dcda;
-    --user: #1f5fa8; --user-soft: #e3ecf8;
+    --bg: #171717; --rail: #1c1c1c; --panel: #212121; --raised: #2a2a2a; --ink: #ececec; --muted: #9b9b9b; --dim: #6f6f6f;
+    --rule: #2c2c2c; --hover: #262626; --sel: #2e2e2e; --bubble: #2a2a2a; --code: #1c1c1c; --link: #7ab4ff;
+    --warm: #f0a24a; --bad: #f28b82; --ok: #8bd48b; --attn: #d29bf1; --card: #1f1f1f;
+    --add: #7fd07f; --del: #f08080;
   }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #0f1418; --panel: #161c22; --ink: #e6ebef; --muted: #98a5b1; --rule: #2c353e; --grid: #1d252d;
-      --acp: #98a5b1; --acp-soft: #1d252d; --warn: #e0a24f; --warn-soft: #3d2c12; --bad: #f28b82; --bad-soft: #3d1a17;
-      --user: #8fb0e6; --user-soft: #1d2a3d; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #ffffff; --rail: #f5f5f5; --panel: #ffffff; --raised: #f0f0f0; --ink: #1a1a1a; --muted: #6b6b6b; --dim: #9a9a9a;
+      --rule: #e6e6e6; --hover: #f2f2f2; --sel: #ebebeb; --bubble: #f0f0f0; --code: #f6f6f6; --link: #1a63d6;
+      --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; }
   }
+  :root[data-theme="dark"] { --bg: #171717; --rail: #1c1c1c; --panel: #212121; --raised: #2a2a2a; --ink: #ececec; --muted: #9b9b9b; --dim: #6f6f6f; --rule: #2c2c2c; --hover: #262626; --sel: #2e2e2e; --bubble: #2a2a2a; --code: #1c1c1c; --link: #7ab4ff; --warm: #f0a24a; --bad: #f28b82; --ok: #8bd48b; --attn: #d29bf1; --card: #1f1f1f; --add: #7fd07f; --del: #f08080; }
+  :root[data-theme="light"] { --bg: #ffffff; --rail: #f5f5f5; --panel: #ffffff; --raised: #f0f0f0; --ink: #1a1a1a; --muted: #6b6b6b; --dim: #9a9a9a; --rule: #e6e6e6; --hover: #f2f2f2; --sel: #ebebeb; --bubble: #f0f0f0; --code: #f6f6f6; --link: #1a63d6; --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
-  body { background: var(--bg); color: var(--ink); font: 14px/1.5 "IBM Plex Sans", system-ui, sans-serif; display: grid; grid-template-rows: 44px 1fr; }
-  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
-  header { display: flex; align-items: center; gap: 14px; padding: 0 16px; border-bottom: 1px solid var(--rule); background: var(--panel); }
-  header .brand { font-weight: 600; letter-spacing: .02em; }
-  header .brand b { color: var(--acp); }
-  header .conn { font-size: 12px; color: var(--muted); }
-  header .conn.off { color: var(--bad); }
-  header .spacer { flex: 1; }
+  body { background: var(--bg); color: var(--ink); font: 14.5px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; display: grid; grid-template-columns: 264px 1fr; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
   button, select, input, textarea { font: inherit; color: inherit; }
-  button { background: var(--panel); border: 1px solid var(--rule); border-radius: 5px; padding: 5px 11px; cursor: pointer; }
-  button:hover { border-color: var(--acp); }
-  button.primary { background: var(--acp); border-color: var(--acp); color: #fff; }
-  button.danger { color: var(--bad); }
-  button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--acp); outline-offset: 1px; }
-  main { display: grid; grid-template-columns: 280px 1fr; min-height: 0; }
-  @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { display: none; } aside.open { display: block; position: fixed; inset: 44px 0 0 0; z-index: 5; } }
-  aside { border-right: 1px solid var(--rule); background: var(--panel); overflow-y: auto; display: flex; flex-direction: column; }
-  aside .top { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--rule); }
-  aside .top h2 { margin: 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
-  .sess { display: grid; grid-template-columns: 14px 1fr auto; gap: 8px; align-items: center; padding: 9px 12px; cursor: pointer; border-left: 3px solid transparent; }
-  .sess:hover { background: var(--grid); }
-  .sess.sel { background: var(--grid); border-left-color: var(--acp); }
-  .sess .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--rule); }
-  .sess .dot.running { background: var(--warn); animation: pulse 1.2s infinite; }
-  .sess .dot.ready { background: var(--acp); }
-  .sess .dot.waiting { background: var(--bad); animation: pulse .8s infinite; }
-  .sess .dot.disconnected, .sess .dot.unreachable { background: var(--bad); }
+  button { background: transparent; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; color: var(--ink); }
+  button:hover { background: var(--hover); }
+  button.pill { background: var(--raised); padding: 6px 14px; border-radius: 999px; font-weight: 500; }
+  button.pill:hover { background: var(--sel); }
+  button.pill.warm { color: var(--warm); }
+  button.pill.bad { color: var(--bad); }
+  button.quiet { color: var(--muted); }
+  button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
+  @media (max-width: 760px) { body { grid-template-columns: 1fr; } aside { display: none; } aside.open { display: flex; position: fixed; inset: 0; z-index: 5; width: 100%; } }
+
+  /* ---- rail */
+  aside { background: var(--rail); display: flex; flex-direction: column; min-height: 0; padding: 10px 8px 8px; gap: 2px; }
+  .brand { display: flex; align-items: center; gap: 8px; padding: 6px 10px 12px; font-weight: 600; font-size: 15px; }
+  .brand .conn { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-left: auto; }
+  .brand .conn.off { background: var(--bad); }
+  .nav { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; cursor: pointer; color: var(--ink); }
+  .nav:hover { background: var(--hover); }
+  .nav .ic { color: var(--muted); width: 14px; text-align: center; }
+  .list { overflow-y: auto; min-height: 0; flex: 1; margin-top: 8px; }
+  .grp { display: flex; align-items: center; gap: 8px; padding: 12px 10px 4px; font-size: 12.5px; color: var(--muted); }
+  .grp .ic { color: var(--dim); }
+  .sess { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 30px; border-radius: 8px; cursor: pointer; color: var(--ink); }
+  .sess:hover { background: var(--hover); }
+  .sess.sel { background: var(--sel); }
+  .sess .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sess .mark { font-size: 11px; color: var(--muted); }
+  .sess .mark.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .sess .mark.dot.attn { background: var(--attn); }
+  .sess .mark.dot.bad { background: var(--bad); }
+  .sess .mark.run { color: var(--warm); animation: pulse 1.2s infinite; }
+  .sess .mark.q { color: var(--attn); font-weight: 600; }
+  .sess.closed .name { color: var(--dim); }
+  .more { padding: 6px 10px 6px 30px; color: var(--muted); cursor: pointer; border-radius: 8px; font-size: 13px; }
+  .more:hover { background: var(--hover); }
   @keyframes pulse { 50% { opacity: .35; } }
-  .sess .name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sess .sub { grid-column: 2 / 4; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sess .harness { font-size: 11px; color: var(--muted); }
-  .empty { padding: 24px 16px; color: var(--muted); font-size: 13px; }
-  section { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
-  .bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--rule); background: var(--panel); flex-wrap: wrap; }
-  .bar h1 { font-size: 15px; margin: 0; font-weight: 600; }
-  .bar .st { font-size: 12px; padding: 2px 8px; border-radius: 4px; background: var(--grid); color: var(--muted); }
-  .bar .st.running { background: var(--warn-soft); color: var(--warn); }
-  .bar .st.waiting { background: var(--bad-soft); color: var(--bad); }
-  .bar .st.ready { background: var(--acp-soft); color: var(--acp); }
-  .bar select { background: var(--panel); border: 1px solid var(--rule); border-radius: 5px; padding: 4px 6px; max-width: 200px; }
-  .bar label { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
-  .log { overflow-y: auto; padding: 18px 20px 12px; display: flex; flex-direction: column; gap: 10px; }
-  .msg { max-width: 78ch; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { align-self: flex-end; background: var(--user-soft); color: var(--ink); border-radius: 10px 10px 2px 10px; padding: 8px 12px; border-left: 3px solid var(--user); }
-  .msg.user.steer { border-left-color: var(--warn); }
-  .msg.assistant { padding: 2px 0; }
-  .msg.thought { color: var(--muted); font-size: 13px; border-left: 2px solid var(--rule); padding-left: 10px; }
-  .msg.thought summary { cursor: pointer; }
-  .tool { font-size: 13px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); max-width: 78ch; }
-  .tool .head { display: flex; gap: 8px; align-items: center; padding: 6px 10px; cursor: pointer; }
-  .tool .glyph { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
-  .tool.completed .glyph { background: var(--acp); } .tool.failed .glyph { background: var(--bad); }
-  .tool .kind { color: var(--muted); font-size: 11px; margin-left: auto; }
-  .tool pre { margin: 0; padding: 8px 10px; border-top: 1px solid var(--rule); font-size: 12px; overflow-x: auto; max-height: 260px; color: var(--muted); white-space: pre-wrap; }
-  .plan { font-size: 13px; border-left: 3px solid var(--acp); padding: 4px 10px; max-width: 78ch; }
-  .plan div::before { content: "○ "; color: var(--muted); } .plan div.completed::before { content: "✓ "; color: var(--acp); } .plan div.in_progress::before { content: "▶ "; color: var(--warn); }
-  .note { font-size: 12px; color: var(--muted); }
-  .working { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; padding: 2px 0; }
-  .spin { width: 10px; height: 10px; border: 2px solid var(--rule); border-top-color: var(--acp); border-radius: 50%; animation: spin .9s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .msg.user.local { opacity: .7; }
-  .msg.user.queued { border-left-style: dashed; }
-  .qtag { font-size: 11px; color: var(--muted); margin-top: 4px; }
-  @media (prefers-reduced-motion: reduce) { .spin, .sess .dot { animation: none; } }
-  .note.err { color: var(--bad); }
-  .perm { border: 1px solid var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 10px 12px; max-width: 78ch; display: grid; gap: 8px; }
-  .perm .t { font-weight: 600; }
-  .perm .opts { display: flex; gap: 8px; flex-wrap: wrap; }
-  .perm.decided { border-color: var(--rule); background: var(--grid); }
-  .composer { border-top: 1px solid var(--rule); background: var(--panel); padding: 10px 16px; display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
-  .composer textarea { width: 100%; min-height: 44px; max-height: 200px; resize: vertical; border: 1px solid var(--rule); border-radius: 6px; padding: 9px 11px; background: var(--bg); }
-  .composer .btns { display: grid; gap: 6px; }
-  .composer .hint { grid-column: 1 / 3; font-size: 11px; color: var(--muted); }
-  dialog { border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); color: var(--ink); padding: 0; width: min(520px, 92vw); }
-  dialog::backdrop { background: rgba(0,0,0,.35); }
+  .rail-foot { padding: 8px 4px 0; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .host { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 6px; }
+  .host i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+  .host i.off { background: var(--dim); }
+  .empty { padding: 20px 12px; color: var(--muted); font-size: 13px; }
+
+  /* ---- main column */
+  section { display: grid; grid-template-rows: auto 1fr auto auto; min-height: 0; background: var(--bg); }
+  .bar { display: flex; align-items: center; gap: 10px; padding: 12px 24px 8px; }
+  .bar .proj { color: var(--muted); }
+  .bar .sep { color: var(--dim); }
+  .bar h1 { font-size: 15px; margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .st { font-size: 12.5px; color: var(--attn); }
+  .bar .st.bad { color: var(--bad); }
+  .bar .spacer { flex: 1; }
+  .bar .usage { font-size: 12px; color: var(--dim); }
+  .bar .acts { display: flex; gap: 2px; }
+  .bar .acts button { color: var(--muted); padding: 4px 8px; font-size: 13px; }
+  .log { overflow-y: auto; padding: 8px 24px 24px; }
+  .col { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+  .when { text-align: center; color: var(--dim); font-size: 12.5px; margin: 8px 0 2px; }
+  .msg.user { align-self: flex-end; max-width: 70%; background: var(--bubble); border-radius: 18px; padding: 10px 16px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user.steer { border: 1px solid var(--warm); }
+  .msg.user.local { opacity: .6; }
+  .msg.user.queued { opacity: .7; border: 1px dashed var(--rule); }
+  .qtag { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .msg.assistant { line-height: 1.6; word-break: break-word; }
+  .msg.assistant > :first-child { margin-top: 0; } .msg.assistant > :last-child { margin-bottom: 0; }
+  .msg.assistant p { margin: 0 0 10px; } .msg.assistant ul, .msg.assistant ol { margin: 0 0 10px; padding-left: 22px; }
+  .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { font-size: 15px; margin: 14px 0 6px; }
+  .msg.assistant code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; background: var(--raised); padding: 1px 6px; border-radius: 6px; }
+  .msg.assistant pre { background: var(--code); border: 1px solid var(--rule); border-radius: 10px; padding: 0; overflow: hidden; margin: 6px 0 12px; }
+  .msg.assistant pre .lang { display: flex; justify-content: space-between; padding: 6px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--rule); }
+  .msg.assistant pre .lang button { font-size: 12px; padding: 0 6px; color: var(--muted); }
+  .msg.assistant pre code { display: block; padding: 10px 12px; background: transparent; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+  .msg.assistant a { color: var(--link); }
+  .msg.assistant table { border-collapse: collapse; margin: 6px 0 12px; }
+  .msg.assistant th, .msg.assistant td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+  .msg.assistant th { color: var(--muted); font-weight: 500; }
+  .msg.assistant blockquote { margin: 0 0 10px; padding-left: 12px; border-left: 3px solid var(--rule); color: var(--muted); }
+  .msg.assistant hr { border: 0; border-top: 1px solid var(--rule); margin: 12px 0; }
+  .work { margin: 2px 0; }
+  .work > summary { list-style: none; cursor: pointer; color: var(--muted); font-size: 13.5px; padding: 6px 0; border-bottom: 1px solid var(--rule); display: flex; align-items: center; gap: 6px; }
+  .work > summary::-webkit-details-marker { display: none; }
+  .work > summary .chev { color: var(--dim); transition: transform .12s; }
+  .work[open] > summary .chev { transform: rotate(90deg); }
+  .work > summary:hover { color: var(--ink); }
+  .work .inner { display: flex; flex-direction: column; gap: 8px; padding: 10px 0 4px; }
+  .act { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13.5px; cursor: default; }
+  .act.can { cursor: pointer; } .act.can:hover { color: var(--ink); }
+  .act .ic { width: 16px; text-align: center; color: var(--dim); }
+  .act.failed, .act.failed .ic { color: var(--bad); }
+  .act .cnt { font-size: 12.5px; } .act .cnt .a { color: var(--add); } .act .cnt .d { color: var(--del); margin-left: 4px; }
+  .act .chev { color: var(--dim); font-size: 12px; }
+  .act-detail { margin: -2px 0 4px 25px; padding: 8px 12px; background: var(--code); border: 1px solid var(--rule); border-radius: 8px; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; overflow-x: auto; max-height: 320px; }
+  .act-detail .a { color: var(--add); } .act-detail .d { color: var(--del); } .act-detail .h { color: var(--muted); }
+  .thought { color: var(--muted); font-size: 13.5px; }
+  .thought > summary { list-style: none; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  .thought > summary::-webkit-details-marker { display: none; }
+  .thought > summary .lbl { color: var(--muted); } .thought > summary .sum { font-style: italic; color: var(--dim); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .thought > summary:hover .sum { color: var(--muted); }
+  .thought .body { font-style: italic; color: var(--dim); white-space: pre-wrap; padding: 6px 0 2px 0; }
+  .plan { font-size: 13.5px; color: var(--muted); padding-left: 25px; }
+  .plan div::before { content: "○ "; color: var(--dim); } .plan div.completed::before { content: "✓ "; color: var(--ok); } .plan div.in_progress::before { content: "▶ "; color: var(--warm); }
+  .note { font-size: 12.5px; color: var(--dim); }
+  .card { border: 1px solid var(--rule); background: var(--card); border-radius: 12px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; }
+  .card .ic { font-size: 16px; } .card.err .ic { color: var(--bad); }
+  .card .t { font-weight: 600; } .card .s { color: var(--muted); font-size: 13px; }
+  .working { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; padding: 4px 0; }
+  .shimmer { background: linear-gradient(90deg, var(--muted) 0%, var(--ink) 50%, var(--muted) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .shimmer, .sess .mark.run { animation: none; } }
+
+  /* ---- permission card + composer */
+  .perm { max-width: 860px; width: 100%; margin: 0 auto; padding: 0 24px 8px; }
+  .perm .box { border: 1px solid var(--attn); border-radius: 14px; padding: 10px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .perm .t { color: var(--attn); font-weight: 600; } .perm .t span { color: var(--ink); font-weight: 500; }
+  .perm .opts { display: flex; gap: 8px; margin-left: auto; }
+  .perm kbd { font-size: 11px; color: var(--dim); }
+  .composer { max-width: 860px; width: 100%; margin: 0 auto; padding: 0 24px 18px; }
+  .composer .box { border: 1px solid var(--rule); background: var(--panel); border-radius: 18px; padding: 12px 14px 8px; display: grid; gap: 6px; }
+  .composer .box:focus-within { border-color: var(--dim); }
+  .composer textarea { width: 100%; min-height: 24px; max-height: 240px; resize: none; border: 0; background: transparent; padding: 0 2px; line-height: 1.5; }
+  .composer textarea:focus { outline: none; }
+  .composer .row { display: flex; align-items: center; gap: 4px; }
+  .chip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 8px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .chip:hover { background: var(--hover); color: var(--ink); }
+  .chip.warm { color: var(--warm); }
+  .chip select { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+  .composer .send { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--bg); font-weight: 700; display: grid; place-items: center; padding: 0; }
+  .composer .send:disabled { background: var(--raised); color: var(--dim); cursor: default; }
+  .composer .steer { color: var(--muted); font-size: 13px; }
+  .hero { display: grid; place-items: center; height: 100%; text-align: center; color: var(--muted); }
+  .hero h2 { font-size: 22px; font-weight: 500; color: var(--ink); margin: 0 0 8px; }
+  dialog { border: 1px solid var(--rule); border-radius: 14px; background: var(--panel); color: var(--ink); padding: 0; width: min(520px, 92vw); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
   dialog form { display: grid; gap: 12px; padding: 18px 20px; }
   dialog h3 { margin: 0; font-size: 16px; }
-  dialog label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
-  dialog input, dialog select { border: 1px solid var(--rule); border-radius: 5px; padding: 7px 9px; background: var(--bg); }
+  dialog label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+  dialog input, dialog select { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
   dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
-  .kbd { font-family: "JetBrains Mono", monospace; font-size: 11px; border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; }
-  .peerchip { font-size: 10px; color: var(--muted); border: 1px solid var(--rule); border-radius: 3px; padding: 0 4px; margin-right: 4px; }
+  .toast { position: fixed; right: 18px; bottom: 18px; background: var(--raised); color: var(--ink); padding: 8px 12px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
 </style>
 </head>
 <body>
-<header>
-  <span class="brand"><b>acp</b>mux</span>
-  <span id="conn" class="conn">connecting…</span>
-  <span class="spacer"></span>
-  <button id="toggle-side" class="mobile-only" hidden>sessions</button>
-  <button id="btn-new" class="primary">New session</button>
-</header>
-<main>
-  <aside id="side">
-    <div class="top"><h2>Sessions</h2><span id="count" class="note"></span></div>
-    <div id="list"></div>
-    <div id="empty" class="empty" hidden>No sessions yet. Create one with <b>New session</b>, or from a terminal:<br><code class="mono">acpmux new -a codex -n my-task</code></div>
-  </aside>
-  <section>
-    <div class="bar" id="bar">
-      <h1 id="title">—</h1>
-      <span id="status" class="st"></span>
-      <label>mode <select id="mode"></select></label>
-      <label>model <select id="model"></select></label>
-      <span id="extra"></span>
-      <span class="spacer" style="flex:1"></span>
+<aside id="side">
+  <div class="brand">acpmux <span id="conn" class="conn off" title="connecting…"></span></div>
+  <div class="nav" id="btn-new"><span class="ic">✎</span><span>New session</span></div>
+  <div class="list" id="list"></div>
+  <div id="empty" class="empty" hidden>No sessions yet. Start one above, or from a terminal:<br><code class="mono">acpmux new -m claude</code></div>
+  <div class="rail-foot" id="hosts"></div>
+</aside>
+<section>
+  <div class="bar" id="bar">
+    <span class="proj" id="proj"></span><span class="sep" id="sep" hidden>›</span>
+    <h1 id="title">—</h1>
+    <span id="status" class="st"></span>
+    <span class="spacer"></span>
+    <span id="usage" class="usage"></span>
+    <span class="acts">
       <button id="btn-cancel" title="Cancel the running turn">Cancel</button>
-      <button id="btn-fork" title="Fork this session">Fork</button>
+      <button id="btn-fork" title="Fork this session with its history">Fork</button>
       <button id="btn-rename" title="Rename">Rename</button>
-      <button id="btn-kill" class="danger" title="Stop the agent; the log stays">Stop</button>
+      <button id="btn-kill" title="Stop the agent; the log stays">Stop</button>
+      <button id="toggle-side" hidden>Sessions</button>
+    </span>
+  </div>
+  <div class="log" id="log"><div class="hero"><div><h2>What should we build?</h2>Pick a session on the left, or start one.</div></div></div>
+  <div class="perm" id="perm" hidden></div>
+  <div class="composer">
+    <div class="box">
+      <textarea id="input" placeholder="Ask anything" rows="1"></textarea>
+      <div class="row">
+        <label class="chip" id="chip-policy"><span id="policy-label">Ask before acting</span><select id="policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
+        <label class="chip" id="chip-mode" hidden><span id="mode-label"></span><select id="mode"></select></label>
+        <button id="btn-steer" class="steer" hidden title="Interrupt the running turn with this message">Steer</button>
+        <span style="flex:1"></span>
+        <label class="chip" id="chip-model"><span id="model-label">model</span><select id="model"></select></label>
+        <label class="chip" id="chip-effort" hidden><span id="effort-label"></span><select id="effort"></select></label>
+        <button id="btn-send" class="send" title="Send (Enter)" disabled>↑</button>
+      </div>
     </div>
-    <div class="log" id="log"><div class="empty">Pick a session on the left, or create one.</div></div>
-    <div class="composer">
-      <textarea id="input" placeholder="Message the agent…  Enter sends, Shift+Enter is a newline" rows="2"></textarea>
-      <div class="btns"><button id="btn-send" class="primary">Send</button><button id="btn-steer" title="Interrupt the running turn with this message">Steer</button></div>
-      <div class="hint"><span class="kbd">Enter</span> send · <span class="kbd">Shift+Enter</span> newline · <span class="kbd">Esc</span> cancel turn · <span class="kbd">⌘K</span> new session</div>
-    </div>
-  </section>
-</main>
+  </div>
+</section>
 
 <dialog id="dlg-new">
   <form method="dialog" id="form-new">
@@ -144,18 +211,19 @@
     <label>Harness <select id="new-agent"></select></label>
     <label>Name <input id="new-name" placeholder="backend-review" pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,79}"></label>
     <label>Directory <input id="new-cwd" placeholder="/path/to/repo"></label>
-    <label>Permissions <select id="new-policy"><option value="ask">ask me</option><option value="approve-reads">approve reads, ask for writes</option><option value="approve-edits">approve reads and edits, ask for shell</option><option value="approve-all">approve everything</option><option value="deny-all">deny everything</option></select></label>
+    <label>Permissions <select id="new-policy"><option value="ask">Ask before acting</option><option value="approve-reads">Reads allowed</option><option value="approve-edits">Edits allowed</option><option value="approve-all">Full access</option><option value="deny-all">Read-only</option></select></label>
     <label>First message (optional) <input id="new-prompt" placeholder="inspect the failing tests"></label>
-    <div class="row"><button type="button" id="new-cancel">Cancel</button><button type="submit" class="primary">Create</button></div>
+    <div class="row"><button type="button" id="new-cancel" class="pill">Cancel</button><button type="submit" class="pill">Create</button></div>
   </form>
 </dialog>
 
 <script>
 (() => {
   const $ = (s) => document.querySelector(s);
+  const theme = new URLSearchParams(location.search).get('theme');
+  if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
   const token = new URLSearchParams(location.search).get('token') || '';
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(token);
-
   // ---------- transport
   let ws, nextId = 1, pending = new Map(), backoff = 500;
   const call = (method, params = {}) => new Promise((res, rej) => {
@@ -169,12 +237,13 @@
     ws = new WebSocket(wsUrl);
     ws.onopen = async () => {
       backoff = 500;
-      $('#conn').textContent = 'connected'; $('#conn').classList.remove('off');
+      $('#conn').classList.remove('off'); $('#conn').title = 'connected';
       await call('initialize', { protocolVersion: 1, clientCapabilities: {}, clientInfo: { name: 'acpmux-web', version: '0.1' } });
       const w = await call('_acpmux/watch', { enabled: true });
       setSessions(w.sessions || []);
       const a = await call('_acpmux/harnesses', {});
       agents = a.harnesses || {}; defaultHarness = a.defaultHarness;
+      try { const st = await call('_acpmux/status', {}); renderHosts(st.peers || []); } catch (e) {}
       if (selected) attach(selected, true);
       else if (state.sessions.length) select(state.sessions[0].sessionId);
       else openNew();
@@ -189,7 +258,7 @@
       if (m.method) onNotification(m.method, m.params || {});
     };
     ws.onclose = () => {
-      $('#conn').textContent = 'disconnected, retrying…'; $('#conn').classList.add('off');
+      $('#conn').classList.add('off'); $('#conn').title = 'disconnected, retrying…';
       for (const p of pending.values()) p.rej(new Error('disconnected')); pending.clear();
       setTimeout(connect, backoff); backoff = Math.min(backoff * 2, 8000);
     };
@@ -207,6 +276,26 @@
     sortSessions(); renderList(); if (s.sessionId === selected) renderBar();
   }
 
+
+  // ---------- diffs (mirror of src/transcript.rs)
+  function diffLines(a, b) {
+    const A = a.split('\n'), B = b.split('\n');
+    if (A.length * B.length > 400000) return A.map((l) => ['-', l]).concat(B.map((l) => ['+', l]));
+    const n = A.length, m = B.length, L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    const out = []; let i = 0, j = 0;
+    while (i < n && j < m) { if (A[i] === B[j]) { out.push([' ', A[i]]); i++; j++; } else if (L[i + 1][j] >= L[i][j + 1]) out.push(['-', A[i++]]); else out.push(['+', B[j++]]); }
+    while (i < n) out.push(['-', A[i++]]); while (j < m) out.push(['+', B[j++]]);
+    return out;
+  }
+  function diffText(path, oldT, newT) {
+    const lines = diffLines(oldT, newT);
+    const keep = lines.map((_, i) => lines.slice(Math.max(0, i - 2), i + 3).some(([k]) => k !== ' '));
+    let out = path ? '@@ ' + path + '\n' : '', gap = false;
+    lines.forEach(([k, l], i) => { if (!keep[i]) { gap = true; return; } if (gap && out && !out.endsWith('@@ ')) { out += '…\n'; gap = false; } out += k + ' ' + l + '\n'; });
+    return out.trimEnd();
+  }
+  const diffCounts = (d) => { if (!d || (!d.startsWith('@@ ') && !/^[+-] /m.test(d))) return null; const p = (d.match(/^\+ /mg) || []).length, m = (d.match(/^- /mg) || []).length; return p + m ? [p, m] : null; };
   // ---------- transcript model (mirror of src/transcript.rs)
   function newTranscript() { return { items: [], status: '', mode: null, model: null, usage: null, pendingUserChunk: false, lastSeq: 0, dirty: new Set(), runningSince: 0 }; }
   const touch = (t, i) => t.dirty.add(i);
@@ -225,7 +314,7 @@
     if (k === 'agent_message_chunk') { const s = textOf(u.content); if (last && last.type === 'assistant') last.text += s; else t.items.push({ type: 'assistant', text: s }); }
     else if (k === 'agent_thought_chunk') { const s = textOf(u.content); if (last && last.type === 'thought') last.text += s; else t.items.push({ type: 'thought', text: s }); }
     else if (k === 'tool_call' || k === 'tool_call_update') {
-      let detail = (u.content || []).map(textOf).filter(Boolean).join('\n');
+      let detail = (u.content || []).map((b) => b && b.type === 'diff' ? diffText(b.path || '', b.oldText || '', b.newText || '') : textOf(b)).filter(Boolean).join('\n');
       if (!detail && u.rawOutput !== undefined) detail = typeof u.rawOutput === 'string' ? u.rawOutput : JSON.stringify(u.rawOutput, null, 1);
       if (detail.length > 6000) detail = detail.slice(0, 6000) + '\n…';
       let it = null; for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'tool' && t.items[i].id === u.toolCallId) { it = t.items[i]; touch(t, i); break; }
@@ -250,9 +339,11 @@
     const push = (x) => t.items.push(x);
     switch (kind) {
       case 'queued': { const local = t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || '')); if (local >= 0) { t.items[local].queued = true; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: false, queued: true }); break; }
-      case 'user_message': { const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && x.text === (msg.text || '')); if (local >= 0) { t.items[local].local = false; t.items[local].queued = false; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: !!msg.steer }); break; }
+      case 'user_message': { const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && x.text === (msg.text || '')); if (local >= 0) { t.items[local].local = false; t.items[local].queued = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at }); break; }
+      case 'turn_started': t.turnStartAt = ev.at || Date.now(); break;
+      case 'turn_result': push({ type: 'turn_result', status: msg.status || '', at: ev.at, startAt: t.turnStartAt }); break;
       case 'status': t.status = msg.status || ''; if (t.status === 'running') { if (!t.runningSince) t.runningSince = Date.now(); } else t.runningSince = 0; break;
-      case 'turn_end': push({ type: 'turn_end', stop: msg.stopReason || 'end_turn' }); break;
+      case 'turn_end': push({ type: 'turn_end', stop: msg.stopReason || 'end_turn', at: ev.at }); break;
       case 'turn_error': push({ type: 'error', text: msg.error || 'turn failed' }); break;
       case 'permission_request': { const r = msg.request || {}; push({ type: 'permission', id: msg.permissionId, title: (r.toolCall && r.toolCall.title) || 'permission', options: (r.options || []).map((o) => ({ id: o.optionId, name: o.name, kind: o.kind })), decided: null }); break; }
       case 'permission_decision': case 'permission_auto': { const d = (msg.outcome && (msg.outcome.optionId || msg.outcome.outcome)) || msg.optionId || 'cancelled'; let found = false; for (let i = t.items.length - 1; i >= 0; i--) { const it = t.items[i]; if (it.type === 'permission' && it.id === msg.permissionId) { it.decided = d; found = true; touch(t, i); break; } } if (!found && kind === 'permission_auto') push({ type: 'permission', id: msg.permissionId, title: (msg.request && msg.request.toolCall && msg.request.toolCall.title) || 'permission', options: [], decided: d + ' (policy)' }); break; }
@@ -270,13 +361,14 @@
   }
   const pendingPermission = (t) => { for (let i = t.items.length - 1; i >= 0; i--) if (t.items[i].type === 'permission' && !t.items[i].decided) return t.items[i]; return null; };
 
+
   // ---------- notifications
   function onNotification(method, p) {
     const sid = p.sessionId;
     if (method === 'session/update' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p._meta && p._meta.acpmux && p._meta.acpmux.seq)) return; applyUpdate(t, p.update || {}); if (sid === selected) scheduleRender(); }
     else if (method === '_acpmux/event' && sid) { const t = state.transcripts.get(sid) || newTranscript(); state.transcripts.set(sid, t); if (!fresh(t, p.seq)) return; applyEvent(t, p); if (sid === selected) scheduleRender(true); }
-    else if (method === '_acpmux/session_changed' && p.session) upsertSession(p.session);
-    else if (method === '_acpmux/permission_pending' && sid && sid !== selected) { document.title = '⚠ acpmux'; }
+    else if (method === '_acpmux/session_changed' && p.session) { if (p.kind === 'purged') { state.sessions = state.sessions.filter((s) => s.sessionId !== p.sessionId); renderList(); } else upsertSession(p.session); }
+    else if (method === '_acpmux/permission_pending' && sid && sid !== selected) { document.title = '? acpmux'; }
   }
 
   // ---------- actions
@@ -297,113 +389,243 @@
     $('#input').value = ''; autosize();
     const t = state.transcripts.get(selected) || newTranscript(); state.transcripts.set(selected, t);
     const busy = t.status === 'running' || t.status === 'waiting';
-    t.items.push({ type: 'user', text, steer, local: true, queued: busy && !steer }); touch(t, t.items.length - 1);
-    if (!steer && !busy) { t.status = 'running'; t.runningSince = Date.now(); }
+    t.items.push({ type: 'user', text, steer, local: true, queued: busy && !steer, at: Date.now() }); touch(t, t.items.length - 1);
+    if (!steer && !busy) { t.status = 'running'; t.runningSince = Date.now(); t.turnStartAt = Date.now(); }
     scheduleRender(true);
     call('session/prompt', { sessionId: selected, prompt: [{ type: 'text', text }], _meta: { acpmux: { steer } } }).catch((e) => { toast('error: ' + e.message); t.status = 'ready'; t.runningSince = 0; scheduleRender(); });
   }
-  const toast = (msg) => { const c = $('#conn'); c.textContent = msg; setTimeout(() => { if (ws && ws.readyState === 1) c.textContent = 'connected'; }, 4000); };
+  let toastEl = null;
+  const toast = (msg) => { if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'toast'; document.body.appendChild(toastEl); } toastEl.textContent = msg; toastEl.hidden = false; clearTimeout(toastEl._t); toastEl._t = setTimeout(() => { toastEl.hidden = true; }, 4000); };
 
-  // ---------- rendering
+  // ---------- helpers
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const projectOf = (cwd) => { if (!cwd) return ''; const t = cwd.replace(/\/+$/, ''); const parts = t.split('/').filter(Boolean); if (parts.length === 2 && (parts[0] === 'Users' || parts[0] === 'home')) return '~'; return parts[parts.length - 1] || t; };
+  const isAuto = (s) => { const bare = (s.name || '').split('/').pop(); const h = s.harness || ''; return h && (bare === h || (bare.startsWith(h + '-') && /^\d+$/.test(bare.slice(h.length + 1)))); };
+  const titleOf = (s) => { const t = (s.title || '').trim(); const name = s.peer && s.name.startsWith(s.peer + '/') ? s.name.slice(s.peer.length + 1) : s.name; return t && isAuto(s) ? t : name; };
+  const groupOf = (s) => (s.peer ? s.peer + ' · ' : '') + projectOf(s.cwd);
+  const dur = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + (s % 60) + 's' : Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm'; };
+  const when = (ms) => { const d = new Date(ms), now = new Date(); const clock = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); const same = d.toDateString() === now.toDateString(); const y = new Date(now); y.setDate(now.getDate() - 1); return (same ? 'Today ' : d.toDateString() === y.toDateString() ? 'Yesterday ' : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ') + clock; };
+  const shortTitle = (title) => title.split(' ').map((w) => { const t = w.replace(/^['"`]|['"`,]$/g, ''); return (t.startsWith('/') || t.startsWith('~/')) && (t.match(/\//g) || []).length >= 2 ? t.split('/').pop() : t; }).join(' ').replace(/^Read file /, 'Read ').replace(/^Write file /, 'Write ').replace(/^Edit file /, 'Edit ');
+  const glyphOf = (kind) => ({ read: '≡', edit: '✎', execute: '$', search: '⌕', fetch: '↓', think: '…', delete: '⇄', move: '⇄' }[kind] || '•');
+  const policyLabel = (p) => ({ 'approve-all': 'Full access', 'approve-edits': 'Edits allowed', 'approve-reads': 'Reads allowed', 'deny-all': 'Read-only' }[p] || 'Ask before acting');
+
+  // ---------- rendering: rail
+  const expanded = new Set();
+  function renderHosts(peers) {
+    const el = $('#hosts'); el.innerHTML = '<span class="host"><i></i>mac</span>' + peers.map((p) => '<span class="host" title="' + esc(p.url || '') + '"><i class="' + (p.connected ? '' : 'off') + '"></i>' + esc(p.name) + '</span>').join('');
+  }
   function renderList() {
     const list = $('#list'); list.innerHTML = '';
-    $('#count').textContent = state.sessions.length ? state.sessions.length + '' : '';
     $('#empty').hidden = state.sessions.length > 0;
-    for (const s of state.sessions) {
-      const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '');
-      const st = (s.pendingPermissions > 0) ? 'waiting' : s.status;
-      const peer = s.peer ? '<span class="peerchip">' + esc(s.peer) + '</span>' : '';
-      const name = s.peer && s.name.startsWith(s.peer + '/') ? s.name.slice(s.peer.length + 1) : s.name;
-      el.innerHTML = '<span class="dot ' + esc(st) + '"></span><span class="name">' + peer + esc(name) + '</span><span class="harness">' + esc(s.harness) + '</span><span class="sub">' + esc(s.lastPrompt || s.preview || st) + '</span>';
-      el.onclick = () => select(s.sessionId);
-      list.appendChild(el);
+    const order = [], members = new Map();
+    for (const s of state.sessions) { const g = groupOf(s); if (!members.has(g)) { order.push(g); members.set(g, []); } members.get(g).push(s); }
+    for (const g of order) {
+      const rows = members.get(g);
+      const h = document.createElement('div'); h.className = 'grp'; h.innerHTML = '<span class="ic">▢</span><span>' + esc(g) + '</span>'; list.appendChild(h);
+      const cut = rows.length > 7 && !expanded.has(g) && !rows.slice(6).some((s) => s.sessionId === selected);
+      for (const s of (cut ? rows.slice(0, 6) : rows)) {
+        const el = document.createElement('div'); el.className = 'sess' + (s.sessionId === selected ? ' sel' : '') + (s.status === 'closed' ? ' closed' : '');
+        const pending = s.pendingPermissions > 0;
+        const mark = pending ? '<span class="mark q">?</span>' : s.status === 'running' ? '<span class="mark run">●</span>' : s.status === 'waiting' ? '<span class="mark q">?</span>' : (s.status === 'disconnected' || s.status === 'unreachable') ? '<span class="mark dot bad"></span>' : s.unread ? '<span class="mark dot"></span>' : '';
+        el.innerHTML = '<span class="name">' + esc(titleOf(s)) + '</span>' + mark;
+        el.title = s.name + (s.cwd ? '\n' + s.cwd : '') + (s.harness ? '\n' + s.harness + (s.model && s.model !== 'default' ? ' · ' + s.model : '') : '');
+        el.onclick = () => select(s.sessionId);
+        list.appendChild(el);
+      }
+      if (cut) { const m = document.createElement('div'); m.className = 'more'; m.textContent = 'Show more (' + (rows.length - 6) + ')'; m.onclick = () => { expanded.add(g); renderList(); }; list.appendChild(m); }
     }
   }
+
+  // ---------- rendering: header + composer chips
   function renderBar() {
     const s = state.sessions.find((x) => x.sessionId === selected);
     const d = state.details.get(selected) || {};
     const t = state.transcripts.get(selected);
-    $('#title').textContent = s ? s.name : '—';
-    const st = t ? t.status : (s ? s.status : ''); const stEl = $('#status'); stEl.textContent = st; stEl.className = 'st ' + st;
+    $('#proj').textContent = s ? (s.peer ? s.peer + ' · ' : '') + projectOf(s.cwd) : '';
+    $('#sep').hidden = !s;
+    $('#title').textContent = s ? titleOf(s) : '—';
+    const st = t ? t.status : (s ? s.status : '');
+    const stEl = $('#status'); stEl.textContent = st === 'waiting' || (s && s.pendingPermissions > 0) ? 'needs permission' : (st === 'disconnected' || st === 'unreachable' || st === 'closed') ? st : ''; stEl.className = 'st' + (st === 'disconnected' || st === 'unreachable' ? ' bad' : '');
+    $('#usage').textContent = t && t.usage && t.usage.size ? Math.round(t.usage.used / 1000) + 'k / ' + Math.round(t.usage.size / 1000) + 'k' : (t && t.usage ? Math.round(t.usage.used / 1000) + 'k tokens' : '');
+    $('#btn-steer').hidden = !(st === 'running');
+    // Policy chip.
+    const policy = (s && s.policy) || 'ask'; $('#policy').value = policy; $('#policy-label').textContent = policyLabel(policy); $('#chip-policy').classList.toggle('warm', policy === 'approve-all');
+    // Mode chip: only when the harness has more than one mode and it is not the plain default.
     const modeSel = $('#mode'); modeSel.innerHTML = '';
     const modes = (d.modes && d.modes.availableModes) || [];
-    for (const m of modes) { const o = new Option(m.name || m.id, m.id); modeSel.add(o); }
-    modeSel.value = (t && t.mode) || (d.modes && d.modes.currentModeId) || ''; modeSel.parentElement.hidden = modes.length === 0;
+    for (const m of modes) modeSel.add(new Option(m.name || m.id, m.id));
+    const curMode = (t && t.mode) || (d.modes && d.modes.currentModeId) || '';
+    modeSel.value = curMode; $('#mode-label').textContent = (modes.find((m) => m.id === curMode) || {}).name || curMode;
+    // The plain default mode carries no information; other modes (plan, accept edits) do.
+    $('#chip-mode').hidden = modes.length < 2 || ['default', 'normal', 'agent', 'build', ''].includes(curMode);
+    // Model chip.
     const modelSel = $('#model'); modelSel.innerHTML = '';
     const opts = d.configOptions || []; const modelOpt = opts.find((o) => o.id === 'model');
-    if (modelOpt) { for (const o of modelOpt.options || []) modelSel.add(new Option(o.name || o.value, o.value)); modelSel.value = (t && t.model) || modelOpt.currentValue || ''; }
-    modelSel.parentElement.hidden = !modelOpt;
-    const extra = $('#extra'); extra.innerHTML = '';
-    for (const o of opts) { if (o.id === 'model' || o.id === 'mode') continue; if (!o.options) continue; const lab = document.createElement('label'); lab.textContent = o.id.replace(/_/g, ' ') + ' '; const sel = document.createElement('select'); for (const c of o.options) sel.add(new Option(c.name || c.value, c.value)); sel.value = o.currentValue; sel.onchange = () => call('session/set_config_option', { sessionId: selected, configId: o.id, value: sel.value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); lab.appendChild(sel); extra.appendChild(lab); }
+    const models = modelOpt ? (modelOpt.options || []) : ((d.models && d.models.availableModels) || []).map((m) => ({ value: m.modelId || m.id, name: m.name }));
+    for (const o of models) modelSel.add(new Option(o.name || o.value, o.value));
+    const curModel = (t && t.model) || (modelOpt && modelOpt.currentValue) || (s && s.model) || '';
+    if (curModel) modelSel.value = curModel;
+    $('#model-label').textContent = curModel && curModel !== 'default' ? curModel : ((s && s.harness) || 'model') + (curModel === 'default' ? ' · default' : '');
+    $('#chip-model').style.pointerEvents = models.length ? '' : 'none';
+    // Effort chip.
+    const eff = opts.find((o) => ['effort', 'reasoning_effort', 'thought_level', 'thinking', 'reasoning'].includes(o.id) && o.options);
+    const effSel = $('#effort'); effSel.innerHTML = '';
+    if (eff) { for (const o of eff.options) effSel.add(new Option(o.name || o.value, o.value)); effSel.value = eff.currentValue; $('#effort-label').textContent = eff.currentValue === 'default' ? 'effort' : eff.currentValue; effSel.onchange = () => call('session/set_config_option', { sessionId: selected, configId: eff.id, value: effSel.value }).then(() => attach(selected, true)).catch((e) => toast(e.message)); }
+    $('#chip-effort').hidden = !eff;
+    renderPerm(t);
   }
-  let renderedCount = 0, lastAssistantEl = null, rafPending = false, barPending = false;
-  // Coalesce bursts of streaming chunks into one paint per frame.
+  function renderPerm(t) {
+    const el = $('#perm'); const perm = t && pendingPermission(t);
+    if (!perm) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.innerHTML = '<div class="box"><span class="t">Needs permission · <span>' + esc(shortTitle(perm.title)) + '</span></span><span class="opts">' + perm.options.map((o) => '<button data-opt="' + esc(o.id) + '" class="pill ' + (o.kind.startsWith('allow') ? '' : 'bad') + '">' + esc(o.name) + '</button>').join('') + '</span><kbd>y allow · n reject</kbd></div>';
+    for (const b of el.querySelectorAll('button')) b.onclick = () => call('_acpmux/permission_respond', { sessionId: selected, permissionId: perm.id, optionId: b.dataset.opt }).catch((e) => toast(e.message));
+  }
+
+  // ---------- rendering: transcript
+  let renderedCount = 0, rafPending = false, barPending = false, col = null;
   function scheduleRender(bar) {
     if (bar) barPending = true;
     if (rafPending) return; rafPending = true;
     requestAnimationFrame(() => { rafPending = false; renderLogIncremental(); if (barPending) { barPending = false; renderBar(); } });
   }
-  function renderLog(full) {
+  function hero(text, sub) { return '<div class="hero"><div><h2>' + esc(text) + '</h2>' + esc(sub) + '</div></div>'; }
+  function renderLog() {
     const log = $('#log');
     const t = state.transcripts.get(selected);
-    if (!selected) { log.innerHTML = '<div class="empty">Pick a session on the left, or create one.</div>'; return; }
-    if (!t) { log.innerHTML = '<div class="empty">loading…</div>'; return; }
-    log.innerHTML = ''; renderedCount = 0; lastAssistantEl = null; t.dirty.clear();
+    const s = state.sessions.find((x) => x.sessionId === selected);
+    if (!selected) { log.innerHTML = hero('What should we build?', 'Pick a session on the left, or start one.'); col = null; return; }
+    if (!t) { log.innerHTML = '<div class="empty">loading…</div>'; col = null; return; }
+    log.innerHTML = ''; renderedCount = 0; t.dirty.clear();
+    if (!t.items.length && t.status !== 'running') { log.innerHTML = hero('What should we build in ' + projectOf(s && s.cwd) + '?', 'Type below and press Enter'); col = null; return; }
+    col = document.createElement('div'); col.className = 'col'; log.appendChild(col);
     renderLogIncremental(); log.scrollTop = log.scrollHeight;
   }
   function renderLogIncremental() {
     const log = $('#log'); const t = state.transcripts.get(selected); if (!t) return;
+    if (!col) { renderLog(); return; }
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
-    // Only items marked dirty are re-rendered; new items are appended.
-    for (const i of t.dirty) { if (i < renderedCount) { const old = log.querySelector('[data-idx="' + i + '"]'); if (old) old.replaceWith(renderItem(t.items[i], i)); } }
+    for (const i of t.dirty) { if (i < renderedCount) { const old = col.querySelector('[data-idx="' + i + '"]'); if (old) old.replaceWith(renderItem(t.items[i], i)); } }
     t.dirty.clear();
-    for (; renderedCount < t.items.length; renderedCount++) log.appendChild(renderItem(t.items[renderedCount], renderedCount));
+    for (; renderedCount < t.items.length; renderedCount++) {
+      const it = t.items[renderedCount];
+      if (it.type === 'user' && it.at) { const w = document.createElement('div'); w.className = 'when'; w.textContent = when(it.at); col.appendChild(w); }
+      const el = renderItem(it, renderedCount);
+      if (it.type === 'turn_result' || it.type === 'turn_end') { wrapWork(t, renderedCount, it); }
+      col.appendChild(el);
+    }
     renderWorking(t);
     if (atBottom) log.scrollTop = log.scrollHeight;
   }
-  // A live "working" row while a turn runs and nothing has streamed yet.
+  // The work of a finished turn (everything between the user message and the
+  // final reply) folds under "Worked for 19s", as in the Codex app.
+  function wrapWork(t, endIdx, marker) {
+    let userIdx = -1, finalIdx = -1;
+    for (let i = endIdx - 1; i >= 0; i--) { const x = t.items[i]; if (x.type === 'user') { userIdx = i; break; } if (x.type === 'assistant' && finalIdx < 0) finalIdx = i; }
+    if (userIdx < 0) return;
+    const nodes = [];
+    for (const n of Array.from(col.children)) { const i = Number(n.dataset.idx); if (!Number.isFinite(i)) continue; if (i > userIdx && i < endIdx && i !== finalIdx && !n.classList.contains('work')) nodes.push(n); }
+    if (nodes.length < 2) return;
+    const d = document.createElement('details'); d.className = 'work'; d.open = false;
+    const start = marker.startAt || t.turnStartAt;
+    const ms = start && marker.at ? Math.max(0, marker.at - start) : (t.runningSince ? Date.now() - t.runningSince : 0);
+    d.innerHTML = '<summary><span>Worked' + (ms ? ' for ' + dur(ms) : '') + '</span><span class="chev">›</span></summary><div class="inner"></div>';
+    nodes[0].before(d);
+    const inner = d.querySelector('.inner'); for (const n of nodes) inner.appendChild(n);
+  }
   let workingEl = null, workingTimer = null;
   function renderWorking(t) {
-    const log = $('#log');
+    if (!col) return;
     let last = t.items[t.items.length - 1];
     for (let i = t.items.length - 1; i >= 0 && t.items[i].type === 'user' && t.items[i].queued; i--) last = t.items[i - 1];
     const streaming = last && (last.type === 'assistant' || (last.type === 'tool' && last.status === 'in_progress'));
     const show = t.status === 'running' && !streaming;
     if (show) {
-      if (!workingEl) { workingEl = document.createElement('div'); workingEl.className = 'working'; log.appendChild(workingEl); }
-      else if (log.lastElementChild !== workingEl) log.appendChild(workingEl);
-      const thought = last && last.type === 'thought' ? ' · thinking ' + (last.text.length >= 1000 ? (last.text.length / 1000).toFixed(1) + 'k' : last.text.length) + ' chars' : '';
-      const secs = t.runningSince ? Math.floor((Date.now() - t.runningSince) / 1000) : 0;
+      if (!workingEl) { workingEl = document.createElement('div'); workingEl.className = 'working'; col.appendChild(workingEl); }
+      else if (col.lastElementChild !== workingEl) col.appendChild(workingEl);
+      const since = t.turnStartAt || t.runningSince;
       const queued = t.items.filter((x) => x.type === 'user' && x.queued).length;
-      workingEl.innerHTML = '<span class="spin"></span> working' + (secs ? ' ' + secs + 's' : '') + esc(thought) + (queued ? ' · ' + queued + ' queued' : '');
+      workingEl.innerHTML = '<span class="shimmer">' + (since ? 'Working for ' + dur(Date.now() - since) : 'Working…') + '</span>' + (queued ? '<span>· ' + queued + ' queued</span>' : '');
       if (!workingTimer) workingTimer = setInterval(() => { const cur = state.transcripts.get(selected); if (cur) renderWorking(cur); }, 1000);
     } else if (workingEl) { workingEl.remove(); workingEl = null; if (workingTimer) { clearInterval(workingTimer); workingTimer = null; } }
   }
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   function renderItem(it, idx) {
     const el = document.createElement('div'); el.dataset.idx = idx;
     switch (it.type) {
       case 'user': el.className = 'msg user' + (it.steer ? ' steer' : '') + (it.local ? ' local' : '') + (it.queued ? ' queued' : ''); el.textContent = it.text; if (it.queued) { const q = document.createElement('div'); q.className = 'qtag'; q.textContent = 'queued · sends when the running turn ends'; el.appendChild(q); } break;
-      case 'assistant': el.className = 'msg assistant'; el.innerHTML = renderMd(it.text); break;
-      case 'thought': el.className = 'msg thought'; el.innerHTML = '<details><summary>thinking · ' + it.text.length + ' chars</summary>' + esc(it.text) + '</details>'; break;
-      case 'tool': el.className = 'tool ' + esc(it.status); el.innerHTML = '<div class="head"><span class="glyph"></span><span>' + esc(it.title) + '</span><span class="kind">' + esc(it.kind) + ' · ' + esc(it.status) + '</span></div>' + (it.detail ? '<pre hidden>' + esc(it.detail) + '</pre>' : ''); el.querySelector('.head').onclick = () => { const p = el.querySelector('pre'); if (p) p.hidden = !p.hidden; }; break;
+      case 'assistant': el.className = 'msg assistant'; el.innerHTML = renderMd(it.text); for (const b of el.querySelectorAll('button.copy')) b.onclick = () => navigator.clipboard.writeText(b.closest('pre').querySelector('code').textContent).then(() => toast('Copied')); break;
+      case 'thought': { el.className = 'thought'; const first = (it.text.split('\n').find((l) => l.trim()) || '').trim().replace(/^\*+|\*+$/g, ''); el.innerHTML = '<details><summary><span class="lbl">Thought</span><span class="sum">' + esc(first) + '</span></summary><div class="body">' + esc(it.text) + '</div></details>'; break; }
+      case 'tool': {
+        const counts = diffCounts(it.detail); const files = (it.detail || '').split('\n').filter((l) => l.startsWith('@@ ')).map((l) => l.slice(3).split('/').pop());
+        const title = files.length && (it.kind === 'edit' || /edit/i.test(it.title)) ? (it.status === 'completed' ? 'Edited ' : 'Editing ') + files.join(', ') : shortTitle(it.title);
+        el.className = 'act ' + esc(it.status) + (it.detail ? ' can' : '');
+        el.innerHTML = '<span class="ic">' + esc(glyphOf(it.kind)) + '</span><span>' + esc(title) + '</span>' + (counts ? '<span class="cnt"><span class="a">+' + counts[0] + '</span><span class="d">-' + counts[1] + '</span></span>' : '') + (it.detail ? '<span class="chev">›</span>' : '');
+        if (it.detail) {
+          const box = document.createElement('div'); box.className = 'act-detail'; box.hidden = true;
+          box.innerHTML = counts ? esc(it.detail).split('\n').map((l) => l.startsWith('+ ') ? '<span class="a">' + l + '</span>' : l.startsWith('- ') ? '<span class="d">' + l + '</span>' : l.startsWith('@@ ') ? '<span class="h">' + l + '</span>' : l).join('\n') : esc(it.detail);
+          const wrap = document.createElement('div'); wrap.dataset.idx = idx; wrap.appendChild(el); wrap.appendChild(box);
+          el.onclick = () => { box.hidden = !box.hidden; el.querySelector('.chev').textContent = box.hidden ? '›' : '▾'; };
+          return wrap;
+        }
+        break;
+      }
       case 'plan': el.className = 'plan'; el.innerHTML = it.entries.map((e) => '<div class="' + esc(e.status) + '">' + esc(e.content) + '</div>').join(''); break;
-      case 'permission': el.className = 'perm' + (it.decided ? ' decided' : ''); el.innerHTML = '<div class="t">' + (it.decided ? 'permission: ' : 'permission needed: ') + esc(it.title) + (it.decided ? ' → ' + esc(it.decided) : '') + '</div>' + (it.decided ? '' : '<div class="opts">' + it.options.map((o) => '<button data-opt="' + esc(o.id) + '" class="' + (o.kind.startsWith('allow') ? 'primary' : 'danger') + '">' + esc(o.name) + '</button>').join('') + '</div>'); for (const b of el.querySelectorAll('button')) b.onclick = () => call('_acpmux/permission_respond', { sessionId: selected, permissionId: it.id, optionId: b.dataset.opt }).catch((e) => toast(e.message)); break;
-      case 'turn_end': el.className = 'note'; el.textContent = it.stop === 'end_turn' ? '' : '— ' + it.stop; if (!el.textContent) el.hidden = true; break;
-      case 'error': el.className = 'note err'; el.textContent = 'error: ' + it.text; break;
-      case 'stderr': el.className = 'note'; el.textContent = 'stderr: ' + it.text.slice(0, 300); break;
-      case 'note': el.className = 'note'; el.textContent = '— ' + it.text; break;
-      default: el.className = 'note'; el.textContent = JSON.stringify(it);
+      case 'permission': el.className = 'act'; el.innerHTML = it.decided ? (it.decided.startsWith('allow') ? '<span class="ic">✓</span><span>Allowed  ' + esc(shortTitle(it.title)) + '</span>' : it.decided.startsWith('reject') ? '<span class="ic" style="color:var(--bad)">✗</span><span>Rejected  ' + esc(shortTitle(it.title)) + '</span>' : '<span class="ic">–</span><span>Cancelled  ' + esc(shortTitle(it.title)) + '</span>') : '<span class="ic" style="color:var(--attn)">?</span><span style="color:var(--attn)">Needs permission  ' + esc(shortTitle(it.title)) + '</span>'; if (it.decided && it.decided.startsWith('allow')) el.hidden = true; break;
+      case 'turn_end': case 'turn_result': el.className = 'note'; el.hidden = true; break;
+      case 'error': el.className = 'card err'; el.innerHTML = '<span class="ic">✗</span><div><div class="t">The turn failed</div><div class="s">' + esc(it.text) + '</div></div>'; break;
+      case 'stderr': el.className = 'note'; el.hidden = true; el.textContent = 'stderr: ' + it.text.slice(0, 300); break;
+      case 'note': el.className = 'note'; el.hidden = true; el.textContent = it.text; break;
+      default: el.className = 'note'; el.hidden = true;
     }
     return el;
   }
-  // Very small markdown: fenced code, inline code, bold. Everything else stays literal.
-  function renderMd(s) {
-    const parts = s.split(/```/); let out = '';
-    for (let i = 0; i < parts.length; i++) {
-      if (i % 2 === 1) { const body = parts[i].replace(/^[a-zA-Z0-9_-]*\n/, ''); out += '<pre class="mono" style="background:var(--grid);padding:8px 10px;border-radius:6px;overflow-x:auto">' + esc(body) + '</pre>'; }
-      else out += esc(parts[i]).replace(/`([^`\n]+)`/g, '<code class="mono" style="background:var(--grid);padding:0 4px;border-radius:3px">$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+  // Markdown: headings, paragraphs, lists (nested by indent), fenced code with
+  // a language header and a copy button, inline code, bold, italic, links,
+  // simple pipe tables, quotes, rules.
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>')
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s)<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  }
+  function renderMd(src) {
+    const lines = src.replace(/\r/g, '').split('\n'); let out = '', i = 0;
+    const para = [];
+    const flush = () => { if (para.length) { out += '<p>' + inline(para.join(' ')) + '</p>'; para.length = 0; } };
+    while (i < lines.length) {
+      const l = lines[i];
+      const fence = l.match(/^```\s*([\w+.-]*)\s*$/);
+      if (fence) { flush(); const lang = fence[1]; let body = []; i++; while (i < lines.length && !/^```\s*$/.test(lines[i])) body.push(lines[i++]); i++; out += '<pre><div class="lang"><span>' + esc(lang || 'code') + '</span><button class="copy" type="button">Copy</button></div><code>' + esc(body.join('\n')) + '</code></pre>'; continue; }
+      const h = l.match(/^(#{1,6})\s+(.*)$/);
+      if (h) { flush(); out += '<h' + Math.min(3, h[1].length) + '>' + inline(h[2]) + '</h' + Math.min(3, h[1].length) + '>'; i++; continue; }
+      if (/^\s*([-*+]|\d+[.)])\s+/.test(l)) {
+        flush();
+        const stack = [];
+        while (i < lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) {
+          const m = lines[i].match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/); const depth = Math.floor(m[1].replace(/\t/g, '    ').length / 2); const ordered = /\d/.test(m[2]);
+          while (stack.length > depth + 1) { out += '</li></' + stack.pop() + '>'; }
+          if (stack.length === depth + 1) out += '</li>';
+          while (stack.length < depth + 1) { const tag = ordered ? 'ol' : 'ul'; stack.push(tag); out += '<' + tag + '>'; }
+          out += '<li>' + inline(m[3]); i++;
+          while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*+]|\d+[.)])\s+/.test(lines[i])) { out += ' ' + inline(lines[i].trim()); i++; }
+        }
+        while (stack.length) { out += '</li></' + stack.pop() + '>'; }
+        continue;
+      }
+      if (/^\|.*\|\s*$/.test(l) && i + 1 < lines.length && /^\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+        flush(); const cells = (r) => r.trim().replace(/^\||\|$/g, '').split('|').map((c) => inline(c.trim()));
+        out += '<table><thead><tr>' + cells(l).map((c) => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>'; i += 2;
+        while (i < lines.length && /^\|.*\|\s*$/.test(lines[i])) { out += '<tr>' + cells(lines[i]).map((c) => '<td>' + c + '</td>').join('') + '</tr>'; i++; }
+        out += '</tbody></table>'; continue;
+      }
+      if (/^>\s?/.test(l)) { flush(); const q = []; while (i < lines.length && /^>\s?/.test(lines[i])) q.push(lines[i++].replace(/^>\s?/, '')); out += '<blockquote>' + inline(q.join(' ')) + '</blockquote>'; continue; }
+      if (/^\s*([-*_])\s*\1\s*\1[\s-*_]*$/.test(l)) { flush(); out += '<hr>'; i++; continue; }
+      if (!l.trim()) { flush(); i++; continue; }
+      para.push(l.trim()); i++;
     }
+    flush();
     return out;
   }
 
@@ -439,13 +661,14 @@
   $('#btn-send').onclick = () => send(false);
   $('#btn-steer').onclick = () => send(true);
   $('#btn-cancel').onclick = () => selected && notify('session/cancel', { sessionId: selected });
-  $('#btn-fork').onclick = async () => { if (!selected) return; const name = prompt('Name for the fork (blank for automatic):') ; if (name === null) return; const p = { sessionId: selected, mcpServers: [], _meta: { acpmux: {} } }; if (name) p._meta.acpmux.name = name; try { const r = await call('session/fork', p); const s = r._meta && r._meta.acpmux; if (s) upsertSession(s); select(r.sessionId); } catch (e) { toast('error: ' + e.message); } };
+  $('#btn-fork').onclick = async () => { if (!selected) return; const name = prompt('Name for the fork (blank for automatic):'); if (name === null) return; const p = { sessionId: selected, mcpServers: [], _meta: { acpmux: {} } }; if (name) p._meta.acpmux.name = name; try { const r = await call('session/fork', p); const s = r._meta && r._meta.acpmux; if (s) upsertSession(s); select(r.sessionId); } catch (e) { toast('error: ' + e.message); } };
   $('#btn-rename').onclick = async () => { if (!selected) return; const s = state.sessions.find((x) => x.sessionId === selected); const name = prompt('New name:', s ? s.name.replace(/^[^/]+\//, '') : ''); if (!name) return; try { await call('_acpmux/rename', { sessionId: selected, newName: name }); } catch (e) { toast('error: ' + e.message); } };
   $('#btn-kill').onclick = async () => { if (!selected) return; if (!confirm('Stop the agent for this session? The log stays and it can resume later.')) return; try { await call('_acpmux/kill', { sessionId: selected, purge: false }); } catch (e) { toast('error: ' + e.message); } };
   $('#mode').onchange = () => call('session/set_mode', { sessionId: selected, modeId: $('#mode').value }).catch((e) => toast(e.message));
-  $('#model').onchange = () => call('session/set_model', { sessionId: selected, modelId: $('#model').value }).catch((e) => toast(e.message));
+  $('#model').onchange = () => call('session/set_model', { sessionId: selected, modelId: $('#model').value }).then(() => attach(selected, true)).catch((e) => toast(e.message));
+  $('#policy').onchange = () => call('_acpmux/set_policy', { sessionId: selected, policy: $('#policy').value }).then((s) => upsertSession(s)).catch((e) => toast(e.message));
   const input = $('#input');
-  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 200) + 'px'; };
+  const autosize = () => { input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 240) + 'px'; $('#btn-send').disabled = !input.value.trim(); };
   input.addEventListener('input', autosize);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(false); }

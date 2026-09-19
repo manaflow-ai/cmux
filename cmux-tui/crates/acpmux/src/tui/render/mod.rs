@@ -323,7 +323,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 // light terminal reads it too.
                 let bg = Style::default().bg(c.user_bg);
                 let style = if *queued { c.dim().bg(c.user_bg) } else { bg.fg(c.status_fg) };
-                let marker = if *steer { "» " } else if *queued { "⏳" } else { "❯ " };
+                let marker = if *steer { "» " } else if *queued { "⋯ " } else { "❯ " };
                 let marker_style = bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD);
                 let bubble_w = if width < 50 { width } else { (width * 7 / 10).max(40).min(width) };
                 let inner_w = bubble_w.saturating_sub(4);
