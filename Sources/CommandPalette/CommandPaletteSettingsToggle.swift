@@ -1,6 +1,7 @@
 import CmuxCommandPalette
 import Foundation
 import CmuxSettings
+import CmuxSettingsUI
 
 extension MenuBarOnlySettings {
     static let legacyCommandPaletteUsageKey = "commandPalette.commandUsage.v1"
@@ -60,6 +61,34 @@ struct CommandPaletteSettingToggleDescriptor: Sendable {
             didSet(newValue, defaults, notificationCenter)
         }
         self.isAvailable = isAvailable
+    }
+
+    /// Projects one ordinary boolean catalog descriptor into a palette toggle.
+    init(
+        userFacing key: DefaultsKey<Bool>,
+        isAvailable: @escaping @Sendable (UserDefaults) -> Bool = { _ in true },
+        didSet: @escaping @Sendable (Bool, UserDefaults, NotificationCenter) -> Void = { _, _, _ in }
+    ) {
+        guard let descriptor = key.userFacing else {
+            preconditionFailure("Missing user-facing descriptor for \(key.id)")
+        }
+        guard case .toggle(let toggle) = descriptor.control,
+              let paletteToggle = toggle.commandPalette else {
+            preconditionFailure("Setting \(key.id) is not an ordinary Command Palette toggle")
+        }
+        let section = SettingsSectionID(userFacingSection: descriptor.section)
+
+        self.init(
+            commandId: CommandPaletteSettingsToggleCommands.commandIdPrefix + paletteToggle.id,
+            settingsKey: key.id,
+            title: { descriptor.title },
+            sectionTitle: { section.title },
+            keywords: [key.id] + paletteToggle.keywords,
+            defaultValue: key.defaultValue,
+            defaultsKey: key.userDefaultsKey,
+            isAvailable: isAvailable,
+            didSet: didSet
+        )
     }
 
     init(
@@ -400,15 +429,7 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "warnBeforeClosingTab",
-                settingsKey: "app.warnBeforeClosingTab",
-                title: {
-                    String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab")
-                },
-                sectionTitle: app,
-                keywords: ["app.warnBeforeClosingTab", "warn", "close", "tab", "confirmation", "cmd-w"],
-                defaultValue: AppCatalogSection().warnBeforeClosingTab.defaultValue,
-                defaultsKey: AppCatalogSection().warnBeforeClosingTab.userDefaultsKey
+                userFacing: SettingCatalog().app.warnBeforeClosingTab
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeClosingTabXButton",
@@ -433,26 +454,10 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "hideTabCloseButton",
-                settingsKey: "app.hideTabCloseButton",
-                title: {
-                    String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button")
-                },
-                sectionTitle: app,
-                keywords: ["app.hideTabCloseButton", "hide", "close", "tab", "x", "button"],
-                defaultValue: AppCatalogSection().hideTabCloseButton.defaultValue,
-                defaultsKey: AppCatalogSection().hideTabCloseButton.userDefaultsKey
+                userFacing: SettingCatalog().app.hideTabCloseButton
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "renameSelectsExistingName",
-                settingsKey: "app.renameSelectsExistingName",
-                title: {
-                    String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name")
-                },
-                sectionTitle: app,
-                keywords: ["app.renameSelectsExistingName", "rename", "select", "name", "title", "command", "palette"],
-                defaultValue: AppCatalogSection().renameSelectsExistingName.defaultValue,
-                defaultsKey: AppCatalogSection().renameSelectsExistingName.userDefaultsKey
+                userFacing: SettingCatalog().app.renameSelectsExistingName
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "commandPaletteSearchesAllSurfaces",

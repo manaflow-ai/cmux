@@ -16,7 +16,7 @@ extension Array where Element == CuratedSettingEntry {
     /// so both languages find the same setting. Tests and hosts that want
     /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
-    public static var cmuxDefault: [CuratedSettingEntry] {
+    public static func cmuxDefault(catalog: SettingCatalog) -> [CuratedSettingEntry] {
         [
             // Account / integrations
             .init(section: .account, id: "account", title: String(localized: "settings.section.account", defaultValue: "Account"), synonyms: "Account auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
@@ -85,10 +85,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "menu-bar-only", title: String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), synonyms: "Menu Bar Only app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
             .init(section: .app, id: "telemetry", title: String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), synonyms: "Send anonymous telemetry app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
-            .init(section: .app, id: "warn-before-closing-tab", title: String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), synonyms: "Warn Before Closing Tab app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+            .init(userFacing: catalog.app.warnBeforeClosingTab),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
-            .init(section: .app, id: "hide-tab-close-button", title: String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"), synonyms: "Hide Tab Close Button app.hideTabCloseButton hide x button close tab terminal surface"),
-            .init(section: .app, id: "rename-selects-name", title: String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), synonyms: "Rename Selects Existing Name app.renameSelectsExistingName rename select all existing title command palette workspace name"),
+            .init(userFacing: catalog.app.hideTabCloseButton),
+            .init(userFacing: catalog.app.renameSelectsExistingName),
             .init(section: .app, id: "palette-search-all", title: String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), synonyms: "Command Palette Searches All Surfaces app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
             .init(
                 section: .app,
