@@ -36,7 +36,16 @@ export function vmRequestLocale(request: Request): Locale {
 }
 
 /** Load and translate the phase-specific unsupported-operation response copy. */
-export type VmUnsupportedOperationKey = "snapshot" | "restore" | "fork" | "openPort" | "default";
+export type VmUnsupportedOperationKey =
+  | "snapshot"
+  | "restore"
+  | "fork"
+  | "openPort"
+  | "sizing"
+  | "persistentHome"
+  | "pause"
+  | "resume"
+  | "default";
 
 /** Maps a workflow operation to the stable copy key used by the API response. */
 export function vmUnsupportedOperationKey(operation: string): VmUnsupportedOperationKey {
@@ -45,6 +54,10 @@ export function vmUnsupportedOperationKey(operation: string): VmUnsupportedOpera
   if (normalized.includes("restore")) return "restore";
   if (normalized.includes("fork")) return "fork";
   if (normalized.includes("snapshot")) return "snapshot";
+  // `cmux vm pause` / `cmux vm resume`: a provider without the verb answers a
+  // pause-specific 501, so the CLI can say "this provider cannot pause machines".
+  if (normalized.includes("pause")) return "pause";
+  if (normalized.includes("resume")) return "resume";
   return "default";
 }
 
@@ -57,7 +70,7 @@ export async function vmUnsupportedCopy(
     messages: await loadMessages(locale),
     namespace: "vmErrors.unsupported",
   }) as unknown as (key: string) => string;
-  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort"].includes(phase)
+  const phaseKey: VmUnsupportedOperationKey = ["snapshot", "restore", "fork", "openPort", "sizing", "persistentHome", "pause", "resume"].includes(phase)
     ? phase
     : "default";
   return {
@@ -74,6 +87,20 @@ export type VmRequiresProCopy = {
   readonly message: string;
   readonly action: string;
 };
+
+/** Localized setup guidance for unavailable runtime artifacts, without operator diagnostics. */
+export async function vmArtifactUnavailableCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  const translator = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.artifactUnavailable",
+  }) as unknown as (key: string) => string;
+  return {
+    title: translator("title"),
+    message: translator("message"),
+    action: translator("action"),
+  };
+}
 
 /** Load and translate the `vm_requires_pro` response copy for the request locale. */
 export async function vmRequiresProCopy(
@@ -92,28 +119,47 @@ export async function vmRequiresProCopy(
   };
 }
 
-/** Copy returned when an account's shared Cloud VM resource pool is full. */
-export type VmSharedResourceCopy = {
-  readonly message: string;
-  readonly action: string;
-};
-
-/** Load the localized shared-resource rejection copy. */
-export async function vmSharedResourceCopy(
+/** Copy returned when a create or rename carries an unusable `displayName`. */
+export async function vmDisplayNameCopy(
   locale: Locale,
-  values: { readonly resource: string; readonly oversized: boolean },
-): Promise<VmSharedResourceCopy> {
+  values: { readonly maxLength: number },
+): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
     locale,
     messages: await loadMessages(locale),
-    namespace: "vmErrors.sharedResource",
-  }) as unknown as (key: string, values?: Record<string, string>) => string;
+    namespace: "vmErrors.displayName",
+  }) as unknown as (key: string, values?: Record<string, string | number>) => string;
   return {
-    message: translator("message", { resource: values.resource }),
-    action: translator(values.oversized ? "oversizedAction" : "action", { resource: values.resource }),
+    title: translator("title"),
+    message: translator("message", values),
+    action: translator("action"),
   };
 }
 
+export async function vmMemoryErrorCopy(
+  kind: "memoryPlan" | "memoryUnknown" | "memoryUnavailable",
+  locale: Locale,
+  values: Record<string, string | number> = {},
+): Promise<VmRequiresProCopy> {
+  const t = createTranslator({ locale, messages: await loadMessages(locale), namespace: `vmErrors.${kind}` }) as unknown as (key: string, values?: Record<string, string | number>) => string;
+  return { title: kind === "memoryPlan" ? t("title", values) : t("message", values),
+    message: t("message", values), action: t("action", values) };
+}
+
+/** Localized copy for the Go plan's hard limits. */
+export async function vmGoLimitCopy(
+  kind: "saved" | "active" | "hours" | "shape",
+  locale: Locale,
+): Promise<{ readonly message: string; readonly action: string }> {
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.goLimit",
+  }) as unknown as (key: string) => string;
+  return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
+}
+
+/** Copy returned when an account's shared Cloud VM resource pool is full. */
 function localeFromPath(value: string): Locale | null {
   try {
     const firstSegment = new URL(value).pathname.split("/").filter(Boolean)[0];

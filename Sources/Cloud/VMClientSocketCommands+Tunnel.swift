@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 /// `vm.tunnel_*`: this Mac's membership in the user's private Cloud VM
 /// network. The terminal role uses the user-space hub. `up`, `down`, and
@@ -8,19 +9,57 @@ import Foundation
 /// Trust boundary: the completed config never crosses the socket. `tunnel_config`
 /// returns only the path of the 0600 file the app wrote, the same boundary every
 /// other `vm.` verb already accepts.
+///
+/// `tunnel_config` and `tunnel_up` are the two verbs that would enroll or
+/// touch NetworkExtension, so both ask the coordinator's start policy first
+/// (``CloudActivationPolicy``: Cloud Machines on, and a machine exists) and
+/// fail closed with the same message the app shows. Status, down, wait, and
+/// revoke never start anything and stay available for cleanup.
 extension TerminalController {
     nonisolated func socketWorkerCloudTunnelResponse(
         method: String,
         id: Any?,
         params: [String: Any]
     ) -> String? {
+        // `DisableCloud`: only the cleanup verbs stay reachable so a managed
+        // Mac can still report, stop, and remove tunnel state. Enrollment,
+        // `up`, and `wait` fail closed; the coordinator refuses them as well.
+        if method.hasPrefix("vm.tunnel_"), ManagedDevicePolicy().isEnforced(.disableCloud) {
+            switch method {
+            case "vm.tunnel_status", "vm.tunnel_down", "vm.tunnel_revoke":
+                break
+            default:
+                return v2Error(
+                    id: id,
+                    code: "cloud_disabled",
+                    message: String(
+                        localized: "cloud.managed.tunnelDisabled",
+                        defaultValue: "Cloud private-network access is disabled by your organization."
+                    )
+                )
+            }
+        }
         switch method {
         case "vm.tunnel_config":
             // Enrolls the browser role and writes its WireGuard config. The
             // Network Extension consumes it through `vm.tunnel_up`.
-            return v2VmCall(id: id) {
+            return v2CloudCall(id: id, method: method, params: params) {
+                // Fail closed before startup finishes wiring the coordinator,
+                // exactly like `vm.tunnel_up`: no admission, no enrollment.
+                guard let coordinator = await Self.cloudTunnelCoordinator() else {
+                    throw CloudTunnelError.backendUnavailable(.entitlementMissing)
+                }
+                if let refusal = await coordinator.startRefusal() {
+                    throw refusal.error
+                }
                 let manager = VMTunnelManager()
                 let state = try await manager.enroll(client: VMClient.shared)
+                // Enrollment is a control-plane round trip; a refusal that
+                // landed meanwhile must not leave the written config behind.
+                if let refusal = await coordinator.knownStartRefusal() {
+                    manager.removeLocalCredentials()
+                    throw refusal.error
+                }
                 var payload = await Self.cloudTunnelStatusPayload(manager: manager)
                 payload["tunnel_id"] = state.endpoint.tunnelId
                 payload["provider"] = state.endpoint.provider
@@ -37,28 +76,35 @@ extension TerminalController {
             }
         case "vm.tunnel_status":
             // Read-only: never enrolls, so it is safe for scripts and polling.
-            return v2VmCall(id: id) {
+            return v2CloudCall(id: id, method: method, params: params) {
                 await Self.cloudTunnelStatusPayload(manager: VMTunnelManager())
             }
         case "vm.tunnel_up":
             // Explicit `cmux vpn up`: start now and pin the tunnel open until
             // `vpn down`. Returns once the outcome is known or the first
             // activation is waiting on the user (see `vm.tunnel_wait`).
-            return v2VmCall(id: id, timeoutSeconds: 120) {
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 120) {
                 guard let coordinator = await Self.cloudTunnelCoordinator(),
                       coordinator.backend.isNetworkExtension else {
                     throw CloudTunnelError.backendUnavailable(
                         await Self.cloudTunnelCoordinator()?.backend.unavailableReason ?? .entitlementMissing
                     )
                 }
-                await coordinator.beginUp(pin: true)
-                _ = await coordinator.waitForState(timeout: .seconds(60)) { state in
+                if let refusal = await coordinator.beginUp(pin: true) {
+                    throw refusal.error
+                }
+                let settled = await coordinator.waitForState(timeout: .seconds(60)) { state in
                     state == .awaitingApproval || !state.isSettling
+                }
+                // A start the policy refused after scheduling ends off; say
+                // why instead of answering with a bare "off" payload.
+                if settled == .off, let refusal = await coordinator.recordedStartRefusal() {
+                    throw refusal.error
                 }
                 return await Self.cloudTunnelStatusPayload(manager: VMTunnelManager())
             }
         case "vm.tunnel_down":
-            return v2VmCall(id: id, timeoutSeconds: 60) {
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: 60) {
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     await coordinator.requestDown()
                 }
@@ -70,7 +116,7 @@ extension TerminalController {
             // sleeping and retrying.
             let requested = Self.socketWorkerInt(params["timeout_seconds"]) ?? 300
             let timeoutSeconds = min(max(requested, 1), 900)
-            return v2VmCall(id: id, timeoutSeconds: TimeInterval(timeoutSeconds + 15)) {
+            return v2CloudCall(id: id, method: method, params: params, timeoutSeconds: TimeInterval(timeoutSeconds + 15)) {
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     _ = await coordinator.waitForState(timeout: .seconds(timeoutSeconds)) { !$0.isSettling }
                 }
@@ -80,7 +126,7 @@ extension TerminalController {
             // Unenrolls this Mac server-side, deletes the VPN configuration on
             // app-managed builds, stops user-space links, and removes the local
             // config so a later explicit use re-enrolls from scratch.
-            return v2VmCall(id: id) {
+            return v2CloudCall(id: id, method: method, params: params) {
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     try? await coordinator.revoke()
                 }
@@ -130,6 +176,15 @@ extension TerminalController {
         }
         if let failure = status?.state.failureMessage {
             payload["tunnel_error"] = failure
+        }
+        // Status stays read-only and current: it reports only the refusal
+        // local state knows about right now (a fleet resolution that refused
+        // also refilled the marker, so it shows up here), never resolves an
+        // unknown machine count, and never echoes a past start's refusal
+        // that the user may since have fixed.
+        if backend.isNetworkExtension, let refusal = await coordinator?.knownStartRefusal() {
+            payload["start_refusal"] = refusal.rawValue
+            payload["start_refusal_message"] = refusal.error.description
         }
         let terminalManager = VMTunnelManager(purpose: .terminal)
         let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }

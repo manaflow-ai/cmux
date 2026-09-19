@@ -22,9 +22,6 @@ final class MemoryPressureMonitor {
     private(set) var aggregateMemoryPressure: MemoryPressureAggregateSnapshot?
 
     @ObservationIgnored
-    var onPersistentCriticalPressure: (@MainActor (MemoryPressureSnapshot) -> Void)?
-
-    @ObservationIgnored
     var onAggregatePressureCleared: (@MainActor () -> Void)?
 
     @ObservationIgnored
@@ -267,7 +264,7 @@ final class MemoryPressureMonitor {
         if let aggregateMemoryPressure,
            aggregateMemoryPressure.isActionable {
             // Aggregate pressure gets its own dispatch lane. This preserves
-            // the visible warning + idle-agent hibernation contract without
+            // the idle-agent hibernation contract without
             // making aggregate thresholds release unrelated hidden resources.
             let aggregateSnapshot = MemoryPressureSnapshot(
                 severity: aggregateMemoryPressure.severity,
@@ -278,7 +275,7 @@ final class MemoryPressureMonitor {
             registry.dispatch(aggregateSnapshot, signal: .aggregate)
         }
         if evaluation.didBecomePersistentCritical {
-            onPersistentCriticalPressure?(evaluation.snapshot)
+            Self.logger.notice("memoryPressure.persistentCritical")
         }
     }
 

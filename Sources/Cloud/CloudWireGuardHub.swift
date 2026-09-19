@@ -105,6 +105,10 @@ actor CloudWireGuardHub {
     private let processHandle = CloudWireGuardHubProcessHandle()
     private var state: State = .stopped
     private var leases: Set<Lease> = []
+    /// Keeps one hub claim for the signed-in account while its machine fleet is non-empty.
+    /// Without this claim, a transient first-start failure drops the last demand and leaves
+    /// every machine waiting for the next catalog poll to try again.
+    private var prewarmLease: Lease?
     private var pinnedByExternalClient = false
     /// Bumped on every intentional stop so a stale exit callback cannot restart a hub
     /// that was stopped on purpose.
@@ -113,6 +117,12 @@ actor CloudWireGuardHub {
     private var restartTask: Task<Void, Never>?
     private var restartAttempts = 0
     private var lastError: String?
+    /// A failed startup process may report termination after its replacement
+    /// has started. Only the current child may invalidate the hub's state.
+    private var processID: UUID?
+    /// A child can exit after readiness wins but before the shared startup task
+    /// publishes `.running`. Keep that signal until the state transition commits.
+    private var pendingStartupExit: (processID: UUID, status: Int32)?
 
     init(configuration: Configuration) {
         self.configuration = configuration
@@ -137,7 +147,7 @@ actor CloudWireGuardHub {
             socketURL: manager.stateDir.appendingPathComponent("hub-\(getpid()).sock", isDirectory: false),
             spawner: CloudWireGuardHubProcessSpawner(),
             waitUntilReady: { socketPath in
-                try await CloudWireGuardHubSocketReadiness.wait(socketPath: socketPath, timeout: .seconds(20))
+                try await CloudWireGuardHubSocketReadiness.wait(socketPath: socketPath, timeout: .seconds(45))
             },
             sleep: { duration in try await ContinuousClock().sleep(for: duration) },
             restartBackoff: Configuration.defaultRestartBackoff,
@@ -175,6 +185,31 @@ actor CloudWireGuardHub {
         }
     }
 
+    /// Starts the shared hub before individual machine links race to acquire it.
+    /// The claim remains held until the fleet is empty or account access ends, so an
+    /// unexpected child exit is eligible for the actor's bounded restart policy.
+    func prewarm() async throws -> Ready {
+        if prewarmLease != nil {
+            restartTask?.cancel()
+            restartTask = nil
+            return try await ensureRunning()
+        }
+
+        let claim = try await acquire()
+        // Two prewarm callers can join the same startup. Keep just one account
+        // lease after both resume.
+        if prewarmLease == nil { prewarmLease = claim.lease }
+        else { release(claim.lease) }
+        return claim.ready
+    }
+
+    /// Releases the account-level prewarm claim after the fleet becomes empty.
+    func releasePrewarm() {
+        guard let prewarmLease else { return }
+        self.prewarmLease = nil
+        release(prewarmLease)
+    }
+
     /// Ends one link's claim; the hub stops ``Configuration/idleGrace`` after the last one.
     func release(_ lease: Lease) {
         leases.remove(lease)
@@ -200,9 +235,12 @@ actor CloudWireGuardHub {
         restartTask = nil
         restartAttempts = 0
         leases.removeAll()
+        prewarmLease = nil
         pinnedByExternalClient = false
         if case .starting(_, let task) = state { task.cancel() }
         state = .stopped
+        processID = nil
+        pendingStartupExit = nil
         processHandle.terminate()
         removeSocketFile()
     }
@@ -242,10 +280,20 @@ actor CloudWireGuardHub {
             break
         }
         let startGeneration = generation
-        let task = Task<Ready, Error> { try await self.start(generation: startGeneration) }
+        let task = Task<Ready, Error> { try await self.startWithRecovery(generation: startGeneration) }
         state = .starting(generation: startGeneration, task: task)
         do {
             let ready = try await task.value
+            if let pendingStartupExit, processID == pendingStartupExit.processID {
+                self.pendingStartupExit = nil
+                throw HubError.exitedDuringStart(
+                    status: pendingStartupExit.status,
+                    output: lastError ?? "hub exited during startup"
+                )
+            } else if pendingStartupExit != nil {
+                // A callback from an older child cannot invalidate this one.
+                self.pendingStartupExit = nil
+            }
             guard generation == startGeneration,
                   case .starting(let stateGeneration, _) = state,
                   stateGeneration == startGeneration else {
@@ -266,6 +314,31 @@ actor CloudWireGuardHub {
         }
     }
 
+    /// Enrollment and startup recovery belong to the one shared startup task.
+    /// Explicit opens and background warmup await the same final result; no
+    /// caller can fail early while another caller is still recovering it.
+    private func startWithRecovery(generation startGeneration: UInt64) async throws -> Ready {
+        let delays = Array(configuration.restartBackoff.prefix(3))
+        for attempt in 0...delays.count {
+            try Task.checkCancellation()
+            guard generation == startGeneration else { throw CancellationError() }
+            // Each child owns its own startup-exit signal. A late callback from
+            // a failed child cannot poison a later recovery attempt because its
+            // process identity no longer matches the replacement.
+            pendingStartupExit = nil
+            do {
+                return try await start(generation: startGeneration)
+            } catch {
+                try Task.checkCancellation()
+                guard generation == startGeneration else { throw CancellationError() }
+                lastError = CloudMachineLink.errorText(error)
+                guard attempt < delays.count else { throw error }
+                try await configuration.sleep(delays[attempt])
+            }
+        }
+        throw HubError.notReady("hub startup failed without a reported error")
+    }
+
     private func start(generation startGeneration: UInt64) async throws -> Ready {
         let enrollment = try await configuration.enroll()
         try Task.checkCancellation()
@@ -281,11 +354,13 @@ actor CloudWireGuardHub {
         } catch {
             throw HubError.spawnFailed(error.localizedDescription)
         }
+        let startedProcessID = UUID()
+        processID = startedProcessID
         processHandle.replace(with: process)
         let exit = CloudLinkFirstValue<Int32>()
         process.onExit { [weak self] status in
             exit.resolve(status)
-            Task { await self?.processDidExit(status: status, generation: startGeneration) }
+            Task { await self?.processDidExit(status: status, generation: startGeneration, processID: startedProcessID) }
         }
         let waitUntilReady = configuration.waitUntilReady
         let outcome: Result<Void, Error> = await withTaskGroup(of: Result<Void, Error>.self) { group in
@@ -311,27 +386,40 @@ actor CloudWireGuardHub {
         case .success:
             break
         case .failure(let error):
+            let output = process.outputTail.trimmingCharacters(in: .whitespacesAndNewlines)
+            if processID == startedProcessID { processID = nil }
             process.terminate()
-            if let hubError = error as? HubError { throw hubError }
-            throw HubError.notReady(CloudMachineLink.errorText(error))
+            let detail = CloudMachineLink.errorText(error)
+            if let hubError = error as? HubError {
+                let hubDetail = hubError.errorDescription ?? detail
+                throw HubError.notReady(output.isEmpty ? hubDetail : "\(hubDetail); hub output: \(output)")
+            }
+            throw HubError.notReady(output.isEmpty ? detail : "\(detail); hub output: \(output)")
         }
         guard process.isRunning else {
+            pendingStartupExit = nil
             throw HubError.exitedDuringStart(status: process.exitStatus ?? -1, output: process.outputTail)
         }
         lastError = nil
         return Ready(socketPath: socketPath, routes: enrollment.routes)
     }
 
-    private func processDidExit(status: Int32, generation exitGeneration: UInt64) {
-        guard exitGeneration == generation else { return }
+    private func processDidExit(status: Int32, generation exitGeneration: UInt64, processID exitedProcessID: UUID) {
+        guard exitGeneration == generation, processID == exitedProcessID else { return }
         switch state {
-        case .starting(let stateGeneration, _) where stateGeneration == exitGeneration:
-            state = .stopped
+        case .starting:
+            // Preserve the exit until ensureRunning commits the ready state. If
+            // readiness won immediately before this callback, dropping it would
+            // publish a running hub whose child is already dead.
+            pendingStartupExit = (exitedProcessID, status)
+            removeSocketFile()
+            return
         case .running:
             state = .stopped
-        case .starting, .stopped:
+        case .stopped:
             return
         }
+        processID = nil
         removeSocketFile()
         guard wanted else { return }
         lastError = "cmux-tui wg hub exited with status \(status)"

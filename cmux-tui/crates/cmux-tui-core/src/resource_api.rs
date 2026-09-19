@@ -437,7 +437,7 @@ pub(crate) fn public_terminal_snapshot(
         "running": durable.lifecycle == TerminalLifecycle::Running,
         "lifecycle": lifecycle,
     });
-    if let Some(cwd) = surface.and_then(crate::Surface::spawn_cwd) {
+    if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
     if durable.lifecycle == TerminalLifecycle::Exited {
@@ -465,6 +465,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
 pub(crate) fn public_session_snapshot_with_journal_head(
     mux: &Mux,
 ) -> Result<(Value, u64), ResourceError> {
+    mux.publish_pending_terminal_directories();
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -587,19 +588,8 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 let pane = panes_by_id
                     .get(&tab.pane_id)
                     .ok_or_else(|| anyhow::anyhow!("tab references a missing pane"))?;
-                let content_kind = match tab.content_id {
-                    ContentPublicId::Terminal(_) => "terminal",
-                    ContentPublicId::Browser(_) => "browser",
-                };
-                Ok(json!({
-                    "id": tab.public_id,
-                    "pane_id": tab.pane_id,
-                    "name": tab.name,
-                    "index": checked_index(tab.position)?,
-                    "focused": pane.active_tab.as_ref() == Some(&tab.public_id),
-                    "content_kind": content_kind,
-                    "content_id": tab.content_id.as_str(),
-                }))
+                checked_index(tab.position)?;
+                Ok(tab.public_value(pane.active_tab.as_ref() == Some(&tab.public_id)))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -714,9 +704,13 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                         .as_ref()
                         .and_then(|terminal_id| mux.terminal_notification(terminal_id))
                         .is_some_and(|notification| notification.unread),
+                    "read_by": notification.read_by,
                 });
                 if let Some(terminal_id) = notification.terminal_id {
                     snapshot["terminal_id"] = json!(terminal_id);
+                }
+                if let Some(subtitle) = notification.subtitle {
+                    snapshot["subtitle"] = json!(subtitle);
                 }
                 snapshot
             })
@@ -1016,6 +1010,164 @@ mod tests {
     }
 
     #[test]
+    fn cloud_cwd_snapshot_presents_the_launch_directory_until_the_shell_reports() {
+        // https://github.com/manaflow-ai/cmux/issues/10756: the daemon spawned
+        // the shell in a known directory, and a shell that has not reported
+        // (or never will, without shell integration) still presents it.
+        let mux = Mux::new_for_test(
+            "cloud-cwd-launch",
+            SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        let cwd = |mux: &Mux| {
+            public_session_snapshot(mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str())
+                .unwrap()["cwd"]
+                .clone()
+        };
+        assert_eq!(cwd(&mux), "/tmp");
+        // A report replaces the launch directory; an explicit clear removes the
+        // directory instead of resurrecting the launch directory.
+        surface.set_test_pwd(Some("file://localhost/srv/live".into()));
+        assert_eq!(cwd(&mux), "/srv/live");
+        surface.set_test_pwd(None);
+        assert!(cwd(&mux).is_null());
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_cwd_snapshot_follows_reported_directory_instead_of_launch_directory() {
+        let mux = Mux::new_for_test(
+            "cloud-cwd",
+            SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+        );
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap();
+        for directory in ["/srv/first", "/srv/second"] {
+            surface.set_test_pwd(Some(format!("file://localhost{directory}")));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let terminal = snapshot["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|terminal| terminal["id"] == terminal_id.as_str())
+                .unwrap();
+            assert_eq!(terminal["cwd"], directory);
+        }
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_cwd_changes_publish_ordered_terminal_deltas_and_clear_untrusted_reports() {
+        let mux = Mux::new_for_test("cloud-cwd-events", SurfaceOptions::default());
+        let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let mut revision = initial["cursor"]["revision"].as_str().unwrap().parse::<u64>().unwrap();
+        for raw in [
+            Some("file://localhost/srv/one"),
+            Some("file://localhost/srv/two"),
+            Some("file://unrelated.invalid/Users/local"),
+        ] {
+            surface.set_test_pwd(raw.map(str::to_string));
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            let page = mux.resource_events_after(revision).unwrap();
+            assert_eq!(page.batches.len(), 1);
+            let batch = &page.batches[0];
+            assert_eq!(batch.previous_revision, revision);
+            assert_eq!(batch.revision, revision + 1);
+            assert_eq!(batch.changes[0]["resource"], "terminal");
+            assert_eq!(batch.changes[0]["value"]["cwd"], snapshot["terminals"][0]["cwd"]);
+            assert_eq!(batch.changes[0]["value"], snapshot["terminals"][0]);
+            assert_eq!(snapshot["tabs"], initial["tabs"]);
+            revision = batch.revision;
+            let _ = public_session_snapshot(&mux).unwrap();
+            assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
+        }
+        assert!(public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"].is_null());
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_reaches_snapshot_and_event_feed() {
+        let mux = Mux::new_for_test(
+            "cloud-cwd-osc",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '\\033]7;file://localhost/srv/live\\007'; read value".into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let _surface = mux.new_workspace(Some("osc".into()), None).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let epoch = mux.resource_event_epoch();
+            let snapshot = public_session_snapshot(&mux).unwrap();
+            if snapshot["terminals"][0]["cwd"] == "/srv/live" {
+                break;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "OSC 7 cwd never reached the public graph");
+            mux.wait_for_resource_event(epoch, remaining);
+        }
+        assert!(mux.resource_events_after(0).unwrap().batches.iter().any(|batch| {
+            batch.changes.as_array().unwrap().iter().any(|change| {
+                change["resource"] == "terminal" && change["value"]["cwd"] == "/srv/live"
+            })
+        }));
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_clear_reaches_snapshot() {
+        // A shell that reports a directory and later reports none (an empty
+        // OSC 7, as when it leaves the host it described) must clear the
+        // published cwd through the same incremental parser path.
+        let mux = Mux::new_for_test(
+            "cloud-cwd-osc-clear",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '\\033]7;file://localhost/srv/live\\007'; read value; printf '\\033]7;\\007'; read value"
+                        .into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("osc-clear".into()), None).unwrap();
+        let wait_for_cwd = |expected: Option<&str>, message: &str| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let epoch = mux.resource_event_epoch();
+                let cwd = &public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"];
+                let reached = match expected {
+                    Some(directory) => cwd == directory,
+                    None => cwd.is_null(),
+                };
+                if reached {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                assert!(!remaining.is_zero(), "{message}");
+                mux.wait_for_resource_event(epoch, remaining);
+            }
+        };
+        wait_for_cwd(Some("/srv/live"), "OSC 7 cwd never reached the public graph");
+        surface.write_bytes(b"\n").unwrap();
+        wait_for_cwd(None, "an empty OSC 7 report never cleared the published cwd");
+        mux.shutdown();
+    }
+
+    #[test]
     fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
         let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());
         let surface = mux.new_workspace(Some("restoring".into()), None).unwrap();
@@ -1269,6 +1421,8 @@ mod tests {
             },
         ];
         let tabs = vec![RegistryTab {
+            name_source: Default::default(),
+            name_revision: 0,
             public_id: tab_a.clone(),
             pane_id: pane_a,
             position: 0,

@@ -12,6 +12,30 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct BrowserDesignModeScreenshotEvaluatorTests {
+    /// WebKit page loads on CI app hosts occasionally never complete because the
+    /// WebContent process is gone ("Could not signal service
+    /// com.apple.WebKit.WebContent"). Waiting on such a load without a bound
+    /// wedges the whole batch until the job timeout, so every real load wait in
+    /// this suite races this budget and fails fast instead.
+    private static let pageLoadTimeout: Duration = .seconds(30)
+
+    /// Awaits the load signal, or returns false once `pageLoadTimeout` elapses.
+    private static func awaitPageLoad(_ stream: AsyncStream<Void>) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next() != nil
+            }
+            group.addTask {
+                try? await Task.sleep(for: pageLoadTimeout)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+
     @Test func returnsCompletedCapture() async throws {
         let expected = NSImage(size: NSSize(width: 20, height: 10))
         let evaluator = BrowserDesignModeScreenshotEvaluator(timeout: 1) { _, completion in
@@ -347,8 +371,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             """,
             baseURL: nil
         )
-        var loadedIterator = loaded.makeAsyncIterator()
-        _ = await loadedIterator.next()
+        let didLoad = await Self.awaitPageLoad(loaded)
+        #expect(didLoad, "WebKit never finished loading the test page")
+        guard didLoad else { return }
 
         let image = try await BrowserScreenshotWebViewSnapshotter.captureBoundedFullPageOverview(
             from: webView,
@@ -380,8 +405,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             """,
             baseURL: nil
         )
-        var loadedIterator = loaded.makeAsyncIterator()
-        _ = await loadedIterator.next()
+        let didLoad = await Self.awaitPageLoad(loaded)
+        #expect(didLoad, "WebKit never finished loading the test page")
+        guard didLoad else { return }
         webView.pageZoom = 2
 
         let screenshotEvaluator = BrowserDesignModeScreenshotEvaluator(
@@ -424,8 +450,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             """,
             baseURL: nil
         )
-        var loadedIterator = loaded.makeAsyncIterator()
-        _ = await loadedIterator.next()
+        let didLoad = await Self.awaitPageLoad(loaded)
+        #expect(didLoad, "WebKit never finished loading the test page")
+        guard didLoad else { return }
 
         let image = try await BrowserScreenshotWebViewSnapshotter.captureDocumentRect(
             NSRect(x: 0, y: 1_500, width: 640, height: 100),
@@ -470,8 +497,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
         webView.navigationDelegate = navigationDelegate
         webView.loadHTMLString("<main><button id='target'>Target</button></main>", baseURL: nil)
-        var loadedIterator = loaded.makeAsyncIterator()
-        _ = await loadedIterator.next()
+        let didLoad = await Self.awaitPageLoad(loaded)
+        #expect(didLoad, "WebKit never finished loading the test page")
+        guard didLoad else { return }
 
         let enabled = await controller.setEnabled(true, reason: "test")
         #expect(enabled)
@@ -634,8 +662,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
         }
         webView.navigationDelegate = navigationDelegate
         webView.loadHTMLString("<main><button id='target'>Target</button></main>", baseURL: nil)
-        var loadedIterator = loaded.makeAsyncIterator()
-        _ = await loadedIterator.next()
+        let didLoad = await Self.awaitPageLoad(loaded)
+        #expect(didLoad, "WebKit never finished loading the test page")
+        guard didLoad else { return }
 
         #expect(await controller.setEnabled(true, reason: "test"))
         let evaluator = BrowserDesignModeJavaScriptEvaluator()
@@ -723,8 +752,9 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             """,
             baseURL: nil
         )
-        var loadedIterator = loaded.makeAsyncIterator()
-        _ = await loadedIterator.next()
+        let didLoad = await Self.awaitPageLoad(loaded)
+        #expect(didLoad, "WebKit never finished loading the test page")
+        guard didLoad else { return }
 
         #expect(await controller.setEnabled(true, reason: "test"))
         let evaluator = BrowserDesignModeJavaScriptEvaluator()
@@ -828,8 +858,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
             loadedContinuation.finish()
         }
         panel.navigate(to: URL(string: "about:blank")!)
-        var iterator = loaded.makeAsyncIterator()
-        _ = await iterator.next()
+        #expect(await Self.awaitPageLoad(loaded), "WebKit never finished loading about:blank")
         return panel
     }
 }

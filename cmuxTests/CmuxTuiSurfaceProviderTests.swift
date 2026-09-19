@@ -6,14 +6,10 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
-typealias CMUXCLI = CmuxTuiRemoteRouting
-
 /// The cmux-tui provider's pure parts: snapshot → resources, the argv it hands the
 /// client, the URLs it opens, and the client identity paths it shares with the CLI.
 @Suite struct CmuxTuiSurfaceProviderTests {
     static let machine = SurfaceMachineID.cloud("vivid-newt")
-
     static let sessionSnapshot: [String: Any] = [
         "workspaces": [
             ["id": "ws_main", "name": "main", "focused": true],
@@ -43,6 +39,89 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
+    @Test func creationAttachmentUsesOnlyTheCommittedTerminalAndGeneration() {
+        var result: [String: Any] = [
+            "value": ["terminal_id": "term_test", "tab_id": "tab_test"],
+            "generation": "g1", "revision": "2"
+        ]
+        let identity = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result)?.attachment
+        #expect(identity?.terminalID == "term_test")
+        #expect(identity?.generation == "g1")
+        result.removeValue(forKey: "generation")
+        #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: result)?.attachment == nil)
+    }
+
+    @Test func legacyScreensKeepArrivalOrderAndExplicitPositions() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["screens"] = [
+            ["id": "screen_2", "workspace_id": "ws_api"],
+            ["id": "screen_1", "workspace_id": "ws_main", "index": 7],
+        ]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let terminal = try #require(resources.first { $0.id.key == "term_build" })
+        let views = try #require(terminal.remoteViews)
+        #expect(views.first { $0.screenID == "screen_2" }?.screenIndex == 0)
+        #expect(views.first { $0.screenID == "screen_1" }?.screenIndex == 7)
+    }
+    @Test func layoutDocumentOrdersPanesAndPlacesEveryView() throws {
+        let layout: [String: Any] = [
+            "version": 1, "screen_id": "screen_1", "active_pane_id": "pane_b", "zoomed_pane_id": NSNull(),
+            "root": [
+                "kind": "split", "split_id": "split_1", "direction": "horizontal", "ratio": 0.5,
+                "first": ["kind": "leaf", "pane_id": "pane_a", "tab_ids": ["tab_a"], "active_tab_id": "tab_a"],
+                "second": [
+                    "kind": "split", "split_id": "split_2", "direction": "vertical", "ratio": 0.5,
+                    "first": ["kind": "stack", "pane_ids": ["pane_s1", "pane_s2"], "expanded_pane_id": "pane_s1"],
+                    "second": ["kind": "leaf", "pane_id": "pane_b", "tab_ids": ["tab_b1", "tab_b2"], "active_tab_id": "tab_b2"],
+                ] as [String: Any],
+            ] as [String: Any],
+        ]
+        #expect(CmuxTuiSnapshotParser.layoutPaneOrder(fromLayout: layout) == ["pane_a": 0, "pane_s1": 1, "pane_s2": 2, "pane_b": 3])
+        let viewport: [String: Any] = ["root": [
+            "kind": "viewport", "base_width": 0.6,
+            "columns": [
+                ["column_id": "split_c1", "width": 0.5, "root": ["kind": "leaf", "pane_id": "pane_c1", "tab_ids": ["t1"]]],
+                ["column_id": "split_c2", "width": 0.5, "root": ["kind": "leaf", "pane_id": "pane_c2", "tab_ids": ["t2"]]],
+            ],
+        ] as [String: Any]]
+        #expect(CmuxTuiSnapshotParser.layoutPaneOrder(fromLayout: viewport) == ["pane_c1": 0, "pane_c2": 1])
+        #expect(CmuxTuiSnapshotParser.layoutPaneOrder(fromLayout: nil).isEmpty)
+        #expect(CmuxTuiSnapshotParser.layoutPaneOrder(fromLayout: ["root": ["kind": "carousel"]]).isEmpty, "an unknown node kind is not a crash")
+
+        // Screens carry an index and a layout; each view learns where its pane sits.
+        var snapshot = Self.sessionSnapshot
+        snapshot["screens"] = [
+            ["id": "screen_1", "workspace_id": "ws_main", "index": 0, "layout": [
+                "root": [
+                    "kind": "split", "direction": "horizontal", "ratio": 0.5,
+                    "first": ["kind": "leaf", "pane_id": "pane_1b", "tab_ids": ["tab_5"]],
+                    "second": ["kind": "leaf", "pane_id": "pane_1", "tab_ids": ["tab_1", "tab_3"], "active_tab_id": "tab_1"],
+                ] as [String: Any],
+            ] as [String: Any]] as [String: Any],
+            ["id": "screen_2", "workspace_id": "ws_api", "index": 1],
+        ]
+        snapshot["panes"] = [
+            ["id": "pane_1", "screen_id": "screen_1"],
+            ["id": "pane_1b", "screen_id": "screen_1"],
+            ["id": "pane_2", "screen_id": "screen_2"],
+        ]
+        snapshot["tabs"] = ((snapshot["tabs"] as? [[String: Any]]) ?? []) + [
+            ["id": "tab_5", "pane_id": "pane_1b", "content_kind": "terminal", "content_id": "term_side", "index": 0, "focused": true],
+        ]
+        snapshot["terminals"] = ((snapshot["terminals"] as? [[String: Any]]) ?? []) + [
+            ["id": "term_side", "tab_id": "tab_5", "tab_ids": ["tab_5"], "title": "side", "lifecycle": "running", "running": true],
+        ]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let build = try #require(resources.first { $0.id.key == "term_build" })
+        let inMain = try #require(build.remoteViews?.first { $0.workspace.id == "ws_main" })
+        #expect(inMain.screenIndex == 0)
+        #expect(inMain.paneIndex == 1, "pane_1 is the second leaf of screen_1's split")
+        let side = try #require(resources.first { $0.id.key == "term_side" })
+        #expect(side.remoteViews?.first?.paneIndex == 0)
+        let inAPI = try #require(build.remoteViews?.first { $0.workspace.id == "ws_api" })
+        #expect(inAPI.screenIndex == 1)
+        #expect(inAPI.paneIndex == nil, "screen_2 sent no layout document")
+    }
 
     @Test func snapshotBecomesTerminalResourcesWithEveryView() throws {
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
@@ -143,11 +222,15 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             ],
         ]
 
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("ws-id", in: machine) == .resolved("ws-id"))
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("other", in: machine) == .resolved("ws-id"))
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: machine) == .resolved("ws-id"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("other", in: machine) == .resolved("ws-id"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
+        let unfocused: [String: Any] = ["machines": [["id": "vivid-newt", "link_state": "connected", "remote_workspaces": [["id": "ws-a"], ["id": "ws-b"]]]], "resources": [[String: Any]]()]
+        #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: unfocused) == .unavailable)
+        let disconnected: [String: Any] = ["machines": [["id": "vivid-newt", "link_state": "asleep", "remote_workspaces": [["id": "ws-a"]]]], "resources": [[String: Any]]()]
+        #expect(VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: "vivid-newt", catalog: disconnected) == .unavailable)
     }
 
     @Test func vmOpenWorkspaceUsesTheSelectedTabView() {
@@ -167,8 +250,8 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             ],
         ]
 
-        #expect(CMUXCLI.vmRemoteView(in: resource, workspaceID: "ws_api")?["tab_id"] as? String == "tab_api")
-        #expect(CMUXCLI.vmRemoteView(in: resource, workspaceID: "ws_missing") == nil)
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: resource, workspaceID: "ws_api")?["tab_id"] as? String == "tab_api")
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: resource, workspaceID: "ws_missing") == nil)
 
         var duplicate = resource
         duplicate["remote_views"] = [
@@ -183,13 +266,13 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
                 "focused": true,
             ],
         ]
-        #expect(CMUXCLI.vmRemoteView(in: duplicate, workspaceID: "ws_main")?["tab_id"] as? String == "tab_b")
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: duplicate, workspaceID: "ws_main")?["tab_id"] as? String == "tab_b")
 
         duplicate["remote_views"] = [
             ["tab_id": "tab_a", "workspace": ["id": "ws_main", "name": "main"], "focused": false],
             ["tab_id": "tab_b", "workspace": ["id": "ws_main", "name": "main"], "focused": false],
         ]
-        #expect(CMUXCLI.vmRemoteView(in: duplicate, workspaceID: "ws_main") == nil)
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: duplicate, workspaceID: "ws_main") == nil)
     }
 
     @Test func vmOpenTerminalResolvesAnExactTabOrFailsClosed() {
@@ -212,46 +295,79 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             ],
         ]
         let catalog: [String: Any] = ["resources": [resource]]
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_api", in: catalog) == .resolved(terminalID: "term_build", tabID: "tab_api"))
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_missing", in: catalog) == .notFound)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_api", in: catalog) == .resolved(terminalID: "term_build", tabID: "tab_api"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_missing", in: catalog) == .notFound)
 
         var inconsistent = resource
         inconsistent["key"] = "stale-key"
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("vivid-newt/terminal/term_build", machine: "vivid-newt", workspaceID: "ws_api", in: ["resources": [inconsistent]]) == .resolved(terminalID: "term_build", tabID: "tab_api"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("vivid-newt/terminal/term_build", machine: "vivid-newt", workspaceID: "ws_api", in: ["resources": [inconsistent]]) == .resolved(terminalID: "term_build", tabID: "tab_api"))
 
         // A catalog key must be a key, never a complete resource id. A malformed
         // explicit key must fall back to the canonical id, or fail closed when no
         // canonical id exists.
         var fullIDKey = resource
         fullIDKey["key"] = "vivid-newt/terminal/term_build"
-        #expect(CMUXCLI.vmTerminalID(in: fullIDKey, machine: "vivid-newt") == "term_build")
-        #expect(CMUXCLI.vmTerminalID(in: ["key": "vivid-newt/terminal/term_build"], machine: "vivid-newt") == nil)
+        #expect(VMRemoteWorkspaceResolver().vmTerminalID(in: fullIDKey, machine: "vivid-newt") == "term_build")
+        #expect(VMRemoteWorkspaceResolver().vmTerminalID(in: ["key": "vivid-newt/terminal/term_build"], machine: "vivid-newt") == nil)
 
         var duplicate = resource
         duplicate["remote_views"] = [
             ["tab_id": "tab_a", "workspace": ["id": "ws_main"], "focused": false],
             ["tab_id": "tab_b", "workspace": ["id": "ws_main"], "focused": false],
         ]
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]]) == .ambiguous)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]]) == .ambiguous)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]], tabID: "tab_a") == .resolved(terminalID: "term_build", tabID: "tab_a"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]], tabID: "tab_missing") == .notFound)
 
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [["kind": "terminal", "key": "term_build", "remote_views": NSNull()]]]) == .unavailable)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [["kind": "terminal", "key": "term_build", "remote_views": NSNull()]]]) == .unavailable)
 
         let legacy = [
             "id": "vivid-newt/terminal/term_legacy",
             "key": "term_legacy",
             "remote_workspace": ["id": "ws_main", "name": "main"],
         ] as [String: Any]
-        if case .legacy = CMUXCLI.resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {
+        if case .legacy = VMRemoteWorkspaceResolver().resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {
             // Whole-workspace opens may use the legacy terminal/workspace edge.
         } else {
             Issue.record("legacy workspace resources must remain openable as a group")
         }
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement(
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement(
             "term_legacy",
             machine: "vivid-newt",
             workspaceID: "ws_main",
             in: ["resources": [legacy]]
         ) == .unavailable, "an exact terminal selector still requires a tab id")
+    }
+
+    @Test func catalogNilViewsRetainLegacyPlacementSemantics() {
+        var resource = SurfaceResource(
+            id: SurfaceResourceID(machine: Self.machine, kind: .browser, key: "port-3000"),
+            title: "Port 3000", detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: nil, port: 3000, url: "http://localhost:3000"
+        )
+        let resolver = VMRemoteWorkspaceResolver()
+        let unplaced = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .notFound = resolver.resolveVMRemoteView(in: unplaced, workspaceID: "ws_main") {} else {
+            Issue.record("a catalog port without modeled views is not an unknown pane")
+        }
+        resource.remoteWorkspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: false)
+        let legacy = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .legacy = resolver.resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {} else {
+            Issue.record("null views must preserve the catalog's legacy workspace edge")
+        }
+        resource.remoteViews = []
+        let detached = TerminalController.surfaceResourcePayload(resource, projections: [])
+        if case .notFound = resolver.resolveVMRemoteView(in: detached, workspaceID: "ws_main") {} else {
+            Issue.record("an authoritative empty view array overrides stale legacy placement")
+        }
+        let malformedValues: [Any] = ["invalid", [[:]] as [[String: Any]]]
+        for malformed in malformedValues {
+            var payload = legacy
+            payload["remote_views"] = malformed
+            if case .unavailable = resolver.resolveVMRemoteView(in: payload, workspaceID: "ws_main") {} else {
+                Issue.record("malformed view metadata must not authorize empty-workspace mutation")
+            }
+        }
     }
 
     @Test func vmOpenWorkspaceSkipsAmbiguousAndExitedTerminalsWhenSafeCandidateExists() {
@@ -292,7 +408,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             ],
         ]
 
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceTerminal(
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceTerminal(
             resources,
             machine: "vivid-newt",
             workspaceID: "ws_main"
@@ -318,38 +434,8 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
         #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
 
-        // Legacy projection fallback drops the generated prefix; a bound workspace keeps
-        // an intentional prefix as part of the user's exact title.
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine, stripGeneratedPrefix: false) == "vivid-newt: api")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
-        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
-    }
-
-    @Test func cloudRenameRecognizesOnlyTheActualGeneratedWorkspaceTitle() {
-        #expect(
-            CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api"
-            )
-        )
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "other"
-            )
-        )
-        // A user-entered title with the same prefix is still exact when it does
-        // not match the name that generated the previous title.
-        #expect(
-            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
-                "vivid-newt: api",
-                machine: Self.machine,
-                remoteWorkspaceName: "api work"
-            )
-        )
+        // Exact user payload preservation, including legacy bindings, is covered
+        // through the real submission path in cloudLegacyWorkspaceNameAdmission.
     }
 
     @Test func cloudTerminalRenameRejectsMismatchedLegacyWorkspaceFallback() throws {
@@ -528,6 +614,12 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
                 privateAddress: "fd98:deb9:4c94::8"
             ) == "https://[fd98:deb9:4c94::8]:8443/path"
         )
+        #expect(
+            CmuxTuiSurfaceProvider.privateBrowserURL(
+                "http://0.0.0.0:3000/path",
+                privateAddress: "10.16.4.9"
+            ) == "http://10.16.4.9:3000/path"
+        )
         #expect(CmuxTuiSurfaceProvider.privateBrowserURL("https://cmux.com", privateAddress: "10.0.0.2") == nil)
         #expect(
             CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: "10.16.4.9")
@@ -699,13 +791,13 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: conflictingAgents, machine: Self.machine) == nil)
 
         // A repeated tab reference in one terminal is harmless to identity, but
-        // it must not produce duplicate rename targets or duplicate tree rows.
+        // reverse tab edges still retain every distinct view.
         var repeatedReference = snapshot
         repeatedReference["terminals"] = [
             ["id": "term_build", "tab_ids": ["tab_1", "tab_1"], "title": "one", "lifecycle": "running"],
         ]
         let state = CmuxTuiSnapshotParser.state(fromSnapshot: repeatedReference, machine: Self.machine)
-        #expect(state?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(state?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
 
         // A tab that exists but claims another content identity is not a
         // recoverable placement error. Accepting it would route a rename to
@@ -724,13 +816,13 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiSnapshotParser.state(fromSnapshot: mismatchedBrowserTab, machine: Self.machine) == nil)
 
         // Older daemons encode an absent multi-tab relationship as JSON null.
-        // The singular tab_id remains enough to retain the placement.
+        // The singular hint is valid; reverse tab edges retain every view.
         var nullTabIDs = snapshot
         nullTabIDs["terminals"] = [
             ["id": "term_build", "tab_ids": NSNull(), "tab_id": "tab_1", "title": "build", "lifecycle": "running"],
         ]
         let nullTabIDsState = CmuxTuiSnapshotParser.state(fromSnapshot: nullTabIDs, machine: Self.machine)
-        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1"])
+        #expect(nullTabIDsState?.terminals.first?.tabIDs == ["tab_1", "tab_4"])
     }
 
     @Test func synchronizableStateRejectsMissingGraphCollections() {
@@ -796,6 +888,29 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
+    @Test func workspaceCreationKeepsDaemonNamingAndExplicitEmptyReceivers() {
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create"])
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock", name: "")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create"])
+        #expect(CloudTuiCommandLine.createWorkspaceArguments(socketPath: "/tmp/s.sock", name: "receiver", empty: true)
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "create", "--name", "receiver", "--empty"])
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func forcedRegistryRefreshCompletesAfterAnEmptyPass() async {
+        // A registry without a catalog/client makes performRefresh return immediately.
+        // A forced caller must still clear that completed flight; otherwise the old
+        // implementation re-entered its `while let refreshInFlight` loop forever and
+        // pinned the main actor at 100% CPU (the live `vm tree --refresh` repro).
+        let links = CloudMachineLinkManager(
+            clientURL: nil,
+            hostThemeColors: { nil }
+        )
+        let registry = CmuxTuiSurfaceProviderRegistry(links: links)
+        #expect(await registry.refresh(force: true) == false)
+    }
+
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
@@ -810,6 +925,24 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         // No timeout (or a non-positive one) leaves the daemon default in charge.
         #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: nil).contains("--timeout-ms") == false)
         #expect(CloudTuiCommandLine.screenWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", pattern: "λ", timeoutMs: 0).contains("--timeout-ms") == false)
+    }
+
+    @Test func terminalExitAndOutputArgvFollowTheCLIGrammar() {
+        // `terminal <id> process wait` is the exit fact behind `cmux vm terminal wait-exit`;
+        // `terminal <id> output read` is the retained log behind `cmux vm terminal output`.
+        #expect(CloudTuiCommandLine.processWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", timeoutMs: 45_000)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "process", "wait", "--timeout-ms", "45000"])
+        // No timeout (or a non-positive one) leaves the daemon default in charge.
+        #expect(CloudTuiCommandLine.processWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", timeoutMs: nil)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "process", "wait"])
+        #expect(CloudTuiCommandLine.processWaitArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", timeoutMs: 0).contains("--timeout-ms") == false)
+        #expect(CloudTuiCommandLine.outputReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", after: 1_024, maxBytes: 65_536)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "output", "read", "--after", "1024", "--max-bytes", "65536"])
+        // Offset 0 is a real cursor (read from the start); a zero byte cap is not a cap.
+        #expect(CloudTuiCommandLine.outputReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", after: 0, maxBytes: 0)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "output", "read", "--after", "0"])
+        #expect(CloudTuiCommandLine.outputReadArguments(socketPath: "/tmp/s.sock", terminalID: "term_1", after: nil, maxBytes: nil)
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "output", "read"])
     }
 
     @Test @MainActor func waitTimeoutNormalizesToTheDaemonDefaultAndClamps() {
@@ -858,6 +991,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["terminal_id": "term_bare"])?.terminalID == "term_bare")
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["value": ["kind": "terminal"]]) == nil)
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": ["workspace_id": "ws_9"]]) == "ws_9")
+        #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": ["workspace": "ws_8"]]) == "ws_8")
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["id": "ws_bare"]) == "ws_bare")
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": [:]]) == nil)
 
@@ -890,16 +1024,18 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
     }
 
     @Test func clientArgvIsExact() {
-        #expect(CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", inviteFilePath: "/i") ==
-            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--invite-file", "/i"])
-        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil) ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
+        // A machine's trusted listener is dialed with --carrier: no invite file, no enrollment.
+        #expect(CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", carrier: true) ==
+            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single", "--carrier"])
+        // A machine this Mac enrolled with before trusted listeners presents its stored key.
+        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s") ==
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single"])
         // A private-network machine dials through the app's WireGuard hub. Both long-lived
         // helper processes must also stop if their app parent exits without cleanup.
-        #expect(CloudTuiCommandLine.linkArguments(route: "ws://[fd00::10]:1337/v1/link", deviceName: "d", stateDir: "/s", inviteFilePath: "/i", wireguardHubSocket: "/h.sock") ==
-            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--invite-file", "/i", "--wireguard-hub", "/h.sock"])
-        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil, wireguardHubSocket: "") ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
+        #expect(CloudTuiCommandLine.linkArguments(route: "ws://[fd00::10]:1337/v1/link", deviceName: "d", stateDir: "/s", carrier: true, wireguardHubSocket: "/h.sock") ==
+            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single", "--carrier", "--wireguard-hub", "/h.sock"])
+        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", wireguardHubSocket: "") ==
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--lanes", "single"])
         #expect(CloudTuiCommandLine.wireGuardHubArguments(configPath: "/w/cmux-app.conf", socketPath: "/w/hub-1.sock") ==
             ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock", "--exit-with-parent"])
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
@@ -1004,6 +1140,24 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(String(decoding: data, as: UTF8.self) == "all of it")
     }
 
+    @Test func linkPipeDropsAnOversizedLineInsteadOfBufferingIt() async throws {
+        // The daemon caps a message at 4 MiB; a peer that withholds the newline must not
+        // pin Mac memory, and the line after the oversized one still arrives intact.
+        let pipe = Pipe()
+        let lines = CloudLinkPipe.lines(from: pipe.fileHandleForReading)
+        let writer = pipe.fileHandleForWriting
+        let chunk = Data(repeating: 0x41, count: 1024 * 1024)
+        let writeTask = Task.detached {
+            for _ in 0..<5 { writer.write(chunk) }
+            writer.write(Data("\nok\n".utf8))
+            try writer.close()
+        }
+        var received: [String] = []
+        for await line in lines { received.append(line) }
+        try await writeTask.value
+        #expect(received == ["ok"])
+    }
+
     @Test func linkFirstValueResolvesOnce() async {
         let socket = CloudLinkFirstValue<String>()
         async let awaited = socket.result
@@ -1016,52 +1170,18 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         #expect(await eof.result == nil, "finished without a value reads as nil")
     }
 
-    @Test func cancellingLinkCommandStopsItsChildBeforeReturning() async throws {
-        let pidFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cloud-command-\(UUID().uuidString.lowercased()).pid")
-        defer { try? FileManager.default.removeItem(at: pidFile) }
-        let link = CloudMachineLink(
-            machineID: "test-machine",
-            clientURL: URL(fileURLWithPath: "/bin/sh"),
-            paths: CloudTuiClientPaths()
-        )
-        let task = Task {
-            try await link.run(
-                arguments: ["-c", "echo $$ > '\(pidFile.path)'; exec /bin/sleep 30"],
-                timeout: .seconds(60)
-            )
-        }
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let pid = try #require(Int32(rawPID))
-        defer { _ = Darwin.kill(pid, SIGKILL) }
-
-        task.cancel()
-        do {
-            _ = try await task.value
-            Issue.record("a cancelled link command must throw")
-        } catch is CancellationError {
-            // Expected.
-        } catch {
-            Issue.record("a cancelled link command returned \(error) instead of CancellationError")
-        }
-        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the child must be reaped before run returns")
-    }
-
-    @Test func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
+    @Test func linkClientExitingBeforeItsSocketLineReportsTheExitNotATimeout() async throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-cloud-connect-cancel-\(UUID().uuidString.lowercased())", isDirectory: true)
+            .appendingPathComponent("cmux-cloud-connect-exit-\(UUID().uuidString.lowercased())", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let pidFile = root.appendingPathComponent("link.pid")
         let client = root.appendingPathComponent("fake-cmux-tui")
+        // An older bundled client that does not know a flag exits at once with a
+        // usage error and never prints a connection snapshot.
         try """
         #!/bin/sh
-        echo $$ > '\(pidFile.path)'
-        exec /bin/sleep 30
+        echo 'cmux-tui: unknown option "--carrier"' >&2
+        exit 2
         """.write(to: client, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
         let link = CloudMachineLink(
@@ -1069,29 +1189,21 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             clientURL: client,
             paths: CloudTuiClientPaths(home: root)
         )
-        let task = Task {
-            try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", invitationURI: nil)
-        }
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        let pid = try #require(Int32(try String(contentsOf: pidFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)))
-        defer { _ = Darwin.kill(pid, SIGKILL) }
-
-        task.cancel()
+        // The error kind is the whole check: before the fix this path threw
+        // `timedOut` the moment stdout closed, so a wall-clock bound adds nothing
+        // and only measures how fast the host spawns a fresh script.
         do {
-            _ = try await task.value
-            Issue.record("a cancelled link connect must throw")
-        } catch is CancellationError {
-            // Expected.
+            _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", carrier: true, timeout: .seconds(60))
+            Issue.record("a client that exits before its socket line must fail the connect")
+        } catch CloudMachineLink.LinkError.exited(let status, let output) {
+            #expect(status == 2)
+            #expect(output.contains("unknown option"), "the client's stderr must reach the error: \(output)")
         } catch {
-            Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
+            Issue.record("expected LinkError.exited, got \(error)")
         }
-        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the link child must be reaped before connect returns")
     }
 
-    @Test func disconnectStopsLinkAndEventChildrenBeforeReturning() async throws {
+    @Test func disconnectStopsTheOnlyLinkChildBeforeReturning() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cloud-disconnect-\(UUID().uuidString.lowercased())", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -1115,23 +1227,15 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
             clientURL: client,
             paths: CloudTuiClientPaths(home: root)
         )
-        _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", invitationURI: nil)
-        for _ in 0..<200 where !FileManager.default.fileExists(atPath: eventPIDFile.path) {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
         let linkPID = try #require(Int32(try String(contentsOf: linkPIDFile, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)))
-        let eventPID = try #require(Int32(try String(contentsOf: eventPIDFile, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)))
-        defer {
-            _ = Darwin.kill(linkPID, SIGKILL)
-            _ = Darwin.kill(eventPID, SIGKILL)
-        }
+        defer { _ = Darwin.kill(linkPID, SIGKILL) }
 
         await link.disconnect()
 
         #expect(Darwin.kill(linkPID, 0) == -1 && errno == ESRCH, "disconnect must reap the link child")
-        #expect(Darwin.kill(eventPID, 0) == -1 && errno == ESRCH, "disconnect must reap the event child")
+        #expect(!FileManager.default.fileExists(atPath: eventPIDFile.path), "event subscription must not spawn a CLI child")
     }
 
     @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {
@@ -1460,7 +1564,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
 
         #expect(state.cursor == nil)
         #expect(state.syncMode == .snapshotOnly)
-        #expect(state.workspaces.map(\.id) == ["ws_api"])
+        #expect(state.workspaces.map(\.id) == ["ws_main", "ws_api"])
         #expect(CmuxTuiSnapshotParser.resources(from: state).contains { $0.id.key == "term_build" })
 
         var malformed = snapshot
@@ -1815,7 +1919,7 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
         )
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let workspaceNode = try #require(flattened.first { $0.id == "machine:legacy-placement/ws/ws_main" })
-        if case .workspace(_, _, _, let openIn) = workspaceNode.kind {
+        if case .workspace(_, _, _, _, let openIn) = workspaceNode.kind {
             #expect(openIn == localWorkspaceID)
         } else {
             Issue.record("expected the legacy workspace row")
@@ -2013,9 +2117,87 @@ typealias CMUXCLI = CmuxTuiRemoteRouting
 
         let legacy = try JSONDecoder().decode(
             SurfaceResourceGroup.self,
-            from: Data(#"{"title":"api","resources":["vivid-newt/terminal/term_build"],"remoteWorkspaceID":"ws_api"}"#.utf8)
+            from: Data(#"{"title":"api","resources":[{"machine":{"cloud":{"_0":"vivid-newt"}},"kind":"terminal","key":"term_build"}],"remoteWorkspaceID":"ws_api"}"#.utf8)
         )
         #expect(legacy.placements.first?.remoteTabID == nil)
         #expect(legacy.placements.first?.remoteWorkspaceID == "ws_api")
+    }
+}
+
+/// Regression coverage for the snapshot row ordering helper. In
+/// 0.64.22-nightly.3400956733901 the app trapped (EXC_BREAKPOINT in
+/// `orderedSnapshotRows`) the first time a machine reported any workspace,
+/// screen, pane, or tab: the helper returned `enumerated().sorted` through a
+/// tuple type with reordered labels, which Swift compiles into a runtime array
+/// cast that fails for every non-empty array. Empty snapshots never reach the
+/// cast, so the crash only appeared once a machine actually connected.
+@Suite struct CmuxTuiSnapshotRowOrderingRegressionTests {
+    static let machine = SurfaceMachineID.cloud("gentle-ochre-dingo")
+
+    @Test func workspacesFromANonEmptySnapshotSurviveAndFollowTheirIndexes() {
+        let snapshot: [String: Any] = [
+            "workspaces": [
+                ["id": "ws_second", "name": "second", "index": 1, "focused": false],
+                ["id": "ws_first", "name": "first", "index": 0, "focused": true],
+                ["id": "ws_legacy", "name": "legacy"],
+            ],
+        ]
+        let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: snapshot)
+        #expect(
+            workspaces.map(\.id) == ["ws_first", "ws_second", "ws_legacy"],
+            "explicit indexes win; a row without one keeps its transport order after them"
+        )
+        #expect(workspaces.map(\.index) == [0, 1, 2])
+        #expect(workspaces.first?.focused == true)
+    }
+
+    @Test func terminalProjectionTargetFromANonEmptySnapshotPrefersFocusedRowsThenIndexes() throws {
+        let snapshot: [String: Any] = [
+            "workspaces": [
+                ["id": "ws_bg", "index": 0, "focused": false],
+                ["id": "ws_fg", "index": 1, "focused": true],
+            ],
+            "screens": [
+                ["id": "screen_bg", "workspace_id": "ws_bg", "focused": true],
+                ["id": "screen_fg_2", "workspace_id": "ws_fg", "index": 1],
+                ["id": "screen_fg_1", "workspace_id": "ws_fg", "index": 0],
+            ],
+            "panes": [
+                ["id": "pane_fg_1", "screen_id": "screen_fg_1"],
+                ["id": "pane_bg", "screen_id": "screen_bg"],
+            ],
+            "tabs": [
+                ["id": "tab_1", "pane_id": "pane_fg_1", "content_kind": "terminal", "content_id": "term_1"],
+            ],
+            "terminals": [
+                ["id": "term_1", "tab_id": "tab_1", "title": "shell", "lifecycle": "running"],
+            ],
+            "browsers": [],
+            "agents": [],
+        ]
+        let target = try #require(CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot))
+        #expect(target.workspaceID == "ws_fg", "the focused workspace wins over a lower index")
+        #expect(target.screenID == "screen_fg_1", "within it, the lowest explicit index wins")
+        #expect(target.paneID == "pane_fg_1")
+        #expect(target.index == 1, "the new tab lands after the pane's existing tab")
+    }
+
+    @Test func terminalsFromANonEmptySnapshotOrderTheirViewsByTabIndex() throws {
+        let snapshot: [String: Any] = [
+            "workspaces": [["id": "ws_main", "name": "main", "focused": true]],
+            "screens": [["id": "screen_1", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane_1", "screen_id": "screen_1"]],
+            "tabs": [
+                ["id": "tab_b", "pane_id": "pane_1", "index": 1, "content_kind": "terminal", "content_id": "term_b"],
+                ["id": "tab_a", "pane_id": "pane_1", "index": 0, "content_kind": "terminal", "content_id": "term_a"],
+            ],
+            "terminals": [
+                ["id": "term_b", "tab_id": "tab_b", "title": "b", "lifecycle": "running"],
+                ["id": "term_a", "tab_id": "tab_a", "title": "a", "lifecycle": "running"],
+            ],
+        ]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        #expect(resources.map { $0.id.key } == ["term_a", "term_b"], "tab index, not transport order, decides the view order")
+        #expect(resources.compactMap { $0.remoteViews?.first?.index } == [0, 1])
     }
 }

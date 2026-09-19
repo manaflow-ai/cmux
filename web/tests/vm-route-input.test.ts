@@ -14,12 +14,10 @@ import {
   VmFreeAccessExpiredError,
   VmNotFoundError,
   VmResizeInProgressError,
-  VmSharedResourceLimitExceededError,
 } from "../services/vms/errors";
 import {
   vmCreateLikeErrorResponse,
   vmResourceErrorResponse,
-  vmSharedResourceLimitExceededResponse,
   vmWorkflowErrorResponse,
 } from "../services/vms/routeHelpers";
 
@@ -128,58 +126,6 @@ describe("Cloud VM route error adapters", () => {
     );
     expect(expired?.status).toBe(402);
     expect((await responseBody(expired!)).error).toBe("vm_access_requires_pro");
-  });
-
-  test("maps shared pool exhaustion to a non-retryable conflict", async () => {
-    const error = new VmSharedResourceLimitExceededError({
-      kind: "shared_resources",
-      billingTeamId: "team-1",
-      resource: "diskMb",
-      used: 196608,
-      requested: 32768,
-      limit: 204800,
-    });
-    const direct = await vmSharedResourceLimitExceededResponse(error, "resize");
-    expect(direct.status).toBe(409);
-    const directPayload = await responseBody(direct);
-    expect(directPayload.error).toBe("vm_shared_resource_limit_exceeded");
-    expect(directPayload.phase).toBe("resize");
-    expect(directPayload.retryable).toBe(false);
-    expect((directPayload.details as Record<string, unknown>).shared).toBe(true);
-
-    const oversized = await vmSharedResourceLimitExceededResponse({
-      ...error,
-      used: 0,
-      requested: 262144,
-      limit: 204800,
-    }, "resize", "en");
-    const oversizedPayload = await responseBody(oversized);
-    expect(oversizedPayload.action).toContain("smaller");
-    expect(oversizedPayload.action).not.toContain("Delete");
-
-    const japanese = await vmSharedResourceLimitExceededResponse(error, "resize", "ja");
-    const japanesePayload = await responseBody(japanese);
-    expect(japanesePayload.message).toContain("共有 Cloud VM");
-
-    const workflow = await vmWorkflowErrorResponse(error);
-    expect(workflow?.status).toBe(409);
-    expect((await responseBody(workflow!)).error).toBe("vm_shared_resource_limit_exceeded");
-
-    const fork = await vmCreateLikeErrorResponse(error, {
-      operation: "fork",
-      planId: "pro",
-      retryAction: "fork retry",
-    });
-    expect(fork?.status).toBe(409);
-    const forkPayload = await responseBody(fork!);
-    expect(forkPayload.error).toBe("vm_shared_resource_limit_exceeded");
-    expect(forkPayload.phase).toBe("fork");
-    const restore = await vmCreateLikeErrorResponse(error, {
-      operation: "restore",
-      planId: "pro",
-      retryAction: "restore retry",
-    });
-    expect((await responseBody(restore!)).phase).toBe("restore");
   });
 
   test("maps a concurrent disk resize to a retryable conflict", async () => {

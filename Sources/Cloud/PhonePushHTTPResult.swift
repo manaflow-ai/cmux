@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 
 /// Truthful result of one Mac-to-push-API request.
@@ -11,6 +12,7 @@ enum PhonePushHTTPResult: Equatable, Sendable {
     case authenticationUnavailable
     case staleSession
     case correlationConflict
+    case recipientKeyChanged
     case expired
     case invalidResponse
     case rejected(statusCode: Int)
@@ -62,6 +64,9 @@ enum PhonePushHTTPResult: Equatable, Sendable {
             if error == "correlation_payload_mismatch" {
                 return .correlationConflict
             }
+            if error == "push_recipient_key_changed" {
+                return .recipientKeyChanged
+            }
             return .rejected(statusCode: statusCode)
         case 410:
             return .expired
@@ -81,8 +86,9 @@ enum PhonePushHTTPResult: Equatable, Sendable {
         response: HTTPURLResponse,
         data: Data
     ) -> Int? {
-        let header = response.value(forHTTPHeaderField: "Retry-After")
-            .flatMap(Int.init)
+        let header = CmxRetryAfterPolicy.seconds(
+            from: response.value(forHTTPHeaderField: "Retry-After")
+        )
         let summary = try? JSONDecoder().decode(
             PhonePushServerSummary.self,
             from: data
@@ -91,8 +97,13 @@ enum PhonePushHTTPResult: Equatable, Sendable {
             PhonePushErrorBody.self,
             from: data
         ).retryAfterSeconds
-        guard let value = header ?? summary ?? error else { return nil }
-        return max(value, 0)
+        let directive = [header, summary, error]
+            .compactMap { $0 }
+            .first(where: { $0 > 0 })
+        guard let value = directive ?? (response.statusCode == 429
+            ? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            : nil) else { return nil }
+        return value
     }
 }
 
