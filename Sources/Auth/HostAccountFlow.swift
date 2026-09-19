@@ -123,6 +123,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             return .rejected
         case .cancelled:
             return .cancelled
+        case .invalidTeamName:
+            // Not a sign-in outcome: it can only come from creating a team,
+            // which reports in the picker that asked for the name. Rendering
+            // it here would put "Enter a team name." under a sign-in button.
+            return nil
         }
     }
 
