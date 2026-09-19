@@ -123,6 +123,58 @@ def main() -> int:
         (home / "cmux.json").write_text('{"homeLevel": true,,}\n', encoding="utf-8")
         config_path = home / ".config" / "cmux" / "cmux.json"
         config_path.parent.mkdir(parents=True)
+        custom_global_path = home / "custom-global" / "cmux.json"
+        custom_global_path.parent.mkdir()
+        custom_global_path.write_text(
+            json.dumps({"app": {"appearance": "dark"}}) + "\n",
+            encoding="utf-8",
+        )
+        custom_global_validate = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--file",
+                str(custom_global_path),
+                "validate",
+            ],
+            text=True,
+            capture_output=True,
+            cwd=workspace,
+            env=helper_env,
+            timeout=5,
+            check=False,
+        )
+        if custom_global_validate.returncode != 0:
+            failures.append(
+                "custom global cmux.json was misclassified as project-local: "
+                + custom_global_validate.stderr
+            )
+
+        explicit_project_validate = subprocess.run(
+            [
+                sys.executable,
+                str(helper),
+                "--file",
+                str(custom_global_path),
+                "--scope",
+                "project",
+                "validate",
+            ],
+            text=True,
+            capture_output=True,
+            cwd=workspace,
+            env=helper_env,
+            timeout=5,
+            check=False,
+        )
+        if explicit_project_validate.returncode == 0:
+            failures.append("cmux-settings --scope project did not reject global-only app settings")
+        if "$.app" not in explicit_project_validate.stderr:
+            failures.append(
+                "cmux-settings --scope project did not report the rejected app path: "
+                + explicit_project_validate.stderr
+            )
+
         config_path.write_text(
             """
             {
