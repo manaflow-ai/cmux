@@ -48,9 +48,11 @@ The daemon starts on demand, like the tmux server. `acpmux daemon` runs it in th
 The daemon serves a dashboard on the same port as its WebSocket, by default
 `http://127.0.0.1:47811/?token=…`. The token is generated on first run and saved in
 `config.json`; `acpmux web` prints the full link and opens it. The page follows the Codex
-desktop app like the TUI does: a rail with `New session`, sessions grouped under their project
-and titled by their first prompt (hover one for its card, `⋯` or a right-click for rename,
-fork, stop, delete), the hosts at the bottom; a centered conversation with
+desktop app like the TUI does: a rail with `New session` (a draft: `What should we build in
+<project>?`, the harness and permission chips pick its settings, the project name opens the
+name-and-directory form, the session is created when you send the first message), sessions
+grouped under their project and titled by their first prompt (hover one for its card, `⋯` or
+a right-click for rename, fork, stop, delete), the hosts at the bottom; a centered conversation with
 timestamps, your messages as right-aligned bubbles, each turn's work folded under `Worked for
 19s ›` with an `Edited N files +a -d` card listing each file, muted activity rows with diff
 counts and colored diffs on edits, `Thought · summary` rows, real markdown with code blocks
@@ -58,7 +60,8 @@ and a Copy button, failed turns as notice cards, queued messages waiting at the 
 rounded composer with the permission, mode, model and effort chips inside; and a pending
 permission docked above it (`y`/`n` answer it from the keyboard). Every session, local and
 peered, streams live. Dark by default, light through the OS or `?theme=light`; `?open=1`
-unfolds every turn. On a phone the rail is a sheet behind a `Sessions` button. To reach it
+unfolds every turn, `?session=<name>` opens one, `?session=new` (or `&draft=1`) starts a
+draft. On a phone the rail is a sheet behind a `Sessions` button. To reach it
 from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
 firewall in front.
 
@@ -150,7 +153,9 @@ width shades. Drag the sidebar's right edge to resize it.
 **Header.** `▢ project  ›  session`, a status word only when it needs attention (`needs
 permission`, `disconnected`), token use at the right edge.
 
-**Transcript.** A centered muted timestamp (`Today 2:15 AM`) before each of your messages,
+**Transcript.** The conversation, the composer and a permission card share one column of at
+most 124 cells, centered when the terminal is wider. A centered muted timestamp (`Today 2:15
+AM`) before each of your messages,
 which sit right-aligned in a tinted bubble (at most seven tenths of the width) with `❯`. The
 turn's work follows under a handle with a hairline, `Worked for 19s  ▾` (or `Working for 4s`
 while it runs), from the daemon's turn markers: each

@@ -251,6 +251,8 @@
   const openAll = new URLSearchParams(location.search).get('open') === '1';
   // ?session=<id or name> opens that session (the TUI's "Open in web dashboard").
   const wantSession = new URLSearchParams(location.search).get('session') || '';
+  // ?session=X&draft=1 starts a draft in X's project, as "New session" does.
+  const wantDraft = new URLSearchParams(location.search).get('draft') === '1';
   if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
   const token = new URLSearchParams(location.search).get('token') || '';
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(token);
@@ -277,7 +279,7 @@
       const wanted = wantSession && state.sessions.find((x) => x.sessionId === wantSession || x.name === wantSession || x.name.endsWith('/' + wantSession));
       if (selected) attach(selected, true);
       else if (wantSession === 'new') startDraft();
-      else if (wanted) select(wanted.sessionId);
+      else if (wanted) { select(wanted.sessionId); if (wantDraft) startDraft(); }
       else if (state.sessions.length) select(state.sessions[0].sessionId);
       else startDraft();
     };
