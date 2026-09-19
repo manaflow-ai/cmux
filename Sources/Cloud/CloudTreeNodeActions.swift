@@ -209,6 +209,9 @@ struct CloudTreeNodeActions {
                     return
                 }
                 run(startingLabel(machine)) { catalog in
+                    if let remoteWorkspaceID {
+                        try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+                    }
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let token = catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
                     defer { catalog.cloudWorkspaceProjectionCoordinator.endLocalMutation(token, on: machine, catalog: catalog) }
