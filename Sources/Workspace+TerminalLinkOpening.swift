@@ -22,6 +22,15 @@ extension Workspace: TerminalLinkOpenContainer {
         )
     }
 
+    func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {
+        guard let target = surfaceOwnershipTarget(for: sourcePanelId),
+              let resource = SurfaceCatalog.shared.resource(forPanel: target.surfaceID)
+                ?? SurfaceCatalog.shared.resource(forPanel: target.containerPanelID),
+              let address = SurfaceCatalog.shared.machineInfo(for: resource.machine)?.privateAddress,
+              let target = CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(url: url, resource: resource, privateAddress: address) else { return nil }
+        return target
+    }
+
     func deferTerminalFileLinkOpen(
         sourcePanelId: UUID,
         filePath: String,
@@ -38,15 +47,16 @@ extension Workspace: TerminalLinkOpenContainer {
         return true
     }
 
-    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID) -> Bool {
+    func openTerminalBrowserLink(url: URL, sourcePanelId: UUID, focus: Bool = true) -> Bool {
         guard let target = surfaceOwnershipTarget(for: sourcePanelId) else { return false }
         if let targetPane = preferredRightSideTargetPane(fromPanelId: target.containerPanelID) {
-            return newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+            return newBrowserSurface(inPane: targetPane, url: url, focus: focus) != nil
         }
         return newBrowserSplit(
             from: target.containerPanelID,
             orientation: .horizontal,
-            url: url
+            url: url,
+            focus: focus
         ) != nil
     }
 }

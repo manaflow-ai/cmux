@@ -42,7 +42,8 @@ struct CloudVMNotificationRow: Hashable, Sendable {
     }
 
     static func row(fromPayload payload: Data) -> CloudVMNotificationRow? {
-        guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
+        guard payload.count <= CloudMachineNotificationEvent.maxLineBytes,
+              let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
         return row(fromObject: object)
     }
 
@@ -60,36 +61,14 @@ struct CloudVMNotificationRow: Hashable, Sendable {
         let readBy = (object["read_by"] as? [Any])?.compactMap { $0 as? String } ?? []
         return CloudVMNotificationRow(
             id: id,
-            title: title,
-            subtitle: (object["subtitle"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-            body: object["body"] as? String ?? "",
+            title: NotificationTextSanitizer.sanitize(title, maxBytes: CloudMachineNotificationEvent.maxTitleBytes),
+            subtitle: (object["subtitle"] as? String).map { NotificationTextSanitizer.sanitize($0, maxBytes: CloudMachineNotificationEvent.maxTitleBytes) }.flatMap { $0.isEmpty ? nil : $0 },
+            body: NotificationTextSanitizer.sanitize(object["body"] as? String ?? "", maxBytes: CloudMachineNotificationEvent.maxBodyBytes),
             level: object["level"] as? String ?? "info",
             createdAtMs: createdAtMs,
             terminalID: (object["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             readBy: readBy
         )
-    }
-}
-
-/// Durable per-machine sync state. `delivered` remembers which retained rows
-/// this Mac already turned into local notifications, so a snapshot repair, a
-/// reconnect replay, or an app relaunch never re-delivers one. `pendingAcks`
-/// are reads the daemon has not confirmed yet; each batch keeps its
-/// idempotency key across retries so a retried ack replays instead of
-/// committing twice.
-struct CloudNotificationSyncState: Codable, Equatable, Sendable {
-    struct PendingAck: Codable, Equatable, Sendable {
-        var key: String
-        var ids: [String]
-    }
-
-    static let deliveredLimit = 512
-
-    var delivered: [String] = []
-    var pendingAcks: [PendingAck] = []
-
-    var pendingIDs: Set<String> {
-        Set(pendingAcks.flatMap(\.ids))
     }
 }
 
@@ -124,8 +103,16 @@ enum CloudNotificationSyncReducer {
         // locally would lose a read that was recorded before the rows arrived.
         let delivered = Set(next.delivered)
         let pending = next.pendingIDs
+        var read = next.readIDs
         var deliver: [CloudVMNotificationRow] = []
-        for row in rows where !row.isRead(by: clientID) && !delivered.contains(row.id) && !pending.contains(row.id) {
+        for row in rows {
+            if row.isRead(by: clientID) {
+                appendReadID(row.id, to: &next, ids: &read)
+                continue
+            }
+            guard !read.contains(row.id),
+                  !delivered.contains(row.id),
+                  !pending.contains(row.id) else { continue }
             deliver.append(row)
             next.delivered.append(row.id)
         }
@@ -150,9 +137,11 @@ enum CloudNotificationSyncReducer {
     ) -> CloudNotificationSyncState {
         let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let pending = state.pendingIDs
+        let read = state.readIDs
         var batch: [String] = []
         for id in ids where !batch.contains(id) {
             if pending.contains(id) { continue }
+            if read.contains(id) { continue }
             if let row = byID[id], row.isRead(by: clientID) { continue }
             batch.append(id)
         }
@@ -164,8 +153,36 @@ enum CloudNotificationSyncReducer {
 
     static func ackCompleted(key: String, state: CloudNotificationSyncState) -> CloudNotificationSyncState {
         var next = state
-        next.pendingAcks.removeAll { $0.key == key }
+        var acknowledged: [String] = []
+        var remaining: [CloudNotificationSyncState.PendingAck] = []
+        for batch in next.pendingAcks {
+            if batch.key == key {
+                acknowledged.append(contentsOf: batch.ids)
+            } else {
+                remaining.append(batch)
+            }
+        }
+        guard !acknowledged.isEmpty else { return state }
+        next.pendingAcks = remaining
+        var read = next.readIDs
+        for id in acknowledged {
+            appendReadID(id, to: &next, ids: &read)
+        }
         return next
+    }
+
+    private static func appendReadID(
+        _ id: String,
+        to state: inout CloudNotificationSyncState,
+        ids: inout Set<String>
+    ) {
+        guard ids.insert(id).inserted else { return }
+        if state.read.count >= CloudNotificationSyncState.deliveredLimit,
+           let evicted = state.read.first {
+            state.read.removeFirst()
+            ids.remove(evicted)
+        }
+        state.read.append(id)
     }
 
     /// Read-your-write overlay: after the daemon confirmed a batch, the rows
@@ -194,63 +211,14 @@ enum CloudNotificationSyncReducer {
         state: CloudNotificationSyncState
     ) -> Set<String> {
         let pending = state.pendingIDs
+        let read = state.readIDs
         var result = Set<String>()
-        for row in rows where !row.isRead(by: clientID) && !pending.contains(row.id) {
+        for row in rows where !row.isRead(by: clientID)
+            && !read.contains(row.id)
+            && !pending.contains(row.id) {
             if let terminalID = row.terminalID { result.insert(terminalID) }
         }
         return result
-    }
-}
-
-/// Correlation keys tie a local `TerminalNotification` back to its machine
-/// and daemon row, so a local read can be acknowledged and a re-delivery
-/// replaces its own prior banner only.
-enum CloudNotificationCorrelation {
-    static let prefix = "cloud-notification:"
-
-    static func key(machineID: String, notificationID: String) -> String {
-        "\(prefix)\(machineID):\(notificationID)"
-    }
-
-    static func parse(_ key: String) -> (machineID: String, notificationID: String)? {
-        guard key.hasPrefix(prefix) else { return nil }
-        let rest = key.dropFirst(prefix.count)
-        guard let separator = rest.lastIndex(of: ":") else { return nil }
-        let machineID = String(rest[..<separator])
-        let notificationID = String(rest[rest.index(after: separator)...])
-        guard !machineID.isEmpty, !notificationID.isEmpty else { return nil }
-        return (machineID, notificationID)
-    }
-}
-
-/// Durable JSON state in `UserDefaults`, one key per machine. Not actor-bound:
-/// `UserDefaults` is thread-safe and the sync calls it from the main actor.
-struct CloudNotificationSyncStore {
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    static func key(machineID: String) -> String {
-        "cloud.notifications.sync.\(machineID)"
-    }
-
-    func load(machineID: String) -> CloudNotificationSyncState {
-        guard let data = defaults.data(forKey: Self.key(machineID: machineID)),
-              let state = try? JSONDecoder().decode(CloudNotificationSyncState.self, from: data) else {
-            return CloudNotificationSyncState()
-        }
-        return state
-    }
-
-    func save(_ state: CloudNotificationSyncState, machineID: String) {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        defaults.set(data, forKey: Self.key(machineID: machineID))
-    }
-
-    func remove(machineID: String) {
-        defaults.removeObject(forKey: Self.key(machineID: machineID))
     }
 }
 
@@ -290,9 +258,6 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
-    /// Rows the target resolver could not place yet (no local workspace for
-    /// the machine). They stay undelivered, not consumed, so a later placement
-    /// still delivers them once.
     private var flushTask: Task<Void, Never>?
     private var flushRequested = false
     /// Set by `retire()`: a replaced sync must not write the shared per-machine
@@ -302,7 +267,7 @@ final class CloudNotificationSync {
     init(
         machineID: String,
         clientID: String,
-        store: CloudNotificationSyncStore = CloudNotificationSyncStore(),
+        store: CloudNotificationSyncStore,
         newKey: @escaping () -> String = { "mac-ack-\(UUID().uuidString.lowercased())" },
         resolveTarget: @escaping TargetResolver,
         deliver: @escaping Deliverer,
@@ -325,6 +290,7 @@ final class CloudNotificationSync {
     /// Fold one accepted state. Called after every installed snapshot or
     /// delta; cheap when the rows did not change.
     func apply(rows incoming: [CloudVMNotificationRow]) {
+        guard !retired else { return }
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
@@ -359,6 +325,7 @@ final class CloudNotificationSync {
 
     /// Local reads of this machine's notifications, by daemon row id.
     func noteRead(notificationIDs: [String]) {
+        guard !retired else { return }
         let next = CloudNotificationSyncReducer.recordRead(
             ids: notificationIDs,
             rows: rows,
@@ -373,7 +340,16 @@ final class CloudNotificationSync {
 
     /// The link came back. Anything still pending is retried now.
     func linkDidConnect() {
+        guard !retired else { return }
         requestFlush()
+    }
+
+    /// Attempts outstanding reads and joins that pass, including persistence.
+    /// Failed sends remain pending for the next reconnect or accepted state.
+    func flushPendingReads() async {
+        requestFlush()
+        while let flushTask { await flushTask.value }
+        await store.flush()
     }
 
     /// Stop writing on behalf of this machine. A replacement sync for the same
@@ -392,8 +368,10 @@ final class CloudNotificationSync {
 
     private func commit(_ next: CloudNotificationSyncState) {
         guard !retired else { return }
-        state = next
-        store.save(next, machineID: machineID)
+        if next != state {
+            state = next
+            store.save(next, machineID: machineID)
+        }
         let unread = CloudNotificationSyncReducer.unreadTerminalIDs(rows: rows, clientID: clientID, state: next)
         if unread != unreadTerminalIDs {
             unreadTerminalIDs = unread
@@ -405,7 +383,7 @@ final class CloudNotificationSync {
     /// the pass and leaves the batch for the next accepted state or reconnect;
     /// there is no timer and no backoff here because the link owns recovery.
     private func requestFlush() {
-        guard !state.pendingAcks.isEmpty else { return }
+        guard !retired, !state.pendingAcks.isEmpty else { return }
         if flushTask != nil {
             flushRequested = true
             return
@@ -426,6 +404,8 @@ final class CloudNotificationSync {
         while let batch = state.pendingAcks.first {
             if Task.isCancelled { return }
             do {
+                await store.flush()
+                guard !retired, !Task.isCancelled else { return }
                 try await send(batch)
             } catch {
                 return
@@ -448,8 +428,17 @@ extension Notification.Name {
 @MainActor
 final class CloudNotificationSyncHub {
     static let shared = CloudNotificationSyncHub()
-
+    let persistenceStore = CloudNotificationSyncStore()
     private var syncs: [String: CloudNotificationSync] = [:]
+    private var notificationGate = CloudMachineNotificationGate()
+
+    /// One admission budget across all live machine providers. Dropped rows remain
+    /// consumed by the sync so subsequent catalog folds cannot replay a flood.
+    func admit(_ row: CloudVMNotificationRow, machineID: String) -> Bool {
+        notificationGate.admit(machineID: machineID, event: CloudMachineNotificationEvent(
+            id: row.id, terminalID: row.terminalID, title: row.title, body: row.body
+        )) == .allowed
+    }
     private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
     private var storeSubscription: AnyCancellable?
     private var unreadCloudKeys: Set<String>?

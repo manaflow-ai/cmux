@@ -590,6 +590,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             )
                             continue
                         }
+                        let observedInput = frame.appliedInputSequence
+                        let observedReceipt = chunk.receivedAtNanos
+                        let observedStream = chunk.streamToken
+                        if chunk.latencyMetricsEligible {
+                            surfaceView.onOutputPresentation = { @MainActor @Sendable [weak store] in
+                                store?.terminalOutputDidPresent(
+                                    surfaceID: surfaceID,
+                                    streamToken: observedStream,
+                                    inputSequence: observedInput,
+                                    receivedAtNanos: observedReceipt,
+                                    latencyMetricsEligible: true
+                                )
+                            }
+                        } else {
+                            surfaceView.onOutputPresentation = nil
+                        }
                         let applied = await self.applyVerifiedRenderGrid(
                             frame,
                             chunk: chunk,
@@ -722,6 +738,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             )
                             continue
                         }
+                    }
+                    let observedInput = chunk.sourceRenderGridFrame?.appliedInputSequence
+                    let observedReceipt = chunk.receivedAtNanos
+                    let observedStream = chunk.streamToken
+                    if chunk.latencyMetricsEligible {
+                        surfaceView.onOutputPresentation = { @MainActor @Sendable [weak store] in
+                            store?.terminalOutputDidPresent(
+                                surfaceID: surfaceID,
+                                streamToken: observedStream,
+                                inputSequence: observedInput,
+                                receivedAtNanos: observedReceipt,
+                                latencyMetricsEligible: true
+                            )
+                        }
+                    } else {
+                        surfaceView.onOutputPresentation = nil
                     }
                     #if DEBUG
                     surfaceView.markLatencyAppliedSequence(latencySequence)

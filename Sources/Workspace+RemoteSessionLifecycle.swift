@@ -86,11 +86,18 @@ extension Workspace {
             return
         }
         guard !blockingCleanupFailed else {
-            remoteControllerConnectionState = .error
-            remoteControllerConnectionDetail = remoteConnectionDetail
-            remoteConnectionState = .error
-            applyBrowserRemoteWorkspaceStatusToPanels()
+            // No replacement controller starts, so nothing else will ever
+            // explain this state: say why here, and release any attach that
+            // is already waiting for a controller (#12813).
+            applyRemoteConnectionStateUpdate(
+                .error,
+                detail: remoteSessionCleanupBlockedDetail,
+                target: remoteDisplayTarget ?? "remote host"
+            )
             postRemoteConnectionPresentationDidChange()
+            // The waiter re-reads workspace state on the main actor, which it
+            // reaches only after this transition (and its `defer`) finished.
+            TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged()
             return
         }
 
@@ -113,13 +120,15 @@ extension Workspace {
             proxyBroker: TerminalController.shared.remoteProxyBroker,
             connectionBroker: nativeSSHConnectionBroker,
             manifestRepository: RemoteDaemonManifestRepository(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+                homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                bundledAssetsDirectory: Bundle.main.resourceURL?.appendingPathComponent("remote-daemons", isDirectory: true)
             ),
             processRunner: processRunner,
             reachabilityProbe: RemoteHostReachabilityProbe(),
             relayCommandRewriter: WorkspaceRemoteRelayCommandRewriter(
                 remoteWorkspaceID: id,
-                remoteRelayTokenHex: configuration.relayToken ?? ""
+                remoteRelayTokenHex: configuration.relayToken ?? "",
+                remoteSessionControllerID: controllerID
             ),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
@@ -143,12 +152,19 @@ extension Workspace {
 
     @discardableResult
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
+        if isManagedCloudVMWorkspace, !CloudMachinesFeature.offMainIsEnabled() { return false }
+        if let surfaceId,
+           let resource = cloudProjectedResource(forPanel: surfaceId),
+           let machineID = resource.id.machine.cloudMachineID,
+           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
+            return session.retryConnection()
+        }
         // `DisableRemoteConnections` (MDM): a configuration retained from
         // before the policy activated must not redial. New connections are
         // refused by `configureRemoteConnection`, and the enforcement observer
         // disconnects live ones; this covers the reconnect affordances in
         // between (sidebar, placeholder pane, socket `reconnect`).
-        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         guard let configuration = remoteConfiguration else { return false }
         var didRespawnTerminal = false
         // Persistent SSH wrappers must not be launched while the management
@@ -210,11 +226,39 @@ extension Workspace {
 
     @discardableResult
     func reconnectCloudTerminalSurface(surfaceId: UUID) -> Bool {
+        guard !managedDevicePolicy.isEnforced(.disableRemoteConnections), CloudMachinesFeature.offMainIsEnabled() else { return false }
+        // An optimistic pane whose creation failed replays its own request.
+        if retryReservedCloudTerminalPane(surfaceId: surfaceId) { return true }
+        if let resource = cloudProjectedResource(forPanel: surfaceId),
+           let machineID = resource.id.machine.cloudMachineID,
+           let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID) {
+            guard let session = provider.manualMirrorSessions[surfaceId] else {
+                clearCloudMaterializationFailure(surfaceID: surfaceId)
+                provider.scheduleRefresh()
+                return true
+            }
+            (panels[surfaceId] as? TerminalPanel)?.requestViewReattach()
+            return session.retryConnection()
+        }
         guard isManagedCloudVMWorkspace,
               isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId) else {
             return false
         }
         return reconnectRemoteConnection(surfaceId: surfaceId)
+    }
+
+    func suspendCloudRemoteConfiguration(_ configuration: WorkspaceRemoteConfiguration) -> Bool {
+        disconnectRemoteConnection(clearConfiguration: false, disconnectedDetail: CloudMachinesFeature.disabledMessage)
+        remoteConfiguration = configuration.scopedToOwnerWorkspace(id)
+        remoteControllerConnectionState = .disconnected
+        remoteConnectionState = .disconnected
+        remoteConnectionDetail = String(
+            localized: "cloud.feature.disabled",
+            defaultValue: "Cloud Machines are temporarily unavailable."
+        )
+        applyBrowserRemoteWorkspaceStatusToPanels()
+        postRemoteConnectionPresentationDidChange()
+        return true
     }
 
     private func remoteReconnectTerminalSurfaceId(requestedSurfaceId: UUID?) -> UUID? {

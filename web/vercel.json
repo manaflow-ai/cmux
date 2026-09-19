@@ -12,6 +12,10 @@
   ],
   "crons": [
     {
+      "path": "/api/cron/vm-runtime-limits",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },
@@ -38,6 +42,14 @@
     {
       "path": "/api/cron/vm-reaper",
       "schedule": "49 * * * *"
+    },
+    {
+      "path": "/api/cron/cloud-diagnostics",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/push-token-revocations",
+      "schedule": "37 * * * *"
     }
   ]
 }

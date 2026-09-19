@@ -54,8 +54,8 @@ extension MobilePairedMacStore {
         }
     }
 
-    func transaction(_ block: () throws -> Void) throws {
-        try exec("BEGIN IMMEDIATE;")
+    func transaction(immediate: Bool = true, _ block: () throws -> Void) throws {
+        try exec(immediate ? "BEGIN IMMEDIATE;" : "BEGIN;")
         do {
             try block()
             try exec("COMMIT;")
