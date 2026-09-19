@@ -30,6 +30,9 @@ public struct AutomationSection: View {
     @State private var showOpenAccessConfirmation: Bool = false
     @State private var pendingOpenAccessMode: SocketControlMode?
     @State private var modeBeforePendingOpenAccess: SocketControlMode?
+    @State private var automationRulesStatus: AutomationRulesStatus?
+    @State private var automationRulesActionMessage: String?
+    @State private var automationRulesActionIsError = false
 
     private struct SocketPasswordStatus: Equatable {
         let message: String
@@ -83,6 +86,7 @@ public struct AutomationSection: View {
             SettingsSectionHeader(String(localized: "settings.section.automation", defaultValue: "Automation"), section: .automation)
 
             socketControlCard
+            automationRulesCard
             claudeCodeCard
             codexCard
             claudePathCard
@@ -124,7 +128,93 @@ public struct AutomationSection: View {
                 localized: "settings.automation.openAccess.dialog.message",
                 defaultValue: "This disables ancestry and password checks and opens the socket to all local users. Only enable when you understand the risk."
             ))
-        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
+        }.task {
+            startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel])
+            await refreshAutomationRulesStatus()
+        }
+    }
+
+    @ViewBuilder
+    private var automationRulesCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .action,
+                String(localized: "settings.automation.rules", defaultValue: "Automation Rules"),
+                subtitle: automationRulesSubtitle
+            ) {
+                HStack(spacing: 8) {
+                    Button(String(localized: "settings.automation.rules.edit", defaultValue: "Edit Rules")) {
+                        automationRulesActionMessage = nil
+                        hostActions.openAutomationRulesInExternalEditor()
+                        Task { await refreshAutomationRulesStatus() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAutomationRulesEditButton")
+
+                    Button(String(localized: "settings.automation.rules.reload", defaultValue: "Reload")) {
+                        let didRequestReload = hostActions.reloadAutomationRules()
+                        automationRulesActionIsError = !didRequestReload
+                        automationRulesActionMessage = didRequestReload
+                            ? String(localized: "settings.automation.rules.reload.requested", defaultValue: "Reload requested.")
+                            : String(localized: "settings.automation.rules.reload.unavailable", defaultValue: "Automation engine unavailable.")
+                        Task { await refreshAutomationRulesStatus() }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsAutomationRulesReloadButton")
+                }
+            }
+            .accessibilityIdentifier("SettingsAutomationRulesStatus")
+
+            SettingsCardDivider()
+            SettingsCardNote(String(
+                localized: "settings.automation.rules.note",
+                defaultValue: "Rules live in ~/.cmuxterm/automations.json. Edit the JSON directly, then reload the running engine. The cmux automation CLI remains available for test and log diagnostics."
+            ))
+
+            if let automationRulesActionMessage {
+                SettingsCardDivider()
+                Text(automationRulesActionMessage)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(automationRulesActionIsError ? Color.red : Color.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier("SettingsAutomationRulesActionStatus")
+            }
+        }
+    }
+
+    private var automationRulesSubtitle: String {
+        guard let status = automationRulesStatus else {
+            return String(localized: "settings.automation.rules.loading", defaultValue: "Loading rules…")
+        }
+        if let errorMessage = status.errorMessage {
+            let format = String(
+                localized: "settings.automation.rules.error",
+                defaultValue: "Configuration error: %@"
+            )
+            return String.localizedStringWithFormat(format, errorMessage)
+        }
+        if status.ruleCount == 0 {
+            return status.configExists
+                ? String(localized: "settings.automation.rules.empty", defaultValue: "No rules configured yet.")
+                : String(localized: "settings.automation.rules.missing", defaultValue: "No rules file yet.")
+        }
+        let format = String(
+            localized: "settings.automation.rules.counts",
+            defaultValue: "%1$lld total • %2$lld enabled • %3$lld disabled"
+        )
+        return String.localizedStringWithFormat(
+            format,
+            Int64(status.ruleCount),
+            Int64(status.enabledCount),
+            Int64(status.disabledCount)
+        )
+    }
+
+    private func refreshAutomationRulesStatus() async {
+        automationRulesStatus = await hostActions.automationRulesStatus()
     }
 
     @ViewBuilder
