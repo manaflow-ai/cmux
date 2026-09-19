@@ -68,7 +68,7 @@ public protocol SettingsHostActions: AnyObject {
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
 
-    /// Opens the interactive Ghostty theme picker in a focused cmux terminal pane.
+    /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
     func openTerminalThemePicker()
 
     /// Launches the host's browser-import flow (Safari / Chrome /

@@ -8,7 +8,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
@@ -114,9 +114,7 @@ final class HostSettingsActions: SettingsHostActions {
         let cliURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
         guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            hostSettingsLogger.error(
-                "Theme picker unavailable: bundled cmux CLI missing at \(cliURL.path, privacy: .public)"
-            )
+            hostSettingsLogger.error("Theme picker unavailable: bundled cmux CLI missing")
             return
         }
 
@@ -127,7 +125,10 @@ final class HostSettingsActions: SettingsHostActions {
             return
         }
 
-        let initialCommand = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes; exit"
+        // The native Settings entry point keeps CLI diagnostics private. The
+        // interactive picker still owns stdout/the TTY, while raw helper and
+        // launch errors on stderr are suppressed on this user-facing path.
+        let initialCommand = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) themes 2>/dev/null; exit"
         do {
             let picker = try SurfacePaneFactory.makeTerminalPane(
                 initialCommand: initialCommand,
@@ -143,9 +144,7 @@ final class HostSettingsActions: SettingsHostActions {
                 in: picker.workspaceID
             )
         } catch {
-            hostSettingsLogger.error(
-                "Failed to open terminal theme picker: \(String(describing: error), privacy: .public)"
-            )
+            hostSettingsLogger.error("Failed to open terminal theme picker")
         }
     }
 

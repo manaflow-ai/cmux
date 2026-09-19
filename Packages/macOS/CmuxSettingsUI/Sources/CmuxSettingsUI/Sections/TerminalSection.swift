@@ -259,20 +259,10 @@ public struct TerminalSection: View {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
-                String(
-                    localized: "settings.terminal.theme",
-                    defaultValue: "Terminal Theme"
-                ),
-                subtitle: String(
-                    localized: "settings.terminal.theme.subtitle",
-                    defaultValue: "Browse Ghostty themes with live preview, including separate light and dark choices."
-                )
+                String(localized: "settings.app.theme", defaultValue: "Theme")
             ) {
                 Button(
-                    String(
-                        localized: "settings.terminal.theme.choose",
-                        defaultValue: "Choose…"
-                    )
+                    String(localized: "settings.browser.import.choose", defaultValue: "Choose…")
                 ) {
                     hostActions.openTerminalThemePicker()
                 }
