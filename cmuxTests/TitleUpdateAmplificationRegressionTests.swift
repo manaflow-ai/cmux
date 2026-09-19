@@ -17,8 +17,7 @@ import Testing
 @MainActor
 @Suite("Title update amplification", .serialized)
 struct TitleUpdateAmplificationRegressionTests {
-    private static let automaticTitleScalarBound =
-        TerminalTitleChurnFilter.maximumAutomaticTitleScalars
+    private static let automaticTitleScalarBound = AutomaticTerminalTitle.maximumScalars
 
     @Test
     func multilineAutomaticTitleIsBoundedBeforeManyWorkspaceSnapshotEncoding() async throws {

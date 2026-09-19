@@ -4019,12 +4019,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
-        self.processTitle = AutomaticTerminalTitle(title)?.value ?? "Terminal"
-        self.title = self.processTitle
+        let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? "Terminal"
+        self.processTitle = admittedAutomaticTitle
+        self.title = admittedAutomaticTitle
         self.customTitle = nil
         self.customTitleSource = nil
         self.customDescription = nil
-
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
         let initialDirectory = hasWorkingDirectory
@@ -4177,7 +4177,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
             // Create initial tab in bonsplit and store the mapping
             if let tabId = bonsplitController.createTab(
-                title: title,
+                title: admittedAutomaticTitle,
                 icon: "terminal.fill",
                 kind: SurfaceKind.terminal.rawValue,
                 isDirty: false,
