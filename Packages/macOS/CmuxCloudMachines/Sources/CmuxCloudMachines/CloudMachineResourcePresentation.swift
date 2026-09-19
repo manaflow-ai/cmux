@@ -98,6 +98,14 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
     /// The three resource details in display order, separated by newlines.
     public var summary: String { [cpu.detail, memory.detail, disk.detail].joined(separator: "\n") }
 
+    /// A compact readout that keeps each label and value together while allowing
+    /// wrapping between readings in narrow sidebars or at larger text sizes.
+    public var inlineSummary: String {
+        [cpu, memory, disk]
+            .map { "\($0.label)\u{00A0}\($0.value)" }
+            .joined(separator: " · ")
+    }
+
     /// Presents advisory resource readings without depending on app or provider types.
     ///
     /// Localized text uses the host application's string catalog.

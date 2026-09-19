@@ -16,6 +16,9 @@ struct CloudMachineResourcePresentationTests {
         #expect(result.cpu.value == (0.094).formatted(.percent.precision(.fractionLength(0))))
         #expect(result.memory.detail.contains("2/4"))
         #expect(result.disk.detail.contains("3/4"))
+        #expect(result.inlineSummary.contains("CPU"))
+        #expect(result.inlineSummary.contains("RAM"))
+        #expect(result.inlineSummary.contains("Disk"))
     }
 
     @Test func zeroIsARealReadingAndMissingSamplesKeepTheirLabels() {

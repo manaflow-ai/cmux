@@ -10,14 +10,10 @@ struct CloudTreeMachineResourceView: View {
 
     var body: some View {
         CloudTreeMachineDetailView(line: line, style: style)
-            .accessibilityLabel(metrics.summary)
+            .accessibilityLabel(metrics.summary.replacingOccurrences(of: "\n", with: ", "))
     }
 
-    private var line: String {
-        [metrics.cpu, metrics.memory, metrics.disk]
-            .map { "\($0.label)\u{00A0}\($0.value)" }
-            .joined(separator: " · ")
-    }
+    private var line: String { metrics.inlineSummary }
 
     /// AppKit reserves the same wrapping text height as the hosted SwiftUI row.
     func height(width: CGFloat, magnification: Int) -> CGFloat {
