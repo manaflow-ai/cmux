@@ -35,6 +35,16 @@ extension View {
         }
     }
 
+    /// Keep custom detents on iOS 17; let newer iPads fit the content width.
+    @ViewBuilder
+    func mobileFittedPresentationSizing() -> some View {
+        if #available(iOS 18.0, *) {
+            presentationSizing(.fitted)
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     func mobileToolbarVisibility(_ visibility: Visibility, for bar: ToolbarPlacement) -> some View {
         if #available(iOS 18.0, *) {
