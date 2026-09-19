@@ -52,6 +52,8 @@ export const CMUX_CLOUD_HOME = DEVBOX_WORK_HOME;
 export const CMUX_TUI_LEGACY_HOME = "/root";
 export const CMUX_TUI_BINARY_PATH = `${CMUX_CLOUD_HOME}/.cmux/bin/cmux-tui`;
 export const CMUX_TUI_LEGACY_BINARY_PATH = `${CMUX_TUI_LEGACY_HOME}/.cmux/bin/cmux-tui`;
+/** Real executable path shared with work-user shells when healing legacy root images. */
+export const CMUX_TUI_SHARED_BINARY_PATH = "/usr/local/lib/cmux/cmux-tui";
 /** Which layout the running daemon chose; a breadcrumb for operators, not an input. */
 export const CMUX_TUI_LAYOUT_MARKER_PATH = "/etc/cmux/daemon-layout";
 
@@ -256,18 +258,56 @@ export function resetCmuxTuiSourceCache(): void {
 export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
   const bin = '"$CMUX_TUI_BIN"';
   const tmp = '"$CMUX_TUI_TMP"';
-  return [
-    cmuxTuiLayoutSelector(),
+  // A new work-user image already has a world-readable home. Legacy root images
+  // keep their daemon state under /root, but the executable moves to a shared
+  // path so the uid-1000 shell can run it through both historical symlinks.
+  const legacyShared = shellQuote(CMUX_TUI_SHARED_BINARY_PATH);
+  const legacyBin = '"$CMUX_TUI_BIN"';
+  const legacyTmp = shellQuote(`${CMUX_TUI_SHARED_BINARY_PATH}.tmp`);
+  const expected = '"$CMUX_TUI_EXPECTED_SHA"';
+  const matches = (path: string) => `printf '%s  %s\\n' ${expected} ${path} | sha256sum -c >/dev/null 2>&1`;
+  const legacyFetch =
+    `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
+    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${legacyTmp} ${shellQuote(source.url)}; ` +
+    `else wget -q -O ${legacyTmp} ${shellQuote(source.url)}; fi`;
+  const legacyInstall = [
+    `mkdir -p ${shellQuote(dirname(CMUX_TUI_SHARED_BINARY_PATH))} "$(dirname \"$CMUX_TUI_BIN\")"`,
+    `chmod 755 ${shellQuote(dirname(CMUX_TUI_SHARED_BINARY_PATH))}`,
+    `CMUX_TUI_EXPECTED_SHA=$(if [ -s /etc/cmux/cmux-tui-pin ]; then cut -d' ' -f1 /etc/cmux/cmux-tui-pin; else printf '%s' ${shellQuote(source.sha256)}; fi)`,
+    `if [ ! -e ${legacyShared} ] && [ -f ${legacyBin} ] && [ ! -L ${legacyBin} ] && ${matches(legacyBin)}; then mv -f ${legacyBin} ${legacyShared}; fi`,
+    `if [ -x ${legacyShared} ] && ${matches(legacyShared)}; then :; else ${legacyFetch} && ${pinnedFile(source.sha256, legacyTmp)} && chmod 755 ${legacyTmp} && mv -f ${legacyTmp} ${legacyShared}; fi`,
+    `chmod 755 ${legacyShared}`,
+    `ln -sfn ${legacyShared} ${legacyBin}`,
+    `ln -sfn ${legacyShared} /usr/local/bin/cmux-tui`,
+  ].join(" && ");
+  const userInstall = [
     `CMUX_TUI_TMP="$CMUX_TUI_BIN.tmp"`,
     `mkdir -p "$(dirname "$CMUX_TUI_BIN")"`,
     `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
-    ...hookHelperInstallSteps(source),
-    // Only the nodes this install created, never the daemon's state tree.
-    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,
-    `${bin} --version`,
-    ...agentHooksInstallSteps(),
   ].join(" && ");
+  const hookSteps = source.hookUrl && source.hookSha256
+    ? [
+        ...hookHelperInstallSteps(source),
+        `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,
+        `${bin} --version`,
+        ...agentHooksInstallSteps(),
+      ].join(" && ")
+    : `${bin} --version`;
+  return [
+    cmuxTuiLayoutSelector(),
+    `if [ "$CMUX_TUI_USER" = root ]; then ${legacyInstall}; else ${userInstall}; fi`,
+    // Legacy baked pins may predate the current hook protocol. Install hooks only
+    // when the selected executable matches this manifest; otherwise preserve the
+    // baked daemon and let a rebake deliver its compatible helper.
+    `if ${pinnedFile(source.sha256, bin)}; then ${hookSteps}; else ${bin} --version; fi`,
+  ].join(" && ");
+}
+
+/** True when the canonical and PATH links use a world-readable legacy binary. */
+export function cmuxTuiLayoutCheckCommand(): string {
+  const shared = shellQuote(CMUX_TUI_SHARED_BINARY_PATH);
+  return `if [ "$CMUX_TUI_USER" = root ]; then [ "$(readlink \"$CMUX_TUI_BIN\")" = ${shared} ] && [ "$(readlink /usr/local/bin/cmux-tui)" = ${shared} ]; else test "$(readlink /usr/local/bin/cmux-tui)" = "$CMUX_TUI_BIN"; fi`;
 }
 
 const HOOK_BIN = '"$CMUX_TUI_HOOK_BIN"';
@@ -294,7 +334,7 @@ function fetchTo(path: string, url: string): string {
  */
 function hookHelperInstallSteps(source: CmuxTuiSource): string[] {
   return [
-    `CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"`,
+    `CMUX_TUI_HOOK_BIN="$(dirname "$(readlink -f "$CMUX_TUI_BIN")")/cmux-tui-hook"`,
     `CMUX_TUI_HOOK_TMP="$CMUX_TUI_HOOK_BIN.tmp"`,
     `if [ -x ${HOOK_BIN} ] && ${pinnedFile(source.hookSha256, HOOK_BIN)}; then :; else ${fetchTo(HOOK_TMP, source.hookUrl)} && ${pinnedFile(source.hookSha256, HOOK_TMP)} && chmod 755 ${HOOK_TMP} && mv -f ${HOOK_TMP} ${HOOK_BIN}; fi`,
   ];
@@ -349,13 +389,13 @@ export function cmuxTuiAgentHooksInstallCommand(source: CmuxTuiSource): string {
 
 /** Exit 0 when the daemon user's coding-agent hooks are installed and current. */
 export function cmuxTuiHooksReadyCommand(): string {
-  return `${cmuxTuiLayoutSelector()} && CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook" && ${cmuxTuiHooksReadyCheck()}`;
+  return `${cmuxTuiLayoutSelector()} && CMUX_TUI_HOOK_BIN="$(dirname "$(readlink -f "$CMUX_TUI_BIN")")/cmux-tui-hook" && ${cmuxTuiHooksReadyCheck()}`;
 }
 
 /** True when the installed binary matches the manifest pin (exit 0 from this command). */
 export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
   return (
-    `${cmuxTuiLayoutSelector()} && ` +
+    `${cmuxTuiLayoutSelector()} && ${cmuxTuiLayoutCheckCommand()} && ` +
     `test -x "$CMUX_TUI_BIN" && printf '%s  %s\n' ${shellQuote(source.sha256)} "$CMUX_TUI_BIN" | sha256sum -c >/dev/null 2>&1`
   );
 }
