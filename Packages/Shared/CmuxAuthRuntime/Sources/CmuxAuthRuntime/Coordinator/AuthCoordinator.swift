@@ -144,9 +144,9 @@ public final class AuthCoordinator {
     @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
+    @ObservationIgnored var teamMutationGeneration: UInt64 = 0
     @ObservationIgnored var isCapturingSignOutCredentials = false
     @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
-
     /// Begin a sign-in flow: register it as the newest attempt and capture
     /// the staleness context. Call before the flow's first await.
     private func beginSignInFlow() async throws -> SignInFlowContext {

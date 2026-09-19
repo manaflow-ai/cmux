@@ -9,7 +9,15 @@ public extension AuthCoordinator {
         if let id, !availableTeams.contains(where: { $0.id == id }) {
             throw AuthClientError.teamNotAvailable
         }
+        teamMutationGeneration &+= 1
+        let mutationGeneration = teamMutationGeneration
+        let sessionGeneration = self.sessionGeneration
         try await client.setSelectedTeam(id: id)
+        guard sessionGeneration == self.sessionGeneration,
+              mutationGeneration == teamMutationGeneration,
+              isAuthenticated else {
+            throw AuthError.unauthorized
+        }
         selectedTeamID = id
     }
 
@@ -20,12 +28,21 @@ public extension AuthCoordinator {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AuthClientError.invalidTeamName }
         guard isAuthenticated else { throw AuthError.unauthorized }
+        teamMutationGeneration &+= 1
+        let mutationGeneration = teamMutationGeneration
         let generation = sessionGeneration
         let created = try await client.createTeam(displayName: trimmed)
-        guard generation == sessionGeneration, isAuthenticated else {
+        guard generation == sessionGeneration,
+              mutationGeneration == teamMutationGeneration,
+              isAuthenticated else {
             throw AuthError.unauthorized
         }
         var refreshed = try await client.listTeams()
+        guard generation == sessionGeneration,
+              mutationGeneration == teamMutationGeneration,
+              isAuthenticated else {
+            throw AuthError.unauthorized
+        }
         if !refreshed.contains(where: { $0.id == created.id }) {
             refreshed.append(created)
         }

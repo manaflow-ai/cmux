@@ -1,5 +1,8 @@
 import CmuxAuthRuntime
 import Foundation
+import OSLog
+
+private let authTeamLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth-team")
 
 extension TerminalController {
     /// Handles the shared team-selection socket actions used by the CLI.
@@ -10,29 +13,17 @@ extension TerminalController {
         case "auth.team.list":
             return v2Ok(id: request.id, result: v2AuthTeamStatusPayload())
         case "auth.team.use":
-            guard let teamID = request.params["team_id"] as? String,
-                  !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return v2Error(
-                    id: request.id,
-                    code: "invalid_params",
-                    message: String(localized: "socket.authTeam.missingTeam", defaultValue: "A team id is required.")
-                )
-            }
-            return v2AuthTeamMutation(request: request) { flow in
-                try await flow.selectTeam(id: teamID)
-            }
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: String(localized: "socket.authTeam.asyncRequired", defaultValue: "Team actions require asynchronous socket dispatch.")
+            )
         case "auth.team.create":
-            guard let displayName = request.params["display_name"] as? String,
-                  !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return v2Error(
-                    id: request.id,
-                    code: "invalid_params",
-                    message: String(localized: "socket.authTeam.missingName", defaultValue: "A team name is required.")
-                )
-            }
-            return v2AuthTeamMutation(request: request) { flow in
-                _ = try await flow.createTeam(displayName: displayName)
-            }
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: String(localized: "socket.authTeam.asyncRequired", defaultValue: "Team actions require asynchronous socket dispatch.")
+            )
         default:
             return v2Error(
                 id: request.id,
@@ -40,32 +31,6 @@ extension TerminalController {
                 message: String(localized: "socket.authTeam.unknownMethod", defaultValue: "Unknown team action.")
             )
         }
-    }
-
-    private nonisolated func v2AuthTeamMutation(
-        request: V2SocketRequest,
-        action: @escaping @MainActor (HostAccountFlow) async throws -> Void
-    ) -> String {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var failure: Error?
-        Task { @MainActor [weak self] in
-            defer { semaphore.signal() }
-            do {
-                guard let flow = self?.accountFlow else { throw AuthError.unauthorized }
-                try await action(flow)
-            } catch {
-                failure = error
-            }
-        }
-        semaphore.wait()
-        if let failure {
-            return v2Error(
-                id: request.id,
-                code: "team_selection_failed",
-                message: failure.localizedDescription
-            )
-        }
-        return v2Ok(id: request.id, result: v2AuthTeamStatusPayload())
     }
 
     private nonisolated func v2AuthTeamStatusPayload() -> [String: Any] {
@@ -94,5 +59,84 @@ extension TerminalController {
             }
         }
         return result
+    }
+
+    /// Async socket path for team mutations. Socket connections must suspend
+    /// while the MainActor-owned auth coordinator performs network work; they
+    /// must not park a worker thread behind a semaphore.
+    nonisolated func v2AuthTeamResponseAsync(_ request: ControlRequest) async -> String {
+        let params = request.params.mapValues(\.foundationObject)
+        let id = request.id?.foundationObject
+        switch request.method {
+        case "auth.team.list":
+            return v2Ok(id: id, result: v2AuthTeamStatusPayload())
+        case "auth.team.use":
+            guard let teamID = params["team_id"] as? String,
+                  !teamID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(localized: "socket.authTeam.missingTeam", defaultValue: "A team id is required.")
+                )
+            }
+            return await v2AuthTeamMutationAsync(id: id) { flow in
+                try await flow.selectTeam(id: teamID)
+            }
+        case "auth.team.create":
+            guard let displayName = params["display_name"] as? String,
+                  !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(localized: "socket.authTeam.missingName", defaultValue: "A team name is required.")
+                )
+            }
+            return await v2AuthTeamMutationAsync(id: id) { flow in
+                _ = try await flow.createTeam(displayName: displayName)
+            }
+        default:
+            return v2Error(
+                id: id,
+                code: "method_not_found",
+                message: String(localized: "socket.authTeam.unknownMethod", defaultValue: "Unknown team action.")
+            )
+        }
+    }
+
+    private nonisolated func v2AuthTeamMutationAsync(
+        id: Any?,
+        action: @escaping @MainActor (HostAccountFlow) async throws -> Void
+    ) async -> String {
+        guard let flow = await v2MainAsync({ self.accountFlow }) else {
+            return v2Error(
+                id: id,
+                code: "auth_required",
+                message: String(localized: "socket.authTeam.signedOut", defaultValue: "Sign in to manage teams.")
+            )
+        }
+        do {
+            try await action(flow)
+            return v2Ok(id: id, result: v2AuthTeamStatusPayload())
+        } catch {
+            authTeamLog.error("team mutation failed: \(String(describing: error), privacy: .private)")
+            return v2Error(
+                id: id,
+                code: "team_selection_failed",
+                message: v2AuthTeamUserMessage(error)
+            )
+        }
+    }
+
+    private nonisolated func v2AuthTeamUserMessage(_ error: Error) -> String {
+        switch error {
+        case AuthError.unauthorized:
+            return String(localized: "socket.authTeam.signedOut", defaultValue: "Sign in to manage teams.")
+        case AuthClientError.teamNotAvailable:
+            return String(localized: "socket.authTeam.notMember", defaultValue: "You are not a member of that team.")
+        case AuthClientError.invalidTeamName:
+            return String(localized: "socket.authTeam.invalidName", defaultValue: "Enter a team name.")
+        default:
+            return String(localized: "socket.authTeam.failed", defaultValue: "Could not update the team. Try again.")
+        }
     }
 }

@@ -123390,51 +123390,251 @@
     "cloudTree.group.resources": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
-        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressources"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الموارد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資源"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资源"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리소스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resursi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressourcer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risorse"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធនធាន"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ressurser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zasoby"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recursos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурсы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทรัพยากร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaynaklar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ресурси"
+          }
+        }
       }
     },
     "cloudTree.resources.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
-        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
-        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
-        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
-        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
-        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
-        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用量"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용량"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用状況"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilizzo"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання"
+          }
+        }
       }
     },
     "cloudTree.group.terminals": {
@@ -396441,60 +396641,60 @@
         }
       }
     },
-    "sidebar.cloudWorkspace.directoryUnavailable" : {
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "الدليل غير متاح"
+    "sidebar.cloudWorkspace.directoryUnavailable": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدليل غير متاح"
           }
         },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Verzeichnis nicht verfügbar"
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verzeichnis nicht verfügbar"
           }
         },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Directory unavailable"
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directory unavailable"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Directorio no disponible"
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Directorio no disponible"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Répertoire indisponible"
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Répertoire indisponible"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ディレクトリを取得できません"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディレクトリを取得できません"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "디렉터리를 사용할 수 없음"
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디렉터리를 사용할 수 없음"
           }
         },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目录不可用"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目录不可用"
           }
         },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "目錄無法使用"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目錄無法使用"
           }
         }
       }
@@ -530107,6 +530307,301 @@
           "stringUnit": {
             "state": "translated",
             "value": "사용법: cmux auth <status|login|logout|team>\n\nstatus   로그인 상태를 표시합니다.\nlogin    로그인 창을 엽니다.\nlogout   현재 세션을 지웁니다.\nteam     팀을 나열하거나 선택합니다."
+          }
+        }
+      }
+    },
+    "socket.authTeam.asyncRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team actions require asynchronous socket dispatch."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamaktionen benötigen asynchrone Socket-Verarbeitung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les actions d’équipe nécessitent un traitement de socket asynchrone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب إجراءات الفريق معالجة غير متزامنة للمقبس."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las acciones de equipo requieren un despacho de socket asíncrono."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "團隊操作需要非同步 Socket 分派。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队操作需要异步 Socket 分派。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 작업에는 비동기 소켓 디스패치가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーム操作には非同期ソケットディスパッチが必要です。"
+          }
+        }
+      }
+    },
+    "socket.authTeam.signedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to manage teams."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melden Sie sich an, um Teams zu verwalten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous pour gérer les équipes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول لإدارة الفرق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicia sesión para administrar equipos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請登入以管理團隊。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请登录以管理团队。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀을 관리하려면 로그인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームを管理するにはサインインしてください。"
+          }
+        }
+      }
+    },
+    "socket.authTeam.notMember": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You are not a member of that team."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sie sind kein Mitglied dieses Teams."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous n’êtes pas membre de cette équipe."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لست عضوًا في هذا الفريق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No eres miembro de ese equipo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您不是該團隊的成員。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您不是该团队的成员。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 팀의 멤버가 아닙니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのチームのメンバーではありません。"
+          }
+        }
+      }
+    },
+    "socket.authTeam.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a team name."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen Teamnamen ein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un nom d’équipe."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسم فريق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un nombre de equipo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入團隊名稱。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入团队名称。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 이름을 입력하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーム名を入力してください。"
+          }
+        }
+      }
+    },
+    "socket.authTeam.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not update the team. Try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Team konnte nicht aktualisiert werden. Erneut versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de mettre à jour l’équipe. Réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحديث الفريق. حاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo actualizar el equipo. Inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更新團隊，請再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更新团队，请重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀을 업데이트할 수 없습니다. 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームを更新できませんでした。もう一度お試しください。"
           }
         }
       }
