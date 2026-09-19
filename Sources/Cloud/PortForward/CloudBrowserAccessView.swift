@@ -13,7 +13,7 @@ struct CloudBrowserAccessView<Content: View>: View {
         Group {
             if let model = state.model {
                 Group {
-                    if state.showsPage { content() } else {
+                    if state.showsPage || state.failureMessage == nil { content() } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
                             message: state.error ?? model.failureMessage,
@@ -58,8 +58,7 @@ struct CloudBrowserAccessView<Content: View>: View {
     }
 
     private var showsNativeContent: Bool {
-        panel.cloudAccess.unavailable != nil ||
-            (panel.cloudAccess.model != nil && !panel.cloudAccess.showsPage)
+        panel.cloudAccess.unavailable != nil || panel.cloudAccess.failureMessage != nil
     }
 
     private func navigateIfReady() {

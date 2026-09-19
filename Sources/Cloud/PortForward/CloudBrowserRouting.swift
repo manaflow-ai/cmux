@@ -3,7 +3,7 @@ import Foundation
 import Network
 import WebKit
 
-/// Browser identity and networking stay separate: a CONNECT proxy never changes the document URL.
+/// Browser identity and networking stay separate: a SOCKS5 proxy never changes the document URL.
 struct CloudBrowserRouting {
     static func storeID(panelID: UUID, profileID: UUID, machineID: String) -> UUID {
         let bytes = Array(SHA256.hash(data: Data("cloud-browser:\(panelID):\(profileID):\(machineID)".utf8)).prefix(16))
@@ -12,7 +12,7 @@ struct CloudBrowserRouting {
     }
 
     static func configuration(endpoint: CloudBrowserProxyEndpoint, address: String) -> ProxyConfiguration {
-        var proxy = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: .init(endpoint.host), port: .init(rawValue: endpoint.port)!))
+        var proxy = ProxyConfiguration(socksv5Proxy: .hostPort(host: .init(endpoint.host), port: .init(rawValue: endpoint.port)!))
         proxy.applyCredential(username: endpoint.username, password: endpoint.password)
         proxy.matchDomains = [address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))]
         proxy.allowFailover = false
