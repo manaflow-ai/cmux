@@ -1019,6 +1019,9 @@ export const deviceTokens = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceToken: text("device_token").notNull(),
+    installationId: text("installation_id").notNull().default("legacy"),
+    pushKeyId: text("push_key_id").notNull().default("legacy"),
+    pushPublicKey: text("push_public_key"),
     platform: text("platform").notNull().default("ios"),
     // The APNs topic the token belongs to (the iOS bundle id, which varies by
     // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmux.app).
@@ -1026,8 +1029,10 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
     deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
     deliveryLeaseToken: uuid("delivery_lease_token"),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1038,6 +1043,43 @@ export const deviceTokens = pgTable(
       table.bundleId,
       table.deviceToken,
     ),
+    uniqueIndex("device_tokens_bundle_installation_unique")
+      .on(table.bundleId, table.installationId)
+      .where(sql`${table.installationId} <> 'legacy'`),
+  ],
+);
+
+export const deviceTokenRevocations = pgTable(
+  "device_token_revocations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceToken: text("device_token").notNull(),
+    installationId: text("installation_id").notNull().default("legacy"),
+    bundleId: text("bundle_id").notNull(),
+    authSessionFingerprint: text("auth_session_fingerprint").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("device_token_revocations_session_unique").on(
+      table.userId,
+      table.deviceToken,
+      table.installationId,
+      table.bundleId,
+      table.authSessionFingerprint,
+    ),
+    index("device_token_revocations_lookup_idx").on(
+      table.userId,
+      table.deviceToken,
+      table.bundleId,
+    ),
+    index("device_token_revocations_installation_lookup_idx").on(
+      table.userId,
+      table.installationId,
+      table.bundleId,
+    ),
+    index("device_token_revocations_expiry_idx").on(table.expiresAt),
   ],
 );
 

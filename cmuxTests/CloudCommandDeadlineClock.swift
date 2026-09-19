@@ -1,37 +1,49 @@
 import Foundation
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#elseif canImport(CloudCommandFixture)
-@testable import CloudCommandFixture
-#endif
 
-/// A resume-order fixture: time advances while the timer task stays suspended.
-/// Safety: Clock.now is synchronous, so its tiny test-only instant is lock protected.
+/// A virtual command clock that can hold timer delivery while time advances.
+/// Safety: Clock.now is synchronous; the lock protects only the test clock's instant and sleepers.
 final class CloudCommandDeadlineClock: Clock, @unchecked Sendable {
     typealias Instant = ContinuousClock.Instant
     private let lock = NSLock()
     private var instant = ContinuousClock.now
-    let timerRegistered = CloudLinkFirstValue<Bool>()
+    private var sleepers: [UUID: (Instant, AsyncStream<Void>.Continuation)] = [:]
+    private let registrations = AsyncStream<Void>.makeStream()
 
-    var now: Instant {
-        lock.lock()
-        defer { lock.unlock() }
-        return instant
-    }
+    var now: Instant { lock.withLock { instant } }
     var minimumResolution: Duration { .nanoseconds(1) }
 
-    func advanceWithoutWakingTimer(by duration: Duration) {
-        lock.lock()
-        instant = instant.advanced(by: duration)
-        lock.unlock()
+    func advance(by duration: Duration, wakingTimers: Bool = true) {
+        let ready = lock.withLock {
+            instant = instant.advanced(by: duration)
+            return wakingTimers ? sleepers.values.filter { $0.0 <= instant }.map { $0.1 } : []
+        }
+        for continuation in ready { continuation.finish() }
+    }
+
+    func waitUntilSleeping() async {
+        var iterator = registrations.stream.makeAsyncIterator()
+        _ = await iterator.next()
     }
 
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
-        timerRegistered.resolve(true)
-        // Deliberately withhold the timer's wakeup; cancellation still releases it.
-        _ = await CloudLinkFirstValue<Bool>().result
+        let id = UUID()
+        let wakeup = AsyncStream<Void>.makeStream()
+        register(id, deadline: deadline, continuation: wakeup.continuation)
+        defer { remove(id) }
+        registrations.continuation.yield(())
+        // AsyncStream ends on cancellation, releasing even a deliberately held timer.
+        for await _ in wakeup.stream {}
         try Task.checkCancellation()
+    }
+
+    private func register(_ id: UUID, deadline: Instant, continuation: AsyncStream<Void>.Continuation) {
+        lock.withLock {
+            if deadline <= instant { continuation.finish() }
+            else { sleepers[id] = (deadline, continuation) }
+        }
+    }
+
+    private func remove(_ id: UUID) {
+        _ = lock.withLock { sleepers.removeValue(forKey: id) }
     }
 }

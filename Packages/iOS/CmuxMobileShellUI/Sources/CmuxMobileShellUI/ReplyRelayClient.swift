@@ -1,14 +1,18 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxPhonePush
 import Foundation
 
 /// One inline notification reply handed to the server-side inbox.
 public struct RelayedReply: Equatable, Sendable {
+    public let accountID: String?
     /// Stable idempotency key: the retry ladder re-sends the same id, so the
     /// server can never park one reply twice.
     public let replyId: String
     /// The Mac claimed by the originating push; the inbox routes by it.
     public let macDeviceId: String
+    public let macInstallationID: String?
+    public let macBuildID: String?
     /// The workspace claim from the push, if it carried one. The Mac uses it
     /// as the confined target, or as the preferred owner when retargeting is
     /// permitted.
@@ -17,6 +21,7 @@ public struct RelayedReply: Equatable, Sendable {
     public let surfaceId: String
     /// The user's reply text, without the submit return.
     public let text: String
+    public let macInstanceTag: String?
     /// Whether the notification may follow its surface to a new workspace.
     /// Workspace-confined notifications must keep their original claim when
     /// the Mac drains the parked reply.
@@ -29,13 +34,21 @@ public struct RelayedReply: Equatable, Sendable {
         workspaceId: String?,
         surfaceId: String,
         text: String,
+        accountID: String? = nil,
+        macInstallationID: String? = nil,
+        macBuildID: String? = nil,
+        macInstanceTag: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true
     ) {
         self.replyId = replyId
+        self.accountID = accountID
         self.macDeviceId = macDeviceId
+        self.macInstallationID = macInstallationID
+        self.macBuildID = macBuildID
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
         self.text = text
+        self.macInstanceTag = macInstanceTag
         self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
     }
 }
@@ -62,12 +75,16 @@ public struct NoopReplyRelay: ReplyRelaying {
     public func relay(_ reply: RelayedReply) async -> Bool { false }
 }
 
-/// Production ``ReplyRelaying`` backed by `POST /v1/replies` on the presence
+/// Production ``ReplyRelaying`` backed by `POST /v1/replies/e2e` on the presence
 /// worker, authenticated with the caller's Stack access token.
 public struct SystemReplyRelayClient: ReplyRelaying {
     private let serviceBaseURL: URL?
     private let accessToken: @Sendable () async -> String?
+    private let keychainAccessGroup: String?
+    private let diagnosticLog: DiagnosticLog?
     private let session: URLSession
+    private let now: @Sendable () -> Date
+    private let envelopeCache = ReplyEnvelopeCache()
     /// One service-owned deadline suppresses every outer reply-ladder wake.
     /// The coordinator may check again after five seconds, but no HTTP request
     /// escapes until the server's deadline has passed.
@@ -80,11 +97,17 @@ public struct SystemReplyRelayClient: ReplyRelaying {
     public init(
         serviceBaseURL: URL?,
         accessToken: @escaping @Sendable () async -> String?,
-        session: URLSession = .shared
+        keychainAccessGroup: String? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
+        session: URLSession = .shared,
+        now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.serviceBaseURL = serviceBaseURL
         self.accessToken = accessToken
+        self.keychainAccessGroup = keychainAccessGroup
+        self.diagnosticLog = diagnosticLog
         self.session = session
+        self.now = now
     }
 
     public func relay(_ reply: RelayedReply) async -> Bool {
@@ -94,20 +117,75 @@ public struct SystemReplyRelayClient: ReplyRelaying {
                   url: serviceBaseURL,
                   resolvingAgainstBaseURL: false
               ) else { return false }
-        guard let token = await accessToken(), !token.isEmpty else { return false }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
-            + "/v1/replies"
+            + "/v1/replies/e2e"
         guard let url = comps.url else { return false }
-        var body: [String: Any] = [
+        // Pre-release notifications lack this context and are intentionally
+        // unsupported. Never downgrade a reply to the plaintext endpoint.
+        guard let accountID = reply.accountID, !accountID.isEmpty,
+              let macInstallationID = reply.macInstallationID, !macInstallationID.isEmpty,
+              let macBuildID = reply.macBuildID, !macBuildID.isEmpty else {
+            diagnosticLog?.recordAppEvent(.pushReplyContextMissing, failure: .credentialUnavailable)
+            return false
+        }
+        guard let identity = try? PhonePushKeyStore.current(
+            bundleID: Bundle.main.bundleIdentifier ?? "cmux",
+            accessGroup: keychainAccessGroup
+        ) else {
+            diagnosticLog?.recordAppEvent(.pushReplyKeyMissing, failure: .credentialUnavailable)
+            return false
+        }
+        let tuple = PhonePushDeviceTuple(
+            accountID: accountID,
+            teamID: nil,
+            iosBuildID: Bundle.main.bundleIdentifier ?? "cmux",
+            iosInstallationID: identity.installationID,
+            macDeviceID: reply.macDeviceId,
+            macInstanceTag: reply.macInstanceTag,
+            macBuildID: macBuildID
+        )
+        guard let peer = PhonePushPeerKeyStore.pinnedDescriptor(for: tuple) else {
+            diagnosticLog?.recordAppEvent(.pushReplyKeyMissing, failure: .credentialUnavailable)
+            return false
+        }
+        let issuedAt = now().timeIntervalSince1970
+        let plaintext: [String: Any] = [
             "replyId": reply.replyId,
+            "accountID": accountID,
             "macDeviceId": reply.macDeviceId,
             "surfaceId": reply.surfaceId,
             "retargetsToLiveSurfaceOwner": reply.retargetsToLiveSurfaceOwner,
             "text": reply.text,
+            "issuedAtEpochSeconds": issuedAt,
+            "expiresAtEpochSeconds": issuedAt + 15 * 60,
         ]
-        if let workspaceId = reply.workspaceId, !workspaceId.isEmpty {
-            body["workspaceId"] = workspaceId
+        var plaintextWithWorkspace = plaintext
+        if let workspaceId = reply.workspaceId, !workspaceId.isEmpty { plaintextWithWorkspace["workspaceId"] = workspaceId }
+        guard let plaintextData = try? JSONSerialization.data(withJSONObject: plaintextWithWorkspace),
+              let candidate = try? PhonePushCrypto.encrypt(
+                  plaintext: plaintextData,
+                  tuple: tuple,
+                  recipientPublicKey: peer.publicKey,
+                  keyID: peer.keyID,
+                  senderKeyID: identity.keyID,
+                  senderPrivateKey: identity.privateKey,
+                  installationID: macInstallationID
+              ),
+              let candidateData = try? JSONEncoder().encode(candidate) else {
+            diagnosticLog?.recordAppEvent(.pushReplyEncryptionFailed, failure: .secureChannelFailed)
+            return false
         }
+        let encryptedData = await envelopeCache.valueOrInsert(
+            for: "\(reply.replyId)|\(peer.keyID)",
+            candidate: candidateData
+        )
+        var body: [String: Any] = [
+            "replyId": reply.replyId,
+            "macDeviceId": reply.macDeviceId,
+            "encryptedPayload": try! JSONSerialization.jsonObject(with: encryptedData),
+        ]
+        if let macInstanceTag = reply.macInstanceTag { body["macInstanceTag"] = macInstanceTag }
+        guard let token = await accessToken(), !token.isEmpty else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         // Comfortably inside the reply lane's background window, long enough
@@ -129,6 +207,29 @@ public struct SystemReplyRelayClient: ReplyRelaying {
         } catch {
             return false
         }
+    }
+}
+
+private actor ReplyEnvelopeCache {
+    private struct Entry {
+        let data: Data
+        let insertedAt: Date
+    }
+
+    private static let maximumEntries = 128
+    private static let lifetime: TimeInterval = 15 * 60
+    private var values: [String: Entry] = [:]
+
+    func valueOrInsert(for replyId: String, candidate: Data) -> Data {
+        let now = Date()
+        values = values.filter { now.timeIntervalSince($0.value.insertedAt) < Self.lifetime }
+        if let value = values[replyId] { return value.data }
+        while values.count >= Self.maximumEntries,
+              let oldest = values.min(by: { $0.value.insertedAt < $1.value.insertedAt })?.key {
+            values.removeValue(forKey: oldest)
+        }
+        values[replyId] = Entry(data: candidate, insertedAt: now)
+        return candidate
     }
 }
 #endif

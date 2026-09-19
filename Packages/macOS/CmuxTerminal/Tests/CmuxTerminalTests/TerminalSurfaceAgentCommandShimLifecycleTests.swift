@@ -62,15 +62,46 @@ struct TerminalSurfaceAgentCommandShimLifecycleTests {
         _ = await surface.agentCommandShimCompletionTask?.value
     }
 
+    @Test(arguments: [TerminalSurfaceIOMode.manual, .manualMirror])
+    func manualSurfaceIsReadyWithoutInstallingLocalCommandShims(mode: TerminalSurfaceIOMode) async {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-unused-manual-shims"),
+            installAgentCommandShims: { _, _, _ in
+                Issue.record("A manual surface has no local child process and must not install command shims")
+                return nil
+            },
+            isExecutableFile: { _ in false }
+        )
+        let surface = makeSurface(
+            nativeView: nativeView, paneHost: paneHost,
+            runtimeFilesystem: runtimeFilesystem, ioMode: mode
+        )
+        let readiness = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+        #expect(readiness.isReady)
+        #expect(readiness.shims == nil)
+        #expect(surface.agentCommandShimInstallTask == nil)
+        #expect(surface.agentCommandShimCompletionTask == nil)
+        #expect(surface.agentCommandShimDeadlineTask == nil)
+        // Drain a regressed installer so it cannot outlive its test case.
+        _ = await surface.agentCommandShimInstallTask?.value
+        _ = await surface.agentCommandShimCompletionTask?.value
+    }
+
     private func makeSurface(
         nativeView: FakeTerminalSurfaceNativeView,
         paneHost: FakeTerminalSurfacePaneHost,
-        runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
+        runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
+        ioMode: TerminalSurfaceIOMode = .exec
     ) -> TerminalSurface {
         TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
+            ioMode: ioMode,
             runtimeSpawnPolicy: .pacedSessionRestore,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: FakeSurfaceRegistry(),

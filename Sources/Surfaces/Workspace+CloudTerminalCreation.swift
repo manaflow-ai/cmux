@@ -265,14 +265,16 @@ extension Workspace {
             defer { onFinish() }
             // Focus was granted when the pane appeared; adoption must not steal it
             // back from wherever the user has typed since.
-            let result = try await catalog.project(
-                created.id,
-                into: destination,
-                focus: false,
-                reuseExisting: true,
-                remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil,
-                adopting: reservation
-            )
+            let result = try await CloudOperationContext.phase(.materialize) {
+                try await catalog.project(
+                    created.id,
+                    into: destination,
+                    focus: false,
+                    reuseExisting: true,
+                    remoteView: created.remoteViews?.count == 1 ? created.remoteViews?.first : nil,
+                    adopting: reservation
+                )
+            }
             self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: result.projection.panelID)
             return result
         }
@@ -293,7 +295,8 @@ extension Workspace {
             },
             discardProjection: { projection in
                 catalog.endProjections(panelID: projection.panelID, reason: .replaced)
-            }
+            },
+            operations: AppDelegate.shared?.cloudOperations
         )
     }
 

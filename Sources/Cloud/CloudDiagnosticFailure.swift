@@ -51,11 +51,20 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             case .httpStatus(let status, _): return classify(status: status)
             }
         }
+        if let error = error as? MachineUsageClientError {
+            switch error {
+            case .notSignedIn: return .authentication
+            case .sessionRefreshFailed: return .sessionRefresh
+            case .backendUnreachable: return .network
+            case .malformedResponse: return .response
+            case .httpStatus(let status, _): return classify(status: status)
+            }
+        }
         if let error = error as? CloudMachineLink.LinkError {
             switch error {
-            case .timedOut, .commandTimedOut: return .timeout
+            case .timedOut: return .timeout
             case .inputTooLarge: return .resourceLimit
-            case .clientMissing, .spawnFailed, .exited, .commandOutputFailed, .commandCleanupFailed: return .process
+            case .clientMissing, .spawnFailed, .exited: return .process
             }
         }
         if let error = error as? CmuxTuiSurfaceProvider.ProviderError {
