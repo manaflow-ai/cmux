@@ -268,7 +268,7 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 Tag::Strong => styles.push(cur(&styles).add_modifier(Modifier::BOLD)),
                 Tag::Strikethrough => styles.push(cur(&styles).add_modifier(Modifier::CROSSED_OUT)),
                 Tag::Link { dest_url, .. } => {
-                    styles.push(cur(&styles).fg(Color::Cyan).add_modifier(Modifier::UNDERLINED));
+                    styles.push(cur(&styles).fg(c.link_fg).add_modifier(Modifier::UNDERLINED));
                     link_url = Some(dest_url.to_string());
                     link_text.clear();
                 }
@@ -350,7 +350,7 @@ pub fn render(text: &str, width: usize, indent: &str, base: Style, c: &Chrome, i
                 if in_table {
                     cell.push_str(&t);
                 } else {
-                    frags.push((t.to_string(), cur(&styles).fg(Color::Cyan)));
+                    frags.push((format!(" {t} "), cur(&styles).bg(c.code_bg).fg(c.code_fg)));
                 }
             }
             Event::SoftBreak => {

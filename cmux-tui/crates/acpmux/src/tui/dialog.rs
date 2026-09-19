@@ -126,11 +126,11 @@ pub fn draw(buf: &mut Buffer, area: Rect, c: &Chrome, hover: Option<(u16, u16)>,
     // Title and close button.
     buf.set_stringn(inner_x, r.y + 1, spec.title, inner_w as usize, c.prompt_title());
     if spec.close_button {
-        let close = "[ Esc close ]";
+        let close = " esc ";
         let cw = close.width() as u16;
         let cr = Rect { x: r.x + r.width - 2 - cw, y: r.y + 1, width: cw, height: 1 };
         let hovered = hover.map(|(hx, hy)| hy == cr.y && hx >= cr.x && hx < cr.x + cr.width).unwrap_or(false);
-        buf.set_stringn(cr.x, cr.y, close, cw as usize, c.button(false, hovered));
+        buf.set_stringn(cr.x, cr.y, close, cw as usize, if hovered { c.button(false, true) } else { c.prompt().fg(c.status_dim_fg) });
         buttons.push((cr, ButtonAction::CloseOverlay));
     }
     // Header lines.
