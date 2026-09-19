@@ -475,16 +475,13 @@ struct MachinesPanelView: View {
             pendingCreates: viewModel.pendingCreates, adoptedOperationIDs: viewModel.adoptedOperationIDs,
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
-            selection: AppDelegate.shared?.cloudTreeSelection(for: tabManager) ?? .empty,
+            selectionStore: AppDelegate.shared?.cloudTreeSelectionStore(for: tabManager) ?? CloudTreeSelectionStore(),
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
-            onSelectionChange: { [weak tabManager] selection in
-                AppDelegate.shared?.setCloudTreeSelection(selection, in: tabManager)
-            }
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }

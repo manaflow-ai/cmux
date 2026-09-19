@@ -15,7 +15,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     var adoptedOperationIDs: [String: UUID] = [:]
     let snapshot: SurfaceCatalogSnapshot
     let localWorkspaces: [CloudTreeLocalWorkspace]
-    var selection: CloudTreeSelection = .empty
+    let selectionStore: CloudTreeSelectionStore
     /// Machine id to terminal ids with a notification this Mac has not read.
     var unreadTerminalIDs: [String: Set<String>] = [:]
     let machineActions: MachineRowActions
@@ -29,8 +29,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-    /// Reports the selected machine context to the owning window.
-    var onSelectionChange: @MainActor (CloudTreeSelection) -> Void = { _ in }
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
     /// A terminal rename needs a stable daemon tab placement. A terminal row
@@ -47,8 +45,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organization: organizationStore,
-            selection: selection,
-            onSelectionChange: onSelectionChange,
+            selectionStore: selectionStore,
             tabDragTransferRegistry: { [tabDragTransferRegistry] in
                 tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
             }
@@ -64,8 +61,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
-        context.coordinator.selection = selection
-        context.coordinator.onSelectionChange = onSelectionChange
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -88,7 +83,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
-        var selection: CloudTreeSelection
+        let selectionStore: CloudTreeSelectionStore
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -108,22 +103,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
-        var onSelectionChange: @MainActor (CloudTreeSelection) -> Void = { _ in }
         init(
             machineActions: MachineRowActions,
             nodeActions: CloudTreeNodeActions,
             expansionStore: CloudTreeExpansionStore,
             organization: CloudSidebarOrganizationStore? = nil,
-            selection: CloudTreeSelection = .empty,
-            onSelectionChange: @escaping @MainActor (CloudTreeSelection) -> Void = { _ in },
+            selectionStore: CloudTreeSelectionStore = CloudTreeSelectionStore(),
             tabDragTransferRegistry: @escaping @MainActor () -> TabDragTransferRegistry?
         ) {
             self.machineActions = machineActions
             self.nodeActions = nodeActions
             self.expansionStore = expansionStore
             self.organization = organization ?? CloudSidebarOrganizationStore()
-            self.selection = selection
-            self.onSelectionChange = onSelectionChange
+            self.selectionStore = selectionStore
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
@@ -313,7 +305,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 reloadDataAndRestoreState(in: outlineView)
             }
         }
-        private func reloadDataAndRestoreState(in outlineView: NSOutlineView) { withProgrammaticUpdate { outlineView.reloadData(); restoreExpansion(in: outlineView); restoreSelection(in: outlineView) } }
+        private func reloadDataAndRestoreState(in outlineView: NSOutlineView) {
+            withProgrammaticUpdate {
+                outlineView.reloadData()
+                restoreExpansion(in: outlineView)
+                restoreSelection(in: outlineView)
+            }
+            publishSelectedMachineSelection()
+        }
         private func restoreExpansion(in outlineView: NSOutlineView) {
             var row = 0
             while row < outlineView.numberOfRows {
@@ -326,7 +325,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         private func restoreSelection(in outlineView: NSOutlineView) {
-            guard let selectedNodeID = selection.nodeID else { return }
+            guard let selectedNodeID = selectionStore.value.nodeID else { return }
             for row in 0..<outlineView.numberOfRows {
                 if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
                     outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
@@ -341,20 +340,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return machine.isLocal ? .local : .cloud(machine.rawValue)
         }
         private func publishSelectedMachineSelection() {
-            guard let nodeID = selection.nodeID else {
-                onSelectionChange(.empty)
+            guard let nodeID = selectionStore.value.nodeID else {
                 return
             }
             guard let node = CloudTreeNodeBuilder.flattened(nodes).first(where: { $0.id == nodeID }) else {
-                // A refresh can briefly omit a row while the catalog and
-                // machine list converge. Preserve the captured identity;
-                // validation on invocation will fail closed if it is truly
-                // gone rather than silently switching to this Mac.
+                // A refresh removed the selected row. Clear the window-owned
+                // snapshot so Cmd+N cannot route through a stale Cloud id.
+                selectionStore.value = .empty
                 return
             }
             let next = CloudTreeSelection(nodeID: node.id, machine: machineSelection(for: node))
-            selection = next
-            onSelectionChange(next)
+            selectionStore.value = next
         }
         private func withProgrammaticUpdate(_ body: () -> Void) {
             isUpdatingProgrammatically = true
@@ -404,8 +400,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ? outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode
                 : nil
             let next = CloudTreeSelection(nodeID: node?.id, machine: machineSelection(for: node))
-            selection = next
-            onSelectionChange(next)
+            selectionStore.value = next
         }
 
         func outlineViewItemDidExpand(_ notification: Notification) {
