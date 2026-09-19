@@ -216,6 +216,19 @@ extension AppDelegate {
                     parent.submenu = submenu
                     items.append(parent)
                 }
+                items.append(.separator())
+                let actionsItem = NSMenuItem(
+                    title: Self.actionsAndLaunchersMenuTitle,
+                    action: #selector(presentActionsAndLaunchersMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                actionsItem.target = self
+                actionsItem.representedObject = context.windowId as NSUUID
+                actionsItem.image = NSImage(
+                    systemSymbolName: "slider.horizontal.3",
+                    accessibilityDescription: nil
+                )
+                items.append(actionsItem)
                 addRenderedSection(items)
             }
         }

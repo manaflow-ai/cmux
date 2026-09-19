@@ -28,7 +28,257 @@ final class WorkspaceDefaultLayoutBox: NSObject {
     }
 }
 
+/// Read-only projection of the live cmux.json action registry for native
+/// discovery UI. It deliberately carries only resolved action metadata and
+/// effective placements; execution stays on the existing action paths.
+struct ActionsAndLaunchersDiscoveryModel: Equatable {
+    struct Entry: Equatable {
+        let id: String
+        let title: String
+        let actionType: String
+        let sourcePath: String
+        let appearsInCommandPalette: Bool
+        let isNewWorkspaceDefault: Bool
+        let appearsInNewWorkspaceMenu: Bool
+        let appearsInSurfaceTabBar: Bool
+        let shortcutDisplay: String?
+
+        var detailTokens: [String] {
+            var tokens = ["type=\(actionType)"]
+            if appearsInCommandPalette {
+                tokens.append("palette")
+            }
+            if isNewWorkspaceDefault {
+                tokens.append("ui.newWorkspace.action")
+            }
+            if appearsInNewWorkspaceMenu {
+                tokens.append("ui.newWorkspace.contextMenu")
+            }
+            if appearsInSurfaceTabBar {
+                tokens.append("ui.surfaceTabBar.buttons")
+            }
+            if let shortcutDisplay {
+                tokens.append("shortcut=\(shortcutDisplay)")
+            }
+            return tokens
+        }
+    }
+
+    let entries: [Entry]
+
+    static func build(
+        actions: [CmuxResolvedConfigAction],
+        resolvedNewWorkspaceActionID: String?,
+        newWorkspaceMenuActionIDs: Set<String>,
+        surfaceTabBarButtons: [CmuxSurfaceTabBarButton]
+    ) -> ActionsAndLaunchersDiscoveryModel {
+        let entries = actions.compactMap { action -> Entry? in
+            // Built-ins that only come from cmux itself add noise here. An
+            // overridden built-in has a source path and remains discoverable.
+            guard let sourcePath = action.actionSourcePath else { return nil }
+            let shortcutDisplay = action.shortcut.flatMap { shortcut in
+                shortcut.isUnbound ? nil : shortcut.displayString
+            }
+            return Entry(
+                id: action.id,
+                title: action.title,
+                actionType: actionType(action.action),
+                sourcePath: sourcePath,
+                appearsInCommandPalette: action.palette,
+                isNewWorkspaceDefault: action.id == resolvedNewWorkspaceActionID,
+                appearsInNewWorkspaceMenu: newWorkspaceMenuActionIDs.contains(action.id),
+                appearsInSurfaceTabBar: surfaceTabBarButtons.contains { button in
+                    surfaceTabBarButton(button, resolves: action)
+                },
+                shortcutDisplay: shortcutDisplay
+            )
+        }
+        .sorted {
+            let titleOrder = $0.title.localizedStandardCompare($1.title)
+            if titleOrder != .orderedSame {
+                return titleOrder == .orderedAscending
+            }
+            return $0.id.localizedStandardCompare($1.id) == .orderedAscending
+        }
+        return ActionsAndLaunchersDiscoveryModel(entries: entries)
+    }
+
+    var summaryText: String {
+        guard !entries.isEmpty else { return "actions: {}" }
+        return entries.map { entry in
+            let source = (entry.sourcePath as NSString).abbreviatingWithTildeInPath
+            return [
+                "\(entry.title)  [\(entry.id)]",
+                "  " + entry.detailTokens.joined(separator: " · "),
+                "  " + source,
+            ].joined(separator: "\n")
+        }
+        .joined(separator: "\n\n")
+    }
+
+    private static func surfaceTabBarButton(
+        _ button: CmuxSurfaceTabBarButton,
+        resolves action: CmuxResolvedConfigAction
+    ) -> Bool {
+        if button.id == action.id {
+            return true
+        }
+        guard button.action == action.action else { return false }
+        return button.actionSourcePath == action.actionSourcePath
+    }
+
+    private static func actionType(_ action: CmuxSurfaceTabBarButtonAction) -> String {
+        switch action {
+        case .builtIn:
+            return "builtin"
+        case .command:
+            return "command"
+        case .agent:
+            return "agent"
+        case .workspaceCommand:
+            return "workspaceCommand"
+        case .workspace:
+            return "workspace"
+        case .actionReference:
+            return "action"
+        }
+    }
+}
+
 extension AppDelegate {
+    static var actionsAndLaunchersMenuTitle: String {
+        String(
+            localized: "debug.titlebarLayoutDebug.actions",
+            defaultValue: "Actions"
+        ) + " · cmux.json…"
+    }
+
+    private static var actionsAndLaunchersDialogTitle: String {
+        String(
+            localized: "debug.titlebarLayoutDebug.actions",
+            defaultValue: "Actions"
+        ) + " · cmux.json"
+    }
+
+    func presentActionsAndLaunchersCustomization(preferredWindow: NSWindow? = nil) {
+        let context = [
+            preferredWindow,
+            NSApp.keyWindow,
+            NSApp.mainWindow,
+            shortcutRoutingActiveWindow,
+        ]
+        .compactMap { $0 }
+        .compactMap { contextForMainWindow($0) }
+        .first
+
+        let cmuxConfigStore: CmuxConfigStore
+        if let activeStore = context?.cmuxConfigStore {
+            cmuxConfigStore = activeStore
+        } else {
+            let globalStore = CmuxConfigStore()
+            globalStore.loadAll()
+            cmuxConfigStore = globalStore
+        }
+
+        let newWorkspaceMenuActionIDs = Set(
+            cmuxConfigStore.newWorkspaceContextMenuItems.compactMap { item -> String? in
+                guard case .action(let menuAction) = item else { return nil }
+                return menuAction.action.id
+            }
+        )
+        let model = ActionsAndLaunchersDiscoveryModel.build(
+            actions: cmuxConfigStore.loadedActions,
+            resolvedNewWorkspaceActionID: cmuxConfigStore.resolvedNewWorkspaceAction()?.id,
+            newWorkspaceMenuActionIDs: newWorkspaceMenuActionIDs,
+            surfaceTabBarButtons: cmuxConfigStore.surfaceTabBarButtons
+        )
+
+        let alert = NSAlert()
+        alert.messageText = Self.actionsAndLaunchersDialogTitle
+        alert.informativeText = (cmuxConfigStore.globalConfigPath as NSString).abbreviatingWithTildeInPath
+        alert.accessoryView = actionsAndLaunchersAccessoryView(
+            text: model.summaryText,
+            entryCount: model.entries.count
+        )
+        alert.addButton(withTitle: String(
+            localized: "menu.app.openCmuxSettingsFile",
+            defaultValue: "Open cmux.json"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "settings.settingsJSON.docsButton",
+            defaultValue: "Open Docs"
+        ))
+        alert.addButton(withTitle: String(
+            localized: "common.ok",
+            defaultValue: "OK"
+        ))
+
+        let presentingWindow = context.flatMap { resolvedWindow(for: $0) } ?? preferredWindow
+        if let presentingWindow {
+            alert.beginSheetModal(for: presentingWindow) { [weak self] response in
+                self?.handleActionsAndLaunchersResponse(response)
+            }
+        } else {
+            handleActionsAndLaunchersResponse(alert.runModal())
+        }
+    }
+
+    @objc func presentActionsAndLaunchersMenuItem(_ sender: NSMenuItem) {
+        let preferredWindow: NSWindow?
+        if let windowId = (sender.representedObject as? NSUUID) as UUID?,
+           let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            preferredWindow = resolvedWindow(for: context)
+        } else {
+            preferredWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        presentActionsAndLaunchersCustomization(preferredWindow: preferredWindow)
+    }
+
+    private func actionsAndLaunchersAccessoryView(
+        text: String,
+        entryCount: Int
+    ) -> NSView {
+        let height = min(CGFloat(360), max(CGFloat(120), CGFloat(max(entryCount, 1)) * 64))
+        let size = NSSize(width: 620, height: height)
+        let textView = NSTextView(frame: NSRect(origin: .zero, size: size))
+        textView.string = text
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.maxSize = NSSize(width: size.width, height: .greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: size.width,
+            height: .greatestFiniteMagnitude
+        )
+
+        let scrollView = NSScrollView(frame: NSRect(origin: .zero, size: size))
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .bezelBorder
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    private func handleActionsAndLaunchersResponse(_ response: NSApplication.ModalResponse) {
+        switch response {
+        case .alertFirstButtonReturn:
+            // Reuse the existing in-cmux config editor path used by Settings'
+            // workspace-layout customization.
+            openWorkspaceLayoutsCustomization()
+        case .alertSecondButtonReturn:
+            guard let url = URL(string: "https://cmux.com/docs/custom-commands") else { return }
+            NSWorkspace.shared.open(url)
+        default:
+            break
+        }
+    }
 
     /// Actions defined in the global config (where saved workspace layouts
     /// write) are deletable from the UI; project-local and built-in actions
