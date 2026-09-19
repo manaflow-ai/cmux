@@ -147,6 +147,52 @@ def test_workflow_changes_run_everything() -> None:
     )
 
 
+def test_other_workflow_changes_skip_macos_and_web() -> None:
+    # ci.yml's macOS and web jobs never read another workflow file. Those edits
+    # are validated by workflow-guard-tests and by the edited workflow itself.
+    assert_areas(
+        [".github/workflows/relay-tls.yml", ".github/actionlint.yaml"],
+        macos=False,
+        web=False,
+    )
+
+
+def test_guard_only_tests_skip_macos() -> None:
+    # Referenced in ci.yml only by Linux jobs.
+    assert_areas(["tests/test_ci_self_hosted_guard.sh"], macos=False, web=False)
+    assert_areas(
+        [".github/workflows/ios-testflight.yml", "tests/test_ios_testflight_main_push_filter.py"],
+        macos=False,
+        web=False,
+    )
+
+
+def test_tests_run_by_macos_jobs_run_macos() -> None:
+    assert_areas(["tests/test_cli_contract_help.py"], macos=True, web=False)
+    # A macOS job runs these through a glob.
+    assert_areas(["tests/test_nushell_integration_hooks.py"], macos=True, web=False)
+    # Shared by a Linux guard job and release-build.
+    assert_areas(["tests/test_install_cmux_tui_client.sh"], macos=True, web=False)
+
+
+def test_unreferenced_tests_run_macos() -> None:
+    # Nothing in ci.yml names it, so a macOS-run test may import it.
+    assert_areas(["tests/some_new_helper.py"], macos=True, web=False)
+
+
+def test_guard_only_change_with_app_source_runs_macos() -> None:
+    assert_areas(
+        [".github/workflows/relay-tls.yml", "Sources/AppDelegate.swift"],
+        macos=True,
+        web=False,
+    )
+
+
+def test_macos_test_references_fail_open_without_ci_workflow() -> None:
+    assert module.macos_job_test_references("jobs:\n") is None
+    assert module.macos_job_test_references("not a workflow") is None
+
+
 def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "  pull_request:\n  merge_group:" in workflow
