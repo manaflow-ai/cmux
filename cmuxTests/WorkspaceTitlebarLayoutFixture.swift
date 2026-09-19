@@ -73,10 +73,26 @@ final class WorkspaceTitlebarLayoutFixture {
     }
 
     func layout() async {
-        for _ in 0..<20 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
             host.layoutSubtreeIfNeeded()
+            if layoutMatchesSettings() { return }
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
+        }
+        Issue.record("The title and pane geometry did not converge to the current settings before the layout deadline.")
+    }
+
+    private func layoutMatchesSettings() -> Bool {
+        let titleIsHidden = WorkspaceTitlebarSettings(defaults: defaults).isHidden
+        guard hasTitle == !titleIsHidden else { return false }
+        let expectedTop = WindowChromeMetrics.bonsplitTabBarHeight
+            + (titleIsHidden ? 0 : WindowChromeMetrics.appTitlebarHeight)
+        let identifiers = controller.allPaneIds.count > 1 ? ["Terminal", "Browser"] : ["Terminal"]
+        return identifiers.allSatisfy { identifier in
+            guard let view = marker(identifier: identifier, in: host), !view.bounds.isEmpty else { return false }
+            return abs(view.convert(view.bounds, to: host).minY - expectedTop) < 1
         }
     }
 
