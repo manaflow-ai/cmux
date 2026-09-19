@@ -548,7 +548,7 @@ extension TerminalController {
         )
     }
 
-    private nonisolated static func controlCallResult(
+    nonisolated static func controlCallResult(
         fromLegacy result: V2CallResult
     ) -> ControlCallResult {
         switch result {
