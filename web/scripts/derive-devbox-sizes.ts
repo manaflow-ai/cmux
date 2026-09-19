@@ -33,7 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -74,9 +74,13 @@ async function sh(vm: Exec, command: string, timeoutMs = 120_000): Promise<{ cod
 
 /** What the guest sees; disk is the root filesystem after the grow; host is the machine's own name. */
 async function measure(vm: Exec): Promise<{ cpu: number; memoryMb: number; rootMb: number; units: string; host: string }> {
-  const r = await sh(vm, "echo cpu=$(nproc); echo mem=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo); echo root=$(df -BM --output=size / | tail -1 | tr -dc 0-9); echo units=$(systemctl is-active cmux-tui-daemon cmux-desktop 2>/dev/null | tr '\\n' ','); echo host=$(hostname)");
+  const r = await sh(vm, "echo epoch=$(date +%s); echo clock=$(cat /sys/devices/system/clocksource/clocksource0/current_clocksource); echo cpu=$(nproc); echo mem=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo); echo root=$(df -BM --output=size / | tail -1 | tr -dc 0-9); echo units=$(systemctl is-active cmux-tui-daemon cmux-desktop 2>/dev/null | tr '\\n' ','); echo host=$(hostname)");
   if (r.code !== 0) throw new Error(`could not measure VM: ${r.out.slice(-300)}`);
   const get = (key: string) => r.out.match(new RegExp(`${key}=([^\\n]*)`))?.[1] ?? "";
+  const epoch = Number(get("epoch"));
+  if (!Number.isFinite(epoch) || Math.abs(epoch - Date.now() / 1000) > 30 || get("clock") !== "kvm-clock") {
+    throw new Error(`snapshot clock is unsafe: source=${get("clock")} guest=${epoch} host=${Math.floor(Date.now() / 1000)}`);
+  }
   const measured = { cpu: Number(get("cpu")), memoryMb: Number(get("mem")), rootMb: Number(get("root")), units: get("units"), host: get("host") };
   if (![measured.cpu, measured.memoryMb, measured.rootMb].every((value) => Number.isFinite(value) && value > 0) || !measured.host) {
     throw new Error(`VM measurement was incomplete: ${JSON.stringify(measured)}`);
@@ -163,6 +167,8 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
       }
       const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
       try {
+        const clock = await sh(vm, devboxSnapshotClockCommand);
+        if (clock.code !== 0) throw new Error(`${name}: snapshot clock is unavailable`);
         await vm.resize({ cpu: size.cpu, memory: size.memoryMb, storage: size.storageMb });
         // The disk grows in place while the guest runs; wait for the root fs to
         // reflect it, then let the daemon units settle before the snapshot.

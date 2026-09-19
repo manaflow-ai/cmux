@@ -167,6 +167,7 @@ jobs:
       - name: Install App Store provisioning profile
         env:
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
           IOS_APPSTORE_KEYCHAIN_NAME: ios-appstore.keychain
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
@@ -223,6 +224,8 @@ jobs:
             ${{ runner.temp }}/cmux-final-build-number.txt
             ${{ runner.temp }}/cmux-app-upload.log
             ${{ runner.temp }}/cmux-ios-upload/*.log
+            ${{ runner.temp }}/cmux-ios-upload/export/*.ipa
+            ${{ runner.temp }}/cmux-ios-upload/export/*.xcarchive/dSYMs
             ${{ runner.temp }}/cmux-ios-upload/*.xcarchive/dSYMs
 
       - name: Summary

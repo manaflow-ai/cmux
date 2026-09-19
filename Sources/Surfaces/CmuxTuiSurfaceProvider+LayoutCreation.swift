@@ -7,7 +7,13 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         try await createTerminal(nearTabID: nearTabID, splitDirection: splitDirection, request: CloudTerminalCreationRequest())
     }
 
-    func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+    /// Keeps the caller's idempotency identity through revision retries and
+    /// explicit UI retries so a lost response cannot create a second terminal.
+    func createTerminal(
+        nearTabID: String,
+        splitDirection: SurfaceSplitDirection?,
+        request: CloudTerminalCreationRequest
+    ) async throws -> SurfaceResource {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         if let created = try await request.prepare(using: link, socketPath: connected.socketPath) {
@@ -17,7 +23,8 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         let result = try await CloudTerminalLayoutCreation(
             machine: machine,
             socketPath: connected.socketPath,
-            commandRunner: link
+            commandRunner: link,
+            initialState: cloudState
         ).run(
             nearTabID: nearTabID,
             splitDirection: splitDirection,
