@@ -102,6 +102,7 @@ public struct SettingsSearchIndex: Sendable {
     ///     localized title + synonyms. Tests can pass an empty array or a
     ///     focused subset; hosts can append their own entries to expose
     ///     additional rows.
+    /// Builds the shipped search index from the catalog-backed default entry table.
     public init(catalog: SettingCatalog) {
         self.init(catalog: catalog, curatedEntries: .cmuxDefault(catalog: catalog))
     }
