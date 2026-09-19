@@ -122,14 +122,20 @@ struct SidebarWorkspaceSnapshotFactory {
     }
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
+        Self.presentationKey(
+            workspaceId: workspace.id,
+            settings: settings,
+            showsAgentActivity: showsAgentActivity
+        )
     }
 
     static func presentationKey(
+        workspaceId: UUID,
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
+            workspaceId: workspaceId,
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
             usesVerticalBranchLayout: settings.branchDirectory.branchLayout == .vertical,
             showsGitBranch: settings.showsGitBranch,
