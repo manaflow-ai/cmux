@@ -5,6 +5,7 @@ import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 function fixture(cliFails = false) {
   const deleted: string[] = [];
   const commands: string[] = [];
+  const clientTimeouts: number[] = [];
   const vmId = "vm-resource-reporter-test";
   const data = { id: vmId, state: "running", snapshotId: "sh-test", publicIpv6: "2602:f75c:0:1::2a",
     resources: { cpu: 64, memory: 131072, storage: 1048576 }, vpcs: [{ ipv4: "10.16.0.2", ipv6: "fd00::2" }] };
@@ -17,9 +18,9 @@ function fixture(cliFails = false) {
     fs: { writeTextFile: async () => {}, remove: async () => {} },
     delete: async () => { deleted.push(vmId); },
   };
-  const client = { vms: { create: async () => ({ vm, vmId, data }), get: async () => data } } as unknown as Freestyle;
-  const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("No daemon install expected"); } });
-  return { provider, deleted, commands };
+  const client = { vms: { create: async () => ({ vm, vmId, data }), get: async () => data, ref: () => vm } } as unknown as Freestyle;
+  const provider = new FreestyleProvider({ client: (timeoutMs) => { clientTimeouts.push(timeoutMs ?? 0); return client; }, resolveDaemonSource: async () => { throw new Error("No daemon install expected"); } });
+  return { provider, deleted, commands, clientTimeouts };
 }
 
 describe("advisory resource reporter installation", () => {
@@ -36,5 +37,16 @@ describe("advisory resource reporter installation", () => {
     const { provider, deleted } = fixture(true);
     await expect(provider.create({ image: "sh-test" })).rejects.toThrow();
     expect(deleted).toEqual(["vm-resource-reporter-test"]);
+  });
+
+  test("direct resource probes do not run guest CLI installation", async () => {
+    const { provider, commands, clientTimeouts } = fixture();
+    const result = await provider.getResourceStats("vm-resource-reporter-test");
+    expect(result.exitCode).toBe(0);
+    expect(commands).toHaveLength(1);
+    expect(commands[0]).toContain("python3 - <<'PY");
+    expect(commands[0]).not.toContain("sha256sum");
+    expect(commands[0]).not.toContain("cmux-resource-stats.service");
+    expect(clientTimeouts).toEqual([20_000]);
   });
 });

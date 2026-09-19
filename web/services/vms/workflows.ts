@@ -4,7 +4,6 @@ import {
   parseVmResourceUsage,
   shouldReadVmResourceStatsDirectly,
 } from "./resourceUsage";
-import { GUEST_RESOURCE_SAMPLE_SCRIPT } from "./guestResourceReporter";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
@@ -2935,17 +2934,13 @@ function directResourceStatsExec(
   providers: VmProviderGatewayShape,
   provider: ProviderId,
   providerVmId: string,
-  command: string,
-  providerMetadata: Readonly<Record<string, unknown>>,
 ): Effect.Effect<ExecResult | null> {
   const key = `${provider}:${providerVmId}`;
   const existing = directResourceStatsInFlight.get(key);
   if (existing) return waitForDirectResourceStats(existing);
+  if (!providers.getResourceStats) return Effect.succeed(null);
 
-  const execution = Effect.runPromise(providers.exec(provider, providerVmId, command, {
-    timeoutMs: DIRECT_RESOURCE_STATS_TIMEOUT_MS,
-    providerMetadata: { ...providerMetadata },
-  })).catch(() => null);
+  const execution = Effect.runPromise(providers.getResourceStats(provider, providerVmId)).catch(() => null);
   directResourceStatsInFlight.set(key, execution);
   void execution.then(
     () => { if (directResourceStatsInFlight.get(key) === execution) directResourceStatsInFlight.delete(key); },
@@ -3041,13 +3036,10 @@ export function getVmStats(input: {
         if (stats.state !== "awake" || !shouldReadVmResourceStatsDirectly()) {
           return Effect.succeed(reported);
         }
-        const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
         return directResourceStatsExec(
           providers,
           vm.provider,
           input.providerVmId,
-          command,
-          vm.providerMetadata,
         ).pipe(
           Effect.map((result) => {
             if (!result || result.exitCode !== 0) return reported;

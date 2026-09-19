@@ -14,7 +14,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { isIP } from "node:net";
 import { Effect } from "effect";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
-import { guestResourceReporterInstallCommand } from "../guestResourceReporter";
+import { guestResourceReporterInstallCommand, guestResourceSampleCommand } from "../guestResourceReporter";
 import {
   ProviderError,
   type AttachTransport,
@@ -37,6 +37,7 @@ import {
   type VMProvider,
   type VMResizeOptions,
   type VMStats,
+  type VMResourceStatsResult,
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
@@ -168,6 +169,7 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+const DIRECT_RESOURCE_STATS_TIMEOUT_MS = 5_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 
@@ -1235,6 +1237,30 @@ export class FreestyleProvider implements VMProvider {
           };
         } catch (err) {
           throw new ProviderError("freestyle", `getStats(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  /** Read guest gauges without the general exec path's CLI installation/heal. */
+  async getResourceStats(vmId: string): Promise<VMResourceStatsResult> {
+    return withVmSpan(
+      "cmux.vm.provider.get_resource_stats",
+      "provider",
+      spanAttributes(vmId, "getResourceStats"),
+      async (span) => {
+        try {
+          const fs = this.deps.client(DIRECT_RESOURCE_STATS_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
+          const result = await fs.vms.ref(vmId).exec({
+            command: guestResourceSampleCommand(),
+            timeoutMs: DIRECT_RESOURCE_STATS_TIMEOUT_MS,
+            linuxUser: GUEST_LINUX_USER,
+          });
+          const exitCode = result.statusCode ?? 124;
+          setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
+          return { exitCode, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+        } catch (err) {
+          throw new ProviderError("freestyle", `getResourceStats(${vmId})`, err);
         }
       },
     );

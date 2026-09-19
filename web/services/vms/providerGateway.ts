@@ -23,6 +23,7 @@ import {
   type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
+  type VMResourceStatsResult,
   type VMResizeOptions,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -89,6 +90,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMStats, VmProviderOperationError>;
+  readonly getResourceStats?: (
+    provider: ProviderId,
+    vmId: string,
+  ) => Effect.Effect<VMResourceStatsResult, VmProviderOperationError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -276,6 +281,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return await impl.getStats(vmId);
     }),
+  getResourceStats: (provider, vmId) => providerEffect(provider, "getResourceStats", async () => {
+    const impl = getProvider(provider);
+    if (!impl.getResourceStats) {
+      throw new VmOperationUnsupportedError({ provider, operation: "getResourceStats" });
+    }
+    return await impl.getResourceStats(vmId);
+  }),
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));

@@ -30,6 +30,13 @@ export type VMStats = {
   readonly diskUsedMb?: number;
 };
 
+/** Raw result of a provider-owned, read-only guest resource probe. */
+export type VMResourceStatsResult = {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+};
+
 /** A provider persistent volume normalized for report-only inventory scans. */
 export type VMVolume = {
   readonly name: string;
@@ -470,6 +477,8 @@ export interface VMProvider {
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;
+  /** Optional direct guest probe; must not install tooling, mutate, or wake. */
+  getResourceStats?(vmId: string): Promise<VMResourceStatsResult>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
 

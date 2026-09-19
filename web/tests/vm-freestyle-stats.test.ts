@@ -13,8 +13,8 @@ const gauges = { cpuPercent: 37.5, memoryUsedMb: 1234, diskUsedMb: 5678 };
 type ReadStatsOptions = {
   readonly directBackend?: boolean;
   readonly concurrent?: boolean;
-  readonly execExitCode?: number;
-  readonly execOutput?: unknown;
+  readonly resourceExitCode?: number;
+  readonly resourceOutput?: unknown;
 };
 
 async function readStats(
@@ -23,8 +23,7 @@ async function readStats(
   options: ReadStatsOptions = {},
 ) {
   const calls: string[] = [];
-  const execCalls: string[] = [];
-  const execOptions: unknown[] = [];
+  const resourceCalls: string[] = [];
   const client = new Freestyle({
     apiKey: "test-only",
     fetch: (async (input, init) => {
@@ -41,14 +40,13 @@ async function readStats(
   } as unknown as VmRepositoryShape;
   const providers = {
     getStats: () => Effect.promise(() => provider.getStats("vm-stats")),
-    exec: (_provider: string, _vmId: string, command: string, providerOptions?: unknown) => {
-      execCalls.push(command);
-      execOptions.push(providerOptions);
+    getResourceStats: () => {
+      resourceCalls.push("probe");
       return Effect.succeed({
-        exitCode: options.execExitCode ?? 0,
-        stdout: typeof options.execOutput === "string"
-          ? options.execOutput
-          : JSON.stringify(options.execOutput ?? gauges),
+        exitCode: options.resourceExitCode ?? 0,
+        stdout: typeof options.resourceOutput === "string"
+          ? options.resourceOutput
+          : JSON.stringify(options.resourceOutput ?? gauges),
         stderr: "",
       });
     },
@@ -77,7 +75,7 @@ async function readStats(
     expect(calls).toEqual(options.concurrent
       ? ["/v5/vms/vm-stats", "/v5/vms/vm-stats"]
       : ["/v5/vms/vm-stats"]);
-    return { result, results, execCalls, execOptions };
+    return { result, results, resourceCalls };
   } finally {
     for (const key of envKeys) {
       const value = previousEnvironment[key];
@@ -90,36 +88,35 @@ async function readStats(
 describe("Freestyle live machine stats", () => {
   test("existing stats workflow returns the guest sample without executing in the VM", async () => {
     const receivedAt = Date.now();
-    const { result, execCalls } = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
-    expect(execCalls).toHaveLength(0);
+    const { result, resourceCalls } = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
+    expect(resourceCalls).toHaveLength(0);
     expect(result).toEqual({ state: "awake", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
   });
 
   test("direct dev backends sample an awake guest when callback telemetry is unavailable", async () => {
-    const { result, execCalls, execOptions } = await readStats("running", undefined, { directBackend: true });
-    expect(execCalls).toHaveLength(1);
-    expect(execOptions[0]).toMatchObject({ timeoutMs: 5_000 });
+    const { result, resourceCalls } = await readStats("running", undefined, { directBackend: true });
+    expect(resourceCalls).toHaveLength(1);
     expect(result).toMatchObject({ state: "awake", ...gauges });
     expect(typeof result.resourceSampledAt).toBe("number");
   });
 
   test("coalesces concurrent direct probes for one VM", async () => {
-    const { results, execCalls } = await readStats("running", undefined, { directBackend: true, concurrent: true });
-    expect(execCalls).toHaveLength(1);
+    const { results, resourceCalls } = await readStats("running", undefined, { directBackend: true, concurrent: true });
+    expect(resourceCalls).toHaveLength(1);
     expect(results).toHaveLength(2);
     expect(results[0]?.cpuPercent).toBe(gauges.cpuPercent);
     expect(results[1]?.diskUsedMb).toBe(gauges.diskUsedMb);
   });
 
   test.each([
-    { label: "a failed probe", execExitCode: 1 },
-    { label: "malformed output", execOutput: "not json" },
-    { label: "invalid gauges", execOutput: { cpuPercent: 101 } },
-  ])("$label keeps provisioned capacity without inventing usage", async ({ execExitCode, execOutput }) => {
-    const { result, execCalls } = await readStats("running", undefined, {
-      directBackend: true, execExitCode, execOutput,
+    { label: "a failed probe", resourceExitCode: 1 },
+    { label: "malformed output", resourceOutput: "not json" },
+    { label: "invalid gauges", resourceOutput: { cpuPercent: 101 } },
+  ])("$label keeps provisioned capacity without inventing usage", async ({ resourceExitCode, resourceOutput }) => {
+    const { result, resourceCalls } = await readStats("running", undefined, {
+      directBackend: true, resourceExitCode, resourceOutput,
     });
-    expect(execCalls).toHaveLength(1);
+    expect(resourceCalls).toHaveLength(1);
     expect(result).toMatchObject({ state: "awake", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
@@ -128,8 +125,8 @@ describe("Freestyle live machine stats", () => {
   });
 
   test.each(["paused", "pausing", "stopped", "starting"])("a %s machine never exposes an old reading or touches the guest", async (state) => {
-    const { result, execCalls } = await readStats(state, { ...gauges, receivedAt: Date.now(), providerVmId: "vm-stats" }, { directBackend: true });
-    expect(execCalls).toHaveLength(0);
+    const { result, resourceCalls } = await readStats(state, { ...gauges, receivedAt: Date.now(), providerVmId: "vm-stats" }, { directBackend: true });
+    expect(resourceCalls).toHaveLength(0);
     expect(result.state).toBe(state === "starting" ? "unknown" : "asleep");
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
