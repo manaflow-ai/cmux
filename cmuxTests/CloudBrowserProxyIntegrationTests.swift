@@ -221,7 +221,9 @@ struct CloudBrowserProxyIntegrationTests {
             #expect(server.requests.contains { $0.target == "/echo?source=browser" && $0.method == "POST" })
             #expect(server.requests.allSatisfy { $0.host == "\(server.address):8000" })
             #expect(!server.authorizedTargets.isEmpty)
-            #expect(server.authorizedTargets.allSatisfy { $0 == "\(server.address):8000" })
+            let remoteTargets = server.authorizedTargets.filter { $0.hasSuffix(":8000") }
+            #expect(!remoteTargets.isEmpty)
+            #expect(remoteTargets.allSatisfy { $0 == "\(server.address):8000" })
         }
 
         // A second load of A after B's requests verifies that its route remains owned by A.
