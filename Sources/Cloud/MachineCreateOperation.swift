@@ -77,10 +77,18 @@ struct MachineCreateOperation: Identifiable, Equatable {
     /// `Error:` prefix is dropped, and the result is capped to fit a
     /// notification body. Nil when nothing is left.
     static func headline(ofOutput output: String) -> String? {
+        let createdFormat = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
+        let createdParts = createdFormat.components(separatedBy: "%@")
         for rawLine in output.split(whereSeparator: \.isNewline) {
             var line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty, !line.hasPrefix("OK "),
                   MachineCreateCoordinator.createdMachineID(fromOutput: line) == nil else { continue }
+            // Display text is still omitted from headlines, but never used as
+            // the authoritative signal that a machine was created.
+            if createdParts.count == 2,
+               line.hasPrefix(createdParts[0]), line.hasSuffix(createdParts[1]) {
+                continue
+            }
             if line.lowercased().hasPrefix("error:") {
                 line = String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
             }

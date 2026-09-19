@@ -82,6 +82,7 @@ final class MachineCreateCoordinator {
     @ObservationIgnored private var cancellableLaunches: [UUID: CancellableLaunch] = [:]
     @ObservationIgnored private var cancellationHandles: [UUID: CloudVMActionLauncher.CancellationHandle] = [:]
     @ObservationIgnored private var progressOutput: [UUID: String] = [:]
+    @ObservationIgnored private var attemptGeneration: [UUID: UInt64] = [:]
     @ObservationIgnored private var progressMarkerCarry: [UUID: String] = [:]
     @ObservationIgnored private var cancelledCreates: [UUID: CancelledCreate] = [:]
     @ObservationIgnored private var cleanupIssuedMachineIDs: Set<String> = []
@@ -95,6 +96,7 @@ final class MachineCreateCoordinator {
 
     private struct CancelledCreate {
         let isBaseSetup: Bool
+        let generation: UInt64
         /// Only a bounded tail is retained so a cancelled CLI that continues
         /// streaming logs cannot turn late-result reconciliation into an
         /// unbounded buffer or an O(n²) rescan.
@@ -179,12 +181,13 @@ final class MachineCreateCoordinator {
         operations.append(operation)
         cancellableLaunches[operation.id] = cancellableLaunch
         progressOutput[operation.id] = ""
+        attemptGeneration[operation.id] = 1
         progressMarkerCarry[operation.id] = ""
         postDidChange(finished: nil)
         guard let cancellation = cancellableLaunch(
             request.arguments,
-            progressHandler(for: operation.id),
-            completionHandler(for: operation.id)
+            progressHandler(for: operation.id, generation: 1),
+            completionHandler(for: operation.id, generation: 1)
         ) else {
             if let index = operations.firstIndex(where: { $0.id == operation.id }) {
                 operations.remove(at: index)
@@ -192,6 +195,7 @@ final class MachineCreateCoordinator {
             cancellableLaunches.removeValue(forKey: operation.id)
             progressOutput.removeValue(forKey: operation.id)
             progressMarkerCarry.removeValue(forKey: operation.id)
+            attemptGeneration.removeValue(forKey: operation.id)
             postDidChange(finished: nil)
             return false
         }
@@ -246,16 +250,21 @@ final class MachineCreateCoordinator {
               let launch = cancellableLaunches[id] else { return false }
         operations[index].phase = .running
         operations[index].createdMachineID = nil
+        let generation = (attemptGeneration[id] ?? 0) &+ 1
+        attemptGeneration[id] = generation
         progressOutput[id] = ""
         progressMarkerCarry[id] = ""
         cancellationHandles.removeValue(forKey: id)
         postDidChange(finished: nil)
-        guard let cancellation = launch(operations[index].request.arguments, progressHandler(for: id), completionHandler(for: id)) else {
+        guard let cancellation = launch(operations[index].request.arguments, progressHandler(for: id, generation: generation), completionHandler(for: id, generation: generation)) else {
             if let failedIndex = operations.firstIndex(where: { $0.id == id }) {
                 operations[failedIndex].phase = .failed(output: String(
                     localized: "machines.new.error.launch",
                     defaultValue: "cmux could not start the create command. Sign in and try again."
                 ))
+                progressOutput.removeValue(forKey: id)
+                progressMarkerCarry.removeValue(forKey: id)
+                attemptGeneration[id] = (attemptGeneration[id] ?? generation) &+ 1
                 postDidChange(finished: nil)
             }
             return false
@@ -275,6 +284,7 @@ final class MachineCreateCoordinator {
         cancellationHandles.removeValue(forKey: id)
         progressOutput.removeValue(forKey: id)
         progressMarkerCarry.removeValue(forKey: id)
+        attemptGeneration.removeValue(forKey: id)
         postDidChange(finished: nil)
     }
 
@@ -290,6 +300,7 @@ final class MachineCreateCoordinator {
         progressOutput.removeValue(forKey: id)
         var cancelled = CancelledCreate(
             isBaseSetup: operation.request.isBaseSetup,
+            generation: attemptGeneration.removeValue(forKey: id) ?? 0,
             markerCarry: progressMarkerCarry.removeValue(forKey: id) ?? ""
         )
         if !operation.request.isBaseSetup, let machineID = operation.createdMachineID {
@@ -317,6 +328,7 @@ final class MachineCreateCoordinator {
         for operation in runningOperations where cleanupCreatedMachines && !operation.request.isBaseSetup {
             var cancelled = CancelledCreate(
                 isBaseSetup: false,
+                generation: attemptGeneration[operation.id] ?? 0,
                 markerCarry: progressMarkerCarry[operation.id] ?? ""
             )
             if let machineID = operation.createdMachineID {
@@ -330,6 +342,7 @@ final class MachineCreateCoordinator {
         cancellationHandles.removeAll()
         progressOutput.removeAll()
         progressMarkerCarry.removeAll()
+        attemptGeneration.removeAll()
         // Keep new-machine tombstones until their process callbacks arrive so
         // a machine announced after sign-out still receives best-effort cleanup.
         // Base setup has no newly allocated machine to destroy and can be
@@ -349,30 +362,17 @@ final class MachineCreateCoordinator {
         postDidChange(finished: nil)
     }
 
-    /// Recognizes the CLI's "Created Cloud VM <id>" line in `output`. The
-    /// format is the CLI's own localized string, so the match follows the
-    /// user's language instead of a hard-coded English prefix.
+    /// Recognizes only the CLI's strict stdout protocol line.
     nonisolated static func createdMachineID(fromOutput output: String) -> String? {
-        // The stable marker is emitted before opening starts and is the
-        // authoritative correlation key. Parse it before localized display
-        // text, so partial progress can identify the machine in every locale.
-        for token in output.split(whereSeparator: \.isWhitespace) {
-            let token = String(token)
-            guard token.hasPrefix("machine=") else { continue }
-            let id = String(token.dropFirst("machine=".count))
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
-                return id
-            }
-        }
-        let format = String(localized: "cli.vm.create.createdCloudVM", defaultValue: "Created Cloud VM %@")
-        let parts = format.components(separatedBy: "%@")
-        guard parts.count == 2 else { return nil }
-        let prefix = parts[0], suffix = parts[1]
         for rawLine in output.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard line.hasPrefix(prefix), line.hasSuffix(suffix), line.count > prefix.count + suffix.count else { continue }
-            let id = String(line.dropFirst(prefix.count).dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
+            guard line.hasPrefix("OK machine=") else { continue }
+            let payload = line.dropFirst("OK machine=".count)
+            let id = payload.split(maxSplits: 1, whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+            guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { continue }
+            let suffix = payload.dropFirst(id.count)
+            guard suffix.isEmpty || suffix.first?.isWhitespace == true else { continue }
+            return id
         }
         return nil
     }
@@ -402,15 +402,18 @@ final class MachineCreateCoordinator {
         return "\(reason)\n\(safe)"
     }
 
-    private func completionHandler(for id: UUID) -> @MainActor (CloudVMActionLauncher.Completion) -> Void {
+    private func completionHandler(for id: UUID, generation: UInt64) -> @MainActor (CloudVMActionLauncher.Completion) -> Void {
         { [weak self] completion in
-            self?.finish(id: id, completion: completion)
+            guard let self,
+                  self.attemptGeneration[id] == generation || self.cancelledCreates[id]?.generation == generation else { return }
+            self.finish(id: id, completion: completion)
         }
     }
 
-    private func progressHandler(for id: UUID) -> @MainActor (String) -> Void {
+    private func progressHandler(for id: UUID, generation: UInt64) -> @MainActor (String) -> Void {
         { [weak self] chunk in
-            guard let self else { return }
+            guard let self,
+                  self.attemptGeneration[id] == generation || self.cancelledCreates[id]?.generation == generation else { return }
             if let index = self.operations.firstIndex(where: { $0.id == id }) {
                 // Parse the complete callback before bounding the retained
                 // transcript. ProcessOutputCollector does not promise a small
@@ -419,8 +422,9 @@ final class MachineCreateCoordinator {
                 let markerInput = self.progressMarkerCarry[id, default: ""] + chunk
                 let machineID = Self.createdMachineID(fromOutput: markerInput)
                 self.progressMarkerCarry[id] = String(markerInput.suffix(Self.markerCarryLimit))
-                let bounded = (self.progressOutput[id, default: ""] + chunk).suffix(Self.outputParseLimit)
-                self.progressOutput[id] = String(bounded)
+                var bounded = Data((self.progressOutput[id, default: ""] + chunk).utf8.suffix(Self.outputParseLimit))
+                while let first = bounded.first, (first & 0xC0) == 0x80 { bounded.removeFirst() }
+                self.progressOutput[id] = String(decoding: bounded, as: UTF8.self)
                 if let machineID {
                     guard self.operations[index].createdMachineID != machineID else { return }
                     self.operations[index].createdMachineID = machineID
@@ -450,21 +454,20 @@ final class MachineCreateCoordinator {
         guard let index = operations.firstIndex(where: { $0.id == id }) else {
             guard var cancelled = cancelledCreates.removeValue(forKey: id) else { return }
             guard !cancelled.isBaseSetup else { return }
-            let machineID = completion.machineId ?? Self.createdMachineID(fromOutput: completion.output)
+            let machineID = completion.machineId
             if let machineID, cancelled.cleanedMachineID != machineID {
                 cancelled.cleanedMachineID = machineID
                 cleanupCancelledMachine(machineID)
             }
             return
         }
+        progressOutput.removeValue(forKey: id)
+        progressMarkerCarry.removeValue(forKey: id)
+        attemptGeneration[id] = (attemptGeneration[id] ?? 0) &+ 1
         var operation = operations[index]
         let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The CLI's `machine=` token is the authoritative created-machine
-        // signal; the localized "Created Cloud VM" line is the fallback for
-        // older bundled CLIs.
-        let createdMachineID = completion.machineId
-            ?? operation.createdMachineID
-            ?? Self.createdMachineID(fromOutput: output)
+        // Both the launcher's result and progress markers come only from stdout.
+        let createdMachineID = completion.machineId ?? operation.createdMachineID
         if let createdMachineID {
             operation.createdMachineID = createdMachineID
             operations[index].createdMachineID = createdMachineID
@@ -472,6 +475,7 @@ final class MachineCreateCoordinator {
         if completion.wasCancelled {
             operations.remove(at: index)
             cancellableLaunches.removeValue(forKey: id)
+            attemptGeneration.removeValue(forKey: id)
             cancellationHandles.removeValue(forKey: id)
             progressOutput.removeValue(forKey: id)
             progressMarkerCarry.removeValue(forKey: id)
@@ -486,6 +490,7 @@ final class MachineCreateCoordinator {
             outcome = .created(machineID: createdMachineID, workspaceID: completion.workspaceId)
             operations.remove(at: index)
             cancellableLaunches.removeValue(forKey: id)
+            attemptGeneration.removeValue(forKey: id)
             cancellationHandles.removeValue(forKey: id)
             progressOutput.removeValue(forKey: id)
             progressMarkerCarry.removeValue(forKey: id)
@@ -495,6 +500,7 @@ final class MachineCreateCoordinator {
             outcome = .createdButOpenFailed(machineID: machineID, output: Self.displayableFailureOutput(output))
             operations.remove(at: index)
             cancellableLaunches.removeValue(forKey: id)
+            attemptGeneration.removeValue(forKey: id)
             cancellationHandles.removeValue(forKey: id)
             progressOutput.removeValue(forKey: id)
             progressMarkerCarry.removeValue(forKey: id)
