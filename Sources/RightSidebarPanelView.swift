@@ -519,11 +519,13 @@ struct RightSidebarPanelView: View {
                     MachinesPanelView(
                         chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                         defaultMachineStore: store,
+                        machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                         tabManager: tabManager
                     )
                 } else {
                     MachinesPanelView(
                         chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                        machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                         tabManager: tabManager
                     )
                 }

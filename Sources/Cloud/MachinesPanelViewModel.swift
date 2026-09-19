@@ -57,6 +57,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     var privateAddress: String?
     /// True when this is the machine used by the quick cloud-workspace shortcut.
     var isDefault: Bool = false
+    /// True when the user explicitly pinned this machine in the Cloud tree.
+    var isPinned: Bool = false
 
     /// The label when set, else the generated name, else the machine id.
     var displayName: String {
@@ -299,9 +301,19 @@ final class MachinesPanelViewModel: ObservableObject {
     private static let statsInterval: Duration = .seconds(20)
 
     let defaultMachineStore: DefaultCloudMachineStore?
+    /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
+    let machinePinStore: CloudMachinePinStore?
+    private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
 
-    init(createCoordinator: MachineCreateCoordinator? = nil, defaultMachineStore: DefaultCloudMachineStore? = nil) {
+    init(
+        createCoordinator: MachineCreateCoordinator? = nil,
+        defaultMachineStore: DefaultCloudMachineStore? = nil,
+        machinePinStore: CloudMachinePinStore? = nil,
+        catalogProvider: @escaping @MainActor () -> SurfaceCatalogSnapshot = { SurfaceCatalog.shared.snapshot }
+    ) {
         self.defaultMachineStore = defaultMachineStore
+        self.machinePinStore = machinePinStore
+        self.catalogProvider = catalogProvider
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
         let createCoordinator = createCoordinator ?? .shared
@@ -413,7 +425,10 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Publishes the catalog's current value and the local workspace list. Cheap
     /// (a value read), so every change notification may call it.
     func readCatalog() {
-        catalog = SurfaceCatalog.shared.snapshot
+        catalog = catalogProvider()
+        // Catalog discoveries join the remembered fleet order as they appear, so a
+        // machine the list endpoint has not returned yet still has a stable slot.
+        machinePinStore?.remember(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: catalog).map(\.id))
         localWorkspaces = localWorkspacesProvider()
         // The unread index and the catalog change on the same accepted daemon
         // state, so a catalog read also refreshes it. Cheap: a dictionary read.
@@ -667,6 +682,9 @@ final class MachinesPanelViewModel: ObservableObject {
                 next.isDefault = snapshot.id == defaultMachineID
                 return next
             }
+            // The authoritative fleet plus catalog-only rows is the complete
+            // visible set: a pin whose machine is gone from both is pruned.
+            machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: catalogProvider()).map(\.id))
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()

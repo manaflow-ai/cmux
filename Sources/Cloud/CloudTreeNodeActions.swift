@@ -76,6 +76,8 @@ struct CloudTreeNodeActions {
                     } else {
                         try await operation(catalog())
                     }
+                } catch is CancellationError {
+                    // A locally admitted delete or disabled feature invalidates navigation.
                 } catch {
                     onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
                 }
@@ -229,6 +231,9 @@ struct CloudTreeNodeActions {
                         return
                     }
                     run(startingLabel(machine)) { catalog in
+                        if let workspaceID = remoteWorkspaceID ?? group.remoteWorkspaceID {
+                            try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+                        }
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         let (projection, _) = try await catalog.project(
@@ -255,6 +260,9 @@ struct CloudTreeNodeActions {
             openGroupAsWorkspace: { machine, group, remoteWorkspaceID in
                 if group.isEmpty {
                     run(startingLabel(machine)) { catalog in
+                        if let workspaceID = remoteWorkspaceID ?? group.remoteWorkspaceID {
+                            try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+                        }
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
@@ -332,9 +340,11 @@ struct CloudTreeNodeActions {
                         : String(format: String(localized: "cloudTree.closeWorkspace.message.other", defaultValue: "Its %d terminals are killed with it."), terminals.count)
                     guard confirmDestructive(title: title, message: message, verb: String(localized: "cloudTree.closeWorkspace.confirm", defaultValue: "Close")) else { return }
                 }
-                run(String(format: String(localized: "cloudTree.operation.closeWorkspace", defaultValue: "Closing %@\u{2026}"), workspace.name)) { catalog in
-                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    _ = try await Self.deleteWorkspaceAndTerminals(machine: machine, provider: provider, catalog: catalog, workspaceID: workspace.id)
+                // Admit the delete synchronously so the row is gone before the
+                // first network suspension; the operation label tracks the request.
+                let deletion = catalog().deleteCloudWorkspace(machine: machine, workspaceID: workspace.id)
+                run(String(format: String(localized: "cloudTree.operation.closeWorkspace", defaultValue: "Closing %@\u{2026}"), workspace.name)) { _ in
+                    _ = try await deletion.value
                 }
             },
             renameWorkspace: { machine, workspace in
@@ -483,15 +493,12 @@ struct CloudTreeNodeActions {
         catalog: SurfaceCatalog,
         workspaceID: String
     ) async throws -> Int {
-        await provider.refresh()
-        let doomed = catalog.snapshot.resources(on: machine).filter { resource in
-            resource.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspaceID }
+        let deletion = catalog.deleteCloudWorkspace(machine: machine, workspaceID: workspaceID, provider: provider)
+        return try await withTaskCancellationHandler {
+            try await deletion.value
+        } onCancel: {
+            deletion.cancel()
         }
-        for terminal in doomed {
-            try await provider.closeTerminal(terminal.id)
-        }
-        try await provider.closeRemoteWorkspace(id: workspaceID)
-        return doomed.count
     }
 
     /// A create operation returns the exact tab receipt. A newly-created

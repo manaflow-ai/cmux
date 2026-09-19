@@ -18,6 +18,19 @@ let coordinator = CloudWorkspaceCoordinator(
 let workspaceID = try await coordinator.createOnDefaultMachine(focus: true)
 ```
 
+`CloudMachinePinStore` owns explicit machine pins and the stable fleet order the
+Machines panel shows, per account/team scope. Pinned machines sort first; within
+each group machines keep the order they were first seen in, so refreshes and
+asynchronous loading never shuffle the fleet. It is independent of the default
+machine above: a pin is sidebar priority, the default is Cmd+Y routing.
+
+```swift
+let pins = CloudMachinePinStore(defaults: defaults, scopeProvider: { "user:a|team:one" })
+pins.reconcile(machineIDs: ["b", "a"])   // the complete visible fleet; absent ids lose their pin
+pins.setPinned(true, machineID: "a")
+pins.orderedMachineIDs(["b", "a"])       // ["a", "b"]
+```
+
 `CloudMachineResourcePresentation` validates and formats CPU, memory, and disk samples independently of app/provider types. The app maps its immutable machine snapshot at the UI boundary; loading, missing, stale, and sleeping samples remain explicit. Localized labels use the host application's catalog.
 
 ```swift

@@ -300,6 +300,7 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
+            cloudMachinePinStore: Self.makeCloudMachinePinStore(auth: authComposition),
             cloudWorkspaceCoordinator: cloudWorkspaceCoordinator,
             cloudWorkspaceOperationController: cloudWorkspaceOperationController,
             newMachineSheetPresenter: NewMachineSheetPresenter.shared,

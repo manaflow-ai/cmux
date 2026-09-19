@@ -31,14 +31,26 @@ struct MachinesPanelView: View {
     var tabManager: TabManager? = nil
 
 
-    init(chromeBackgroundColor: NSColor, defaultMachineStore: DefaultCloudMachineStore, tabManager: TabManager? = nil) {
+    init(
+        chromeBackgroundColor: NSColor,
+        defaultMachineStore: DefaultCloudMachineStore,
+        machinePinStore: CloudMachinePinStore? = nil,
+        tabManager: TabManager? = nil
+    ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(defaultMachineStore: defaultMachineStore))
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
+            defaultMachineStore: defaultMachineStore, machinePinStore: machinePinStore
+        ))
     }
 
-    init(chromeBackgroundColor: NSColor, tabManager: TabManager? = nil) {
-        self.init(chromeBackgroundColor: chromeBackgroundColor, defaultMachineStore: DefaultCloudMachineStore(defaults: .standard), tabManager: tabManager)
+    init(chromeBackgroundColor: NSColor, machinePinStore: CloudMachinePinStore? = nil, tabManager: TabManager? = nil) {
+        self.init(
+            chromeBackgroundColor: chromeBackgroundColor,
+            defaultMachineStore: DefaultCloudMachineStore(defaults: .standard),
+            machinePinStore: machinePinStore,
+            tabManager: tabManager
+        )
     }
 
     private var accountFlow: HostAccountFlow? {
@@ -66,6 +78,17 @@ struct MachinesPanelView: View {
         .onAppear { syncPolling(for: authState) }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
+            viewModel.machinePinStore?.refreshScope()
+        }
+        // Pins are scoped per account and team; a switch re-reads the scope and
+        // the fleet so the tree never shows another scope's pins.
+        .onChange(of: accountFlow?.selectedTeamID) { _, _ in
+            viewModel.machinePinStore?.refreshScope()
+            viewModel.refresh()
+        }
+        .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
+            viewModel.machinePinStore?.refreshScope()
+            viewModel.refresh()
         }
         .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
             if let id { viewModel.setDefaultMachine(id: id) }
@@ -464,6 +487,9 @@ struct MachinesPanelView: View {
         machineActions.setDefault = { [weak viewModel] id in
             viewModel?.setDefaultMachine(id: id)
         }
+        machineActions.setPinned = { [weak viewModel] id, pinned in
+            viewModel?.setMachinePinned(pinned, id: id)
+        }
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
@@ -477,7 +503,7 @@ struct MachinesPanelView: View {
             refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
         )
         return CloudTreeOutlineView(
-            machines: viewModel.machines,
+            machines: viewModel.sidebarMachines,
             pendingCreates: viewModel.pendingCreates,
             snapshot: viewModel.catalog,
             localWorkspaces: viewModel.localWorkspaces,
@@ -758,6 +784,8 @@ struct MachineRowActions {
     let promptUpgrade: @MainActor () -> Void
     /// Persist the machine used by Cmd+Y.
     var setDefault: @MainActor (String) -> Void = { _ in }
+    /// Toggles the explicit pin state for a machine.
+    var setPinned: @MainActor (String, Bool) -> Void = { _, _ in }
     /// Verbs of the pending rows (creates still running or failed).
     var create: MachineCreateRowActions = .inert
 

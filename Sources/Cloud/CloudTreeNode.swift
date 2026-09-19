@@ -70,11 +70,12 @@ final class CloudTreeNode: NSObject {
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
 
-    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
+    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil, isPinned: Bool = false) {
         self.id = id
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
+        self.isPinned = isPinned
     }
 
     var isExpandable: Bool { !children.isEmpty }
@@ -588,7 +589,10 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
                     now: now
-                )
+                ),
+                // A machine pin is explicit sidebar priority, stamped by the panel;
+                // organization only pins the organizable rows below a machine.
+                isPinned: machine.isPinned
             ))
         }
         // Machines the catalog knows but the fleet list has not returned yet (or

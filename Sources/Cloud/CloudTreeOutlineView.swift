@@ -59,6 +59,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.pendingWorkspaceDeletions = snapshot.pendingWorkspaceDeletions ?? [:]
         context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
             machines: machines,
@@ -81,7 +82,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         let organization: CloudSidebarOrganizationStore
         private var structureSignature: [String] = []
         private var contentSignature: [CloudTreeNodeContentSnapshot] = []
-        private var selectedNodeID: String?
+        /// The selected row's stable node id, restored across in-place reloads.
+        var selectedNodeID: String?
+        /// Workspaces the catalog has admitted for deletion but not confirmed.
+        var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
+        private let deletionPresentation = CloudTreeDeletionPresentation()
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -241,7 +246,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return
             }
             let nodes = CloudSidebarOrganizationTree(nodes: nodes).arrange(using: organization.state)
-            expansionStore.reconcile(nodes: nodes)
+            // An optimistically hidden workspace keeps its expansion state and
+            // hands its selection to its machine; a rollback restores both.
+            let deletion = deletionPresentation.update(
+                previous: self.nodes, next: nodes, pending: pendingWorkspaceDeletions, selectedNodeID: selectedNodeID
+            )
+            selectedNodeID = deletion.selectedNodeID
+            expansionStore.reconcile(nodes: deletion.expansionNodes)
             let nextStructure = CloudTreeNodeBuilder.structureSignature(nodes)
             let nextContent = CloudTreeNodeBuilder.contentSignature(nodes)
             #if DEBUG
@@ -313,6 +324,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
         }
         private func restoreSelection(in outlineView: NSOutlineView) {
+            outlineView.deselectAll(nil)
             guard let selectedNodeID else { return }
             for row in 0..<outlineView.numberOfRows {
                 if (outlineView.item(atRow: row) as? CloudTreeNode)?.id == selectedNodeID {
@@ -778,6 +790,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let actions = machineActions
             let nodeActions = nodeActions
             let id = machine.id
+            // Pin/Unpin leads and is available in every access state: a pin is a
+            // local sidebar preference, not a verb the machine has to honor.
+            items.append(item(
+                machine.isPinned
+                    ? String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
+                    : String(localized: "machines.row.pin", defaultValue: "Pin Machine")
+            ) {
+                actions.setPinned(id, !machine.isPinned)
+            })
             if machine.freeAccess == .expired {
                 items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
             } else {

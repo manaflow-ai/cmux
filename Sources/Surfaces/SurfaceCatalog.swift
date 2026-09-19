@@ -63,6 +63,9 @@ final class SurfaceCatalog {
         self?.flushSidebarNotifications(on: machine, resources: resources)
     }
     let cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator
+    /// Optimistic Cloud workspace deletes are catalog state so every sidebar and
+    /// socket reader sees the same pending/tombstoned tree.
+    let cloudWorkspaceDeletionLedger = CloudWorkspaceDeletionLedger()
     /// Resolves local workspace owners for cloud rename write-through. The app installs
     /// its live environment at the composition root; tests keep the no-op environment.
     /// Keeps a mirrored local workspace's panes and its machine workspace's tabs in step.
@@ -116,6 +119,18 @@ final class SurfaceCatalog {
         self.cloudWorkspaceProjectionCoordinator = cloudWorkspaceProjectionCoordinator ?? CloudWorkspaceProjectionCoordinator(
             environment: .init(workspaces: cloudWorkspaceRenameService.environment)
         )
+        // A pending rename is visible the moment it is admitted and gone the
+        // moment it fails: the snapshot projects it, and local titles follow it
+        // through the same reconciliation an accepted graph uses.
+        cloudRenameCoordinator.onPendingNamesChanged = { [weak self] machine in
+            guard let self else { return }
+            self.notifyChange()
+            guard let state = self.cloudStates[machine] else { return }
+            self.cloudWorkspaceRenameService.reconcileRemoteState(
+                machine: machine, state: state, catalog: self,
+                observation: self.cloudStateObservations[machine] ?? .current
+            )
+        }
     }
 
     /// Installs the app-owned cloud rename service once the composition root can provide
@@ -189,6 +204,7 @@ final class SurfaceCatalog {
                 SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
             }
         }
+        cloudWorkspaceDeletionLedger.remove(machine: machine)
         providers[machine] = nil
         machines[machine] = nil
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
@@ -450,6 +466,7 @@ final class SurfaceCatalog {
 
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
+        if observation.freshness == .current { cloudWorkspaceDeletionLedger.reconcile(state) }
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         resolvePendingRestoredProjections(on: state.machine)
         notifyChange()
@@ -487,6 +504,7 @@ final class SurfaceCatalog {
         rebuildResourceIndex(for: state.machine)
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
+        if observation.freshness == .current { cloudWorkspaceDeletionLedger.reconcile(state) }
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         resolvePendingRestoredProjections(on: state.machine)
         notifyChange()
@@ -582,6 +600,7 @@ final class SurfaceCatalog {
     /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
     @discardableResult
     func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
+        if isDeletingCloudResource(id, remoteWorkspaceID: remoteView?.workspace.id) { throw CancellationError() }
         try validateOwnership(of: [id], at: destination)
         let scope = beginProjectionMutation(for: [id])
         defer { endProjectionMutation(scope) }
@@ -665,7 +684,8 @@ final class SurfaceCatalog {
         }
 
         let projection = try await provider.materialize(resource, remoteView: resolvedRemoteView, at: destination, focus: focus, adopting: reservation)
-        guard !Task.isCancelled, providers[id.machine] === provider else {
+        guard !Task.isCancelled, providers[id.machine] === provider,
+              !isDeletingCloudResource(id, remoteWorkspaceID: resolvedRemoteView?.workspace.id) else {
             provider.discardMaterialization(projection)
             throw CancellationError()
         }
@@ -765,6 +785,12 @@ final class SurfaceCatalog {
             guard !inFlight.abandoned else {
                 inFlightProjects[key] = nil
                 cleanupMaterialization(projection, from: inFlight.provider)
+                return
+            }
+            if isDeletingCloudResource(id, remoteWorkspaceID: projection.remoteWorkspaceID) {
+                inFlightProjects[key] = nil
+                cleanupMaterialization(projection, from: inFlight.provider)
+                resume(inFlight.waiters, throwing: CancellationError())
                 return
             }
             guard resources[id] != nil else {
@@ -1357,21 +1383,6 @@ final class SurfaceCatalog {
         }
     }
 
-    // MARK: Snapshot
-
-    var snapshot: SurfaceCatalogSnapshot {
-        let orderedMachines = machines.values.sorted { lhs, rhs in
-            if lhs.id.isLocal != rhs.id.isLocal { return lhs.id.isLocal }
-            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
-        }
-        let orderedResources = resources.values.sorted { $0.catalogPrecedes($1) }
-        return SurfaceCatalogSnapshot(
-            machines: orderedMachines,
-            resources: orderedResources,
-            projections: projections.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
-        )
-    }
-
     /// Complete export for the local control socket. This is separate from
     /// `snapshot` because sidebar redraws do not need to copy or hash the full
     /// remote daemon documents.
@@ -1389,7 +1400,7 @@ final class SurfaceCatalog {
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
     private var changeNotificationPending = false
 
-    private func notifyChange() {
+    func notifyChange() {
         guard !changeNotificationPending else { return }
         changeNotificationPending = true
         Task { @MainActor [weak self] in
