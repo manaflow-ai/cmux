@@ -363,6 +363,43 @@ struct SidebarProviderMenuRegressionTests {
         )
     }
 
+    @Test(arguments: [false, true])
+    func customSidebarCreationPreservesCaseCollisions(uniquing: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidebar-case-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let existing = directory.appendingPathComponent("Focus.swift")
+        let original = "Text(\"User-authored sidebar\")"
+        try original.write(to: existing, atomically: true, encoding: .utf8)
+        let result = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: "focus", fileExtension: "swift", source: "Text(\"New sidebar\")",
+            uniquingIfNeeded: uniquing, sidebarsDirectory: directory
+        )
+        #expect(try String(contentsOf: existing, encoding: .utf8) == original)
+        if uniquing {
+            #expect(result == .created(name: "focus-2", fileURL: directory.appendingPathComponent("focus-2.swift")))
+        } else {
+            #expect(result == .alreadyExists)
+        }
+    }
+
+    @Test
+    func customSidebarCreationPreservesDanglingSymlink() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sidebar-link-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let link = directory.appendingPathComponent("focus.swift")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "missing.swift")
+        let result = CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: "focus", fileExtension: "swift", source: "Text(\"New sidebar\")",
+            uniquingIfNeeded: true, sidebarsDirectory: directory
+        )
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == "missing.swift")
+        #expect(result == .created(name: "focus-2", fileURL: directory.appendingPathComponent("focus-2.swift")))
+    }
+
     private static func populatedSnapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {
         let workspaces = (0..<workspaceCount).map { index in
             CmuxSidebarProviderWorkspace(
