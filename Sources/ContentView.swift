@@ -5244,6 +5244,7 @@ struct ContentView: View {
         return searchAllSurfaces && !commandPaletteQueryForMatching(query: query, scope: scope).isEmpty
     }
 
+    /// Refreshes the palette corpus and starts any background availability probes it depends on.
     private func refreshCommandPaletteSearchCorpus(
         force: Bool = false,
         query: String? = nil
@@ -6059,19 +6060,26 @@ struct ContentView: View {
               !commandPaletteTaskStore.contains(.agentLauncherAvailability) else {
             return
         }
-        guard let bundleResourceURL = Bundle.main.resourceURL else {
+        guard CLIForwardingLaunchRouter.bundledCLIURL() != nil else {
             commandPaletteAgentLauncherAvailability = []
             return
         }
 
         let environment = ProcessInfo.processInfo.environment
+        let bundleResourceURL = Bundle.main.resourceURL
         let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
         commandPaletteTaskStore.replace(.agentLauncherAvailability, priority: .utility) {
-            let availableProviders = Self.commandPaletteAvailableAgentLauncherProviders(
+            let resolver = AgentExecutableResolver(
                 environment: environment,
                 bundleResourceURL: bundleResourceURL,
                 configuredExecutablePaths: configuredExecutablePaths
             )
+            var availableProviders: Set<AgentSessionProviderID> = []
+            for provider in [AgentSessionProviderID.claude, .codex] {
+                if (try? resolver.resolve(provider)) != nil {
+                    availableProviders.insert(provider)
+                }
+            }
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
@@ -6089,28 +6097,29 @@ struct ContentView: View {
         }
     }
 
-    /// Rechecks one launcher off-main, then delegates to the bundled CLI in the same local workspace.
+    /// Rechecks one launcher off-main, then delegates to the bundled CLI in the invoking local workspace.
     func startCommandPaletteAgentLauncherActivation(
         provider: AgentSessionProviderID,
         subcommand: String
     ) {
         guard let workspace = tabManager.selectedWorkspace,
               !workspace.isRemoteWorkspace,
-              let bundleResourceURL = Bundle.main.resourceURL else {
+              let cliURL = CLIForwardingLaunchRouter.bundledCLIURL() else {
             NSSound.beep()
             return
         }
 
         let workspaceID = workspace.id
         let environment = ProcessInfo.processInfo.environment
+        let bundleResourceURL = Bundle.main.resourceURL
         let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
         commandPaletteTaskStore.replace(.agentLauncherActivation(provider), priority: .userInitiated) {
-            let isAvailable = Self.commandPaletteAgentLauncherIsAvailable(
-                provider: provider,
+            let resolver = AgentExecutableResolver(
                 environment: environment,
                 bundleResourceURL: bundleResourceURL,
                 configuredExecutablePaths: configuredExecutablePaths
             )
+            let isAvailable = (try? resolver.resolve(provider)) != nil
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
@@ -6124,9 +6133,6 @@ struct ContentView: View {
                     return
                 }
 
-                let cliURL = bundleResourceURL
-                    .appendingPathComponent("bin", isDirectory: true)
-                    .appendingPathComponent("cmux", isDirectory: false)
                 tabManager.newSurface(
                     initialInput: Self.commandPaletteAgentLauncherShellInput(
                         cliURL: cliURL,
@@ -7369,6 +7375,7 @@ struct ContentView: View {
         "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
 
+    /// Builds command-palette contributions from synchronous context and cached async availability.
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
             { _ in value }
@@ -8663,6 +8670,7 @@ struct ContentView: View {
         }
     }
 
+    /// Registers runnable handlers for every built-in command-palette contribution.
     private func registerCommandPaletteHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         let browserTarget = commandPaletteBrowserActionTarget
         let browserDispatcher = AppDelegate.shared.map {
@@ -9985,6 +9993,7 @@ struct ContentView: View {
         )
     }
 
+    /// Presents the palette and resets per-presentation launcher availability before rebuilding results.
     private func presentCommandPalette(initialQuery: String) {
         refreshCachedDefaultTerminalStatus(refreshSearchCorpusIfPresented: false)
         commandPaletteFocusRestoreCoordinator.clear()
@@ -10117,6 +10126,7 @@ struct ContentView: View {
         dismissCommandPalette(restoreFocus: restoreFocus, preferredFocusTarget: nil)
     }
 
+    /// Dismisses the palette, cancels presentation-scoped probes, and restores the requested focus target.
     private func dismissCommandPalette(
         restoreFocus: Bool,
         preferredFocusTarget: CommandPaletteRestoreFocusTarget?
