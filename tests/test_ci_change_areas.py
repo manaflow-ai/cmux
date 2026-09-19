@@ -617,7 +617,7 @@ def test_workflow_diff_failure_runs_all_areas() -> None:
         ]
 
 
-def test_workflow_routes_from_shallow_synthetic_merge() -> None:
+def run_detect_step_on_shallow_synthetic_merge(*, stale_event_base: bool) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -634,6 +634,7 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
         (source / "common.txt").write_text("common\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=source, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "common"], cwd=source, check=True)
+        common_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=source, text=True).strip()
         subprocess.run(["git", "branch", "feature"], cwd=source, check=True)
 
         (source / "base-only.txt").write_text("base\n", encoding="utf-8")
@@ -681,7 +682,10 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
             env={
                 **os.environ,
                 "EVENT_NAME": "pull_request",
-                "BASE_SHA": base_sha,
+                # The event payload keeps the base the pull request was last
+                # synced against. Once main moves on, that commit is outside
+                # the depth-2 checkout of the synthetic merge.
+                "BASE_SHA": common_sha if stale_event_base else base_sha,
                 "HEAD_SHA": head_sha,
                 "MERGE_SHA": merge_sha,
                 "GITHUB_OUTPUT": str(output_path),
@@ -691,13 +695,23 @@ def test_workflow_routes_from_shallow_synthetic_merge() -> None:
             stderr=subprocess.PIPE,
             check=True,
         )
+        return result, output_path.read_text(encoding="utf-8").splitlines()
 
-        assert "Could not compute PR diff" not in result.stderr
-        assert output_path.read_text(encoding="utf-8").splitlines() == [
-            "macos=false",
-            "web=true",
-            "agent_session_web=false",
-        ]
+
+def test_workflow_routes_from_shallow_synthetic_merge() -> None:
+    result, outputs = run_detect_step_on_shallow_synthetic_merge(stale_event_base=False)
+
+    assert "Could not compute PR diff" not in result.stderr
+    assert outputs == ["macos=false", "web=true", "agent_session_web=false"]
+
+
+def test_workflow_routes_when_main_moved_past_the_event_base() -> None:
+    result, outputs = run_detect_step_on_shallow_synthetic_merge(stale_event_base=True)
+
+    assert "Could not compute PR diff" not in result.stderr
+    # base-only.txt landed on main after the event base. It is not part of the
+    # pull request and must not route macOS.
+    assert outputs == ["macos=false", "web=true", "agent_session_web=false"]
 
 
 def test_workflow_empty_diff_runs_all_areas() -> None:
