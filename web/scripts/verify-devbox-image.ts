@@ -22,6 +22,7 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
+import { readFileSync } from "node:fs";
 import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
@@ -473,6 +474,16 @@ if (provider === "freestyle") {
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
     ], exec);
+    if (pass && desktop) {
+      // These are disposable VMs. Kill the daemon, each desktop component,
+      // and both unit mains; recovery must happen without a driver heal.
+      const recoveryScript = "/tmp/cmux-devbox-service-recovery.py";
+      await vm.fs.writeFile(recoveryScript, readFileSync(path.join(import.meta.dirname, "../tests/devbox-service-recovery.py"), "utf8"));
+      const recovery = await exec(`python3 ${recoveryScript}`, 300_000);
+      console.log(recovery.output);
+      pass = recovery.exitCode === 0;
+      if (pass) pass = await runChecks("freestyle-after-recovery", [cmuxTuiWebsocketSmokeCommand()], exec);
+    }
   } finally {
     await vm.delete();
     console.log(`deleted ${vmId}`);
