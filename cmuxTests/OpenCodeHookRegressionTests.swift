@@ -17,13 +17,15 @@ final class OpenCodeHookRegressionTests: XCTestCase {
         let pluginURL = repoRoot.appendingPathComponent("Resources/opencode-plugin.js", isDirectory: false)
         XCTAssertTrue(fileManager.fileExists(atPath: pluginURL.path))
 
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-opencode-feed-\(UUID().uuidString)", isDirectory: true
-        )
+        // Darwin's Unix socket path cannot fit the runner's long temporaryDirectory
+        // plus a UUID. Keep the isolated fixture under a short, fixed root.
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cmux-opencode-feed-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
         let socketPath = root.appendingPathComponent("cmux.sock").path
+        XCTAssertLessThan(socketPath.utf8.count, MemoryLayout.size(ofValue: sockaddr_un().sun_path))
         let harnessURL = root.appendingPathComponent("harness.js")
         try Self.openCodeFeedEventHarness.write(to: harnessURL, atomically: true, encoding: .utf8)
         let bunURL = try Self.bunExecutableURL()

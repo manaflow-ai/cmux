@@ -902,7 +902,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
       -allowProvisioningUpdates \
-      "${XCODE_AUTH_ARGS[@]}" \
+      ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
@@ -1070,7 +1070,7 @@ xcodebuild -exportArchive \
   -exportPath "$EXPORT_PATH" \
   -exportOptionsPlist "$EXPORT_OPTIONS" \
   -allowProvisioningUpdates \
-  "${XCODE_AUTH_ARGS[@]}" \
+  ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
   | tee "$OUT_DIR/export.log"
 
 IPA_PATH="$EXPORT_PATH/cmux.ipa"
