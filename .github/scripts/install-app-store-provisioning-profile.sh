@@ -208,9 +208,22 @@ try_installed_extension_profile() {
 }
 
 resolve_expected_cert_fingerprint() {
+  # Best effort: an empty fingerprint skips the certificate check in
+  # validate_extension_profile. Read the certificate in two steps so a
+  # missing or unreadable certificate leaves it empty instead of aborting
+  # the script under pipefail or hashing empty input.
+  EXPECTED_CERT_SHA256=""
   [ -n "${IOS_DISTRIBUTION_IDENTITY:-}" ] || return 0
   command -v openssl >/dev/null 2>&1 || return 0
-  EXPECTED_CERT_SHA256="$(security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" 2>/dev/null | openssl x509 -outform DER 2>/dev/null | openssl dgst -sha256 -r 2>/dev/null | awk '{print toupper($1)}')"
+  local cert_der
+  cert_der="$TMP_ROOT/ios-distribution-cert.der"
+  rm -f "$cert_der"
+  if security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" 2>/dev/null |
+    openssl x509 -outform DER -out "$cert_der" 2>/dev/null && [ -s "$cert_der" ]; then
+    EXPECTED_CERT_SHA256="$(openssl dgst -sha256 -r "$cert_der" 2>/dev/null | awk '{print toupper($1)}' || true)"
+  fi
+  rm -f "$cert_der"
+  return 0
 }
 
 json_id_by_bundle_identifier() {
