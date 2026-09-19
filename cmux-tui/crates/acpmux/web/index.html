@@ -34,7 +34,6 @@
   button.pill.bad { color: var(--bad); }
   button.quiet { color: var(--muted); }
   button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--link); outline-offset: 1px; }
-  @media (max-width: 760px) { body { grid-template-columns: 1fr; } aside { display: none; } aside.open { display: flex; position: fixed; inset: 0; z-index: 5; width: 100%; } }
 
   /* ---- rail */
   aside { background: var(--rail); display: flex; flex-direction: column; min-height: 0; padding: 10px 8px 8px; gap: 2px; }
@@ -163,6 +162,14 @@
   dialog input, dialog select { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; background: var(--bg); }
   dialog .row { display: flex; gap: 8px; justify-content: flex-end; }
   .toast { position: fixed; right: 18px; bottom: 18px; background: var(--raised); color: var(--ink); padding: 8px 12px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+  /* Phones: the rail becomes a sheet behind the Sessions button. */
+  @media (max-width: 760px) {
+    body { grid-template-columns: 1fr; }
+    aside { display: none; }
+    aside.open { display: flex; position: fixed; inset: 0; z-index: 5; width: 100%; }
+    .bar { padding: 10px 14px 6px; } .log { padding: 6px 14px 16px; } .composer, .perm { padding-left: 14px; padding-right: 14px; }
+    .msg.user { max-width: 85%; }
+  }
 </style>
 </head>
 <body>
@@ -222,6 +229,8 @@
 (() => {
   const $ = (s) => document.querySelector(s);
   const theme = new URLSearchParams(location.search).get('theme');
+  // ?open=1 starts every turn's work unfolded (screenshots, debugging).
+  const openAll = new URLSearchParams(location.search).get('open') === '1';
   if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
   const token = new URLSearchParams(location.search).get('token') || '';
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/?token=' + encodeURIComponent(token);
@@ -528,7 +537,7 @@
     const nodes = [];
     for (const n of Array.from(col.children)) { const i = Number(n.dataset.idx); if (!Number.isFinite(i)) continue; if (i > userIdx && i < endIdx && i !== finalIdx && !n.classList.contains('work')) nodes.push(n); }
     if (nodes.length < 2) return;
-    const d = document.createElement('details'); d.className = 'work'; d.open = false;
+    const d = document.createElement('details'); d.className = 'work'; d.open = openAll;
     const start = marker.startAt || t.turnStartAt;
     const ms = start && marker.at ? Math.max(0, marker.at - start) : (t.runningSince ? Date.now() - t.runningSince : 0);
     d.innerHTML = '<summary><span>Worked' + (ms ? ' for ' + dur(ms) : '') + '</span><span class="chev">›</span></summary><div class="inner"></div>';
