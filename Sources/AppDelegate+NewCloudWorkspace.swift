@@ -54,7 +54,7 @@ extension AppDelegate {
         }
     }
 
-    /// Presents machine provisioning and applies its exact workspace receipt to a group when requested.
+    /// Places a machine's reservation immediately; later provisioning cannot undo user navigation.
     @discardableResult
     func performNewCloudWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
@@ -73,10 +73,10 @@ extension AppDelegate {
             ?? preferredWindow ?? event?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         guard let presenter = newMachineSheetPresenter else { return false }
         return operationController.start {
-            guard let workspaceID = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow),
-                  !Task.isCancelled,
-                  operationController.isCurrentlyAvailable else { return }
-            destination?.apply(workspaceID: workspaceID)
+            _ = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow) { workspaceID in
+                guard operationController.isCurrentlyAvailable else { return }
+                destination?.apply(workspaceID: workspaceID)
+            }
         }
     }
 }

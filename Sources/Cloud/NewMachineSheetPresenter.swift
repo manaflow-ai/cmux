@@ -163,7 +163,10 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     /// Presents provisioning and awaits the exact local workspace receipt.
     /// Synchronous menu callers own the surrounding Task; the machine coordinator
     /// continues to publish the pending machine row while this method awaits.
-    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
+    func presentNewMachineFetchingPlan(
+        preferredWindow: NSWindow?,
+        onReservation: @escaping @MainActor (UUID) -> Void
+    ) async -> UUID? {
         guard !isPresenting, pendingSelectionID == nil else {
             (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
             return nil
@@ -201,6 +204,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
                         guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
+                        if let workspaceID = effectiveRequest.reservedWorkspaceID { onReservation(workspaceID) }
                         self.finishSelection(selectionID, request: effectiveRequest)
                         return true
                     }

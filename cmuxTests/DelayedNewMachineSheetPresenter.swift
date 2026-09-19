@@ -20,8 +20,9 @@ final class DelayedNewMachineSheetPresenter: NewMachineSheetPresenting {
         (accepted, acceptance) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     }
 
-    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?) async -> UUID? {
-        await withCheckedContinuation { continuation in
+    func presentNewMachineFetchingPlan(preferredWindow: NSWindow?, onReservation: @escaping @MainActor (UUID) -> Void) async -> UUID? {
+        onReservation(workspaceID)
+        return await withCheckedContinuation { continuation in
             completion = continuation
             acceptance.yield(())
             acceptance.finish()
