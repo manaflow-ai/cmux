@@ -384,7 +384,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Details"
+            "value": "Einzelheiten"
           }
         },
         "fr": {
@@ -1004,7 +1004,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Status"
+            "value": "Zustand"
           }
         },
         "fr": {
@@ -1996,13 +1996,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clients"
+            "value": "Verbindungen"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clients"
+            "value": "Connexions"
           }
         },
         "es": {
@@ -2740,7 +2740,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clients: %lld"
+            "value": "Verbindungen: %lld"
           }
         },
         "fr": {
