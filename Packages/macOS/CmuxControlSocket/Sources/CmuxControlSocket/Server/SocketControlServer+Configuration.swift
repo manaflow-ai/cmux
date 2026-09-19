@@ -18,11 +18,19 @@ extension SocketControlServer {
         }
     }
 
+    /// Avoids accepting configuration drift or chmod'ing a replacement inode.
+    private func ownsConfiguredSocketPath() -> Bool {
+        let snapshot = listenerStateSnapshot()
+        return transport.pathExists(snapshot.socketPath, matching: snapshot.boundSocketPathIdentity)
+    }
+
     /// Replaces the live access policy used by subsequent client decisions.
     ///
     /// The policy is published through the server's synchronous state snapshot,
     /// so connection workers observe the new mode without a listener restart.
-    /// File permissions are reapplied for an active listener. Configuring
+    /// File permissions are reapplied only while the listener still owns its
+    /// bound path. Lost ownership stops the stale listener and returns `false`
+    /// so the host can rebind through the normal startup policy. Configuring
     /// ``SocketControlMode/off`` stops the listener instead of leaving an open
     /// socket whose command checks could accidentally interpret `off` as a
     /// permissive non-`cmuxOnly` mode.
@@ -42,7 +50,7 @@ extension SocketControlServer {
 
         if accessMode == .off {
             stop()
-        } else if isRunning, !applySocketPermissions() {
+        } else if isRunning, !ownsConfiguredSocketPath() || !applySocketPermissions() {
             stop()
             events.breadcrumb(
                 "socket.listener.configuration.failed_closed",
