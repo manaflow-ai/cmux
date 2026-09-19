@@ -4019,7 +4019,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
-        let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? "Terminal"
+        let admittedAutomaticTitle = AutomaticTerminalTitle(title)?.value ?? String(localized: "notification.desktop.defaultTerminalTitle", defaultValue: "Terminal")
         self.processTitle = admittedAutomaticTitle
         self.title = admittedAutomaticTitle
         self.customTitle = nil
