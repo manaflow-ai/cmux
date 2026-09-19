@@ -338,6 +338,7 @@ extension CMUXCLI {
 
         Agents:
           Use `cmux docs settings` before editing ~/.config/cmux/cmux.json.
+          Use `cmux docs workflows --json` to choose a shipped workflow example or discover the saved-layout lifecycle.
           Use `cmux docs dock` before creating or editing .cmux/dock.json.
           Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
