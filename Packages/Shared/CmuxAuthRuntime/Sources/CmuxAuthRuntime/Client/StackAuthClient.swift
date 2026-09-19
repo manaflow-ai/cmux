@@ -14,7 +14,12 @@ public struct StackAuthClient: AuthClient {
 
     /// Wrap a Stack client app.
     /// - Parameter stack: The configured Stack client to delegate to.
-    public init(stack: StackClientApp, apiBaseURL: URL? = nil) {
+    public init(stack: StackClientApp) {
+        self.stack = stack
+        self.apiBaseURL = nil
+    }
+
+    private init(stack: StackClientApp, apiBaseURL: URL?) {
         self.stack = stack
         self.apiBaseURL = apiBaseURL
     }
