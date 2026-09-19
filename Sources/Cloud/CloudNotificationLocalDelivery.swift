@@ -30,9 +30,21 @@ struct CloudNotificationLocalDelivery {
 
     func deliver(_ row: CloudVMNotificationRow, to target: CloudNotificationDeliveryTarget) -> CloudNotificationDeliveryOutcome {
         guard let store = store() else { return .declined }
-        // Dropped rows remain consumed by the sync so subsequent catalog folds
-        // cannot replay a flood.
-        guard admit(row) == .allowed else { return .delivered }
+        switch admit(row) {
+        case .allowed:
+            break
+        case .duplicateID, .identicalContent:
+            // A repeat of something this Mac already showed (or a row the
+            // store declined on an earlier fold). Nothing will ever show it,
+            // so it must not stay unread anywhere: read it now.
+            return .suppressed
+        case .machineRate, .fleetRate:
+            // Over budget right now. The row keeps its dot and is retried on
+            // the next fold, when the bucket has refilled; the burst is
+            // spread out, not lost. Tokens are only taken by admitted rows,
+            // so a retry never costs anything.
+            return .declined
+        }
         let terminalTitle = row.terminalID.flatMap(terminalTitle) ?? ""
         let machineName = machineName()
         let subtitle: String
@@ -58,6 +70,9 @@ struct CloudNotificationLocalDelivery {
             correlationKey: CloudNotificationCorrelation.key(machineID: machineID, notificationID: row.id),
             origin: .cloudVM(machineID: machineID)
         ) != nil
-        return recorded ? .delivered : .declined
+        // The store declines for a muted workspace: an admission decision
+        // of its own, so the row is read here too rather than left as a dot
+        // that no local dismissal can reach.
+        return recorded ? .delivered : .suppressed
     }
 }

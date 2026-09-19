@@ -85,8 +85,9 @@ final class CloudNotificationSyncHub {
         attach(store: store)
     }
 
-    /// Binds the hub to the local store: local records that become read or
-    /// are dismissed acknowledge their rows.
+    /// Binds the hub to the local store. Local records that become read or
+    /// are dismissed acknowledge their rows, and every read or clear the
+    /// store applies by target is mirrored onto the rows placed there.
     func attach(store: TerminalNotificationStore) {
         guard self.store !== store else { return }
         self.store = store
@@ -98,6 +99,32 @@ final class CloudNotificationSyncHub {
                     self?.storeDidChange(notifications)
                 }
             }
+        store.readTargetObserver = { [weak self] target in
+            self?.noteRead(coveredBy: target)
+        }
+    }
+
+    /// A read the store applied by target (a focused pane, a visited
+    /// workspace, mark-all-read, `cmux notify --clear`). Every machine
+    /// acknowledges the rows whose current placement the read covers, so the
+    /// Cloud tree dot follows the dismissal even for rows that never became a
+    /// local record; records for those rows that live on another workspace
+    /// (placed there before the terminal was opened here) are read with them.
+    func noteRead(coveredBy target: NotificationReadTarget) {
+        var readByMachine: [String: Set<String>] = [:]
+        for sync in syncs.values {
+            let ids = sync.noteRead(coveredBy: target)
+            if !ids.isEmpty { readByMachine[sync.machineID] = Set(ids) }
+        }
+        guard !readByMachine.isEmpty, let store else { return }
+        let ids = store.notifications.compactMap { notification -> UUID? in
+            guard !notification.isRead, let key = notification.correlationKey,
+                  let source = CloudNotificationCorrelation.parse(key),
+                  readByMachine[source.machineID]?.contains(source.notificationID) == true else { return nil }
+            return notification.id
+        }
+        guard !ids.isEmpty else { return }
+        store.markNotificationFeedRead(ids: Set(ids))
     }
 
     func storeDidChange(_ notifications: [TerminalNotification]) {
@@ -121,8 +148,22 @@ final class CloudNotificationSyncHub {
         }
     }
 
-    /// Reads by daemon row id.
+    /// Reads by daemon row id. Without a live sync for the machine (asleep,
+    /// feature-suspended, between providers) the read is written to the
+    /// durable state directly, so the replacement sync loads it as a pending
+    /// acknowledgement instead of restoring the row as unread.
     func noteRead(notificationIDs ids: [String], machineID: String) {
-        syncs[machineID]?.noteRead(notificationIDs: ids)
+        if let sync = syncs[machineID] {
+            sync.noteRead(notificationIDs: ids)
+            return
+        }
+        let state = persistenceStore.load(machineID: machineID)
+        // No rows are known here, so the client id (only consulted against a
+        // row's `read_by`) does not take part in the decision.
+        let next = CloudNotificationSyncReducer.recordRead(
+            ids: ids, rows: [], clientID: "", state: state, newKey: CloudNotificationSync.mintAckKey
+        )
+        guard next != state else { return }
+        persistenceStore.save(next, machineID: machineID)
     }
 }

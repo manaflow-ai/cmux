@@ -49,21 +49,27 @@ struct CloudNotificationPlacementResolver {
     var boundWorkspaces: @MainActor () -> [CloudNotificationBoundWorkspace]
 
     /// The pane showing the terminal when one is open on this Mac, else the
-    /// local workspace bound to the terminal's remote workspace, else any local
-    /// workspace bound to the machine. No local placement means the row stays
-    /// undelivered until one exists; the Cloud tree still shows the dot.
+    /// local workspace standing for the terminal's remote workspace. A
+    /// terminal in a remote workspace the person has not opened here has no
+    /// local home: the row stays undelivered until one exists and the Cloud
+    /// tree dot is its indicator, instead of stacking onto whichever local
+    /// workspace happens to be bound to the machine (a workspace row then
+    /// badges the whole machine's notifications, manaflow-ai/cmux#13000).
+    /// Only a machine-level row, one no remote workspace's tab shows, lands
+    /// on any local workspace bound to the machine.
     func target(for row: CloudVMNotificationRow) -> CloudNotificationDeliveryTarget? {
-        if let terminalID = row.terminalID {
-            let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
-            if let projection = projections(resource).first {
-                return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
-            }
-        }
         let bound = boundWorkspaces()
-        if let remoteWorkspaceID = row.terminalID.flatMap(remoteWorkspaceID),
-           let exact = bound.first(where: { $0.remoteWorkspaceID == remoteWorkspaceID }) {
-            return CloudNotificationDeliveryTarget(workspaceID: exact.workspaceID, panelID: nil)
+        guard let terminalID = row.terminalID else {
+            return bound.first.map { CloudNotificationDeliveryTarget(workspaceID: $0.workspaceID, panelID: nil) }
         }
-        return bound.first.map { CloudNotificationDeliveryTarget(workspaceID: $0.workspaceID, panelID: nil) }
+        let resource = SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID)
+        if let projection = projections(resource).first {
+            return CloudNotificationDeliveryTarget(workspaceID: projection.workspaceID, panelID: projection.panelID)
+        }
+        guard let remoteWorkspaceID = remoteWorkspaceID(terminalID) else {
+            return bound.first.map { CloudNotificationDeliveryTarget(workspaceID: $0.workspaceID, panelID: nil) }
+        }
+        return bound.first { $0.remoteWorkspaceID == remoteWorkspaceID }
+            .map { CloudNotificationDeliveryTarget(workspaceID: $0.workspaceID, panelID: nil) }
     }
 }
