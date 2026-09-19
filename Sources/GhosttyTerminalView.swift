@@ -5727,6 +5727,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
+        // AppKit resolves menu key equivalents through the layout's Command
+        // table, so Command-swapped layouts ("Dvorak - QWERTY ⌘") match a
+        // different character than `charactersIgnoringModifiers` reports: the
+        // physical C key reports the Dvorak "j" while the menu matched "c".
+        // Resolving the same way AppKit did keeps this guard aligned with the
+        // Copy item that actually declined the chord.
+        if let commandAwareCharacter = layoutCharacterProvider(event.keyCode, normalizedFlags),
+           !commandAwareCharacter.isEmpty,
+           commandAwareCharacter.allSatisfy(\.isASCII) {
+            return commandAwareCharacter == "c"
+        }
+
         let rawCharacters = (event.charactersIgnoringModifiers ?? "").lowercased()
         let resolved = rawCharacters.allSatisfy(\.isASCII)
             ? rawCharacters
