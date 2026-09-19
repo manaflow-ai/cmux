@@ -164,6 +164,7 @@ extension GhosttyNSView {
                 command: command,
                 cwd: nil,
                 checkpointID: nil,
+                // A user-edited command never inherits process-detected or agent trust.
                 source: "manual",
                 environment: nil,
                 launchCommand: nil,
@@ -247,16 +248,14 @@ extension GhosttyNSView {
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
         field.stringValue = existingCommand ?? ""
-        field.placeholderString = String(
-            localized: "terminalContextMenu.resumeCommand.placeholder",
-            defaultValue: "tmux attach -t work"
-        )
+        // Only a saved resume binding is authoritative enough to prefill. A terminal's
+        // initial launch command can also be cmux transport or placeholder plumbing.
         alert.accessoryView = field
         alert.addButton(
-            withTitle: String(localized: "terminalContextMenu.resumeCommand.save", defaultValue: "Save")
+            withTitle: String(localized: "common.ok", defaultValue: "OK")
         )
         alert.addButton(
-            withTitle: String(localized: "terminalContextMenu.resumeCommand.cancel", defaultValue: "Cancel")
+            withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
         )
         alert.window.initialFirstResponder = field
 
@@ -279,12 +278,7 @@ extension GhosttyNSView {
                 localized: "terminalContextMenu.resumeCommand.empty",
                 defaultValue: "Enter a resume command."
             )
-        case .windowUnavailable, .surfaceNotFound:
-            message = String(
-                localized: "terminalContextMenu.resumeCommand.surfaceUnavailable",
-                defaultValue: "This terminal is no longer available."
-            )
-        case .setFailed:
+        case .windowUnavailable, .surfaceNotFound, .setFailed:
             message = String(
                 localized: "terminalContextMenu.resumeCommand.updateFailed",
                 defaultValue: "cmux could not update this terminal’s resume command."
@@ -294,8 +288,8 @@ extension GhosttyNSView {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
-            localized: "terminalContextMenu.resumeCommand.errorTitle",
-            defaultValue: "Resume Command"
+            localized: "terminalContextMenu.setResumeCommand.title",
+            defaultValue: "Set Resume Command"
         )
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
