@@ -39,11 +39,11 @@ extension CMUXCLI {
     private static let workflowExamplesURL = "https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-customization/references/examples.md"
 
     private static let workflowSavedLayoutSteps: [(label: String, command: String)] = [
-        ("Discover saved layouts", "cmux layout list --json"),
-        ("Inspect one layout", "cmux layout get <name>"),
-        ("Open it for this project", "cmux layout open <name> --cwd <project>"),
-        ("Save the workspace you adapted", "cmux layout save <name> --description \"<what this creates>\""),
-        ("Remove an obsolete layout", "cmux layout delete <name>"),
+        ("List saved layouts", "cmux layout list --json"),
+        ("Inspect a layout", "cmux layout get <name>"),
+        ("Open a layout for this project", "cmux layout open <name> --cwd <project>"),
+        ("Save the adapted workspace", "cmux layout save <name> --description \"<what this creates>\""),
+        ("Delete an old layout", "cmux layout delete <name>"),
     ]
 
     private static var workflowCommands: [String] {
@@ -53,18 +53,18 @@ extension CMUXCLI {
     }
 
     private static let workflowAdaptAndSave = [
-        "Choose an example whose fit and requirements match the task and project.",
-        "Open its source recipe, then merge only the relevant top-level keys into .cmux/cmux.json or ~/.config/cmux/cmux.json and .cmux/dock.json when the example uses Dock.",
-        "Adapt cwd values, commands, URLs, tool names, and action placement to the repository instead of copying sample placeholders literally.",
-        "Validate the edited JSON or JSONC, run cmux reload-config, and verify the user-facing entry point.",
-        "After the live workspace is arranged the way you want, persist that result with cmux layout save <name> --description \"<what this creates>\".",
+        "Pick an example that fits the task and lists requirements you have.",
+        "Open the recipe and copy only the needed top-level keys into .cmux/cmux.json or ~/.config/cmux/cmux.json. Add .cmux/dock.json when the example uses Dock.",
+        "Replace sample paths, commands, URLs, tool names, and placements with values for this repository.",
+        "Validate the JSON or JSONC, run cmux reload-config, and check the resulting entry point.",
+        "When the workspace looks right, save it with cmux layout save <name> --description \"<what this creates>\".",
     ]
 
     private static let workflowExamples: [WorkflowExample] = [
         WorkflowExample(
             id: "worktree-agents",
             title: "Worktree Agents",
-            summary: "Make a worktree-oriented new-workspace starter with two coding-agent terminals and useful right-click alternatives.",
+            summary: "Start a worktree with two coding-agent terminals and optional context-menu actions.",
             fit: ["parallel agent work", "feature worktrees", "repositories where Codex and Claude should open together"],
             creates: ["a Worktree Agents new-workspace action", "a workspace rooted at the chosen worktree", "side-by-side Codex and Claude terminal panes", "plus-button context-menu alternatives"],
             configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
@@ -77,7 +77,7 @@ extension CMUXCLI {
         WorkflowExample(
             id: "full-stack-dev",
             title: "Full-Stack Dev",
-            summary: "Open a dev server, watch tests, and browser preview together, with optional Git and Feed Dock controls.",
+            summary: "Open a dev server, test watcher, and browser preview, with optional Git and Feed Dock controls.",
             fit: ["web apps", "full-stack repositories", "projects with a local dev server and watch tests"],
             creates: ["a Web terminal", "a Tests terminal", "a browser preview", "optional lazygit and Feed TUI Dock controls"],
             configFiles: [".cmux/cmux.json", ".cmux/dock.json"],
@@ -90,7 +90,7 @@ extension CMUXCLI {
         WorkflowExample(
             id: "ssh-devbox",
             title: "SSH Devbox",
-            summary: "Pair a remote development shell with a browser preview in one workspace.",
+            summary: "Pair a remote shell with a browser preview in one workspace.",
             fit: ["remote development", "SSH-backed devboxes", "projects developed on another machine"],
             creates: ["an SSH terminal pane", "a browser preview pane"],
             configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
@@ -103,7 +103,7 @@ extension CMUXCLI {
         WorkflowExample(
             id: "review-pr",
             title: "Review PR",
-            summary: "Keep pull-request terminal context and the browser review page side by side.",
+            summary: "Keep pull-request commands beside the browser review page.",
             fit: ["pull-request review", "GitHub-hosted repositories", "tasks that combine gh output with browser review"],
             creates: ["a terminal running gh pr status", "a browser pane on the repository pull-request page"],
             configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
@@ -116,7 +116,7 @@ extension CMUXCLI {
         WorkflowExample(
             id: "docs-workspace",
             title: "Docs Workspace",
-            summary: "Run documentation tooling beside a Markdown view and browser preview.",
+            summary: "Run documentation tools beside a Markdown view and browser preview.",
             fit: ["documentation work", "docs sites", "projects with a local docs preview"],
             creates: ["a docs-server terminal", "a cmux Markdown viewer terminal", "a browser docs preview"],
             configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
@@ -129,7 +129,7 @@ extension CMUXCLI {
         WorkflowExample(
             id: "quick-agent-buttons",
             title: "Quick Agent Buttons",
-            summary: "Put Codex and Claude launch actions directly on the surface tab bar and in Command Palette.",
+            summary: "Put Codex and Claude launch actions on the tab bar and in Command Palette.",
             fit: ["frequent agent launches", "projects that use multiple coding agents", "personal agent shortcuts"],
             creates: ["Codex and Claude agent actions", "surface-tab-bar buttons", "Command Palette entries"],
             configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
@@ -142,7 +142,7 @@ extension CMUXCLI {
         WorkflowExample(
             id: "ci-watch",
             title: "CI Watch",
-            summary: "Keep long-running CI and Feed monitors in Dock instead of occupying workspace panes.",
+            summary: "Keep long-running CI and Feed monitors in Dock instead of workspace panes.",
             fit: ["CI-heavy repositories", "GitHub Actions monitoring", "long-running status views that should stay beside the workspace"],
             creates: ["a GitHub Runs Dock control", "a Feed TUI Dock control"],
             configFiles: [".cmux/dock.json"],
