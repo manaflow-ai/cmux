@@ -487,7 +487,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 #endif
         titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        titleView.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
@@ -518,14 +518,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
                 descriptionView.configureAttributedText(
                     rendered,
-                    font: .systemFont(ofSize: model.scaled(10.5)),
+                    font: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10.5)),
                     color: descriptionColor,
                     linkColor: palette.linkText
                 )
             } else {
                 descriptionView.configurePlainText(
                     display,
-                    font: .systemFont(ofSize: model.scaled(10.5)),
+                    font: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10.5)),
                     color: descriptionColor
                 )
             }
@@ -545,7 +545,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 maxDisplayedLines: subtitleLineLimit,
                 maxDisplayedCharacters: 4096
             )
-            subtitleView.font = .systemFont(ofSize: model.scaled(10))
+            subtitleView.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
         }
 
@@ -556,18 +556,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         remoteReconnectButton.isHidden = !(showsRemote && snapshot.showsRemoteReconnectAffordance)
         if showsRemote {
             remoteTargetView.stringValue = snapshot.remoteWorkspaceSidebarText ?? ""
-            remoteTargetView.font = .monospacedSystemFont(ofSize: model.scaled(10), weight: .regular)
+            remoteTargetView.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10), monospaced: true)
             remoteTargetView.textColor = palette.secondary(0.8)
             remoteTargetView.lineBreakMode = .byTruncatingMiddle
             remoteTargetView.toolTip = snapshot.remoteStateHelpText
             remoteStatusView.stringValue = snapshot.remoteConnectionStatusText
-            remoteStatusView.font = .systemFont(ofSize: model.scaled(9), weight: .medium)
+            remoteStatusView.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(9), weight: .medium)
             remoteStatusView.textColor = palette.secondary(0.58)
             if !remoteReconnectButton.isHidden {
                 remoteReconnectButton.attributedTitle = NSAttributedString(
                     string: String(localized: "sidebar.remote.reconnect.button", defaultValue: "Reconnect"),
                     attributes: [
-                        .font: NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold),
+                        .font: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(9), weight: .semibold),
                         .foregroundColor: palette.secondary(0.9),
                     ]
                 )
@@ -588,7 +588,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
-            representedIdentity: model.workspaceId
+            fontFamily: model.settings.sidebarFontFamily, representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
         bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
@@ -640,7 +640,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 : cmuxAccentNSColor(for: palette.colorScheme)
         }()
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
-        let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
+        let badgeFont = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(9), weight: .semibold)
 
         let leadingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .leading
         let trailingBadgeVisible = badgeVisible && model.settings.notificationBadgePosition == .trailing
@@ -765,7 +765,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.actions?.onOpenStatusURL(url)
             }
         }
-        let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
+        let toggleFont = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10), weight: .semibold)
         let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
@@ -802,14 +802,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let rendered = SidebarMetadataMarkdownRenderer.rendered(display) {
                 view.configureAttributedText(
                     rendered,
-                    font: .systemFont(ofSize: model.scaled(10)),
+                    font: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10)),
                     color: palette.secondary(0.8),
                     linkColor: palette.linkText
                 )
             } else {
                 view.configurePlainText(
                     display,
-                    font: .systemFont(ofSize: model.scaled(10)),
+                    font: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10)),
                     color: palette.secondary(0.8)
                 )
             }
@@ -825,7 +825,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let progress = model.settings.visibleAuxiliaryDetails.showsProgress ? model.snapshot.progress : nil
         progressView.isHidden = progress == nil
         if let progress {
-            let labelFont = NSFont.systemFont(ofSize: model.scaled(9))
+            let labelFont = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(9))
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
@@ -908,7 +908,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         for (index, port) in ports.enumerated() {
             portButtons[index].configure(
                 title: SidebarPortDisplayText.label(for: port),
-                font: .monospacedSystemFont(ofSize: model.scaled(10), weight: .regular),
+                font: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(10), monospaced: true),
                 color: palette.secondary(0.75),
                 underlined: true,
                 toolTip: String(localized: "sidebar.port.openTooltip", defaultValue: "Open localhost port")
@@ -1011,7 +1011,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 self?.removeInlineRenameSession()
             }
         )
-        session.field.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        session.field.font = CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(12.5), weight: .semibold)
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
         titleView.isHidden = true
@@ -1104,7 +1104,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         var x = leading
         let badgeSide = 16 * model.fontScale
         let spinnerSide = max(10, 12 * model.fontScale)
-        let firstLineCenter = model.scaled(12.5) * 0.6 + y
+        let titleFont = titleView.font ?? NSFont.systemFont(ofSize: model.scaled(12.5)); let firstLineCenter = y + (titleFont.ascender - titleFont.descender + titleFont.leading) / 2
 
         func place(_ view: NSView, size: NSSize, centerY: CGFloat) {
             guard apply else { return }
@@ -1263,7 +1263,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let height = SidebarRowProgressView.height(
                 barHeight: max(3, 3 * model.fontScale),
                 labelText: model.snapshot.progress?.label,
-                labelFont: .systemFont(ofSize: model.scaled(9))
+                labelFont: CmuxFontResolver.appKitFont(family: model.settings.sidebarFontFamily, size: model.scaled(9))
             )
             if apply { progressView.frame = NSRect(x: leading, y: y, width: contentWidth, height: height) }
             y += height

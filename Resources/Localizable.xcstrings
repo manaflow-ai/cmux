@@ -368005,6 +368005,183 @@
         }
       }
     },
+    "settings.sidebarAppearance.fontFamily": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar Font Family"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーのフォントファミリー"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schriftfamilie der Seitenleiste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Famille de polices de la barre latérale"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عائلة خطوط الشريط الجانبي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Familia de fuentes de la barra lateral"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄字型系列"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏字体族"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 글꼴 패밀리"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.fontFamily.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System font"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システムフォント"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemschrift"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police système"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط النظام"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente del sistema"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統字型"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统字体"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 글꼴"
+          }
+        }
+      }
+    },
+    "settings.sidebarAppearance.fontFamily.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use an installed font family for built-in workspace titles, details, and badges. Leave empty for the system font."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内蔵サイドバーのワークスペースのタイトル、詳細、バッジにインストール済みのフォントファミリーを使います。空のままにするとシステムフォントを使います。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine installierte Schriftfamilie für Arbeitsbereichstitel, Details und Abzeichen in der integrierten Seitenleiste verwenden. Für die Systemschrift leer lassen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez une famille de polices installée pour les titres, les détails et les badges des espaces de travail de la barre latérale intégrée. Laissez vide pour utiliser la police système."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم عائلة خطوط مثبتة لعناوين مساحات العمل وتفاصيلها وشاراتها في الشريط الجانبي المدمج. اترك الحقل فارغًا لاستخدام خط النظام."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa una familia de fuentes instalada para los títulos, detalles e insignias de los espacios de trabajo de la barra lateral integrada. Déjalo vacío para usar la fuente del sistema."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為內建側邊欄的工作區標題、詳細資訊和徽章使用已安裝的字型系列。留空則使用系統字型。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为内置侧边栏的工作区标题、详细信息和徽章使用已安装的字体族。留空则使用系统字体。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 사이드바의 워크스페이스 제목, 세부 정보 및 배지에 설치된 글꼴 패밀리를 사용합니다. 비워 두면 시스템 글꼴을 사용합니다."
+          }
+        }
+      }
+    },
     "settings.sidebarAppearance.fontSize": {
       "extractionState": "manual",
       "localizations": {

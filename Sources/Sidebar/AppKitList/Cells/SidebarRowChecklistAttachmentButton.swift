@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
 
@@ -62,7 +63,11 @@ final class SidebarRowChecklistAttachmentButton: NSControl {
         countLabel.isHidden = item.attachmentCount == 0
         if item.attachmentCount > 0 {
             countLabel.stringValue = "\(item.attachmentCount)"
-            countLabel.font = .monospacedDigitSystemFont(ofSize: model.scaled(10), weight: .regular)
+            countLabel.font = CmuxFontResolver.appKitFont(
+                family: model.settings.sidebarFontFamily,
+                size: model.scaled(10),
+                monospacedDigits: true
+            )
             countLabel.textColor = color
         }
         toolTip = String(localized: "sidebar.checklist.attachmentsTooltip", defaultValue: "Manage images")

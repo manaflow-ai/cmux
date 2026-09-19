@@ -5,6 +5,7 @@ struct CmuxFontModifier: ViewModifier {
     let baseSize: CGFloat
     let weight: Font.Weight
     let design: Font.Design
+    let family: String?
     var monospacedDigit: Bool = false
 
     func body(content: Content) -> some View {
@@ -12,11 +13,13 @@ struct CmuxFontModifier: ViewModifier {
     }
 
     private var resolvedFont: Font {
-        var font = Font.system(size: scaledSize, weight: weight, design: design)
-        if monospacedDigit {
-            font = font.monospacedDigit()
-        }
-        return font
+        CmuxFontResolver.swiftUIFont(
+            family: family,
+            size: scaledSize,
+            weight: weight,
+            design: design,
+            monospacedDigit: monospacedDigit
+        )
     }
 
     private var scaledSize: CGFloat {

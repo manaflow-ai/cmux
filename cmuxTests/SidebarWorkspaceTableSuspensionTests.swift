@@ -910,7 +910,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             memberCount: 1, anchorUnreadCount: 0, canMarkRead: false, canMarkUnread: true,
             hasLatestNotifications: false, canMarkAllRead: false, canMarkAllUnread: true,
             shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
-            fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
+            fontScale: 1, sidebarFontFamily: nil, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
             rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
             topDropIndicatorVisible: false, bottomDropIndicatorVisible: false,
             colorSchemeIsDark: false

@@ -11,11 +11,12 @@ struct SidebarDirectoryText: View {
     let candidates: [String]
     let color: Color
     var fontScale: CGFloat = 1
+    var fontFamily: String? = nil
 
     var body: some View {
         if candidates.count <= 1 {
             Text(candidates.first ?? "")
-                .cmuxFont(size: 10 * fontScale, design: .monospaced)
+                .cmuxFont(size: 10 * fontScale, design: .monospaced, family: fontFamily)
                 .foregroundColor(color)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -23,13 +24,13 @@ struct SidebarDirectoryText: View {
             ViewThatFits(in: .horizontal) {
                 ForEach(Array(candidates.dropLast().enumerated()), id: \.offset) { _, candidate in
                     Text(candidate)
-                        .cmuxFont(size: 10 * fontScale, design: .monospaced)
+                        .cmuxFont(size: 10 * fontScale, design: .monospaced, family: fontFamily)
                         .foregroundColor(color)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 Text(candidates.last ?? "")
-                    .cmuxFont(size: 10 * fontScale, design: .monospaced)
+                    .cmuxFont(size: 10 * fontScale, design: .monospaced, family: fontFamily)
                     .foregroundColor(color)
                     .lineLimit(1)
                     .truncationMode(.tail)
