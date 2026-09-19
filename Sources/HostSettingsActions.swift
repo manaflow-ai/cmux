@@ -18,6 +18,7 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    private let automationConfigStore: AutomationConfigStore
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
@@ -53,9 +54,11 @@ final class HostSettingsActions: SettingsHostActions {
 
     init(
         configFileURL: URL,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        automationConfigStore: AutomationConfigStore = AutomationConfigStore()
     ) {
         self.configFileURL = configFileURL
+        self.automationConfigStore = automationConfigStore
         self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
@@ -176,6 +179,51 @@ final class HostSettingsActions: SettingsHostActions {
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
         PreferredEditorService(defaults: .standard).open(configFileURL)
+    }
+
+    /// Reads the existing automation configuration off-main and summarizes it for Settings.
+    func automationRulesStatus() async -> AutomationRulesStatus {
+        let fileURL = automationConfigStore.fileURL
+        let configExists = FileManager.default.fileExists(atPath: fileURL.path)
+        do {
+            let configuration = try await automationConfigStore.loadOffMain()
+            let enabledCount = configuration.rules.reduce(into: 0) { count, rule in
+                if rule.enabled { count += 1 }
+            }
+            return AutomationRulesStatus(
+                configPath: fileURL.path,
+                ruleCount: configuration.rules.count,
+                enabledCount: enabledCount,
+                configExists: configExists
+            )
+        } catch {
+            hostSettingsLogger.error("Failed to load automation rules: \(String(describing: error), privacy: .private)")
+            return AutomationRulesStatus(
+                configPath: fileURL.path,
+                ruleCount: 0,
+                enabledCount: 0,
+                configExists: configExists,
+                hasError: true
+            )
+        }
+    }
+
+    /// Materializes the existing empty v1 configuration when needed, then opens it in the preferred editor.
+    func openAutomationRulesInExternalEditor() {
+        let fileURL = automationConfigStore.fileURL
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            try? automationConfigStore.save(AutomationConfiguration())
+        }
+        PreferredEditorService(defaults: .standard).open(fileURL)
+    }
+
+    /// Routes a reload request to the already-attached automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool {
+        if case .ok = TerminalController.shared.v2AutomationReload() {
+            return true
+        }
+        return false
     }
 
     func sendFeedback() {

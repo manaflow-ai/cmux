@@ -35,6 +35,17 @@ public protocol SettingsHostActions: AnyObject {
     /// editor.
     func openConfigInExternalEditor()
 
+    /// Reads the existing config-backed automation rules for Settings status.
+    func automationRulesStatus() async -> AutomationRulesStatus
+
+    /// Opens ~/.cmuxterm/automations.json in the user's preferred editor.
+    func openAutomationRulesInExternalEditor()
+
+    /// Asks the running automation engine to reload its existing config file.
+    /// Returns false when the host has no live automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool
+
     /// Launches the host's feedback flow (typically a "Send Feedback"
     /// URL or in-app form).
     func sendFeedback()
@@ -287,6 +298,34 @@ public protocol SettingsHostActions: AnyObject {
     func openCloudMachinesBilling()
 }
 
+/// Host-provided summary of the existing config-backed automation rules.
+public struct AutomationRulesStatus: Equatable, Sendable {
+    public let configPath: String
+    public let ruleCount: Int
+    public let enabledCount: Int
+    public let configExists: Bool
+    public let hasError: Bool
+
+    public init(
+        configPath: String,
+        ruleCount: Int,
+        enabledCount: Int,
+        configExists: Bool,
+        hasError: Bool = false
+    ) {
+        self.configPath = configPath
+        self.ruleCount = max(0, ruleCount)
+        self.enabledCount = min(max(0, enabledCount), max(0, ruleCount))
+        self.configExists = configExists
+        self.hasError = hasError
+    }
+
+    /// Number of configured rules that are currently disabled.
+    public var disabledCount: Int {
+        ruleCount - enabledCount
+    }
+}
+
 /// Snapshot of the caller's Cloud Machines plan for the settings section.
 public struct CloudMachinesPlanSummary: Equatable, Sendable {
     public let planLabel: String
@@ -340,6 +379,23 @@ public extension SettingsHostActions {
 
     /// Validates a candidate custom notification sound path on the host.
     func validateNotificationSoundFile(path: String) async -> Bool { false }
+
+    /// Empty automation summary for previews and package-only hosts.
+    func automationRulesStatus() async -> AutomationRulesStatus {
+        AutomationRulesStatus(
+            configPath: "~/.cmuxterm/automations.json",
+            ruleCount: 0,
+            enabledCount: 0,
+            configExists: false
+        )
+    }
+
+    /// Default no-op for hosts without app-owned automation files.
+    func openAutomationRulesInExternalEditor() {}
+
+    /// Default failure for hosts without a live automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool { false }
 
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
