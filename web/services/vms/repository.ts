@@ -27,6 +27,7 @@ import {
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
 import { allocateVmSlug } from "./vmNaming";
+import { VM_RESUME_CLAIM_TTL_MS, VM_RESUME_METADATA_KEY, vmResumeState } from "./resumeState";
 import { VM_RESOURCE_USAGE_KEY, VM_RESOURCE_USAGE_MIN_INTERVAL_MS, type VmResourceUsage } from "./resourceUsage";
 import {
   VmCreateDisabledError,
@@ -90,6 +91,12 @@ export type VmResizeReservation = {
   readonly operationId: string;
 };
 export type CloudVmStatus = CloudVmRow["status"];
+/** Result of claiming a paused VM for one provider resume operation. */
+export type VmPausedResumeReservation = CloudVmRow & {
+  /** True only for the transaction that changed the row from paused to running. */
+  readonly resumeClaimed: boolean;
+  readonly resumeGeneration: string;
+};
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 // Reaper batches are capped at 100. Keep repository calls bounded even if a
 // future caller passes a malformed or oversized name list.
@@ -368,7 +375,8 @@ export type VmRepositoryShape = {
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
     readonly maxActiveVms: number | null;
-  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
+    readonly observedResumeGeneration: string | null;
+  }) => Effect.Effect<VmPausedResumeReservation | null, VmDatabaseError | VmLimitExceededError>;
   /** Reserve a grow-only disk change before provider I/O. Live shape always provides this. */
   readonly reserveVmResize?: (input: {
     readonly id: string;
@@ -434,6 +442,8 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
+    /** Complete or roll back only this pending resume generation. */
+    readonly resumeGeneration?: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -2214,8 +2224,17 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 eq(cloudVms.providerVmId, input.providerVmId),
               ),
             )
-            .limit(1);
-          if (!current || current.status !== "paused") return current ?? null;
+            .limit(1)
+            .for("update");
+          if (!current || !["paused", "running"].includes(current.status)) return null;
+          const now = Date.now();
+          const pending = vmResumeState(current.providerMetadata);
+          if (pending && (
+            (pending.phase === "pending" && pending.expiresAt > now)
+            || (pending.phase === "running" && current.status === "running" && pending.generation !== input.observedResumeGeneration)
+          )) {
+            return { ...current, resumeClaimed: false, resumeGeneration: pending.generation };
+          }
 
           const teamScope = accountScopeWhere({
             userId: input.userId,
@@ -2227,7 +2246,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             .where(and(inArray(cloudVms.status, ["provisioning", "running"]), teamScope));
           const activeCount = Number(active?.total ?? 0);
           const limit = input.maxActiveVms;
-          if (limit !== null && activeCount >= limit) {
+          if (current.status === "paused" && limit !== null && activeCount >= limit) {
             throw new VmLimitExceededError({
               kind: "active_vms",
               billingTeamId: input.billingTeamId ?? input.userId,
@@ -2235,18 +2254,25 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             });
           }
 
+          const resumeGeneration = randomUUID();
           const [reserved] = await tx
             .update(cloudVms)
-            .set({ status: "running", updatedAt: new Date() })
+            .set({
+              status: "running", updatedAt: new Date(),
+              providerMetadata: {
+                ...current.providerMetadata,
+                [VM_RESUME_METADATA_KEY]: { generation: resumeGeneration, phase: "pending", expiresAt: now + VM_RESUME_CLAIM_TTL_MS },
+              },
+            })
             .where(
               and(
                 eq(cloudVms.id, input.id),
-                eq(cloudVms.status, "paused"),
+                inArray(cloudVms.status, ["paused", "running"]),
                 eq(cloudVms.providerVmId, input.providerVmId),
               ),
             )
             .returning();
-          return reserved ?? current;
+          return reserved ? { ...reserved, resumeClaimed: true, resumeGeneration } : null;
         });
       },
       catch: (cause) =>
@@ -2606,18 +2632,31 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
+      const resume = sql`${cloudVms.providerMetadata}->'cmuxResume'`;
+      const claimPredicate = input.resumeGeneration
+        ? sql`${resume}->>'generation' = ${input.resumeGeneration} and ${resume}->>'phase' = 'pending'`
+        : input.status !== "paused"
+          ? undefined
+          : sql`(${resume}->>'phase' is distinct from 'pending' or
+              case when jsonb_typeof(${resume}->'expiresAt') = 'number'
+                then (${resume}->>'expiresAt')::numeric <= extract(epoch from clock_timestamp()) * 1000
+                else true end)`;
       const updated = await db
         .update(cloudVms)
         .set({
           status: input.status,
           destroyedAt: input.status === "destroyed" ? new Date() : null,
           updatedAt: new Date(),
+          ...(input.resumeGeneration ? {
+            providerMetadata: sql`jsonb_set(${cloudVms.providerMetadata}, '{cmuxResume,phase}', to_jsonb(${input.status}::text))`,
+          } : {}),
         })
         .where(
           and(
             eq(cloudVms.id, input.id),
             eq(cloudVms.providerVmId, input.providerVmId),
             ne(cloudVms.status, "destroyed"),
+            claimPredicate,
           ),
         )
         .returning({ id: cloudVms.id });

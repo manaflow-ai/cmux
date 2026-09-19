@@ -28,6 +28,7 @@ async function readStats(state: string, sample: Record<string, unknown> | undefi
   } as unknown as VmRepositoryShape;
   const providers = {
     getStats: () => Effect.promise(() => provider.getStats("vm-stats")),
+    exec: () => Effect.die("Stats must not execute in a sleeping or starting VM"),
   } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(
     Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers),
@@ -39,6 +40,20 @@ async function readStats(state: string, sample: Record<string, unknown> | undefi
 }
 
 describe("Freestyle live machine stats", () => {
+  test("development direct stats leave paused, stopped, and starting machines untouched", async () => {
+    const previous = process.env.CMUX_DEV_RESOURCE_STATS_DIRECT;
+    process.env.CMUX_DEV_RESOURCE_STATS_DIRECT = "1";
+    try {
+      for (const state of ["paused", "pausing", "stopped", "starting"]) {
+        const result = await readStats(state, undefined);
+        expect(result.state).toBe(state === "starting" ? "unknown" : "asleep");
+      }
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_DEV_RESOURCE_STATS_DIRECT;
+      else process.env.CMUX_DEV_RESOURCE_STATS_DIRECT = previous;
+    }
+  });
+
   test("existing stats workflow returns the guest sample without executing in the VM", async () => {
     const receivedAt = Date.now();
     const result = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });

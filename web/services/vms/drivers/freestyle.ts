@@ -165,6 +165,16 @@ const SNAPSHOT_LIST_MAX = 1_000;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 /** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
+/** Dev-only provider-managed network-idle pause policy. */
+export function freestyleIdleTimeoutSeconds(env: NodeJS.ProcessEnv = process.env): number {
+  if (env.NODE_ENV === "production") return FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS;
+  const raw = env.CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS?.trim();
+  if (!raw) return FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= -1
+    ? value
+    : FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS;
+}
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
@@ -954,7 +964,7 @@ export class FreestyleProvider implements VMProvider {
             displayName: "cmux Cloud VM",
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
-            idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+            idleTimeoutSeconds: freestyleIdleTimeoutSeconds(),
             ...(options.runtimeBudgetSeconds !== undefined ? {
               maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
             } : {}),
@@ -1157,8 +1167,9 @@ export class FreestyleProvider implements VMProvider {
           // still awake and the next attach can retry the policy update.
           if (typeof data.idleTimeoutSeconds === "number" && data.idleTimeoutSeconds >= 0) {
             try {
-              await vm.update({ idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS });
-              span.setAttribute("cmux.vm.idle_timeout_seconds", FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS);
+              const idleTimeoutSeconds = freestyleIdleTimeoutSeconds();
+              await vm.update({ idleTimeoutSeconds });
+              span.setAttribute("cmux.vm.idle_timeout_seconds", idleTimeoutSeconds);
             } catch (policyError) {
               recordSpanError(span, policyError);
             }
@@ -1358,7 +1369,7 @@ export class FreestyleProvider implements VMProvider {
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
-            idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+            idleTimeoutSeconds: freestyleIdleTimeoutSeconds(),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),

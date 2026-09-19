@@ -46,6 +46,7 @@ import {
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
 } from "../services/vms/machineSpec";
+import { vmResumeState } from "../services/vms/resumeState";
 import {
   createVm,
   destroyVm,
@@ -68,6 +69,7 @@ import {
   reconcileVmProviderStatuses,
   resizeVm,
   snapshotVm,
+  resumeVm,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -196,6 +198,134 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  dbTest.each([false, true])("concurrent paused resumes start once and record one resume event (personal=%s)", async (personal) => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = `user-concurrent-paused-resume-${personal}`;
+    const billingTeamId = personal ? null : userId;
+    const providerVmId = "provider-concurrent-paused-resume";
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+    const [row] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values (${userId}, ${billingTeamId}, 'pro', 'freestyle', ${providerVmId}, 'snapshot-test', 'paused') returning id
+    `;
+    let releaseProbes!: () => void;
+    const bothProbed = new Promise<void>((resolve) => { releaseProbes = resolve; });
+    let probes = 0;
+    let starts = 0;
+    let running = false;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.promise(async () => {
+        probes += 1;
+        // Both requests read the paused row and provider before either reserves.
+        if (probes <= 2) {
+          if (probes === 2) releaseProbes();
+          await bothProbed;
+          return "paused" as const;
+        }
+        return running ? "running" as const : "paused" as const;
+      }),
+      resume: () => Effect.sync(() => {
+        starts += 1;
+        running = true;
+        return testVmHandle({ providerVmId });
+      }),
+      pause: () => Effect.die("a waiter must not pause the winner"),
+    };
+    try {
+      const input = { userId, billingTeamId, providerVmId, callerPlanId: "pro", maxActiveVms: 1 };
+      const run = () => Effect.runPromise(resumeVm(input).pipe(Effect.provide(providerLayer(provider))));
+      const results = await Promise.all([run(), run()]);
+      expect(results).toEqual([{ id: providerVmId, status: "running" }, { id: providerVmId, status: "running" }]);
+      expect(starts).toBe(1);
+      const events = await sql`select event_type from cloud_vm_usage_events where vm_id = ${row!.id}`;
+      expect(events.map((event) => event.event_type)).toEqual(["vm.resumed"]);
+      const [current] = await sql`select status from cloud_vms where id = ${row!.id}`;
+      expect(current!.status).toBe("running");
+    } finally {
+      await sql`delete from cloud_vm_usage_events where vm_id = ${row!.id}`;
+      await sql`delete from cloud_vms where id = ${row!.id}`;
+    }
+  });
+
+  dbTest("a failed starter cannot roll back a resume finalized by its waiter", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = "user-resume-finalize-fence";
+    const providerVmId = "provider-resume-finalize-fence";
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+    await sql`insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values (${userId}, ${userId}, 'pro', 'freestyle', ${providerVmId}, 'snapshot-test', 'paused')`;
+    const snapshot = (await Effect.runPromise(vmRepositoryLiveShape.findUserVm({ userId, billingTeamId: userId, providerVmId })))!;
+    let ownerAtFinalize!: () => void;
+    let releaseOwner!: () => void;
+    const atFinalize = new Promise<void>((resolve) => { ownerAtFinalize = resolve; });
+    const ownerReleased = new Promise<void>((resolve) => { releaseOwner = resolve; });
+    let pauses = 0;
+    let starts = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(), getStatus: () => Effect.succeed("paused" as const),
+      resume: () => Effect.sync(() => { starts += 1; return testVmHandle({ providerVmId }); }),
+      pause: () => Effect.sync(() => { pauses += 1; }),
+    };
+    const starterRepo: VmRepositoryShape = { ...vmRepositoryLiveShape,
+      markProviderObservedStatus: () => Effect.promise(async () => { ownerAtFinalize(); await ownerReleased; }).pipe(
+        Effect.andThen(Effect.fail(new VmDatabaseError({ operation: "finalize", cause: new Error("offline") }))),
+      ),
+    };
+    const input = { userId, billingTeamId: userId, providerVmId, callerPlanId: "pro", maxActiveVms: 1 };
+    const owner = Effect.runPromiseExit(resumeVm(input).pipe(Effect.provide(workflowLayer(starterRepo, provider))));
+    try {
+      await atFinalize;
+      let probes = 0;
+      const waiterRepo = { ...vmRepositoryLiveShape, findUserVm: () => Effect.succeed(snapshot) };
+      const waiterProvider = { ...provider, getStatus: () => Effect.sync(() => ++probes === 1 ? "paused" as const : "running" as const) };
+      await Effect.runPromise(resumeVm(input).pipe(Effect.provide(workflowLayer(waiterRepo, waiterProvider))));
+      releaseOwner();
+      expect((await owner)._tag).toBe("Failure");
+      expect(starts).toBe(1);
+      expect(pauses).toBe(0);
+      const current = (await Effect.runPromise(vmRepositoryLiveShape.findUserVm(input)))!;
+      expect(current.status).toBe("running");
+      const generation = vmResumeState(current.providerMetadata)!.generation;
+      expect(vmResumeState(current.providerMetadata)?.phase).toBe("running");
+      expect(await Effect.runPromise(vmRepositoryLiveShape.markProviderObservedStatus({ id: snapshot.id, providerVmId, status: "paused", resumeGeneration: generation }))).toBe(false);
+      const events = await sql`select event_type from cloud_vm_usage_events where vm_id = ${snapshot.id}`;
+      expect(events.map((event) => event.event_type)).toEqual(["vm.resumed"]);
+    } finally {
+      releaseOwner();
+      await owner;
+      await sql`delete from cloud_vm_usage_events where vm_id = ${snapshot.id}`;
+      await sql`delete from cloud_vms where id = ${snapshot.id}`;
+    }
+  });
+
+  dbTest("expired resume claims can be taken over without accepting stale completion or rollback", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const userId = "user-resume-expiry";
+    const providerVmId = "provider-resume-expiry";
+    await sql`delete from cloud_vms where user_id = ${userId}`;
+    const [row] = await sql<{ id: string }[]>`insert into cloud_vms (user_id, billing_plan_id, provider, provider_vm_id, image_id, status)
+      values (${userId}, 'pro', 'freestyle', ${providerVmId}, 'snapshot-test', 'paused') returning id`;
+    const input = { id: row!.id, userId, providerVmId, maxActiveVms: 1, observedResumeGeneration: null };
+    try {
+      const first = (await Effect.runPromise(vmRepositoryLiveShape.reservePausedResume(input)))!;
+      expect(first.resumeClaimed).toBe(true);
+      const joined = (await Effect.runPromise(vmRepositoryLiveShape.reservePausedResume(input)))!;
+      expect(joined.resumeClaimed).toBe(false);
+      expect(joined.resumeGeneration).toBe(first.resumeGeneration);
+      // Background reconciliation cannot release a pending reservation.
+      expect(await Effect.runPromise(vmRepositoryLiveShape.markProviderObservedStatus({ id: row!.id, providerVmId, status: "paused" }))).toBe(false);
+      await sql`update cloud_vms set provider_metadata = jsonb_set(provider_metadata, '{cmuxResume,expiresAt}', '0') where id = ${row!.id}`;
+      const next = (await Effect.runPromise(vmRepositoryLiveShape.reservePausedResume(input)))!;
+      expect(next.resumeClaimed).toBe(true);
+      expect(next.resumeGeneration).not.toBe(first.resumeGeneration);
+      for (const status of ["running", "paused"] as const) {
+        expect(await Effect.runPromise(vmRepositoryLiveShape.markProviderObservedStatus({ id: row!.id, providerVmId, status, resumeGeneration: first.resumeGeneration }))).toBe(false);
+      }
+      expect(await Effect.runPromise(vmRepositoryLiveShape.markProviderObservedStatus({ id: row!.id, providerVmId, status: "running", resumeGeneration: next.resumeGeneration }))).toBe(true);
+    } finally { await sql`delete from cloud_vms where id = ${row!.id}`; }
+  });
+
   dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {
     if (!sql) throw new Error("test database not initialized");
     const userId = "user-prompt-revisions";
@@ -1169,7 +1299,7 @@ describe("VM Effect workflows", () => {
 
     expect(error).toBe(resumeError);
     expect(execCalls).toBe(0);
-    expect(statusCalls).toBe(1);
+    expect(statusCalls).toBe(2); // Confirm pause before releasing reserved capacity.
     expect(resumeCalls).toBe(1);
   });
 
@@ -2373,7 +2503,7 @@ describe("VM Effect workflows", () => {
     expect(attachCalls).toBe(0);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
-    expect(pauseCalls).toBe(1);
+    expect(pauseCalls).toBe(0);
     expect(leases).toHaveLength(0);
     expect(usageEvents).toHaveLength(0);
   });
@@ -2435,7 +2565,7 @@ describe("VM Effect workflows", () => {
     expect(attachCalls).toBe(0);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
-    expect(pauseCalls).toBe(1);
+    expect(pauseCalls).toBe(0);
     expect(leases).toHaveLength(0);
     expect(usageEvents).toHaveLength(0);
   });
@@ -2498,7 +2628,7 @@ describe("VM Effect workflows", () => {
       { id: vm.id, providerVmId: "provider-vm-attach-race", status: "running" },
     ]);
     expect(leases).toHaveLength(1);
-    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents.map((event) => event.eventType)).toEqual(["vm.resumed", "vm.attach"]);
   });
 
   test("openAttachEndpoint fails closed when the row is paused and the status probe fails", async () => {
@@ -6512,13 +6642,15 @@ function testWorkflowRepo(input: {
       Effect.succeed({
         ...input.vm,
         status: "running" as const,
+        resumeClaimed: true,
+        resumeGeneration: "test-resume",
       }),
     reconciliationCandidates: () => Effect.succeed([]),
     markProviderObservedStatus: (update) =>
       input.markProviderObservedStatus
         ? input.markProviderObservedStatus(update)
         : Effect.sync(() => {
-          input.observedStatuses?.push(update);
+          input.observedStatuses?.push({ id: update.id, providerVmId: update.providerVmId, status: update.status });
           return true;
         }),
     markCreateRunning: () => unusedDatabaseEffect("markCreateRunning"),

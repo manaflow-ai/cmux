@@ -6,6 +6,7 @@ import { FreestyleApiError, type Freestyle } from "freestyle";
 import {
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+  freestyleIdleTimeoutSeconds,
   FreestyleProvider,
   PORT_OPEN_LEASE_TTL_SECONDS,
   freestyleCmuxRemoteRoute,
@@ -425,6 +426,13 @@ describe("Freestyle platform contract", () => {
 });
 
 describe("FreestyleProvider create with edge rules", () => {
+  test("uses the dev network-idle override while production stays persistent", () => {
+    expect(freestyleIdleTimeoutSeconds({ NODE_ENV: "development", CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS: "10" })).toBe(10);
+    expect(freestyleIdleTimeoutSeconds({ NODE_ENV: "production", CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS: "10" })).toBe(-1);
+    expect(freestyleIdleTimeoutSeconds({ NODE_ENV: "development", CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS: "nope" })).toBe(-1);
+    expect(freestyleIdleTimeoutSeconds({ NODE_ENV: "development", CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS: "-1" })).toBe(-1);
+  });
+
   test("creates persistent machines with idle pausing disabled", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     await providerWith(fake).create({ image: "sh-devbox" });
@@ -435,6 +443,19 @@ describe("FreestyleProvider create with edge rules", () => {
       // provider/account default that would otherwise idle-pause the VM.
       idleTimeoutSeconds: -1,
     });
+  });
+
+  test("passes the dev network-idle timeout through create", async () => {
+    const previous = process.env.CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS;
+    process.env.CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS = "10";
+    try {
+      const fake = fakeFreestyle({ probeExit: 0 });
+      await providerWith(fake).create({ image: "sh-devbox" });
+      expect(fake.creates[0]).toMatchObject({ idleTimeoutSeconds: 10 });
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS;
+      else process.env.CMUX_DEV_FREESTYLE_IDLE_TIMEOUT_SECONDS = previous;
+    }
   });
 
   test("passes the rule inline, installs only the guest adapter, and returns the machine", async () => {
