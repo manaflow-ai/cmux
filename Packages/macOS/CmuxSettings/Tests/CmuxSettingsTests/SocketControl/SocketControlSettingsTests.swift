@@ -68,9 +68,11 @@ import CmuxSettings
                 "CMUX_SOCKET_MODE": "password",
                 "CMUX_SOCKET_PASSWORD": "secret",
             ],
+            bundleIdentifier: suiteName,
             managedPolicy: policy
         ).resolve()
         #expect(resolution.mode == mode)
+        #expect(resolution.configuredMode == .allowAll)
         #expect(resolution.isManaged)
         #expect(resolution.forcedValueStatus == "valid")
     }
