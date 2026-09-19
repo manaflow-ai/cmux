@@ -54,12 +54,12 @@ hash_tree() {
     fi
   elif [ -d "$path" ]; then
     printf 'dir:%s\n' "$path"
-    find -P "$path" \( -type f -o -type l \) -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
-      if [ -L "$file" ]; then
-        printf 'symlink:%s -> %s\n' "$file" "$(readlink "$file")"
-      else
-        shasum "$file"
-      fi
+    # One shasum per batch, not per file: this runs on every build, and a process
+    # per file costs more than the helper rebuilds the stamp exists to skip.
+    # Symlinks are rare, so they keep their own readlink line.
+    find -P "$path" -type f -print0 2>/dev/null | LC_ALL=C sort -z | xargs -0 shasum
+    find -P "$path" -type l -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r file; do
+      printf 'symlink:%s -> %s\n' "$file" "$(readlink "$file")"
     done
   elif [ -f "$path" ]; then
     printf 'file:%s\n' "$path"
@@ -70,18 +70,17 @@ hash_tree() {
 }
 
 hash_git_worktree() {
-  local repo="$1" file
+  local repo="$1"
   if [ ! -d "$repo" ]; then
     printf 'missing-git:%s\n' "$repo"
     return
   fi
-  run_git -C "$repo" ls-files -z 2>/dev/null | while IFS= read -r -d '' file; do
-    shasum "$repo/$file"
-  done
+  # HEAD identifies every clean tracked file, so only the differences from it need
+  # content hashing. Hashing each tracked file instead took ~45 s per build for the
+  # ~5,900 files in the Ghostty submodule.
+  printf 'head=%s\n' "$(run_git -C "$repo" rev-parse HEAD 2>/dev/null || echo unknown)"
   run_git -C "$repo" diff --binary HEAD 2>/dev/null || true
-  run_git -C "$repo" ls-files --others --exclude-standard -z 2>/dev/null | while IFS= read -r -d '' file; do
-    shasum "$repo/$file"
-  done
+  (cd "$repo" && run_git ls-files --others --exclude-standard -z 2>/dev/null | xargs -0 shasum) || true
 }
 
 output_fingerprint() {

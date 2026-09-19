@@ -21,6 +21,9 @@ printf 'cmux\n' > "$SRCROOT/Resources/shell-integration/cmux.zsh"
 printf 'alternate\n' > "$SRCROOT/Resources/shell-integration/alternate.zsh"
 ln -s cmux.zsh "$SRCROOT/Resources/shell-integration/current.zsh"
 printf 'plist\n' > "$BUILD_DIR/Products/Info.plist"
+# A tracked source file outside every directory the phase copies, so only the
+# Ghostty worktree part of the stamp can notice it changing.
+printf 'helper-source-v1\n' > "$SRCROOT/ghostty/src/main.zig"
 
 git -C "$SRCROOT/ghostty" init -q
 git -C "$SRCROOT/ghostty" config user.email test@example.invalid
@@ -132,3 +135,42 @@ fi
 [[ -f "$HELPER_APP/Contents/Resources/.cmux-cua-managed-helper" ]]
 
 echo 'PASS: bundled-resource invalidation covers copied trees, Git environment, and complete helper bundles'
+
+
+# The Ghostty part of the stamp is HEAD plus the differences from it, not a hash of
+# every tracked file. Each kind of source change must still invalidate the stamp, and
+# an unchanged tree must go back to skipping afterwards.
+expect_rebuild_then_skip() {
+  local label="$1"
+  run_phase > "$TMP_DIR/changed.log"
+  if grep -q 'skipping helper rebuilds' "$TMP_DIR/changed.log"; then
+    echo "FAIL: $label did not invalidate the bundled-resource stamp" >&2
+    exit 1
+  fi
+  run_phase > "$TMP_DIR/settled.log"
+  if ! grep -q 'skipping helper rebuilds' "$TMP_DIR/settled.log"; then
+    echo "FAIL: unchanged tree did not skip after $label" >&2
+    exit 1
+  fi
+  echo "PASS: $label invalidates the stamp, then skips again"
+}
+
+run_phase > "$TMP_DIR/settle.log"
+run_phase > "$TMP_DIR/settle.log"
+grep -q 'skipping helper rebuilds' "$TMP_DIR/settle.log"
+
+printf 'helper-source-v2\n' > "$SRCROOT/ghostty/src/main.zig"
+expect_rebuild_then_skip 'a modified tracked Ghostty source file'
+
+printf 'scratch\n' > "$SRCROOT/ghostty/untracked-note.txt"
+expect_rebuild_then_skip 'a new untracked Ghostty file'
+
+# Committing the same content changes HEAD and empties the diff in one step.
+git -C "$SRCROOT/ghostty" add .
+git -C "$SRCROOT/ghostty" commit -q -m 'fixture v2'
+expect_rebuild_then_skip 'a new Ghostty commit'
+
+# Clean before and clean after: only HEAD can tell these two states apart.
+printf 'helper-source-v3\n' > "$SRCROOT/ghostty/src/main.zig"
+git -C "$SRCROOT/ghostty" commit -q -am 'fixture v3'
+expect_rebuild_then_skip 'a Ghostty revision change on a clean tree'
