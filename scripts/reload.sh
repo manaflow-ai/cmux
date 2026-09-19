@@ -1352,6 +1352,7 @@ reload_finalize() {
     echo "==> log: $RELOAD_LOG" >&2
     exit "$rc"
   fi
+  reload_phase_finished tag_handoff
   echo "==> reload succeeded in ${elapsed}s"
   echo "==> log: $RELOAD_LOG"
   if [[ -n "${APP_PATH:-}" ]]; then
@@ -1402,6 +1403,15 @@ reload_finalize() {
 }
 trap reload_finalize EXIT
 
+# Optional wall-clock phase diagnostics do not change compiler settings.
+RELOAD_PHASE_START=$SECONDS
+reload_phase_finished() {
+  if [[ "${CMUX_BUILD_TIMING:-0}" == 1 ]]; then
+    echo "CMUX_RELOAD_PHASE name=$1 seconds=$((SECONDS-RELOAD_PHASE_START))"
+  fi
+  RELOAD_PHASE_START=$SECONDS
+}
+
 # Tell the user we're starting (visible even though body output is redirected).
 echo "==> reload starting (tag: ${TAG}, log: ${RELOAD_LOG})" >&3
 
@@ -1420,6 +1430,8 @@ fi
 if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
+
+reload_phase_finished preparation
 
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
@@ -1472,11 +1484,15 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}
 else
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
 fi
+if [[ "${CMUX_BUILD_TIMING:-0}" == 1 ]]; then
+  XCODEBUILD_ARGS+=(-showBuildTimingSummary)
+fi
 XCODEBUILD_ARGS+=(build)
 
 if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   mkdir -p "$BUILD_PRODUCTS_DEBUG_DIR"
-  cleanup_incomplete_xcodebuild_outputs
+  # Keep completed outputs for Xcode dependency analysis. A failed or
+  # interrupted invocation still removes partial outputs in reload_finalize.
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 
@@ -1494,6 +1510,7 @@ fi
 # Xcode 26's SWBBuildService is a per-user singleton. Too many concurrent
 # xcodebuild invocations can trample that daemon, so cap reload.sh builds at
 # five per user while still allowing useful parallel tagged builds.
+reload_phase_finished build_arguments
 XCODEBUILD_STARTED=1
 python3 -c '
 import array
@@ -1634,6 +1651,7 @@ try:
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
 ' "$XCODEBUILD_LOCK_DIR" "$XCODEBUILD_LOCK_CONCURRENCY" "$XCODEBUILD_LOCK_WAIT_SECONDS" xcodebuild "${XCODEBUILD_ARGS[@]}"
+reload_phase_finished xcode
 sleep 0.2
 if LC_ALL=C grep -q 'BUILD INTERRUPTED' "$RELOAD_LOG"; then
   echo "error: xcodebuild reported ** BUILD INTERRUPTED **; refusing to reuse DerivedData app artifacts" >&2
@@ -1777,6 +1795,8 @@ fi
 
 CLI_PATH="$(dirname "$APP_PATH")/cmux"
 
+reload_phase_finished tagged_staging
+
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
@@ -1833,6 +1853,7 @@ else
   fi
   "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
+reload_phase_finished install_helpers
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
@@ -1849,6 +1870,7 @@ if [[ -n "${TAG_APP_FINAL_PATH:-}" && -n "${TAG_APP_STAGING_PATH:-}" ]]; then
   mv "$TAG_APP_STAGING_PATH" "$TAG_APP_FINAL_PATH"
   APP_PATH="$TAG_APP_FINAL_PATH"
 fi
+reload_phase_finished signing
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 
 TAG_LAUNCHD_LABEL=""
