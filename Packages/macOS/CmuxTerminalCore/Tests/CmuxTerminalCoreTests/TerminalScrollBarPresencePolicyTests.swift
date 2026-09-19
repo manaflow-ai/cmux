@@ -28,4 +28,58 @@ struct TerminalScrollBarPresencePolicyTests {
         #expect(!policy.isPresent(allowedBySettings: false, scrollerStyle: .legacy, hasScrollback: true))
         #expect(!policy.isPresent(allowedBySettings: false, scrollerStyle: .overlay, hasScrollback: true))
     }
+
+    @Test("legacy visual presentation follows the macOS preference")
+    func legacyVisualPresentationFollowsPreference() {
+        let policy = TerminalScrollBarDisplayPolicy()
+
+        #expect(policy.shouldDisplay(
+            allowedBySettings: true,
+            scrollerStyle: .legacy,
+            hasScrollback: false,
+            preference: .always,
+            isPointerOverScrollbar: false,
+            isLiveScrolling: false
+        ))
+        #expect(!policy.shouldDisplay(
+            allowedBySettings: true,
+            scrollerStyle: .legacy,
+            hasScrollback: false,
+            preference: .automatic,
+            isPointerOverScrollbar: false,
+            isLiveScrolling: false
+        ))
+        #expect(policy.shouldDisplay(
+            allowedBySettings: true,
+            scrollerStyle: .legacy,
+            hasScrollback: false,
+            preference: .automatic,
+            isPointerOverScrollbar: true,
+            isLiveScrolling: false
+        ))
+        #expect(!policy.shouldDisplay(
+            allowedBySettings: true,
+            scrollerStyle: .legacy,
+            hasScrollback: false,
+            preference: .whenScrolling,
+            isPointerOverScrollbar: true,
+            isLiveScrolling: false
+        ))
+        #expect(policy.shouldDisplay(
+            allowedBySettings: true,
+            scrollerStyle: .legacy,
+            hasScrollback: false,
+            preference: .whenScrolling,
+            isPointerOverScrollbar: false,
+            isLiveScrolling: true
+        ))
+        #expect(policy.shouldDisplay(
+            allowedBySettings: true,
+            scrollerStyle: .overlay,
+            hasScrollback: true,
+            preference: .whenScrolling,
+            isPointerOverScrollbar: false,
+            isLiveScrolling: false
+        ))
+    }
 }
