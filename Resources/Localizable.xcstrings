@@ -123390,251 +123390,51 @@
     "cloudTree.group.resources": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resources"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ressourcen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ressources"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الموارد"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recursos"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "資源"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "资源"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "리소스"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リソース"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resursi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ressourcer"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Risorse"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ធនធាន"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ressurser"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zasoby"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recursos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ресурсы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ทรัพยากร"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kaynaklar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ресурси"
-          }
-        }
+        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
       }
     },
     "cloudTree.resources.usage": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usage"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nutzung"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilisation"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الاستخدام"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "用量"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용량"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用状況"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Upotreba"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Brug"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Utilizzo"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ការប្រើប្រាស់"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bruk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Użycie"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uso"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Использование"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "การใช้งาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kullanım"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Використання"
-          }
-        }
+        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
       }
     },
     "cloudTree.group.terminals": {
@@ -396641,60 +396441,60 @@
         }
       }
     },
-    "sidebar.cloudWorkspace.directoryUnavailable": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الدليل غير متاح"
+    "sidebar.cloudWorkspace.directoryUnavailable" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "الدليل غير متاح"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verzeichnis nicht verfügbar"
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verzeichnis nicht verfügbar"
           }
         },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Directory unavailable"
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Directory unavailable"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Directorio no disponible"
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Directorio no disponible"
           }
         },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Répertoire indisponible"
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Répertoire indisponible"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ディレクトリを取得できません"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ディレクトリを取得できません"
           }
         },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "디렉터리를 사용할 수 없음"
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "디렉터리를 사용할 수 없음"
           }
         },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目录不可用"
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目录不可用"
           }
         },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "目錄無法使用"
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "目錄無法使用"
           }
         }
       }
@@ -528836,6 +528636,7 @@
         }
       }
     },
+
     "sidebar.account.noTeam": {
       "extractionState": "manual",
       "localizations": {
