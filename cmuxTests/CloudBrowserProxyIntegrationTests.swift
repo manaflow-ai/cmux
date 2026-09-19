@@ -86,7 +86,7 @@ struct CloudBrowserProxyIntegrationTests {
               ContinuousClock.now < websocketDeadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(!server.bridgeRequests.isEmpty, "The Cloud WebSocket bridge must receive the page upgrade; first bytes: \(server.firstBytes)")
+        if server.bridgeRequests.isEmpty { Issue.record("Cloud WebSocket bridge did not receive an upgrade; first bytes: \(server.firstBytes)") }
         let websocketState = try await panel.webView.evaluateJavaScript("JSON.stringify({state:window.cloudWebSocketState,error:window.cloudWebSocketError || null})") as? String
         #expect(websocketState == "{\"state\":\"open\",\"error\":null}", "WebSocket traffic must use the same Cloud browser route: \(websocketState ?? "missing")")
         await model.retire()
