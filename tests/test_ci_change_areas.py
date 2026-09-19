@@ -893,7 +893,7 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert "      - linux-preflight" in block
     assert "      - macos-compile-admission" in block
     assert "      - app-host-unit-tests" in block
-    assert "if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' }}" in block
+    assert "if: ${{ always() }}" in block
     assert 'preflight["result"] != "success"' in block
     assert 'macos == "true" and tests["result"] != "success"' in block
     assert 'tests["result"] not in {"success", "skipped"}' in block

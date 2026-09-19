@@ -1704,7 +1704,7 @@ jobs:
       - app-host-unit-tests
       - swift-package-tests
       - agent-session-web-resources
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' }}
+    if: ${{ always() }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
