@@ -1123,6 +1123,12 @@
           "default": true,
           "description": "Show pull request metadata in the sidebar."
         },
+        "showPullRequestChecks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show compact GitHub check status and merge conflicts beside sidebar pull requests.",
+          "descriptionKey": "schemaDescriptions.sidebar.showPullRequestChecks"
+        },
         "watchGitStatus": {
           "type": "boolean",
           "default": true,

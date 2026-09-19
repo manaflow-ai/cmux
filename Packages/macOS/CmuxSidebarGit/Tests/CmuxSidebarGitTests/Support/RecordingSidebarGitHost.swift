@@ -35,6 +35,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     var workspaces: [(id: UUID, state: WorkspaceState)] = []
     var gitMetadataActivity: SidebarGitMetadataActivity = .activePolling
     var pullRequestActivity: SidebarGitMetadataActivity = .disabled
+    var pullRequestChecksEnabled: Bool = false
     var pollingEnabled: Bool {
         get { pullRequestActivity.performsActivePolling }
         set { pullRequestActivity = newValue ? .activePolling : .disabled }

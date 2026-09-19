@@ -1252,6 +1252,7 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "showPullRequestChecks": "Показывать компактный статус проверок GitHub и конфликты слияния рядом с pull request на боковой панели.",
           "notificationMessageLineLimit": "Максимальное количество строк последнего уведомления, отображаемых под заголовком каждого рабочего пространства.",
           "rightMaxWidth": "Максимальная ширина правой боковой панели в пунктах. Если не указано, применяется встроенное динамическое ограничение."
         },

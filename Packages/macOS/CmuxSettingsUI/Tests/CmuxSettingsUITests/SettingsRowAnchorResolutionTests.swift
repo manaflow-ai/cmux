@@ -120,6 +120,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showPorts",
         "sidebar.showProgress",
         "sidebar.showPullRequests",
+        "sidebar.showPullRequestChecks",
         "sidebar.showSSH",
         "sidebar.showWorkspaceDescription",
         "sidebar.stackBranchDirectory",

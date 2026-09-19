@@ -16259,30 +16259,14 @@ struct TabItemView: View, Equatable {
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
-                        let pullRequestNumber = String(pullRequest.number)
-                        let pullRequestTitle = "\(pullRequest.label) #\(pullRequestNumber)"
-                        let rowContent = HStack(alignment: .center, spacing: 4) {
-                            PullRequestStatusIcon(
-                                status: pullRequest.status,
-                                color: pullRequestForegroundColor,
-                                fontScale: fontScale
-                            )
-                            Text(pullRequestTitle).underline(settings.makesPullRequestsClickable).lineLimit(1).truncationMode(.tail)
-                            Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
-                            Spacer(minLength: 0)
-                        }
-                        .font(magnifiedFont(scaledFontSize(10), weight: .semibold))
-                        .foregroundColor(pullRequestForegroundColor)
-                        .opacity(pullRequest.isStale ? 0.5 : 1)
-                        if settings.makesPullRequestsClickable {
-                            Button(action: { openPullRequestLink(pullRequest.url) }) { rowContent }
-                                .buttonStyle(.plain)
-                                .tint(pullRequestForegroundColor)
-                                .safeHelp(String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(pullRequestTitle)"))
-                                .accessibilityIdentifier("SidebarPullRequestRow")
-                        } else {
-                            rowContent.accessibilityElement(children: .combine).accessibilityIdentifier("SidebarPullRequestRow")
-                        }
+                        SidebarPullRequestRow(
+                            display: pullRequest,
+                            fontScale: fontScale,
+                            font: magnifiedFont(scaledFontSize(10), weight: .semibold),
+                            foreground: pullRequestForegroundColor,
+                            clickable: settings.makesPullRequestsClickable,
+                            onOpen: { openPullRequestLink(pullRequest.url) }
+                        )
                     }
                 }
             }
@@ -16508,14 +16492,6 @@ struct TabItemView: View, Equatable {
         actions.openPort(port)
     }
 
-    private func pullRequestStatusLabel(_ status: SidebarPullRequestStatus) -> String {
-        switch status {
-        case .open: return String(localized: "sidebar.pullRequest.statusOpen", defaultValue: "open")
-        case .merged: return String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
-        case .closed: return String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
-        }
-    }
-
     private func logLevelIcon(_ level: SidebarLogLevel) -> String {
         switch level {
         case .info: return "circle.fill"
@@ -16560,113 +16536,6 @@ struct TabItemView: View, Equatable {
             return "~" + trimmed.dropFirst(home.count)
         }
         return trimmed
-    }
-
-    private struct PullRequestStatusIcon: View {
-        let status: SidebarPullRequestStatus
-        let color: Color
-        var fontScale: CGFloat = 1
-        private static let closedFrameSize: CGFloat = 12
-        private static let customFrameSize: CGFloat = 13
-
-        private var closedFrameSize: CGFloat {
-            Self.closedFrameSize * fontScale
-        }
-
-        private var customFrameSize: CGFloat {
-            Self.customFrameSize * fontScale
-        }
-
-        var body: some View {
-            switch status {
-            case .open:
-                PullRequestOpenIcon(color: color)
-                    .scaleEffect(fontScale)
-                    .frame(width: customFrameSize, height: customFrameSize)
-            case .merged:
-                PullRequestMergedIcon(color: color)
-                    .scaleEffect(fontScale)
-                    .frame(width: customFrameSize, height: customFrameSize)
-            case .closed:
-                CmuxSystemSymbolImage(magnified: "xmark.circle", pointSize: 7 * fontScale, weight: .regular, tint: color)
-                    .frame(width: closedFrameSize, height: closedFrameSize)
-            }
-        }
-    }
-
-    private struct PullRequestOpenIcon: View {
-        let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
-        private static let nodeDiameter: CGFloat = 3.0
-        private static let frameSize: CGFloat = 13
-
-        var body: some View {
-            ZStack {
-                Path { path in
-                    path.move(to: CGPoint(x: 3.0, y: 4.8))
-                    path.addLine(to: CGPoint(x: 3.0, y: 9.2))
-
-                    path.move(to: CGPoint(x: 4.8, y: 3.0))
-                    path.addLine(to: CGPoint(x: 9.4, y: 3.0))
-                    path.addLine(to: CGPoint(x: 11.0, y: 4.6))
-                    path.addLine(to: CGPoint(x: 11.0, y: 9.2))
-                }
-                .stroke(color, style: Self.stroke)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 11.0)
-            }
-            .frame(width: Self.frameSize, height: Self.frameSize)
-        }
-    }
-
-    private struct PullRequestMergedIcon: View {
-        let color: Color
-        private static let stroke = StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round)
-        private static let nodeDiameter: CGFloat = 3.0
-        private static let frameSize: CGFloat = 13
-
-        var body: some View {
-            ZStack {
-                Path { path in
-                    path.move(to: CGPoint(x: 4.6, y: 4.6))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
-                    path.addLine(to: CGPoint(x: 9.2, y: 7.0))
-
-                    path.move(to: CGPoint(x: 4.6, y: 9.4))
-                    path.addLine(to: CGPoint(x: 7.1, y: 7.0))
-                }
-                .stroke(color, style: Self.stroke)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 3.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 3.0, y: 11.0)
-
-                Circle()
-                    .stroke(color, lineWidth: Self.stroke.lineWidth)
-                    .frame(width: Self.nodeDiameter, height: Self.nodeDiameter)
-                    .position(x: 11.0, y: 7.0)
-            }
-            .frame(width: Self.frameSize, height: Self.frameSize)
-        }
     }
 
     func applyTabColor(_ hex: String?, targetIds: [UUID]) {

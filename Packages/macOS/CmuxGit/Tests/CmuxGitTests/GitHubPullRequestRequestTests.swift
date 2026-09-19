@@ -6,7 +6,7 @@ import Testing
 struct GitHubPullRequestRequestTests {
     private let endpoint = "repos/manaflow-ai/cmux/pulls?state=all"
 
-    private func makeSession() -> URLSession {
+    func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GitHubPullRequestStubURLProtocol.self]
         configuration.timeoutIntervalForRequest = 2
