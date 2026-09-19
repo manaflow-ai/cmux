@@ -36,4 +36,21 @@ struct TerminalTitleChurnFilterTests {
         #expect(filter.stableTitle(for: "") == "")
         #expect(filter.stableTitle(for: "   ") == "   ")
     }
+
+    @Test func boundsMultilineTitlesToUnicodeScalars() throws {
+        let rawTitle = (0..<3_000)
+            .map { "synthetic-title-line-\($0)\n" }
+            .joined()
+
+        let boundedTitle = try #require(filter.stableTitle(for: rawTitle))
+
+        #expect(boundedTitle.unicodeScalars.count == 256)
+        #expect(boundedTitle.last == "…")
+        #expect(!boundedTitle.contains("\n"))
+    }
+
+    @Test func rejectsNonWhitespaceTerminalControls() {
+        #expect(filter.stableTitle(for: "safe\u{001B}[2J") == nil)
+        #expect(filter.stableTitle(for: "safe\u{009B}") == nil)
+    }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminalCore
 import CmuxSettings
 import Foundation
 import Testing
@@ -16,6 +17,140 @@ import Testing
 @MainActor
 @Suite("Title update amplification", .serialized)
 struct TitleUpdateAmplificationRegressionTests {
+    private static let automaticTitleScalarBound = 256
+
+    @Test
+    func multilineAutomaticTitleIsBoundedBeforeManyWorkspaceSnapshotEncoding() async throws {
+        let suiteName = "AutomaticTerminalTitleBounds.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let coalescerScheduler = ManualTitleCoalescerScheduler()
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: coalescerScheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        for index in 0..<63 {
+            _ = manager.addWorkspaceIfActive(
+                title: "Synthetic workspace \(index)",
+                titleSource: .auto,
+                select: false,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false,
+                applyCreationTitleAsCustomTitle: false
+            )
+        }
+
+        let targetWorkspaces = Array(manager.tabs.prefix(2))
+        let rawTitle = Self.syntheticMultilineTitle(lineCount: 3_000)
+        for workspace in targetWorkspaces {
+            let panelId = try #require(workspace.focusedPanelId)
+            let sourceSurface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+            let titleScheduler = TitleScheduleRecorder()
+            let ingress = GhosttyTitleUpdateIngress(
+                schedule: titleScheduler.schedule(_:action:)
+            )
+
+            #expect(ingress.submit(
+                tabId: workspace.id,
+                surfaceId: panelId,
+                sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
+                terminalLifecycleID: sourceSurface.terminalLifecycleId,
+                title: rawTitle
+            ))
+            await titleScheduler.awaitFirstSchedule()
+            await titleScheduler.fire()
+            await drainMainQueue()
+        }
+
+        manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        let boundedSnapshot = manager.sessionSnapshot(includeScrollback: false)
+        let boundedData = try JSONEncoder().encode(boundedSnapshot)
+
+        var legacySnapshot = boundedSnapshot
+        let targetIDs = Set(targetWorkspaces.map(\.id))
+        for index in legacySnapshot.workspaces.indices
+            where targetIDs.contains(legacySnapshot.workspaces[index].workspaceId ?? UUID()) {
+            legacySnapshot.workspaces[index].processTitle = rawTitle
+            for panelIndex in legacySnapshot.workspaces[index].panels.indices {
+                legacySnapshot.workspaces[index].panels[panelIndex].title = rawTitle
+                legacySnapshot.workspaces[index].panels[panelIndex].customTitle = nil
+            }
+        }
+        let legacyData = try JSONEncoder().encode(legacySnapshot)
+
+        let boundedEncodeMilliseconds = Self.medianEncodeMilliseconds(for: boundedSnapshot)
+        let legacyEncodeMilliseconds = Self.medianEncodeMilliseconds(for: legacySnapshot)
+        print(
+            "AUTOMATIC_TITLE_BOUND fixtureWorkspaces=\(boundedSnapshot.workspaces.count) " +
+                "rawTitleBytes=\(rawTitle.utf8.count) legacySnapshotBytes=\(legacyData.count) " +
+                "boundedSnapshotBytes=\(boundedData.count) legacyEncodeMs=\(legacyEncodeMilliseconds) " +
+                "boundedEncodeMs=\(boundedEncodeMilliseconds)"
+        )
+
+        for workspace in targetWorkspaces {
+            let panelId = try #require(workspace.focusedPanelId)
+            let processTitle = workspace.processTitle
+            let panelTitle = try #require(workspace.panelTitles[panelId])
+            #expect(processTitle.unicodeScalars.count <= Self.automaticTitleScalarBound)
+            #expect(panelTitle.unicodeScalars.count <= Self.automaticTitleScalarBound)
+            #expect(!processTitle.contains("\n"))
+            #expect(!panelTitle.contains("\n"))
+            #expect(processTitle == panelTitle)
+        }
+        #expect(boundedData.count < rawTitle.utf8.count)
+        #expect(legacyData.count > boundedData.count * 5)
+        #expect(legacyEncodeMilliseconds > boundedEncodeMilliseconds)
+
+        let ordinaryTitle = "ordinary short OSC title"
+        let workspace = try #require(targetWorkspaces.first)
+        let panelId = try #require(workspace.focusedPanelId)
+        let sourceSurface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        let titleScheduler = TitleScheduleRecorder()
+        let ingress = GhosttyTitleUpdateIngress(schedule: titleScheduler.schedule(_:action:))
+        #expect(ingress.submit(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
+            terminalLifecycleID: sourceSurface.terminalLifecycleId,
+            title: ordinaryTitle
+        ))
+        await titleScheduler.awaitFirstSchedule()
+        await titleScheduler.fire()
+        await drainMainQueue()
+        manager.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
+        #expect(workspace.processTitle == ordinaryTitle)
+        #expect(workspace.panelTitles[panelId] == ordinaryTitle)
+    }
+
+    @Test
+    func restoringOversizedAutomaticTitlesBoundsWorkspaceAndPanelState() throws {
+        let rawTitle = Self.syntheticMultilineTitle(lineCount: 3_000)
+        let source = Workspace()
+        var persisted = source.sessionSnapshot(includeScrollback: false)
+        persisted.processTitle = rawTitle
+        for index in persisted.panels.indices {
+            persisted.panels[index].title = rawTitle
+            persisted.panels[index].customTitle = nil
+        }
+
+        let restored = Workspace()
+        _ = restored.restoreSessionSnapshot(persisted)
+        let restoredSnapshot = restored.sessionSnapshot(includeScrollback: false)
+
+        #expect(restored.processTitle.unicodeScalars.count <= Self.automaticTitleScalarBound)
+        for panel in restoredSnapshot.panels {
+            #expect(panel.title?.unicodeScalars.count ?? 0 <= Self.automaticTitleScalarBound)
+            #expect(!(panel.title ?? "").contains("\n"))
+        }
+        #expect(restoredSnapshot.processTitle.unicodeScalars.count <= Self.automaticTitleScalarBound)
+    }
+
     @Test
     func titleBurstUsesTheSafetyCoalescingWindowByDefault() async throws {
         let suiteName = "TitleUpdateAmplification.\(UUID().uuidString)"
@@ -200,6 +335,24 @@ struct TitleUpdateAmplificationRegressionTests {
                 continuation.resume()
             }
         }
+    }
+
+    private static func syntheticMultilineTitle(lineCount: Int) -> String {
+        (0..<lineCount)
+            .map { "synthetic-title-line-\($0): generated fixture text\n" }
+            .joined()
+    }
+
+    private static func medianEncodeMilliseconds(
+        for snapshot: SessionTabManagerSnapshot
+    ) -> Double {
+        let measurements = (0..<10).map { _ in
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+            _ = try? JSONEncoder().encode(snapshot)
+            let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds - startedAt
+            return Double(elapsedNanoseconds) / 1_000_000
+        }
+        return measurements.sorted()[measurements.count / 2]
     }
 
     private final class CountingTitleWindow: NSWindow {
