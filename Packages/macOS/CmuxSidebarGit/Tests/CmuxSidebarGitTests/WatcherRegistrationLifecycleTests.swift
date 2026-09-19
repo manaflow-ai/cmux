@@ -65,7 +65,7 @@ struct WatcherRegistrationLifecycleTests {
         #expect(service.workspaceGitMetadataWatcherSourceDirectoryByKey[key] != "/old")
         await gate.complete(newID, with: nil)
         await newTask.value
-        #expect(service.workspaceGitMetadataWatcherSourceDirectoryByKey[key] == "/new")
+        #expect(service.workspaceGitMetadataWatcherSourceDirectoryByKey[key] == nil)
     }
 
     @Test func closedWorkspaceCannotBeResurrectedByRegistrationFailure() async throws {
@@ -88,6 +88,73 @@ struct WatcherRegistrationLifecycleTests {
         #expect(service.workspaceGitMetadataWatcherSourceDirectoryByKey.isEmpty)
         #expect(service.workspaceGitMetadataWatcherDescriptorRequestsByKey.isEmpty)
         #expect(service.workspaceGitMetadataWatcherTasksByKey.isEmpty)
+    }
+
+    @Test func failedForcedReplacementPreservesInstalledWatcherUntilLaterSuccess() async throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-watcher-(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let path = directoryURL.path
+        let host = RecordingSidebarGitHost()
+        let (workspace, panel) = host.addWorkspace(panelDirectory: path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspace, panelId: panel)
+        let reader = GatedWatchDescriptorReader()
+        let gate = WatcherRegistrationGate()
+        let service = service(host: host, reader: reader, gate: gate)
+        defer { service.resetAllWorkspaceGitProbeTracking() }
+        service.workspaceGitTrackedDirectoryByKey[key] = path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: path)
+        let initialTask = try #require(service.workspaceGitMetadataWatcherTasksByKey[key])
+        _ = await reader.nextRequestedDirectory()
+        await reader.resumeNext(with: descriptor(path, identity: "initial"))
+        let initialRegistration = try #require(await gate.nextArrival())
+        let installed = try #require(await RecursivePathWatcher(paths: [path]))
+        defer { Task { await installed.stop() } }
+        await gate.complete(initialRegistration, with: installed)
+        await initialTask.value
+        let initialPathsKey = try #require(
+            service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key]
+        )
+        let initialConsumer = try #require(
+            service.workspaceGitMetadataWatcherRefreshTasksByWatchedPathsKey[initialPathsKey]
+        )
+
+        service.updateWorkspaceGitMetadataWatcher(
+            for: key, directory: path, forceDescriptorRefresh: true
+        )
+        let failedTask = try #require(service.workspaceGitMetadataWatcherTasksByKey[key])
+        _ = await reader.nextRequestedDirectory()
+        await reader.resumeNext(with: descriptor(path, identity: "replacement"))
+        let failedRegistration = try #require(await gate.nextArrival())
+        await gate.complete(failedRegistration, with: nil)
+        await failedTask.value
+
+        #expect(service.workspaceGitMetadataWatchersByWatchedPathsKey[initialPathsKey] === installed)
+        #expect(service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key] == initialPathsKey)
+        #expect(service.workspaceGitMetadataWatcherSourceDirectoryByKey[key] == path)
+        #expect(!initialConsumer.isCancelled)
+
+        service.updateWorkspaceGitMetadataWatcher(
+            for: key, directory: path, forceDescriptorRefresh: true
+        )
+        let replacementTask = try #require(service.workspaceGitMetadataWatcherTasksByKey[key])
+        _ = await reader.nextRequestedDirectory()
+        await reader.resumeNext(with: descriptor(path, identity: "replacement"))
+        let replacementRegistration = try #require(await gate.nextArrival())
+        let replacement = try #require(await RecursivePathWatcher(paths: [path]))
+        defer { Task { await replacement.stop() } }
+        await gate.complete(replacementRegistration, with: replacement)
+        await replacementTask.value
+
+        let replacementPathsKey = try #require(
+            service.workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key]
+        )
+        #expect(replacementPathsKey != initialPathsKey)
+        #expect(service.workspaceGitMetadataWatchersByWatchedPathsKey[replacementPathsKey] === replacement)
+        #expect(service.workspaceGitMetadataWatchersByWatchedPathsKey[initialPathsKey] == nil)
+        #expect(initialConsumer.isCancelled)
     }
 
     @Test func simultaneousPanelsPreserveOneInstalledWatcherAndConsumer() async throws {
