@@ -70,7 +70,7 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
         actions: [CmuxResolvedConfigAction],
         resolvedNewWorkspaceActionID: String?,
         newWorkspaceMenuActionIDs: Set<String>,
-        surfaceTabBarButtons: [CmuxSurfaceTabBarButton]
+        surfaceTabBarActionIDs: Set<String>
     ) -> ActionsAndLaunchersDiscoveryModel {
         let entries = actions.compactMap { action -> Entry? in
             // Built-ins that only come from cmux itself add noise here. An
@@ -87,9 +87,7 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
                 appearsInCommandPalette: action.palette,
                 isNewWorkspaceDefault: action.id == resolvedNewWorkspaceActionID,
                 appearsInNewWorkspaceMenu: newWorkspaceMenuActionIDs.contains(action.id),
-                appearsInSurfaceTabBar: surfaceTabBarButtons.contains { button in
-                    surfaceTabBarButton(button, resolves: action)
-                },
+                appearsInSurfaceTabBar: surfaceTabBarActionIDs.contains(action.id),
                 shortcutDisplay: shortcutDisplay
             )
         }
@@ -114,17 +112,6 @@ struct ActionsAndLaunchersDiscoveryModel: Equatable {
             ].joined(separator: "\n")
         }
         .joined(separator: "\n\n")
-    }
-
-    private static func surfaceTabBarButton(
-        _ button: CmuxSurfaceTabBarButton,
-        resolves action: CmuxResolvedConfigAction
-    ) -> Bool {
-        if button.id == action.id {
-            return true
-        }
-        guard button.action == action.action else { return false }
-        return button.actionSourcePath == action.actionSourcePath
     }
 
     private static func actionType(_ action: CmuxSurfaceTabBarButtonAction) -> String {
@@ -190,7 +177,7 @@ extension AppDelegate {
             actions: cmuxConfigStore.loadedActions,
             resolvedNewWorkspaceActionID: cmuxConfigStore.resolvedNewWorkspaceAction()?.id,
             newWorkspaceMenuActionIDs: newWorkspaceMenuActionIDs,
-            surfaceTabBarButtons: cmuxConfigStore.surfaceTabBarButtons
+            surfaceTabBarActionIDs: Set(cmuxConfigStore.surfaceTabBarActionReferenceIDs.values)
         )
 
         let alert = NSAlert()
@@ -200,10 +187,12 @@ extension AppDelegate {
             text: model.summaryText,
             entryCount: model.entries.count
         )
-        alert.addButton(withTitle: String(
-            localized: "menu.app.openCmuxSettingsFile",
-            defaultValue: "Open cmux.json"
-        ))
+        let openLabel = String(
+            localized: "settings.settingsJSON.openButton",
+            defaultValue: "Open"
+        )
+        let globalPath = (cmuxConfigStore.globalConfigPath as NSString).abbreviatingWithTildeInPath
+        alert.addButton(withTitle: "\(openLabel) \(globalPath)")
         alert.addButton(withTitle: String(
             localized: "settings.settingsJSON.docsButton",
             defaultValue: "Open Docs"
