@@ -3291,19 +3291,10 @@ class GhosttyApp {
             surfaceView.enqueueScrollbarUpdate(scrollbar)
             return true
         case GHOSTTY_ACTION_CELL_SIZE:
-            let cellSize = CGSize(
-                width: CGFloat(action.action.cell_size.width),
-                height: CGFloat(action.action.cell_size.height)
-            )
-            let terminalSurface = surfaceView.terminalSurface
-            DispatchQueue.main.async {
-                surfaceView.cellSize = cellSize
-                _ = terminalSurface?.fontSizeLineageSnapshot()
-                NotificationCenter.default.post(
-                    name: .ghosttyDidUpdateCellSize,
-                    object: surfaceView,
-                    userInfo: [GhosttyNotificationKey.cellSize: cellSize]
-                )
+            Task { @MainActor [weak surfaceView] in
+                guard let surfaceView else { return }
+                surfaceView.synchronizeCellMetrics()
+                _ = surfaceView.terminalSurface?.fontSizeLineageSnapshot()
             }
             return true
         case GHOSTTY_ACTION_START_SEARCH:
@@ -5117,7 +5108,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layer?.masksToBounds = true
         let didChangeDrawable = applyDrawableGeometry(geometry)
         let surfaceSizeChanged = terminalSurface.commitPaneGeometry(geometry)
-        return didChangeDrawable || surfaceSizeChanged
+        return synchronizeCellMetrics() || didChangeDrawable || surfaceSizeChanged
     }
 
     /// Re-applies the current pane size: the committed geometry for a
@@ -5131,7 +5122,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let geometry = terminalSurface.committedPaneGeometry else { return false }
             let didChangeDrawable = applyDrawableGeometry(geometry)
             let surfaceSizeChanged = terminalSurface.reapplyCommittedPaneGeometry()
-            return didChangeDrawable || surfaceSizeChanged
+            return synchronizeCellMetrics() || didChangeDrawable || surfaceSizeChanged
         }
         return commitOwnBounds()
     }
@@ -12870,7 +12861,7 @@ final class GhosttySurfaceScrollView: NSView {
         // publishes its inner frame here.
         if surfaceView.paneGeometryIsPortalOwned {
             paneGeometryPortal?.requestPaneGeometryCommit(for: self)
-            return false
+            return surfaceView.synchronizeCellMetrics()
         }
         return surfaceView.commitPaneGeometry(
             size: CGSize(width: width, height: height),
