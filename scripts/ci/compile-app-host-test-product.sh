@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # compile-app-host-test-product.sh fingerprint <derived-data>
+# compile-app-host-test-product.sh resolve <derived-data> <source-packages>
 # compile-app-host-test-product.sh build <derived-data> <source-packages> <cas-path> [log]
 #
 # Compiles the app-host test product with Xcode's compilation cache on. ci.yml
@@ -15,6 +16,7 @@ set -euo pipefail
 
 usage() {
   echo "usage: $0 fingerprint <derived-data>" >&2
+  echo "       $0 resolve <derived-data> <source-packages>" >&2
   echo "       $0 build <derived-data> <source-packages> <cas-path> [log]" >&2
   exit 64
 }
@@ -29,6 +31,32 @@ fingerprint() {
     printf 'workspace=%s\n' "$PWD"
     printf 'derived-data=%s\n' "$derived_data"
   } | shasum -a 256 | cut -c1-32
+}
+
+# `build` disables package resolution, so a resolve that reports success
+# without the Sparkle and Sentry binary artifacts would fail it. A restored
+# source-packages cache can do that; clear it and resolve again.
+resolve() {
+  local derived_data="$1" source_packages="$2" attempt
+  for attempt in 1 2 3; do
+    mkdir -p "$source_packages" "$derived_data"
+    if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+      -derivedDataPath "$derived_data" \
+      -clonedSourcePackagesDirPath "$source_packages" \
+      -resolvePackageDependencies; then
+      if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
+        && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
+        return 0
+      fi
+      echo "Resolve succeeded but binary artifacts are missing; clearing and retrying" >&2
+      rm -rf "$source_packages"
+    fi
+    [ "$attempt" -lt 3 ] || break
+    echo "Package resolution failed on attempt $attempt, retrying..." >&2
+    sleep $((attempt * 5))
+  done
+  echo "Failed to resolve Swift packages after 3 attempts" >&2
+  return 1
 }
 
 build() {
@@ -55,6 +83,10 @@ case "${1:-}" in
   fingerprint)
     [ "$#" -eq 2 ] || usage
     fingerprint "$2"
+    ;;
+  resolve)
+    [ "$#" -eq 3 ] || usage
+    resolve "$2" "$3"
     ;;
   build)
     [ "$#" -ge 4 ] && [ "$#" -le 5 ] || usage

@@ -432,11 +432,8 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          mkdir -p "$PWD/.ci-source-packages" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-            -resolvePackageDependencies
+          scripts/ci/compile-app-host-test-product.sh resolve \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
 
       - name: Refresh test compilation cache
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
