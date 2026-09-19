@@ -39,6 +39,9 @@ public protocol SettingsHostActions: AnyObject {
     /// Names of custom sidebar files currently discovered by the host.
     func customSidebarNames() -> [String]
 
+    /// Streams sidebar names after external filesystem changes, including an initial snapshot.
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]>
+
     /// Creates a starter custom sidebar and opens it in the preferred editor.
     func createCustomSidebar() -> CustomSidebarOnboardingResult
 
@@ -394,6 +397,14 @@ public extension SettingsHostActions {
 
     /// Custom-sidebar defaults for package previews and tests without a live host.
     func customSidebarNames() -> [String] { [] }
+
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]> {
+        let names = customSidebarNames()
+        return AsyncStream { continuation in
+            continuation.yield(names)
+            continuation.finish()
+        }
+    }
     func createCustomSidebar() -> CustomSidebarOnboardingResult {
         .writeFailed
     }

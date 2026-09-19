@@ -1,5 +1,6 @@
 import CmuxSwiftRenderUI
 import Foundation
+import Darwin
 
 #if DEBUG
 private enum CustomSidebarDirectoryOverrideForTesting {
@@ -81,31 +82,37 @@ extension CmuxExtensionSidebarSelection {
         do {
             try ensureCustomSidebarsDirectory(sidebarsDirectory, fileManager: fileManager)
             let validator = CustomSidebarValidator(fileManager: fileManager)
-            var destinationName = normalizedName
-
-            if uniquingIfNeeded {
-                var suffix = 2
-                while !validator.discover(in: sidebarsDirectory, name: destinationName).isEmpty {
-                    destinationName = "\(normalizedName)-\(suffix)"
-                    suffix += 1
-                }
-            } else if !validator.discover(in: sidebarsDirectory, name: destinationName).isEmpty {
-                return .alreadyExists
-            }
-
-            let fileURL = sidebarsDirectory.appendingPathComponent(
-                "\(destinationName).\(normalizedExtension)",
-                isDirectory: false
-            )
-            try source.write(to: fileURL, atomically: true, encoding: .utf8)
-
-            let validation = validator.validate(fileURL: fileURL)
-            guard validation.errorMessage == nil else {
-                try? fileManager.removeItem(at: fileURL)
+            // Validate a private, complete file before publishing it. Never validate
+            // or remove a destination that another process might have replaced.
+            let stagingDirectory = sidebarsDirectory.appendingPathComponent(".cmux-create-\(UUID().uuidString)")
+            try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+            defer { try? fileManager.removeItem(at: stagingDirectory) }
+            let stagedFile = stagingDirectory.appendingPathComponent("sidebar.\(normalizedExtension)")
+            try source.write(to: stagedFile, atomically: false, encoding: .utf8)
+            guard validator.validate(fileURL: stagedFile).errorMessage == nil else {
                 return .invalidTemplate
             }
 
-            return .created(name: destinationName, fileURL: fileURL)
+            var destinationName = normalizedName
+            var suffix = 2
+            while true {
+                let fileURL = sidebarsDirectory.appendingPathComponent("\(destinationName).\(normalizedExtension)")
+                let nameExists = validator.discover(in: sidebarsDirectory).contains {
+                    $0.deletingPathExtension().lastPathComponent.caseInsensitiveCompare(destinationName) == .orderedSame
+                }
+                if !nameExists {
+                    // link(2) publishes complete bytes atomically and fails with
+                    // EEXIST for any occupied path, including dangling symlinks.
+                    // Unlike an atomic replace, it cannot overwrite a race winner.
+                    if link(stagedFile.path, fileURL.path) == 0 {
+                        return .created(name: destinationName, fileURL: fileURL)
+                    }
+                    guard errno == EEXIST else { return .failed }
+                }
+                guard uniquingIfNeeded else { return .alreadyExists }
+                destinationName = "\(normalizedName)-\(suffix)"
+                suffix += 1
+            }
         } catch {
             return .failed
         }
