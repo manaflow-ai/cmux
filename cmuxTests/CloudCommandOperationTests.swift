@@ -13,7 +13,7 @@ import Testing
         let clock = CloudCommandDeadlineClock()
         try await CloudTuiManualIOConnectionTests.withResourceConnection(clock: clock) { channel, peer in
             let command = Task {
-                try await recorder.perform(.workspace, foreground: false) {
+                try await recorder.perform(.workspace, foreground: true) {
                     try await CloudOperationContext.phase(.process) {
                         try await channel.request(CloudTuiRequest("session.ping"), timeout: .seconds(30))
                     }
