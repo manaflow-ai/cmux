@@ -17,6 +17,10 @@ struct SurfaceProjectionRestoreStore: Sendable {
         Array(entriesByPanelID.values)
     }
 
+    func machineOwningPanel(_ panelID: UUID) -> SurfaceMachineID? {
+        entriesByPanelID[panelID]?.resource.machine
+    }
+
     /// Stages a remote projection until its provider publishes the resource.
     mutating func stage(_ record: SurfaceProjectionRecord, workspaceID: UUID) {
         entriesByPanelID[record.panelID] = SurfaceProjection(

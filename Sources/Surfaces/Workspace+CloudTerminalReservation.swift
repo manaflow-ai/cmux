@@ -19,7 +19,8 @@ extension Workspace {
         at destination: SurfaceDestination,
         focus: Bool
     ) -> CloudTerminalPaneReservation? {
-        guard !isRetiredFromOwningTabManager else { return nil }
+        guard !isRetiredFromOwningTabManager,
+              surfaceOwnershipPolicy.rejection(for: machine) == nil else { return nil }
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
@@ -38,6 +39,10 @@ extension Workspace {
             #endif
             return nil
         }
+        // A focused creation is user input demand. Start its local manual
+        // renderer before remote creation; keep hidden/restored reservations
+        // on normal admission so a restore cannot eagerly allocate every pane.
+        if focus { panel.surface.requestInputDemandSurfaceStartIfNeeded() }
         let reservation = CloudTerminalPaneReservation(workspaceID: id, panelID: panelID, machine: machine, inputRelay: relay)
         cloudPendingCreations[panelID] = reservation
         return reservation
@@ -96,11 +101,11 @@ extension Workspace {
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         setCloudManualMirrorTabLoading(panelID: reservation.panelID, false)
-        let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error)
+        let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
-            detail: "\(failure.errorText) \(failure.recoveryText)",
-            reference: nil
+            detail: failure.errorText,
+            reference: failure.copyableText
         )
     }
 

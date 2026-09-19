@@ -83,7 +83,7 @@ struct MobileWhatsNewSheet: View {
         .frame(idealWidth: 608, maxWidth: 608)
         .background(PlatformPalette.systemBackground)
         .accessibilityIdentifier("MobileWhatsNewSheet")
-        .presentationSizing(.fitted)
+        .mobileFittedPresentationSizing()
         .presentationDetents(detents, selection: $selectedDetent)
         .onChange(of: contentHeight, initial: true) { _, height in
             resizeSheet(to: height)

@@ -24,6 +24,7 @@ struct MachinesPanelView: View {
     @StateObject private var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
     @State private var tunnelStatus = CloudTunnelStatusModel()
+    @State private var devBackend = DevBackendStartup()
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
@@ -75,6 +76,10 @@ struct MachinesPanelView: View {
         .task {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
         }
+        .task(id: devBackend.attempt) {
+            await devBackend.observe()
+            if devBackend.status?.isReady == true { viewModel.refresh() }
+        }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
@@ -85,7 +90,27 @@ struct MachinesPanelView: View {
             tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
             bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
         )
-        content
+        if let status = devBackend.status, !status.isReady {
+            VStack(spacing: 12) {
+                if status.isFailure {
+                    Image(systemName: "exclamationmark.icloud")
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+                Text(status.message)
+                    .cmuxFont(size: 12)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                if status.isFailure {
+                    Button(String(localized: "devBackend.retry", defaultValue: "Try again")) { devBackend.retry() }
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("CloudDevBackendStartup")
+        } else {
+            content
+        }
     }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
@@ -414,6 +439,9 @@ struct MachinesPanelView: View {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
+            lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )

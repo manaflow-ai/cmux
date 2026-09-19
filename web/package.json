@@ -17,7 +17,7 @@
     "stripe:backfill-subscriptions": "bun scripts/stripe/backfill-subscriptions-from-stripe.ts",
     "billing:backfill-founders-lockout": "bun scripts/backfill-founders-lockout.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
-    "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-vercel-aurora-iam.mjs",
+    "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-planetscale.mjs",
     "cloud-vm:cleanup-iroh": "bun scripts/cloud-vm/cleanup-iroh-challenges.ts",
     "cloud-vm:preflight": "bash scripts/cloud-vm/verify-migration-preflight.sh",
     "cloud-vm:smoke": "bun scripts/cloud-vm/smoke-vm-api.mjs",
@@ -33,7 +33,7 @@
     "db:down": "bash scripts/db-local.sh down",
     "db:generate": "bunx drizzle-kit generate --config drizzle.config.ts",
     "db:migrate": "bash scripts/db-local.sh migrate",
-    "db:migrate:aws-rds-iam": "bun scripts/migrate-aws-rds-iam.ts",
+    "db:migrate:planetscale": "bun scripts/cloud-vm/migrate-planetscale.mjs",
     "db:ready": "bash scripts/db-local.sh ready",
     "db:reset": "bash scripts/db-local.sh reset",
     "db:status": "bash scripts/db-local.sh status",
@@ -74,6 +74,7 @@
     "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-virtual": "^3.14.5",
     "@vercel/firewall": "^1.1.2",
+    "@vercel/functions": "^2.2.13",
     "@vercel/oidc-aws-credentials-provider": "^3.1.1",
     "@vercel/otel": "^2.1.2",
     "drizzle-orm": "1.0.0-beta.22",
@@ -137,6 +138,7 @@
   ],
   "patchedDependencies": {
     "@stackframe/stack@2.8.108": "patches/@stackframe%2Fstack@2.8.108.patch",
-    "@stackframe/stack-shared@2.8.108": "patches/@stackframe%2Fstack-shared@2.8.108.patch"
+    "@stackframe/stack-shared@2.8.108": "patches/@stackframe%2Fstack-shared@2.8.108.patch",
+    "@vercel/firewall@1.2.1": "patches/@vercel%2Ffirewall@1.2.1.patch"
   }
 }

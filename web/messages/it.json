@@ -22,8 +22,31 @@
       "title": "Richiesto cmux Pro",
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "Impossibile verificare la RAM della macchina di origine.",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "Questa dimensione non è disponibile. Scegli fino a {max} GiB.",
+      "action": "cmux vm new --size {max}g"
     }
-  },
+  ,
+    "goLimit": {
+      "savedMessage": "Go include due VM salvate, compresa quella in esecuzione.",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go consente una VM in esecuzione alla volta.",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go ha esaurito le 40 ore di VM di questo mese. Le VM salvate saranno disponibili nel prossimo periodo di fatturazione.",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    }},
   "billingRecovery": {
     "message": "Se abbiamo trovato un account, controlla la tua email per i prossimi passaggi"
   },
@@ -357,6 +380,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Condividi con il team",
+      "makePrivate": "Rendi privato",
+      "privateImportHint": "I nuovi account sono privati. Condividi un account per renderlo disponibile alle VM Cloud di questo team.",
+      "description": "Gli account condivisi sono disponibili per le VM Cloud di questo team. Gli account privati restano accessibili solo alla persona che li ha aggiunti.",
+      "cancelAction": "Annulla"
     }
   },
   "community": {
@@ -931,6 +961,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use: automazione Mac con agenti IA",
+      "metaDescription": "Lascia che Claude Code e Codex controllino il Mac con cmux Computer Use. Automatizza le app native con screenshot, accessibilità, clic e tastiera.",
+      "docsMetaTitle": "Configurazione e strumenti di Computer Use",
+      "docsMetaDescription": "Configura cmux Computer Use su macOS: permessi, strumenti Claude Code e Codex, selezione delle app, sessioni, competenze e risoluzione dei problemi.",
+      "tagline": "Lascia che Claude Code e Codex controllino il tuo Mac.",
+      "intro": "Dai agli agenti di programmazione IA accesso alle app native del Mac. Con cmux Computer Use possono leggere interfacce, acquisire screenshot, fare clic e inserire testo.",
+      "imageAlt": "Configurazione dei permessi di accessibilità e screenshot in cmux Computer Use",
+      "caption": "Un assistente separato gestisce i permessi di Computer Use, così le sessioni del terminale restano aperte durante la configurazione iniziale.",
+      "featuresTitle": "Controlla le app native del Mac",
+      "featureInspect": "Esamina le interfacce tramite alberi di accessibilità e screenshot.",
+      "featureAct": "Fai clic, scrivi, scorri, trascina e usa scorciatoie nelle app macOS.",
+      "featureReview": "Segui il cursore visibile dell’agente, verifica il risultato e torna al terminale di origine.",
+      "agentsTitle": "I tuoi agenti di programmazione in cmux",
+      "agentsBody": "Esegui {agents} e altri agenti da riga di comando in cmux.",
+      "supportTitle": "Agenti supportati",
+      "supportBody": "Gli strumenti nativi Computer Use si collegano automaticamente alle sessioni Claude Code e Codex avviate in cmux. Gli altri agenti funzionano nel terminale, ma non ricevono ancora questa integrazione automatica per controllare il Mac.",
+      "setupTitle": "Per iniziare",
+      "step1": "Installa e apri cmux per Mac. Abilita Computer Use in Impostazioni → Computer Use.",
+      "step2": "Concedi Accessibilità e Registrazione schermo a cmux Computer Use tramite i controlli dei permessi in Impostazioni di Sistema. Se l’assistente non è elencato, aggiungi o trascina il riquadro della sua app nel pannello dei permessi.",
+      "step3": "Avvia una nuova sessione Claude Code o Codex in cmux. Chiedi di usare Computer Use specificando app e attività. Gli strumenti si collegano automaticamente, senza configurazione MCP manuale.",
+      "permissionsTitle": "Permessi e configurazione",
+      "permissionsBody": "Accessibilità consente di leggere e azionare le interfacce; Registrazione schermo consente gli screenshot. Concedi entrambi i permessi a cmux Computer Use. Aprire cmux o avviare un agente non concede accesso né apre automaticamente la configurazione.",
+      "tahoeBody": "Su macOS Tahoe, approva anche la conferma aggiuntiva di acquisizione dello schermo. Riprova l’attività quando cmux mostra entrambi i permessi concessi.",
+      "promptTitle": "Prova con Calcolatrice",
+      "prompt": "Usa cmux Computer Use per aprire Calcolatrice, fare clic su 100 + 105 e mostrarmi il risultato.",
+      "workflowBody": "Esamina prima il bersaglio, agisci sui controlli dell’istantanea e controlla di nuovo il risultato. Gli indici valgono solo per l’istantanea corrente: aggiornali dopo navigazione o cambiamenti di layout. La conferma di un clic non dimostra che l’attività sia conclusa.",
+      "toolsTitle": "Strumenti per agenti",
+      "toolsBody": "cmux-cua è il server MCP incluso per il controllo strutturato delle app native. Questi sono nomi di strumenti, non comandi shell. Gli argomenti dipendono dal profilo dell’agente: consulta gli schemi forniti alla sessione.",
+      "codexBody": "Codex chiama get_app_state con un nome app o identificatore bundle per ottenere screenshot e albero di accessibilità. Agisci tramite element_index corrente o coordinate dello screenshot, poi richiama get_app_state. Strumenti disponibili:",
+      "claudeBody": "Claude Code trova i bersagli con list_apps e list_windows, poi usa get_window_state con pid e window_id. Preferisci token di elementi o indici aggiornati. Il profilo nativo offre anche perform_actions per gruppi di azioni che non invalidano i bersagli successivi.",
+      "controlTitle": "Seguire e fermare Computer Use",
+      "controlBody": "Computer Use nella barra dei menu mostra l’agente attivo. Focus Computer Use segue l’app controllata; Focus Calling Terminal torna al terminale di origine senza fermare l’automazione. Usa l’azione di arresto nel menu per terminare la sessione di controllo.",
+      "disableBody": "Disattiva Computer Use nelle impostazioni. Per escludere gli strumenti da un nuovo agente, imposta CMUX_COMPUTER_USE_MCP_DISABLED=1 prima di avviarlo.",
+      "skillTitle": "Competenze",
+      "skillBody": "La competenza cmux-cua spiega il flusso di osservazione e azione. È facoltativa e non concede permessi macOS. Per installarla stabilmente, usa l’installatore di competenze dell’agente; cmux non installa competenze globali per impostazione predefinita.",
+      "skillLink": "Leggi la competenza cmux-cua",
+      "browserTitle": "App native e automazione del browser",
+      "browserBody": "Computer Use controlla finestre native tramite screenshot e accessibilità. Per i pannelli browser cmux, usa cmux browser per istantanee DOM, selettori, moduli e JavaScript. I riferimenti delle superfici browser sono distinti dagli indici degli elementi delle app native.",
+      "browserLink": "Riferimento per l’automazione del browser",
+      "troubleTitle": "Risoluzione dei problemi",
+      "missingTitle": "L’agente non ha gli strumenti Computer Use",
+      "missingBody": "Abilita Computer Use e avvia una nuova sessione Claude Code o Codex in cmux. Le sessioni esistenti possono mantenere gli strumenti originali. Verifica che variabili d’ambiente o criteri gestiti non lo disabilitino.",
+      "blockedTitle": "Configurazione incompleta, clic falliti o screenshot vuoti",
+      "blockedBody": "Riapri Impostazioni → Computer Use e completa entrambi i permessi, comprese eventuali conferme aggiuntive di acquisizione. Poi riprova. Se l’assistente deve riavviarsi, i terminali possono restare aperti.",
+      "targetTitle": "Finestra errata o clic bloccato",
+      "targetBody": "Esamina nuovamente l’app e scegli un elemento aggiornato. Se un’altra finestra copre il bersaglio, rendilo visibile ed esaminalo prima di riprovare. Non riutilizzare coordinate o indici obsoleti.",
+      "productLink": "Panoramica di cmux Computer Use",
+      "copyTitle": "Copia un prompt Computer Use",
+      "copyPrompt": "Copia prompt",
+      "copiedPrompt": "Copiato",
+      "installPrompt": "Usa la competenza $cmux-cua. Se manca, installala con il normale installatore. Se mancano permessi, chiedimi di aprire Impostazioni cmux → Computer Use. Esamina prima di agire e verifica ogni modifica.\n\nAttività: [descrivi qui l’attività]"
+    },
     "remoteTmux": {
       "moshContrast": "Per passare da una rete all’altra usa cmux mosh-tmux. Apre un terminale Mosh pienamente integrato collegato a una sessione tmux denominata; non sostituisce il mirror nativo di workspace, schede e suddivisioni offerto dalla modalità di controllo tmux via SSH."
     },
@@ -1136,6 +1220,7 @@
           "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Se true (predefinito), cmux fornisce una tavolozza predefinita che segue l’aspetto, a meno che non siano configurati un tema Ghostty o colori del terminale. Il carattere e le altre impostazioni vengono mantenuti. Se false, Ghostty usa la propria tavolozza integrata fissa. I temi e i colori espliciti hanno sempre la precedenza, incluso theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Larghezza massima facoltativa, in punti, per il contenuto del terminale e della chat agente integrata. Imposta false per usare l’intera larghezza del riquadro.",
           "sessionContentAlignment": "Posizionamento orizzontale del contenuto del terminale e della chat agente integrata quando sessionContentMaxWidth è abilitato.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
@@ -1250,7 +1335,7 @@
       "plusButtonScreenshotAlt": "Menu del clic destro del pulsante più di cmux con Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "Il menu del clic destro segue l’ordine di ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Azioni personalizzate del pulsante più",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
       "newWorkspaceWorktreeNote": "Questo esempio fa sì che il normale clic sul più esegua l’azione <action>worktree-agents</action>. Il comando dello spazio di lavoro da <commands>commands</commands> usa un terminale di configurazione visibile per creare prima il <worktree>worktree</worktree> Git. Codex e Claude partono contemporaneamente, attendono il file di stato specifico dello spazio di lavoro, quindi entrano nella directory creata prima di exec.",
       "simpleCommands": "Comandi semplici",
       "simpleCommandsDesc": "Un comando semplice esegue un comando shell nel terminale attualmente attivo:",
@@ -1610,6 +1695,7 @@
       }
     },
     "navItems": {
+      "computerUse": "Controllo del computer",
       "gettingStarted": "Per iniziare",
       "concepts": "Concetti",
       "workspaceGroups": "Gruppi di workspace",
