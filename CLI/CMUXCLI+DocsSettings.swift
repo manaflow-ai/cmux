@@ -83,11 +83,11 @@ extension CMUXCLI {
     }
 
     private static let workflowAdaptAndSave = [
-        "Pick an example that fits the task and lists requirements you have.",
-        "Open the recipe and copy only the needed top-level keys into .cmux/cmux.json or ~/.config/cmux/cmux.json. Add .cmux/dock.json when the example uses Dock.",
-        "Replace sample paths, commands, URLs, tool names, and placements with values for this repository.",
-        "Validate the JSON or JSONC, run cmux reload-config, and check the resulting entry point.",
-        "When the workspace looks right, save it with cmux layout save <name> --description \"<what this creates>\".",
+        workflowText("cli.workflow.guidance.choose", "Pick an example that fits the task and lists requirements you have."),
+        workflowText("cli.workflow.guidance.recipe", "Open the recipe and copy only the needed top-level keys into .cmux/cmux.json or ~/.config/cmux/cmux.json. Add .cmux/dock.json when the example uses Dock."),
+        workflowText("cli.workflow.guidance.adapt", "Replace sample paths, commands, URLs, tool names, and placements with values for this repository."),
+        workflowText("cli.workflow.guidance.validate", "Validate the JSON or JSONC, run cmux reload-config, and check the resulting entry point."),
+        workflowText("cli.workflow.guidance.save", "When the workspace looks right, save it with cmux layout save <name> --description \"<what this creates>\"."),
     ]
 
     private static let workflowExamples: [WorkflowExample] = [

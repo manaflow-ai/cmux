@@ -530251,6 +530251,301 @@
           }
         }
       }
+    },
+    "cli.workflow.guidance.choose": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick an example that fits the task and lists requirements you have."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle ein Beispiel, das zur Aufgabe passt und dessen Anforderungen du erfüllst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un exemple adapté à la tâche et dont vous remplissez les prérequis."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر مثالاً يناسب المهمة وتتوفر لديك متطلباته."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige un ejemplo que encaje con la tarea y cuyos requisitos cumplas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇符合任務且需求已具備的範例。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择符合任务且具备所需条件的示例。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업에 맞고 필요한 조건을 갖춘 예시를 선택합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクに合い、要件を満たす例を選びます。"
+          }
+        }
+      }
+    },
+    "cli.workflow.guidance.recipe": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the recipe and copy only the needed top-level keys into .cmux/cmux.json or ~/.config/cmux/cmux.json. Add .cmux/dock.json when the example uses Dock."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne das Rezept und kopiere nur die benötigten obersten Schlüssel nach .cmux/cmux.json oder ~/.config/cmux/cmux.json. Füge .cmux/dock.json hinzu, wenn das Beispiel Dock verwendet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez la recette et copiez uniquement les clés de premier niveau nécessaires dans .cmux/cmux.json ou ~/.config/cmux/cmux.json. Ajoutez .cmux/dock.json si l’exemple utilise le Dock."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح الوصفة وانسخ المفاتيح العلوية المطلوبة فقط إلى .cmux/cmux.json أو ~/.config/cmux/cmux.json. أضف .cmux/dock.json عندما يستخدم المثال Dock."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre la receta y copia solo las claves de nivel superior necesarias en .cmux/cmux.json o ~/.config/cmux/cmux.json. Añade .cmux/dock.json si el ejemplo usa Dock."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟配方，只將需要的頂層鍵複製到 .cmux/cmux.json 或 ~/.config/cmux/cmux.json。範例使用 Dock 時再加入 .cmux/dock.json。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开配方，只将需要的顶层键复制到 .cmux/cmux.json 或 ~/.config/cmux/cmux.json。示例使用 Dock 时再添加 .cmux/dock.json。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레시피를 열고 필요한 최상위 키만 .cmux/cmux.json 또는 ~/.config/cmux/cmux.json에 복사합니다. 예시가 Dock을 사용하면 .cmux/dock.json도 추가합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レシピを開き、必要なトップレベルキーだけを .cmux/cmux.json または ~/.config/cmux/cmux.json にコピーします。例で Dock を使う場合は .cmux/dock.json も追加します。"
+          }
+        }
+      }
+    },
+    "cli.workflow.guidance.adapt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace sample paths, commands, URLs, tool names, and placements with values for this repository."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersetze Beispielpfade, Befehle, URLs, Toolnamen und Platzierungen durch Werte dieses Repositorys."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remplacez les chemins, commandes, URL, noms d’outils et placements d’exemple par ceux de ce dépôt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استبدل المسارات والأوامر وعناوين URL وأسماء الأدوات ومواضع المثال بقيم هذا المستودع."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sustituye las rutas, comandos, URL, nombres de herramientas y ubicaciones de ejemplo por los de este repositorio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將範例路徑、指令、URL、工具名稱與位置替換為此儲存庫的值。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将示例路径、命令、URL、工具名称和位置替换为此存储库的值。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예시 경로, 명령, URL, 도구 이름과 배치를 이 저장소의 값으로 바꿉니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例のパス、コマンド、URL、ツール名、配置をこのリポジトリの値に置き換えます。"
+          }
+        }
+      }
+    },
+    "cli.workflow.guidance.validate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validate the JSON or JSONC, run cmux reload-config, and check the resulting entry point."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validiere JSON oder JSONC, führe cmux reload-config aus und prüfe den resultierenden Einstiegspunkt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validez le JSON ou JSONC, exécutez cmux reload-config et vérifiez le point d’accès obtenu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقق من JSON أو JSONC، وشغّل cmux reload-config، ثم افحص نقطة الدخول الناتجة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valida el JSON o JSONC, ejecuta cmux reload-config y comprueba el punto de entrada resultante."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "驗證 JSON 或 JSONC，執行 cmux reload-config，並檢查產生的入口。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "验证 JSON 或 JSONC，运行 cmux reload-config，并检查生成的入口。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON 또는 JSONC를 검증하고 cmux reload-config를 실행한 뒤 결과 진입점을 확인합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON または JSONC を検証し、cmux reload-config を実行して生成された入口を確認します。"
+          }
+        }
+      }
+    },
+    "cli.workflow.guidance.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the workspace looks right, save it with cmux layout save <name> --description \"<what this creates>\"."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn der Workspace passt, speichere ihn mit cmux layout save <name> --description \"<what this creates>\"."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand l’espace de travail vous convient, enregistrez-le avec cmux layout save <name> --description \"<what this creates>\"."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تصبح مساحة العمل مناسبة، احفظها باستخدام cmux layout save <name> --description \"<what this creates>\"."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando el espacio de trabajo esté listo, guárdalo con cmux layout save <name> --description \"<what this creates>\"."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區完成後，使用 cmux layout save <name> --description \"<what this creates>\" 儲存。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区准备好后，使用 cmux layout save <name> --description \"<what this creates>\" 保存。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간이 준비되면 cmux layout save <name> --description \"<what this creates>\"로 저장합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースが整ったら、cmux layout save <name> --description \"<what this creates>\" で保存します。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
