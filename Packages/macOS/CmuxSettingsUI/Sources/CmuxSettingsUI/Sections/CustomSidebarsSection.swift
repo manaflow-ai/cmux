@@ -125,8 +125,10 @@ public struct CustomSidebarsSection: View {
             ) {
                 Menu {
                     ForEach(onboardingAssets.examples) { example in
-                        Button(example.title) {
+                        Button {
                             applyOnboardingResult(hostActions.installCustomSidebarExample(id: example.id))
+                        } label: {
+                            Text(verbatim: example.title)
                         }
                     }
                 } label: {
