@@ -2812,6 +2812,8 @@
 		5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */; };
 		F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */; };
 		C3467AB10000000000000001 /* ShortcutWhenClauseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */; };
+		F72160020001000000000000 /* SidebarAccountTeamMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72160030001000000000000 /* SidebarAccountTeamMenu.swift */; };
+		F72160040001000000000000 /* SidebarAccountTeamMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F72160050001000000000000 /* SidebarAccountTeamMenuTests.swift */; };
 		A6AC71020000000000000001 /* SidebarAgentActivityIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71030000000000000001 /* SidebarAgentActivityIndicator.swift */; };
 		A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC71050000000000000001 /* SidebarAgentActivitySummary.swift */; };
 		211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */; };
@@ -6673,6 +6675,8 @@
 		B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ShortcutRoutingSupport.swift; sourceTree = "<group>"; };
 		F6001001A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutUnbindingTests.swift; sourceTree = "<group>"; };
 		C3467AB10000000000000002 /* ShortcutWhenClauseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutWhenClauseTests.swift; sourceTree = "<group>"; };
+		F72160030001000000000000 /* SidebarAccountTeamMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAccountTeamMenu.swift; sourceTree = "<group>"; };
+		F72160050001000000000000 /* SidebarAccountTeamMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAccountTeamMenuTests.swift; sourceTree = "<group>"; };
 		A6AC71030000000000000001 /* SidebarAgentActivityIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAgentActivityIndicator.swift; sourceTree = "<group>"; };
 		A6AC71050000000000000001 /* SidebarAgentActivitySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarAgentActivitySummary.swift; sourceTree = "<group>"; };
 		243632BA1DBBA36FD46E0610 /* SidebarAppearanceSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarAppearanceSupport.swift; sourceTree = "<group>"; };
@@ -8588,6 +8592,7 @@
 					C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */,
 					C0DE86060000000000000004 /* CommandPaletteRestoreFocusTarget.swift */,
 					F7216001000000000000002 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift */,
+					F72160030001000000000000 /* SidebarAccountTeamMenu.swift */,
 
 
 					8430B0030000000000000003 /* SidebarTabItemSettingsSnapshot.swift */,
@@ -11067,6 +11072,7 @@
 				A11E5E1E0000000000000012 /* TerminalSelectionAccessibilityIngressGateTests.swift */,
 				570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */,
 				C0DE7A9E000000000000C012 /* TerminalWindowPortalCommittedGeometryTests.swift */,
+				F72160050001000000000000 /* SidebarAccountTeamMenuTests.swift */,
 				C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */,
 				43DB195131CD53CCCCEEEB79 /* TerminalWindowPortalLifecycleHiddenRefreshTests.swift */,
 				AA11BB22CC33DD44EE55F001 /* TerminalWindowPortalLayoutPassRefreshTests.swift */,
@@ -14074,6 +14080,7 @@
 				6042C0046042C0046042C004 /* ShortcutHintTitlebarPolicy.swift in Sources */,
 				D35A00000000000000000010 /* ShortcutRecorderRejectedAttempt.swift in Sources */,
 				5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */,
+				F72160020001000000000000 /* SidebarAccountTeamMenu.swift in Sources */,
 				A6AC71020000000000000001 /* SidebarAgentActivityIndicator.swift in Sources */,
 				A6AC71040000000000000001 /* SidebarAgentActivitySummary.swift in Sources */,
 				211A75777F433ED8BA5AE208 /* SidebarAppearanceSupport.swift in Sources */,
@@ -15930,6 +15937,7 @@
 				6042A0016042A0016042A001 /* ShortcutHintModifierPolicyTests.swift in Sources */,
 				F6001000A1B2C3D4E5F60718 /* ShortcutUnbindingTests.swift in Sources */,
 				C3467AB10000000000000001 /* ShortcutWhenClauseTests.swift in Sources */,
+				F72160040001000000000000 /* SidebarAccountTeamMenuTests.swift in Sources */,
 				B804C0030000000000000003 /* SidebarAppKitRowCellTests.swift in Sources */,
 				9BE45B94B05D471FA386203D /* SidebarCloudWorkspaceBadgeTests.swift in Sources */,
 				A12481700000000000000001 /* SidebarDerivedStateScaleTests.swift in Sources */,
