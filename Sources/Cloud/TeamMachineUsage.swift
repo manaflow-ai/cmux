@@ -28,4 +28,3 @@ struct TeamMachineUsage: Equatable, Sendable {
         return result
     }
 }
-

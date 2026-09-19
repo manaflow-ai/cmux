@@ -13,4 +13,3 @@ struct MachineUsageSnapshot: Equatable, Sendable {
     let asOf: Date?
     let totals: MachineUsageTotals
 }
-

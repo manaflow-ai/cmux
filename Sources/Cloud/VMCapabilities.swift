@@ -74,4 +74,3 @@ struct VMCapabilities: Equatable, Sendable {
         self.init(json: vmResponse["capabilities"], legacyStatsSupported: kind.hasDesktop)
     }
 }
-

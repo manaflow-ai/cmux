@@ -13,4 +13,3 @@ struct MachineUsageTotals: Equatable, Sendable {
     /// Nothing to show for a machine that has not routed a single token.
     var isEmpty: Bool { totalTokens <= 0 && apiEquivalentUsd <= 0 }
 }
-
