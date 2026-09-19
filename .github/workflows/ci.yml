@@ -143,6 +143,9 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate tagged reload works without the shared dev backend
+        run: ./tests/test_reload_local_backend_mode.sh
+
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 
