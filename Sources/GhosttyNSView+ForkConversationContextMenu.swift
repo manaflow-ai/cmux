@@ -24,83 +24,57 @@ extension GhosttyNSView {
 
     @discardableResult
     func appendCurrentSurfaceResumeMenuItems(to menu: NSMenu) -> Bool {
+        let title = String(
+            localized: "settings.terminal.resumeCommands",
+            defaultValue: "Resume Commands"
+        )
+
         switch currentSurfaceResumeContextMenuState() {
-        case .unavailable:
+        case .unavailable, .agentManaged:
             return false
+        case .approvalPending:
+            let item = menu.addItem(withTitle: title, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            return true
         case .unbound:
-            let item = menu.addItem(
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            let setItem = submenu.addItem(
                 withTitle: String(
-                    localized: "terminalContextMenu.makeRestorable",
-                    defaultValue: "Make Restorable…"
+                    localized: "settings.automation.socketPassword.set",
+                    defaultValue: "Set"
                 ),
                 action: #selector(makeCurrentSurfaceRestorable(_:)),
                 keyEquivalent: ""
             )
-            item.target = self
-            return true
-        case .agentManaged:
-            let item = menu.addItem(
-                withTitle: String(
-                    localized: "terminalContextMenu.agentResumeManaged",
-                    defaultValue: "Agent Session Resume: Managed"
-                ),
-                action: nil,
-                keyEquivalent: ""
-            )
-            item.isEnabled = false
-            return true
-        case .approvalPending:
-            let item = menu.addItem(
-                withTitle: String(
-                    localized: "terminalContextMenu.resumeCommandLoading",
-                    defaultValue: "Resume Command: Loading…"
-                ),
-                action: nil,
-                keyEquivalent: ""
-            )
-            item.isEnabled = false
+            setItem.target = self
+            item.submenu = submenu
+            menu.addItem(item)
             return true
         case .ordinary(let command):
-            let item = NSMenuItem(
-                title: String(
-                    localized: "terminalContextMenu.restorableTerminal",
-                    defaultValue: "Restorable Terminal"
-                ),
-                action: nil,
-                keyEquivalent: ""
-            )
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             let submenu = NSMenu()
             let summary = currentSurfaceResumeCommandSummary(command)
-            let statusItem = NSMenuItem(
-                title: String(
-                    format: String(
-                        localized: "terminalContextMenu.resumeCommandStatus",
-                        defaultValue: "Resume Command: %@"
-                    ),
-                    summary
-                ),
-                action: nil,
-                keyEquivalent: ""
-            )
+            let statusItem = NSMenuItem(title: summary, action: nil, keyEquivalent: "")
             statusItem.isEnabled = false
             statusItem.toolTip = command
             submenu.addItem(statusItem)
             submenu.addItem(.separator())
 
-            let setItem = submenu.addItem(
+            let editItem = submenu.addItem(
                 withTitle: String(
-                    localized: "terminalContextMenu.setResumeCommand",
-                    defaultValue: "Set Resume Command…"
+                    localized: "settings.common.edit",
+                    defaultValue: "Edit"
                 ),
                 action: #selector(editCurrentSurfaceResumeCommand(_:)),
                 keyEquivalent: ""
             )
-            setItem.target = self
+            editItem.target = self
 
             let clearItem = submenu.addItem(
                 withTitle: String(
-                    localized: "terminalContextMenu.clearResumeCommand",
-                    defaultValue: "Clear Resume Command"
+                    localized: "settings.automation.socketPassword.clear",
+                    defaultValue: "Clear"
                 ),
                 action: #selector(clearCurrentSurfaceResumeCommand(_:)),
                 keyEquivalent: ""
@@ -225,25 +199,22 @@ extension GhosttyNSView {
     }
 
     @objc func clearCurrentSurfaceResumeCommand(_ sender: Any?) {
-        let resolution = clearCurrentSurfaceResumeBindingFromContextMenu()
-        presentCurrentSurfaceResumeFailureIfNeeded(resolution)
+        guard case .result = clearCurrentSurfaceResumeBindingFromContextMenu() else {
+            NSSound.beep()
+            return
+        }
     }
 
     private func presentCurrentSurfaceResumeCommandEditor(existingCommand: String?) {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = existingCommand == nil
-            ? String(
-                localized: "terminalContextMenu.makeRestorable.title",
-                defaultValue: "Make Terminal Restorable"
-            )
-            : String(
-                localized: "terminalContextMenu.setResumeCommand.title",
-                defaultValue: "Set Resume Command"
-            )
+        alert.messageText = String(
+            localized: "settings.terminal.resumeCommands",
+            defaultValue: "Resume Commands"
+        )
         alert.informativeText = String(
-            localized: "terminalContextMenu.resumeCommand.message",
-            defaultValue: "Enter a durable command cmux can use to restore this terminal after reopening the app. Automatic runs still follow Settings → Terminal → Resume Commands approvals."
+            localized: "settings.terminal.resumeCommands.subtitle",
+            defaultValue: "Review signed command prefixes that can restore non-agent terminal surfaces."
         )
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
@@ -251,45 +222,35 @@ extension GhosttyNSView {
         // Only a saved resume binding is authoritative enough to prefill. A terminal's
         // initial launch command can also be cmux transport or placeholder plumbing.
         alert.accessoryView = field
-        alert.addButton(
-            withTitle: String(localized: "common.ok", defaultValue: "OK")
-        )
-        alert.addButton(
-            withTitle: String(localized: "common.cancel", defaultValue: "Cancel")
-        )
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
         alert.window.initialFirstResponder = field
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let resolution = setCurrentSurfaceResumeBindingFromContextMenu(command: field.stringValue)
-        presentCurrentSurfaceResumeFailureIfNeeded(resolution)
+        while true {
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            if field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                NSSound.beep()
+                continue
+            }
+
+            let resolution = setCurrentSurfaceResumeBindingFromContextMenu(command: field.stringValue)
+            if case .approvalPending(let message) = resolution {
+                presentCurrentSurfaceResumeApprovalPending(message)
+            } else if case .result = resolution {
+                return
+            } else {
+                NSSound.beep()
+            }
+            return
+        }
     }
 
-    private func presentCurrentSurfaceResumeFailureIfNeeded(
-        _ resolution: ControlSurfaceResumeResolution
-    ) {
-        let message: String
-        switch resolution {
-        case .result:
-            return
-        case .approvalPending(let pendingMessage):
-            message = pendingMessage
-        case .emptyResumeCommand:
-            message = String(
-                localized: "terminalContextMenu.resumeCommand.empty",
-                defaultValue: "Enter a resume command."
-            )
-        case .windowUnavailable, .surfaceNotFound, .setFailed:
-            message = String(
-                localized: "terminalContextMenu.resumeCommand.updateFailed",
-                defaultValue: "cmux could not update this terminal’s resume command."
-            )
-        }
-
+    private func presentCurrentSurfaceResumeApprovalPending(_ message: String) {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
-            localized: "terminalContextMenu.setResumeCommand.title",
-            defaultValue: "Set Resume Command"
+            localized: "settings.terminal.resumeCommands",
+            defaultValue: "Resume Commands"
         )
         alert.informativeText = message
         alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
