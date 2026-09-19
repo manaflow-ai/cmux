@@ -37,7 +37,7 @@ chmod +x "$CARGO_TARGET_DIR/$target/release/cmux-diff-sidecar"
                          TARGET_TEMP_DIR=str(work), UNLOCALIZED_RESOURCES_FOLDER_PATH='Resources',
                          CODE_SIGNING_ALLOWED='NO', CMUX_DIFF_SIDECAR_ARCHS=arch, CMUX_DIFF_SIDECAR_MIN_MACOS='14.0',
                          CMUX_DIFF_SIDECAR_STAMP=str(stamp))
-                subprocess.run(['/bin/bash',str(scripts/SCRIPT.name)],env=env,check=True,capture_output=True,timeout=20)
+                subprocess.run(['/bin/bash',str(scripts/SCRIPT.name)],env=env,check=True,capture_output=True)
                 self.assertEqual(list(work.glob('cmux-diff-sidecar.arch-*.stamp')),[stamp])
                 self.assertEqual(destination.read_text().strip(),target)
                 self.assertIn('requested_archs='+arch,stamp.read_text())

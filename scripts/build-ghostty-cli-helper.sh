@@ -51,14 +51,19 @@ target_arch_for_triple() {
   esac
 }
 
+run_git() {
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE \
+    -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_PREFIX git "$@"
+}
+
 ghostty_cache_is_safe() {
   [[ "$CACHE_DISABLED" -eq 0 ]] || return 1
   [[ "${CMUX_DISABLE_GHOSTTY_HELPER_CACHE:-0}" != "1" ]] || return 1
   [[ -d "$GHOSTTY_DIR/.git" || -f "$GHOSTTY_DIR/.git" ]] || return 1
   # A dirty or caller-owned Ghostty tree must never be substituted by a
   # revision-only cache entry. Ignored Zig build output is intentionally fine.
-  git -C "$GHOSTTY_DIR" diff --quiet HEAD -- . || return 1
-  [[ -z "$(git -C "$GHOSTTY_DIR" ls-files --others --exclude-standard)" ]] || return 1
+  run_git -C "$GHOSTTY_DIR" diff --quiet HEAD -- . || return 1
+  [[ -z "$(run_git -C "$GHOSTTY_DIR" ls-files --others --exclude-standard)" ]] || return 1
   return 0
 }
 
@@ -69,7 +74,7 @@ ghostty_cache_metadata() {
   local zig_version zig_fingerprint ghostty_sha script_sha sdk_version host_version host_arch
   zig_version="$($zig_bin version 2>/dev/null || true)"
   zig_fingerprint="$(shasum -a 256 "$zig_bin" 2>/dev/null | awk '{print $1}')"
-  ghostty_sha="$(git -C "$GHOSTTY_DIR" rev-parse HEAD)"
+  ghostty_sha="$(run_git -C "$GHOSTTY_DIR" rev-parse HEAD)"
   script_sha="$(shasum -a 256 "$SCRIPT_DIR/build-ghostty-cli-helper.sh" | awk '{print $1}')"
   sdk_version="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || echo unknown)"
   host_version="$(sw_vers -productVersion 2>/dev/null || echo unknown)"
@@ -100,8 +105,8 @@ ghostty_cache_install_if_valid() {
   cached_sha="$(sed -n 's/^binary_sha256=//p' "$cache_manifest" 2>/dev/null || true)"
   expected_sha="$(shasum -a 256 "$cache_bin" 2>/dev/null | awk '{print $1}')"
   [[ -n "$cached_sha" && "$cached_sha" == "$expected_sha" ]] || return 1
-  mkdir -p "$prefix/bin"
-  install -m 755 "$cache_bin" "$prefix/bin/ghostty"
+  mkdir -p "$prefix/bin" || return 1
+  install -m 755 "$cache_bin" "$prefix/bin/ghostty" || return 1
   echo "Reusing cached Ghostty CLI helper"
   return 0
 }
