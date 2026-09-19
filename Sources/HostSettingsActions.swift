@@ -181,6 +181,7 @@ final class HostSettingsActions: SettingsHostActions {
         PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
+    /// Reads the existing automation configuration off-main and summarizes it for Settings.
     func automationRulesStatus() async -> AutomationRulesStatus {
         let fileURL = automationConfigStore.fileURL
         let configExists = FileManager.default.fileExists(atPath: fileURL.path)
@@ -196,16 +197,18 @@ final class HostSettingsActions: SettingsHostActions {
                 configExists: configExists
             )
         } catch {
+            hostSettingsLogger.error("Failed to load automation rules: \(String(describing: error), privacy: .private)")
             return AutomationRulesStatus(
                 configPath: fileURL.path,
                 ruleCount: 0,
                 enabledCount: 0,
                 configExists: configExists,
-                errorMessage: error.localizedDescription
+                hasError: true
             )
         }
     }
 
+    /// Materializes the existing empty v1 configuration when needed, then opens it in the preferred editor.
     func openAutomationRulesInExternalEditor() {
         let fileURL = automationConfigStore.fileURL
         if !FileManager.default.fileExists(atPath: fileURL.path) {
@@ -214,6 +217,7 @@ final class HostSettingsActions: SettingsHostActions {
         PreferredEditorService(defaults: .standard).open(fileURL)
     }
 
+    /// Routes a reload request to the already-attached automation engine.
     @discardableResult
     func reloadAutomationRules() -> Bool {
         if case .ok = TerminalController.shared.v2AutomationReload() {
