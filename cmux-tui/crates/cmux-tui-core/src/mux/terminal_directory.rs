@@ -19,7 +19,7 @@ impl Mux {
         }
         // A snapshot flush may race the reader. Only the latest serialized OSC state wins.
         if current.pwd() != *observed { return Ok(false); }
-        if current.published_directory() == directory {
+        if current.directory_publication_matches(&directory) {
             return Ok(true);
         }
         let Some(host_id) = registry.live_terminal_host_id(id)? else { return Ok(true) };

@@ -1,14 +1,30 @@
 use super::*;
 
+/// A newly adopted host must confirm even an absent cwd at a new resource revision.
+pub(super) enum PublishedDirectory {
+    Unreported,
+    Reported(Option<String>),
+}
+
 impl Surface {
     /// Raw VT state is only a candidate. Public state changes after its ordered commit.
     pub(crate) fn published_directory(&self) -> Option<String> {
-        self.as_pty().and_then(|pty| pty.published_directory.lock().unwrap().clone())
+        self.as_pty().and_then(|pty| match &*pty.published_directory.lock().unwrap() {
+            PublishedDirectory::Unreported => None,
+            PublishedDirectory::Reported(value) => value.clone(),
+        })
+    }
+
+    pub(crate) fn directory_publication_matches(&self, directory: &Option<String>) -> bool {
+        self.as_pty().is_some_and(|pty| match &*pty.published_directory.lock().unwrap() {
+            PublishedDirectory::Unreported => false,
+            PublishedDirectory::Reported(value) => value == directory,
+        })
     }
 
     pub(crate) fn commit_published_directory(&self, directory: Option<String>) {
         if let Some(pty) = self.as_pty() {
-            *pty.published_directory.lock().unwrap() = directory;
+            *pty.published_directory.lock().unwrap() = PublishedDirectory::Reported(directory);
         }
     }
 

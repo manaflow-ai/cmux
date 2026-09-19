@@ -6,6 +6,7 @@
 //! VT operations.
 
 mod directory;
+use directory::PublishedDirectory;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -1519,7 +1520,7 @@ pub struct PtyTerminalRuntime {
     dirty: AtomicBool,
     title: Mutex<String>,
     pwd: Mutex<Option<String>>,
-    published_directory: Mutex<Option<String>>,
+    published_directory: Mutex<PublishedDirectory>,
     directory_pending: AtomicBool,
     geometry: Mutex<PtyGeometry>,
     kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
@@ -2422,7 +2423,7 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
-                published_directory: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
@@ -2921,7 +2922,7 @@ impl Surface {
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(title),
                 pwd: Mutex::new(pwd),
-                published_directory: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Unreported),
                 directory_pending: AtomicBool::new(true),
                 geometry: Mutex::new(PtyGeometry {
                     cols: snapshot.cols,
@@ -3962,7 +3963,7 @@ impl Surface {
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
-                published_directory: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
                 geometry: Mutex::new(PtyGeometry {
                     cols,
@@ -4201,7 +4202,7 @@ impl Surface {
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
                 pwd: Mutex::new(None),
-                published_directory: Mutex::new(None),
+                published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
                 geometry: Mutex::new(initial_geometry),
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
