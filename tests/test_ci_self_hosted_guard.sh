@@ -1265,6 +1265,7 @@ check_cla_guard_runner
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
+check_macos_runner "$CI_FILE" "macos-compile-admission"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-build"
 check_release_build_runner_disk_capacity

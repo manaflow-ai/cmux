@@ -8,11 +8,13 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     private static let maximumSubtitleUTF16Units = 120
     private static let maximumBodyUTF16Units = 500
     private static let maximumIdentifierUTF16Units = 200
-    private static let maximumRequestBytes = 8 * 1024
+    public static let maximumEncryptedPayloads = 200
+    public static let maximumRequestBytes = 1024 * 1024
 
-    private enum EncodingError: Error {
+    public enum EncodingError: Error, Equatable {
         case identifierTooLong
         case requestTooLarge
+        case tooManyEncryptedPayloads
     }
 
     /// A lowercase identifier shared by retries of the same request.
@@ -56,7 +58,10 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         expirationEpochSeconds: Int,
         expectedAccountID: String? = nil,
         expectedSessionGeneration: UInt64? = nil,
-        targetBundleIdentifier: String? = nil
+        targetBundleIdentifier: String? = nil,
+        macPushPublicKey: String? = nil,
+        macInstallationID: String? = nil,
+        macBuildID: String? = nil
     ) throws {
         let canonicalCorrelation = correlationID.uuidString.lowercased()
         let normalizedNotificationID = payload.kind == .notify
@@ -69,6 +74,9 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             "correlationId": canonicalCorrelation,
             "expirationEpochSeconds": expirationEpochSeconds,
         ]
+        if let macPushPublicKey { object["macPushPublicKey"] = macPushPublicKey }
+        if let macInstallationID { object["macInstallationID"] = macInstallationID }
+        if let macBuildID { object["macBuildID"] = macBuildID }
         switch payload.kind {
         case .notify:
             object["title"] = payload.hideContent
@@ -95,6 +103,9 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
             object["retargetsToLiveSurfaceOwner"] =
                 payload.retargetsToLiveSurfaceOwner
             object["replyShape"] = payload.replyShape
+            object["category"] = payload.replyShape == "text"
+                ? "cmux.terminal.reply"
+                : "cmux.terminal"
             if let value = try Self.boundedIdentifier(payload.workspaceId) {
                 object["workspaceId"] = value
             }
@@ -124,6 +135,51 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
         guard encoded.count <= Self.maximumRequestBytes else {
             throw EncodingError.requestTooLarge
         }
+        self.init(
+            correlationID: canonicalCorrelation,
+            expirationEpochSeconds: expirationEpochSeconds,
+            body: encoded,
+            coalescingID: normalizedNotificationID,
+            expectedAccountID: expectedAccountID,
+            expectedSessionGeneration: expectedSessionGeneration,
+            targetBundleIdentifier: targetBundleIdentifier
+        )
+    }
+
+    /// Builds the server request from ciphertext only. The logical payload is
+    /// never persisted in this envelope or sent to the web service.
+    public init(
+        encryptedPayloads: [PhonePushEncryptedPayload],
+        payload: PhonePushPayload,
+        correlationID: UUID = UUID(),
+        expirationEpochSeconds: Int,
+        expectedAccountID: String? = nil,
+        expectedSessionGeneration: UInt64? = nil,
+        targetBundleIdentifier: String? = nil
+    ) throws {
+        guard !encryptedPayloads.isEmpty else { throw EncodingError.requestTooLarge }
+        guard encryptedPayloads.count <= Self.maximumEncryptedPayloads else {
+            throw EncodingError.tooManyEncryptedPayloads
+        }
+        let canonicalCorrelation = correlationID.uuidString.lowercased()
+        let normalizedNotificationID = payload.kind == .notify
+            ? try Self.boundedIdentifier(payload.notificationId)
+            : nil
+        var object: [String: Any] = [
+            "kind": payload.kind.rawValue,
+            "badgeCount": payload.badgeCount,
+            "replyShape": payload.replyShape,
+            "correlationId": canonicalCorrelation,
+            "expirationEpochSeconds": expirationEpochSeconds,
+            "encryptedPayloads": try encryptedPayloads.map { try JSONSerialization.jsonObject(with: JSONEncoder().encode($0)) },
+        ]
+        if let macDeviceId = payload.macDeviceId { object["macDeviceId"] = macDeviceId }
+        if let macInstanceTag = payload.macInstanceTag { object["macInstanceTag"] = macInstanceTag }
+        if let normalizedNotificationID {
+            object["notificationId"] = normalizedNotificationID
+        }
+        let encoded = try JSONSerialization.data(withJSONObject: object)
+        guard encoded.count <= Self.maximumRequestBytes else { throw EncodingError.requestTooLarge }
         self.init(
             correlationID: canonicalCorrelation,
             expirationEpochSeconds: expirationEpochSeconds,
@@ -180,15 +236,15 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     ) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.utf16.count > maximumUTF16Units else { return trimmed }
-        var usedUTF16Units = 0
-        return String(trimmed.prefix { character in
-            let count = String(character).utf16.count
-            guard usedUTF16Units + count <= maximumUTF16Units else {
-                return false
-            }
-            usedUTF16Units += count
-            return true
-        })
+        var bounded = String()
+        var consumedUnits = 0
+        for character in trimmed {
+            let characterUnits = String(character).utf16.count
+            guard consumedUnits + characterUnits <= maximumUTF16Units else { break }
+            bounded.append(character)
+            consumedUnits += characterUnits
+        }
+        return bounded
     }
 
     private static func boundedIdentifier(_ value: String?) throws -> String? {
