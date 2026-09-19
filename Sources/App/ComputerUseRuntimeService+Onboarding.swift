@@ -47,14 +47,30 @@ extension ComputerUseRuntimeService {
                       self.processIdentity(for: profile) == identity
                           && AgentPIDProcessIdentity(pid: identity.pid) == identity
                   }) else { return .unavailable }
-            let committed = self.onboarding.finishVerification(result, attempt: attempt)
-            guard committed == .ready else { return committed }
-            for profile in ComputerUseDaemonProfile.allCases {
-                guard await self.publishExternalPermissionReadiness(for: profile) else {
-                    return .unavailable
+            let admission = ComputerUseOnboardingAdmissionCoordinator(
+                store: self.onboarding,
+                publish: { await self.publishExternalPermissionReadiness(for: $0) },
+                stop: { _ = await self.stopDaemon() }
+            )
+            // Capture does not exercise Accessibility. Re-read both grants from
+            // both exact peers before persisting the completion milestone.
+            if result == .ready {
+                for profile in ComputerUseDaemonProfile.allCases {
+                    guard let identity = expectedPeerIdentities[profile],
+                          let status = await Self.queryPermissionStatus(
+                            paths: self.paths, transport: self.transport,
+                            expectedPeerIdentity: identity, socketURL: self.socketURL(for: profile)
+                          ), status.helperOwnsPermissions else {
+                        await admission.withdraw()
+                        return .unavailable
+                    }
+                    guard status.accessibility && status.screenRecording else {
+                        await admission.withdraw()
+                        return .notCapturable
+                    }
                 }
             }
-            return self.onboarding.beginVerification() == attempt ? .ready : .unavailable
+            return await admission.finish(result, attempt: attempt)
         }
     }
 

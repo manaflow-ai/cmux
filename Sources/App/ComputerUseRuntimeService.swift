@@ -275,10 +275,15 @@ final class ComputerUseRuntimeService {
         else {
             return status()
         }
+        let grantsChanged = latest.map {
+            $0.isKnown && (cachedStatus.accessibility != $0.accessibility
+                || cachedStatus.screenRecording != $0.screenRecording)
+        } ?? false
         cachedStatus = cachedStatus.applyingProbeResult(latest)
         if let latest, latest.isKnown,
-           !(latest.accessibility && latest.screenRecording), permissionPhase.isReady {
-            onboarding.permissionsRevoked()
+           !(latest.accessibility && latest.screenRecording),
+           grantsChanged || permissionPhase.isReady {
+            onboarding.invalidateCompletion()
             await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
                 guard let self else { return }
                 for profile in ComputerUseDaemonProfile.allCases {
@@ -910,7 +915,7 @@ final class ComputerUseRuntimeService {
         }
     }
 
-    private func stopDaemon() async -> Bool {
+    func stopDaemon() async -> Bool {
         let helperURL = installedHelperURL ?? paths.installedHelperAppURL
         var processIdentifiers = Set(
             runningHelperApplications(at: helperURL).keys

@@ -118,4 +118,48 @@ struct ComputerUseOnboardingAdmissionTests {
         let request = try #require(envelope["request"] as? [String: Any])
         #expect((request["args"] as? [String: Any])?["ready"] as? Bool == false)
     }
+
+    @Test(arguments: [true, false]) @MainActor
+    func partialPublicationWithdrawsBothProfilesOrStopsThem(acknowledgesWithdrawal: Bool) async throws {
+        let fixture = try ComputerUseOnboardingFixture()
+        defer { fixture.remove() }
+        let store = fixture.store()
+        store.apply(.setEnabled(true))
+        store.restore(for: "synthetic-signed-helper")
+        let peer = try #require(AgentPIDProcessIdentity(pid: ProcessInfo.processInfo.processIdentifier))
+        let admitted = #"{"ok":true,"result":{"external_permission_ready":true}}"#
+        let withdrawn = #"{"ok":true,"result":{"external_permission_ready":false}}"#
+        let rejected = #"{"ok":false,"error":"synthetic failure"}"#
+        let native = try UnixSocketResponder(path: fixture.paths.daemonSocketURL.path, responses: [admitted, withdrawn])
+        let codex = try UnixSocketResponder(
+            path: fixture.paths.codexDaemonSocketURL.path,
+            responses: [rejected, acknowledgesWithdrawal ? withdrawn : rejected]
+        )
+        defer { native.stop(); codex.stop() }
+        let service = ComputerUseDaemonAdmissionService(paths: fixture.paths, transport: SocketTransport())
+        var stopped = false
+        let admission = ComputerUseOnboardingAdmissionCoordinator(
+            store: store,
+            publish: { profile in
+                await service.publish(
+                    phase: store.phase, enabled: true,
+                    to: ComputerUseRuntimeService.socketURL(for: profile, paths: fixture.paths), peer: peer
+                )
+            },
+            stop: { stopped = true }
+        )
+        let result = await admission.finish(.ready, attempt: try #require(store.beginVerification()))
+        #expect(result == .unavailable)
+        #expect(store.phase == .onboardingRequired)
+        #expect(stopped == !acknowledgesWithdrawal)
+        #expect(fixture.defaults.data(forKey: fixture.completionKey) == nil)
+        for responder in [native, codex] {
+            #expect(responder.receivedRequests.count == 2)
+            let envelope = try #require(JSONSerialization.jsonObject(
+                with: Data(try #require(responder.receivedRequests.last).utf8)
+            ) as? [String: Any])
+            let request = try #require(envelope["request"] as? [String: Any])
+            #expect((request["args"] as? [String: Any])?["ready"] as? Bool == false)
+        }
+    }
 }

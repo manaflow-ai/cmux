@@ -35,9 +35,9 @@ struct ComputerUseOnboardingStoreTests {
         let attempt = try #require(store.beginVerification())
         #expect(store.finishVerification(.notCapturable, attempt: attempt) == .notCapturable)
         #expect(!store.phase.isReady)
-        #expect(store.finishVerification(.unavailable, attempt: attempt) == .unavailable)
+        #expect(store.finishVerification(.unavailable, attempt: try #require(store.beginVerification())) == .unavailable)
         #expect(!store.phase.isReady)
-        #expect(store.finishVerification(.ready, attempt: attempt) == .ready)
+        #expect(store.finishVerification(.ready, attempt: try #require(store.beginVerification())) == .ready)
         #expect(store.phase == .ready)
     }
 
@@ -148,9 +148,23 @@ struct ComputerUseOnboardingStoreTests {
         store.apply(.setEnabled(true))
         store.restore(for: "synthetic-signed-helper-a")
         _ = store.finishVerification(.ready, attempt: try #require(store.beginVerification()))
-        store.permissionsRevoked()
+        store.invalidateCompletion()
         #expect(store.phase == .onboardingRequired)
         #expect(fixture.defaults.data(forKey: fixture.completionKey) == nil)
         #expect(store.beginVerification() != nil)
+    }
+
+    @Test func revocationInvalidatesVerificationBeforeItHasEverCompleted() throws {
+        let fixture = try ComputerUseOnboardingFixture()
+        defer { fixture.remove() }
+        let store = fixture.store()
+        store.apply(.setEnabled(true))
+        store.restore(for: "synthetic-signed-helper-a")
+        store.apply(.onboardingPresented)
+        let pending = try #require(store.beginVerification())
+        store.invalidateCompletion()
+        #expect(store.finishVerification(.ready, attempt: pending) == .unavailable)
+        #expect(!store.phase.isReady)
+        #expect(fixture.defaults.data(forKey: fixture.completionKey) == nil)
     }
 }

@@ -1528,7 +1528,9 @@
 		C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */; };
 		C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */; };
 		C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */; };
+		C13049000000000000000902 /* ComputerUseOnboardingAdmissionCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000901 /* ComputerUseOnboardingAdmissionCoordinator.swift */; };
 		C13049000000000000000002 /* ComputerUseOnboardingAdmissionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000001 /* ComputerUseOnboardingAdmissionTests.swift */; };
+		C13049000000000000000802 /* ComputerUseOnboardingCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000801 /* ComputerUseOnboardingCompletion.swift */; };
 		D11965050000000000000002 /* ComputerUseOnboardingCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D11965050000000000000001 /* ComputerUseOnboardingCoordinator.swift */; };
 		C13049000000000000000702 /* ComputerUseOnboardingFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13049000000000000000701 /* ComputerUseOnboardingFixture.swift */; };
 		C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */; };
@@ -5412,7 +5414,9 @@
 		C0A710170000000000000001 /* ComputerUseMenuBarScanResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarScanResult.swift; sourceTree = "<group>"; };
 		C0A710070000000000000001 /* ComputerUseMenuBarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshot.swift; sourceTree = "<group>"; };
 		C0A710080000000000000001 /* ComputerUseMenuBarSnapshotStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseMenuBarSnapshotStore.swift; sourceTree = "<group>"; };
+		C13049000000000000000901 /* ComputerUseOnboardingAdmissionCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/ComputerUseOnboardingAdmissionCoordinator.swift"; sourceTree = "<group>"; };
 		C13049000000000000000001 /* ComputerUseOnboardingAdmissionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingAdmissionTests.swift"; sourceTree = "<group>"; };
+		C13049000000000000000801 /* ComputerUseOnboardingCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/ComputerUseOnboardingCompletion.swift"; sourceTree = "<group>"; };
 		D11965050000000000000001 /* ComputerUseOnboardingCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingCoordinator.swift; sourceTree = "<group>"; };
 		C13049000000000000000701 /* ComputerUseOnboardingFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseOnboardingFixture.swift"; sourceTree = "<group>"; };
 		C0A712400000000000000001 /* ComputerUseOnboardingHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseOnboardingHostingView.swift; sourceTree = "<group>"; };
@@ -8943,6 +8947,8 @@
 					C0A710C30000000000000001 /* ComputerUsePermissionStatus.swift */,
 					C0A710C10000000000000001 /* ComputerUseRuntimePaths.swift */,
 					D1F00A110000000000000001 /* ComputerUseRuntimePermissionPhase.swift */,
+				C13049000000000000000901 /* ComputerUseOnboardingAdmissionCoordinator.swift */,
+				C13049000000000000000801 /* ComputerUseOnboardingCompletion.swift */,
 				C13049000000000000000501 /* HostSettingsActions+ComputerUse.swift */,
 				C13049000000000000000401 /* ComputerUseRuntimeService+Onboarding.swift */,
 				C13049000000000000000301 /* ComputerUseDaemonAdmissionService.swift */,
@@ -13235,6 +13241,8 @@
 					C0A710170000000000000002 /* ComputerUseMenuBarScanResult.swift in Sources */,
 					C0A710070000000000000002 /* ComputerUseMenuBarSnapshot.swift in Sources */,
 					C0A710080000000000000002 /* ComputerUseMenuBarSnapshotStore.swift in Sources */,
+				C13049000000000000000902 /* ComputerUseOnboardingAdmissionCoordinator.swift in Sources */,
+				C13049000000000000000802 /* ComputerUseOnboardingCompletion.swift in Sources */,
 					D11965050000000000000002 /* ComputerUseOnboardingCoordinator.swift in Sources */,
 					C0A712400000000000000002 /* ComputerUseOnboardingHostingView.swift in Sources */,
 					C0A711200000000000000002 /* ComputerUseOnboardingStep.swift in Sources */,

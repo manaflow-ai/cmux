@@ -5,23 +5,12 @@ import Observation
 @MainActor
 @Observable
 final class ComputerUseOnboardingStore {
-    struct Verification: Equatable {
-        fileprivate let generation: Int
-        fileprivate let helperIdentity: String
-    }
-
-    private struct Completion: Codable {
-        let version: Int
-        let scope: String
-        let helperIdentity: String
-    }
-
     static let legacyCompletionKey = "cmux.computerUse.directCapture.ready"
     private let defaults: UserDefaults
     private let scope: String
     private var completionKey: String { "cmux.computerUse.onboarding.completion.\(scope)" }
     private var helperIdentity: String?
-    private var generation = 0
+    private var verificationID = UUID()
     @ObservationIgnored private var subscribers: [UUID: AsyncStream<Void>.Continuation] = [:]
     private(set) var phase = ComputerUseRuntimePermissionPhase.disabled(onboardingComplete: false) {
         didSet { if oldValue != phase { statusChanged() } }
@@ -56,7 +45,7 @@ final class ComputerUseOnboardingStore {
     func apply(_ event: ComputerUseRuntimePermissionPhase.Event) {
         let next = phase.applying(event)
         guard next != phase else { return }
-        generation &+= 1
+        verificationID = UUID()
         phase = next
     }
 
@@ -65,11 +54,11 @@ final class ComputerUseOnboardingStore {
     /// bundle with the shipped bundle. A missing/replaced helper never inherits it.
     func restore(for identity: String) {
         guard helperIdentity != identity else { return }
-        generation &+= 1
+        verificationID = UUID()
         helperIdentity = identity
         var complete = false
         if let data = defaults.data(forKey: completionKey),
-           let record = try? JSONDecoder().decode(Completion.self, from: data) {
+           let record = try? JSONDecoder().decode(ComputerUseOnboardingCompletion.self, from: data) {
             complete = record.version == 1 && record.scope == scope && record.helperIdentity == identity
         } else if defaults.object(forKey: completionKey) == nil,
                   defaults.bool(forKey: Self.legacyCompletionKey) {
@@ -86,27 +75,25 @@ final class ComputerUseOnboardingStore {
     }
 
     /// Must run before replacing or re-provisioning a helper, including a missing copy.
-    /// A crash at any later installation step cannot revive an old completion record.
+    /// Restored records must also match the signing digest, so a crash cannot
+    /// authorize replacement code even if the preferences invalidation was not flushed.
     func invalidateHelper() {
-        generation &+= 1
+        invalidateCompletion()
         helperIdentity = nil
+    }
+
+    /// Revocation or failed publication invalidates both saved and in-flight evidence.
+    func invalidateCompletion() {
+        verificationID = UUID()
         phase = phase.applying(.helperReplaced)
         defaults.removeObject(forKey: completionKey)
         defaults.removeObject(forKey: Self.legacyCompletionKey)
     }
 
-    /// A confirmed revocation invalidates capture evidence without forgetting identity.
-    func permissionsRevoked() {
-        guard phase.isReady else { return }
-        let identity = helperIdentity
-        invalidateHelper()
-        helperIdentity = identity
-    }
-
-    func beginVerification() -> Verification? {
-        guard let helperIdentity else { return nil }
+    func beginVerification() -> UUID? {
+        guard helperIdentity != nil else { return nil }
         if case .disabled = phase { return nil }
-        return Verification(generation: generation, helperIdentity: helperIdentity)
+        return verificationID
     }
 
     /// Commits only a current, explicitly requested, successful daemon capture probe.
@@ -114,17 +101,20 @@ final class ComputerUseOnboardingStore {
     /// generation, persisting the complete record, and authorizing tool admission.
     func finishVerification(
         _ result: ComputerUseDirectScreenCaptureVerification,
-        attempt: Verification
+        attempt: UUID
     ) -> ComputerUseDirectScreenCaptureVerification {
-        guard beginVerification() == attempt else { return .unavailable }
-        guard result == .ready else { return result }
-        persistCompletion(for: attempt.helperIdentity)
+        guard beginVerification() == attempt, let helperIdentity else { return .unavailable }
+        guard result == .ready else {
+            invalidateCompletion()
+            return result
+        }
+        persistCompletion(for: helperIdentity)
         phase = phase.applying(.onboardingCompleted)
         return .ready
     }
 
     private func persistCompletion(for identity: String) {
-        let record = Completion(version: 1, scope: scope, helperIdentity: identity)
+        let record = ComputerUseOnboardingCompletion(version: 1, scope: scope, helperIdentity: identity)
         guard let data = try? JSONEncoder().encode(record) else { return }
         // One versioned preferences value, never independently written boolean fields.
         // A crash before preferences flush can lose completion and require setup again;
