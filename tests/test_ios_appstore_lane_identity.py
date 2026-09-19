@@ -534,6 +534,9 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_EXPORT_OPTIONS_COPY"] = str(tmp / "ExportOptions.plist")
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = (
+        "cmux App Store Notification Service Distribution"
+    )
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
@@ -1124,6 +1127,11 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
     _check(
         profiles.get(APPSTORE_BUNDLE_ID) == "cmux App Store Distribution",
         "export options map the App Store profile to com.cmux.app",
+    )
+    _check(
+        profiles.get(f"{APPSTORE_BUNDLE_ID}.NotificationService") ==
+        "cmux App Store Notification Service Distribution",
+        "export options map the App Store notification extension profile",
     )
     _check("com.cmuxterm.app" not in profiles, "export options do not include the retired app id")
 
