@@ -50,12 +50,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     var currentIdentity: AccountIdentity? {
         _ = teamObservationRevision
-        Self.identity(from: coordinator.currentUser)
+        return Self.identity(from: coordinator.currentUser)
     }
 
     var availableTeams: [AccountTeamSummary] {
         _ = teamObservationRevision
-        coordinator.availableTeams.map { team in
+        return coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
     }
@@ -69,12 +69,12 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     var isWorkingOnAuth: Bool {
         _ = teamObservationRevision
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+        return coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
     var isAuthenticated: Bool {
         _ = teamObservationRevision
-        coordinator.isAuthenticated
+        return coordinator.isAuthenticated
     }
 
     var isPresentingSignIn: Bool {
@@ -87,7 +87,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     var isCompletingSignIn: Bool {
         _ = teamObservationRevision
-        coordinator.isLoading || coordinator.isRestoringSession
+        return coordinator.isLoading || coordinator.isRestoringSession
     }
 
     var lastSignInFailure: AccountSignInModel.Failure? {
