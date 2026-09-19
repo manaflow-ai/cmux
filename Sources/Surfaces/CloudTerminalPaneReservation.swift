@@ -76,6 +76,7 @@ final class CloudTerminalPaneReservation {
     /// attachment session so the connection card does not restart its grace.
     let startedAt: ContinuousClock.Instant
     /// Replays the same request (create receipt first, then projection).
+    var resolveResource: (@MainActor () async throws -> SurfaceResource)?
     var retry: (@MainActor () -> Void)?
     /// Cancels the local request; a remote terminal already created stays alive.
     var cancel: (@MainActor () -> Void)?

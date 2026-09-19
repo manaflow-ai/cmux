@@ -52,7 +52,7 @@ final class CloudPaneCreationFailureStore {
         inlineFailure: (@MainActor (Error) -> Void)? = nil,
         discardProjection: @escaping CloudTerminalCreationCoordinator.DiscardProjection,
         operations: CloudOperationRecorder? = nil
-    ) {
+    ) -> CloudTerminalCreationCoordinator {
         let coordinator = CloudTerminalCreationCoordinator(
             create: create,
             project: project,
@@ -89,6 +89,7 @@ final class CloudPaneCreationFailureStore {
         )
         requests[requestID] = coordinator
         coordinator.start()
+        return coordinator
     }
 
     /// Repeats the current request without minting a second remote creation intent.
