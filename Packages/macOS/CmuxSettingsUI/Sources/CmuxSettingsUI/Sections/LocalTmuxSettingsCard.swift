@@ -1,4 +1,5 @@
 import CmuxFoundation
+import Foundation
 import SwiftUI
 
 @MainActor
