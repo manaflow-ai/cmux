@@ -24,7 +24,7 @@ extension SurfaceCatalog {
             return
         }
         for workspace in cloudWorkspaceRenameService.environment.workspaces()
-            where workspace.cloudVMBinding?.vmID == machine.cloudMachineID || projectedWorkspaceIDs.contains(workspace.id)
+            where workspace.cloudVMID == machine.cloudMachineID || projectedWorkspaceIDs.contains(workspace.id)
                 || workspace.cloudBindingState.projectedResources.values.contains(where: { $0.machine == machine }) {
             updateCloudDirectoryMetadata(in: workspace)
         }
@@ -40,7 +40,7 @@ extension SurfaceCatalog {
         let projected = projectionRecords(forWorkspace: workspace.id).filter { !$0.resource.machine.isLocal }
         let resourcesByPanel = Dictionary(projected.map { ($0.panelID, $0.resource) }, uniquingKeysWith: { first, _ in first })
         var machineIDs = Set(projected.compactMap { $0.resource.machine.cloudMachineID })
-        if let binding = workspace.cloudVMBinding { machineIDs.insert(binding.vmID) }
+        if let id = workspace.cloudVMID { machineIDs.insert(id) }
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
             (id, machines[.cloud(id)]?.name ?? id)
         })
