@@ -72,13 +72,12 @@ extension CmuxTuiSurfaceProvider {
                 wake: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     let generation = self.currentLifecycleGeneration
-                    // Freestyle openPort only returns a private address and a
-                    // ledger token; it never publishes a port. For Desktop it
-                    // starts/heals noVNC even when cached status says running.
-                    if !self.isAwake || (self.providerID == "freestyle" && port == CmuxTuiSnapshotParser.desktopPort) {
-                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
-                        _ = try await client.openPort(id: self.machineID, port: target.port)
-                    }
+                    // Cached running status can outlive an idle-pause. Probe and
+                    // resume the machine before every new connection, including
+                    // ordinary ports; Desktop also starts/heals noVNC. Keep the
+                    // catalog's private route rather than the returned endpoint.
+                    guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+                    _ = try await client.openPort(id: self.machineID, port: target.port)
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                 },
                 startForward: { [weak self] target in
