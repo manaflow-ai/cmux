@@ -104,7 +104,7 @@ jobs:
             const isInternalPoll =
               context.eventName === 'schedule' && variant === 'internal';
             const skipPoll = (reason) => {
-              core.notice(`skipping this TestFlight poll: ${reason}; the next poll retries`);
+              core.notice(`skipping this upload poll: ${reason}; the next poll retries`);
               core.setOutput('should_build', 'false');
               core.setOutput('last_uploaded_sha', '');
               core.setOutput('variant', variant);
@@ -164,7 +164,10 @@ jobs:
                   }
                 } catch (error) {
                   if (isInternalPoll) {
-                    skipPoll(`could not inspect earlier TestFlight runs (${error.message})`);
+                    // The run page is public, so the notice stays generic. The
+                    // API's own message is only shown with debug logging on.
+                    core.debug(`ordering check failed: ${error.message}`);
+                    skipPoll('could not inspect earlier runs');
                     return;
                   }
                   if (wait === maxWaits - 1) {

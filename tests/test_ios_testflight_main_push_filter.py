@@ -456,6 +456,7 @@ const core = {{
     warnings.push(message);
   }},
   info: () => {{}},
+  debug: () => {{}},
   notice: (message) => {{
     notices.push(message);
   }},
@@ -1086,6 +1087,9 @@ def test_internal_poll_skips_when_ordering_cannot_be_checked() -> None:
         )
 
         assert result["waitCalls"] == []
+        # The run page is public: the notice must not carry the API's message.
+        assert len(result["notices"]) == 1
+        assert f"transient {failed_api} failure" not in result["notices"][0]
         assert result["outputs"] == {
             "should_build": "false",
             "last_uploaded_sha": "",
