@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d";
+inline constexpr std::string_view kProtocolIrSha256 = "34f9da1bacadfc5138b12eb08e6078d3a71fd513a5b71bab5d7b9311f7d7c91a";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2554,6 +2554,7 @@ enum class SubscribeRequestTreeEvents {
 };
 
 struct SubscribeRequest {
+    Field<bool> presence_only{};
     Field<Id> surface{};
     Field<SubscribeRequestTreeEvents> tree_events{};
     friend bool operator==(const SubscribeRequest&, const SubscribeRequest&) = default;

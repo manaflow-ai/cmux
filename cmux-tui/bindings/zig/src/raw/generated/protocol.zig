@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d";
+pub const ir_sha256 = "34f9da1bacadfc5138b12eb08e6078d3a71fd513a5b71bab5d7b9311f7d7c91a";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4294,6 +4294,7 @@ pub const SubscribeRequestTreeEvents = enum {
 };
 
 pub const SubscribeRequest = struct {
+    presence_only: wire.Field(bool) = .absent,
     surface: wire.Field(Id) = .absent,
     tree_events: wire.Field(SubscribeRequestTreeEvents) = .absent,
 };
@@ -4308,6 +4309,7 @@ pub fn subscribe(client: anytype, request: SubscribeRequest) !client_runtime.Str
             .since = 5,
             .capability = null,
             .fields = &.{
+                .{ .name = "presence_only", .since = 12, .capability = "presence-v1" },
                 .{ .name = "surface", .since = 9, .capability = "surface-subscribe-filter" },
                 .{ .name = "tree_events", .since = 7, .capability = null },
             },

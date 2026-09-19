@@ -2175,6 +2175,7 @@ class SubscribeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/subscribe/request'
     surface: Union[Id, None, MissingType] = field(default=MISSING)
     tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = field(default=MISSING)
+    presence_only: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

@@ -5315,60 +5315,6 @@
    },
    "additional_properties": false
   },
-  "PresenceListResult": {
-   "kind": "object",
-   "fields": {
-    "entries": {
-     "type": {
-      "kind": "array",
-      "items": {
-       "kind": "ref",
-       "name": "PresenceEntry"
-      }
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false
-  },
-  "PresenceHighlightMode": {
-   "kind": "enum",
-   "values": [
-    "laser",
-    "pin"
-   ]
-  },
-  "PresenceHighlight": {
-   "kind": "object",
-   "fields": {
-    "start": {
-     "type": {
-      "kind": "ref",
-      "name": "PresenceAnchor"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "end": {
-     "type": {
-      "kind": "ref",
-      "name": "PresenceAnchor"
-     },
-     "presence": "required",
-     "nullable": false
-    },
-    "mode": {
-     "type": {
-      "kind": "ref",
-      "name": "PresenceHighlightMode"
-     },
-     "presence": "required",
-     "nullable": false
-    }
-   },
-   "additional_properties": false
-  },
   "PresenceAnchor": {
    "kind": "tagged_union",
    "tag": "kind",
@@ -5442,6 +5388,43 @@
      "additional_properties": false
     }
    }
+  },
+  "PresenceHighlightMode": {
+   "kind": "enum",
+   "values": [
+    "laser",
+    "pin"
+   ]
+  },
+  "PresenceHighlight": {
+   "kind": "object",
+   "fields": {
+    "start": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "end": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceAnchor"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mode": {
+     "type": {
+      "kind": "ref",
+      "name": "PresenceHighlightMode"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   },
   "PresenceEntry": {
    "kind": "object",
@@ -5524,6 +5507,23 @@
     "surface is null only in presence-changed after a clear, disconnect, or surface exit; presence-list never returns such entries.",
     "color is a palette slot in 0..8, stable for the connection."
    ]
+  },
+  "PresenceListResult": {
+   "kind": "object",
+   "fields": {
+    "entries": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "PresenceEntry"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -10069,6 +10069,16 @@
       "default": null,
       "since": 9,
       "capability": "surface-subscribe-filter"
+     },
+     "presence_only": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "capability": "presence-v1"
      }
     },
     "additional_properties": false

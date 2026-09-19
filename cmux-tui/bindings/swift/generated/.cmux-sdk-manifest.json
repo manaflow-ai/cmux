@@ -2,32 +2,32 @@
   "files": [
     {
       "path": "CloudTuiGeneratedCommands.swift",
-      "sha256": "7a2f2fab7dd8e593f0b4d749e1ea736d42f6e27aac934f9962b3c28aa528e616",
-      "size": 249893
+      "sha256": "19d3522cc994629852ebd9eeacc3681f3f01a1d8eb9a631b9d0e4137010a6051",
+      "size": 250697
     },
     {
       "path": "CloudTuiGeneratedEvents.swift",
-      "sha256": "f99fe1c93a28b089104a699a19ceed7a10e3a1a246421b87dbc564c722851e64",
+      "sha256": "b6171b951820f75deb0ff8e1b77249f6f577dde16fca95747e2ff9166b485607",
       "size": 133241
     },
     {
       "path": "CloudTuiGeneratedMetadata.swift",
-      "sha256": "7ff23648f1a38123295d3f14809c8ecc966cb0eddfc56e6508f137558bb63ecf",
+      "sha256": "fb8bc20e3e29e3db844c2238884ad74a307a5d0de266c4ff610f5e6913bdd182",
       "size": 3526
     },
     {
       "path": "CloudTuiGeneratedSupport.swift",
-      "sha256": "20d04227d2a0ee33b1b78af554260f736875426c8f8a9532b0f5a1ad03a7c1e0",
+      "sha256": "2b38bd81e24c8bb630e0f887c6540dc46021bb84ef1c2b66eb35c990b5e6bbf1",
       "size": 5421
     },
     {
       "path": "CloudTuiGeneratedTypes.swift",
-      "sha256": "a2d747a3ccd22bd00e881f13d728a5d412697c74c49bd4565e9dcce3cc404b3d",
+      "sha256": "9b03953ab55d34c0e6eac79ae0c85eab4ffb4140c94c9a0e1ef4d83360d6ee0c",
       "size": 261877
     }
   ],
   "format": 1,
-  "ir_sha256": "016b6e7698baebe5a647052c5a0a2c1c37b0fda59ca75cabffd9c70a37ae737d",
+  "ir_sha256": "34f9da1bacadfc5138b12eb08e6078d3a71fd513a5b71bab5d7b9311f7d7c91a",
   "language": "swift",
   "mux_protocol": 12,
   "schema_version": 2
