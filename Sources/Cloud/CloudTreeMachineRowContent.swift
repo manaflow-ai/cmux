@@ -27,16 +27,6 @@ struct CloudTreeMachineRowContent: View {
                             .truncationMode(.tail)
                             .frame(height: scaled(style.machineSubtitleLineHeight))
                     }
-                    if style.machineRowLayout == .twoLine && style.showsMachineStats {
-                        CloudTreeMachineResourceView(
-                            metrics: CloudMachineResourcePresentation(machine: machine, now: now),
-                            style: style
-                        )
-                        .frame(minHeight: scaled(style.machineResourceHeight))
-                    }
-                    if style.machineRowLayout == .twoLine {
-                        CloudTreeMachineDetailView(line: usageSummary, style: style)
-                    }
                 }
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
@@ -60,13 +50,6 @@ struct CloudTreeMachineRowContent: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
-                }
-                if style.machineRowLayout == .singleLine, let fact = inlineFact {
-                    Text(fact)
-                        .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
                 }
             }
             Spacer(minLength: 0)
@@ -156,25 +139,21 @@ struct CloudTreeMachineRowContent: View {
         return parts.joined(separator: " · ")
     }
 
-    /// The original compact summary follows the name; full details remain on hover.
+    /// Legacy summary retained for callers that use the machine row model;
+    /// rendering now places these details in the Resources section.
     var inlineFact: String? {
         if machine.freeAccess == .expired {
             return String(localized: "machines.row.locked", defaultValue: "Locked")
         }
         var parts: [String] = []
+        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
         if style.showsMachineStats {
-            parts.append(resourceLine)
+            parts.append([metrics.cpu, metrics.memory, metrics.disk]
+                .map { "\($0.label)\u{00A0}\($0.value)" }
+                .joined(separator: " · "))
         }
         parts.append(usageSummary)
         return parts.joined(separator: " · ")
-    }
-
-    /// Compact labels and percentages match the original machine header line.
-    private var resourceLine: String {
-        let metrics = CloudMachineResourcePresentation(machine: machine, now: now)
-        return [metrics.cpu, metrics.memory, metrics.disk]
-            .map { "\($0.label)\u{00A0}\($0.value)" }
-            .joined(separator: " · ")
     }
 
     private func scaled(_ size: CGFloat) -> CGFloat {

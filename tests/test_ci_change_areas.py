@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
 spec = importlib.util.spec_from_file_location("detect_ci_change_areas", HELPER)
@@ -125,6 +126,14 @@ def test_ios_only_skips_main_macos_ci() -> None:
     assert_areas(["ios/cmux/ContentView.swift"], macos=False, web=False)
 
 
+def test_ios_packages_keep_macos_dependency_coverage() -> None:
+    assert_areas(
+        ["Packages/iOS/CmuxMobileRPC/Sources/CmuxMobileRPC/MobileTerminalLaneConnection.swift"],
+        macos=True,
+        web=False,
+    )
+
+
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
 
@@ -136,6 +145,16 @@ def test_workflow_changes_run_everything() -> None:
         web=True,
         agent_session_web=True,
     )
+
+
+def test_ci_router_runs_on_every_pr_and_merge_group() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "  pull_request:\n  merge_group:" in workflow
+    assert "    paths:" not in workflow
+
+    fallback = CI_STATUS_FALLBACK_WORKFLOW.read_text(encoding="utf-8")
+    assert "  workflow_dispatch: {}" in fallback
+    assert "  pull_request:" not in fallback
 
 
 def detect_step_script(workflow_path: Path = CI_WORKFLOW) -> str:
@@ -286,6 +305,8 @@ exit 9
                 **os.environ,
                 "PATH": f"{fake_bin}:{os.environ['PATH']}",
                 "RUNNER_TEMP": str(runner_temp),
+                "CMUX_APP_HOST_XCTESTRUN": str(root / "cmux-unit.xctestrun"),
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN": str(root / "numeric.xctestrun"),
                 "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
                 "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
@@ -671,6 +692,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
         "diff-sidecar-check",
         "web-db-migrations",
         "linux-preflight",
+        "macos-compile-admission",
         "app-host-unit-tests",
         "tests",
         "tests-build-and-lag",
@@ -688,6 +710,7 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert "name: tests" in block
     assert "      - changes" in block
     assert "      - linux-preflight" in block
+    assert "      - macos-compile-admission" in block
     assert "      - app-host-unit-tests" in block
     assert "if: ${{ always() }}" in block
     assert 'preflight["result"] != "success"' in block
@@ -703,6 +726,7 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
     # then mark every macOS job skipped even though linux-preflight succeeded.
     for job_name in [
         "app-host-unit-tests",
+        "macos-compile-admission",
         "swift-package-tests",
         "tests-build-and-lag",
         "release-build",
@@ -714,12 +738,49 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         expected_needs = ["changes", "linux-preflight"]
         if job_name == "release-build":
             expected_needs.append("swift-package-tests")
+        if job_name in {"app-host-unit-tests", "tests-build-and-lag", "release-build"}:
+            expected_needs.append("macos-compile-admission")
         expected_if = (
             "if: ${{ !cancelled() && "
             + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
             + " && needs.changes.outputs.macos == 'true' }}"
         )
         assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
+
+
+def test_macos_compile_admission_precedes_expensive_shards() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    admission = workflow_job_block("macos-compile-admission")
+
+    assert "name: macOS compile admission" in admission
+    assert "      - changes" in admission
+    assert "      - linux-preflight" in admission
+    assert "build-for-testing" in admission
+    assert "cmux-unit" in admission
+    assert "cmux-numeric-locale" in admission
+    assert "actions/cache@27d5ce7" in admission
+    assert "steps.upload-products.outputs.artifact-id" in admission
+    assert "app_host_test_products.py stamp" in admission
+    assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
+    assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
+
+    app_host = workflow_job_block("app-host-unit-tests")
+    assert "      - macos-compile-admission" in app_host
+    assert "test-without-building" in app_host
+    assert "needs.macos-compile-admission.outputs.artifact_id" in app_host
+    assert "app_host_test_products.py restore" in app_host
+    assert "EXPECTED_SHA256" in app_host
+    assert "-xctestrun" in app_host
+
+    # The focused shard and the logical unit-test batches must both reuse the
+    # admission-produced product. A later test invocation that silently changes
+    # back to `test` would reintroduce six redundant compiles.
+    app_host_commands = [line.strip() for line in app_host.splitlines()]
+    assert all(
+        command != "test"
+        for command in app_host_commands
+        if command in {"test", "test-without-building"}
+    )
 
 
 def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
@@ -765,6 +826,7 @@ def test_linux_preflight_allows_unrouted_job_skip() -> None:
 def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     for job_name in [
         "app-host-unit-tests",
+        "macos-compile-admission",
         "swift-package-tests",
         "tests-build-and-lag",
     ]:
@@ -925,6 +987,8 @@ esac
             env={
                 **os.environ,
                 "RUNNER_TEMP": str(runner_temp),
+                "CMUX_APP_HOST_XCTESTRUN": str(root / "cmux-unit.xctestrun"),
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN": str(root / "numeric.xctestrun"),
                 "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                 "CMUX_TEST_INVOCATION_COUNTER": str(counter),
                 "CMUX_TEST_OUTCOMES": str(outcomes_file),
@@ -973,10 +1037,9 @@ def test_global_search_gate_requires_nonempty_successful_execution() -> None:
         assert result.returncode == expected_status, result.stdout + result.stderr
         assert invocations == 1, result.stdout
         assert "-only-testing:cmuxTests/GlobalSearchShortcutBehaviorTests" in result.stdout
-        # A plain `xcodebuild test` gate, like the other focused gates: the
-        # build-for-testing + test-without-building pair ahead of the batches
-        # left the following sharded xcodebuild silent until the job cap.
-        assert "test-without-building" not in result.stdout
+        # The compile admission job supplies the build products, so focused
+        # gates must use test-without-building just like the sharded batches.
+        assert "test-without-building" in result.stdout
 
 
 def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
