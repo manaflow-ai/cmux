@@ -22,7 +22,10 @@ extension WindowTerminalPortal {
     ///
     /// A new settlement episode gets the full convergence budget. Repeated
     /// frame notifications in the same episode keep the budget already in
-    /// progress so a noisy layout cannot refill retries indefinitely.
+    /// progress so a noisy layout cannot refill retries indefinitely. An
+    /// entry the portal hides drops its mark (`clearPendingSettledCommit`),
+    /// so the reveal that follows counts as a new episode rather than as the
+    /// tail of one whose retries the hidden passes already spent.
     func markNeedsSettledCommit(for hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         let wasPending = entry.needsSettledCommit
@@ -31,6 +34,16 @@ extension WindowTerminalPortal {
         if !wasPending {
             geometrySettlementPassesRemaining = 4
         }
+    }
+
+    /// Drops a settled commit the portal can no longer honor, so the entry
+    /// stops being counted as a settlement episode in progress.
+    ///
+    /// See `WindowTerminalPortal.hidePresentedHostedView` for why a mark that
+    /// outlives the frame it described starves the retry budget.
+    func clearPendingSettledCommit(for hostedId: ObjectIdentifier) {
+        guard entriesByHostedId[hostedId]?.needsSettledCommit == true else { return }
+        entriesByHostedId[hostedId]?.needsSettledCommit = false
     }
 
     /// Completes either a bind pass or an external geometry pass using the

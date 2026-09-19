@@ -1693,6 +1693,7 @@ final class WindowTerminalPortal: NSObject {
                 CATransaction.commit()
             }
             hostedView.isHidden = true
+            clearPendingSettledCommit(for: hostedId)
         }
         // Keep inner scroll/surface geometry in sync with the seeded outer frame
         // before the hosted view enters a window.
@@ -1895,6 +1896,36 @@ final class WindowTerminalPortal: NSObject {
         entriesByHostedId[hostedId]?.transientRecoveryRetriesRemaining = 0
     }
 
+    /// Hides a hosted view the portal was presenting, and drops the settled
+    /// commit it was still owed.
+    ///
+    /// A hidden frame never publishes: ``commitSettledPaneGeometries`` skips
+    /// the entry, so a mark left set here is never cleared. The next reveal
+    /// then looks to ``markNeedsSettledCommit`` like the settlement episode
+    /// already in progress and does not refill the retry budget — a budget
+    /// the passes scheduled while the view was hidden have already spent. The
+    /// revealed frame is then published only if the very next pass happens to
+    /// find the hierarchy at rest; otherwise the size never reaches the PTY
+    /// and the surface keeps rendering its pre-hide grid inside the new
+    /// frame. Opening a side browser hides the terminal through the tiny/
+    /// transient frames of the split layout and reveals it narrower, which is
+    /// exactly that sequence (https://github.com/manaflow-ai/cmux/issues/13027).
+    ///
+    /// Nothing is lost by clearing: every hidden-to-shown transition marks the
+    /// entry again, and the mark is what carries the revealed frame.
+    private func hidePresentedHostedView(
+        _ hostedView: GhosttySurfaceScrollView,
+        forHostedId hostedId: ObjectIdentifier,
+        entry: inout Entry
+    ) {
+        hostedView.isHidden = true
+        guard entry.needsSettledCommit else { return }
+        // Both the caller's copy and the stored entry: callers write their
+        // copy back after this returns (transient-recovery scheduling).
+        entry.needsSettledCommit = false
+        entriesByHostedId[hostedId]?.needsSettledCommit = false
+    }
+
     private func scheduleTransientRecoveryRetryIfNeeded(
         forHostedId hostedId: ObjectIdentifier,
         entry: inout Entry,
@@ -1971,7 +2002,7 @@ final class WindowTerminalPortal: NSObject {
                 cmuxDebugLog("portal.hidden hosted=\(portalDebugToken(hostedView)) value=1 reason=missingAnchorOrWindow")
             }
 #endif
-            hostedView.isHidden = true
+            hidePresentedHostedView(hostedView, forHostedId: hostedId, entry: &entry)
             if entry.visibleInUI {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
@@ -2011,7 +2042,7 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
-            hostedView.isHidden = true
+            hidePresentedHostedView(hostedView, forHostedId: hostedId, entry: &entry)
             if entry.visibleInUI {
                 _ = scheduleTransientRecoveryRetryIfNeeded(
                     forHostedId: hostedId,
@@ -2065,7 +2096,7 @@ final class WindowTerminalPortal: NSObject {
             } else {
                 resetTransientRecoveryRetryIfNeeded(forHostedId: hostedId, entry: &entry)
             }
-            hostedView.isHidden = true
+            hidePresentedHostedView(hostedView, forHostedId: hostedId, entry: &entry)
             if entry.visibleInUI {
                 if Self.transientRecoveryEnabled {
                     _ = scheduleTransientRecoveryRetryIfNeeded(
@@ -2183,7 +2214,7 @@ final class WindowTerminalPortal: NSObject {
                 "host=\(portalDebugFrame(hostBounds))"
             )
 #endif
-            hostedView.isHidden = true
+            hidePresentedHostedView(hostedView, forHostedId: hostedId, entry: &entry)
         }
         if shouldPreserveVisibleOnTransientGeometry {
 #if DEBUG
