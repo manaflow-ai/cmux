@@ -55,8 +55,9 @@
  * supervisor binds the identity to the platform instance id (see the boot
  * script) and every machine created from the snapshot starts its own daemon,
  * with a fresh identity, within one supervisor tick of resume. The driver
- * (web/services/vms/drivers/freestyle.ts) therefore runs no install, start, or
- * readiness exec at create; it writes the model-plane env file and returns.
+ * (web/services/vms/drivers/freestyle.ts) relies on that baked supervisor. At
+ * create it repairs the public executable for legacy root-private snapshots,
+ * without reconfiguring the daemon or writing model credentials.
  * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
  * because the driver routes attaches to a private VPC address by default and
  * to the stable public IPv6 for legacy public-network machines. The daemon
@@ -471,6 +472,10 @@ try {
   // bake and the attach-time heal can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
+  await step(
+    "cmux-tui-work-user",
+    `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'cmux-tui --version' | grep -F '${cmuxTuiSource.commit}'`,
+  );
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,

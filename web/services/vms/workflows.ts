@@ -2447,6 +2447,7 @@ function resumeUntilRunning(
   });
 }
 
+/** Reserve a resume against the caller's current allowance, including paid seats. */
 function reservePausedResumeIfTeam(
   repo: VmRepositoryShape,
   vm: CloudVmRow,

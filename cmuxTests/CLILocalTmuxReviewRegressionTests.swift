@@ -62,50 +62,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("only supports attach"), result.stderr)
     }
 
-    func testLocalTmuxAttachCommandRunsThroughGhosttyLoginShellWrapper() throws {
-        let root = makeLocalTmuxTestRoot("ghostty-attach-wrapper")
-        let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
-        let outputURL = root.appendingPathComponent("invocation", isDirectory: false)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let fakeTmux = """
-        #!/bin/sh
-        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
-          "$TMUX" "$CMUX_LOCAL_TMUX" "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" \
-          > "$CMUX_TEST_OUTPUT"
-        """
-        try Data(fakeTmux.utf8).write(to: fakeTmuxURL)
-        XCTAssertEqual(chmod(fakeTmuxURL.path, 0o755), 0)
-
-        let sessionID = try XCTUnwrap(LocalTmuxSessionIdentity("$7"))
-        let binding = LocalTmuxSessionBinding(
-            sessionID: sessionID,
-            serverID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!,
-            sessionCreated: 42
-        )
-        let command = LocalTmuxCommandBuilder(
-            tmuxPath: fakeTmuxURL.path,
-            socketPath: root.appendingPathComponent("server.sock").path
-        ).attachCommand(binding: binding)
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_TEST_OUTPUT"] = outputURL.path
-        let result = runProcess(
-            executablePath: "/bin/bash",
-            arguments: ["--noprofile", "--norc", "-c", "exec -l \(command)"],
-            environment: environment,
-            timeout: 10
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let invocation = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(invocation.hasPrefix("|1|-S|"), invocation)
-        XCTAssertTrue(invocation.contains("attach-session -t $7"), invocation)
-    }
-
+    // The command-builder and parser implementation live in the cmux-cli target.
+    // These app-host tests exercise the same contracts through the bundled CLI
+    // process so they do not import executable-only implementation details.
     func testLocalTmuxClientListingUsesPopulatedTTYTarget() throws {
+        let cliPath = try bundledCLIPath()
         let root = makeLocalTmuxTestRoot("client-tty-target")
         let fakeTmuxURL = root.appendingPathComponent("fake-tmux", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -114,29 +75,39 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let fakeTmux = """
         #!/bin/sh
         case "$*" in
-          *list-clients*)
-            case "$*" in
-              *'#{client_tty}'*) printf '/dev/ttys999\\twork\\t123\\t/dev/ttys999\\n'; exit 0 ;;
-              *) printf '\\twork\\t123\\t/dev/ttys999\\n'; exit 0 ;;
-            esac
-            ;;
+          *list-sessions*) printf 'client-tty\t$999\t99999999-9999-9999-9999-999999999999\t999\t1\n'; exit 0 ;;
+          *list-clients*) printf '/dev/ttys999\tclient-tty\t123\t/dev/ttys999\n'; exit 0 ;;
+          *display-message*) printf 'client-tty\t$999\t99999999-9999-9999-9999-999999999999\t999\n'; exit 0 ;;
+          *has-session*) exit 0 ;;
           *) exit 0 ;;
         esac
         """
         try Data(fakeTmux.utf8).write(to: fakeTmuxURL)
         XCTAssertEqual(chmod(fakeTmuxURL.path, 0o755), 0)
 
-        let builder = LocalTmuxCommandBuilder(
-            tmuxPath: fakeTmuxURL.path,
-            socketPath: root.appendingPathComponent("server.sock").path
-        )
-        let result = try LocalTmuxProcessRunner(executablePath: fakeTmuxURL.path).run(
-            arguments: builder.listClientsArguments()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_LOCAL_TMUX_BIN"] = fakeTmuxURL.path
+        environment["CMUX_LOCAL_TMUX_STATE_DIR"] = root.path
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["local-tmux", "list", "--json"],
+            environment: environment,
+            timeout: 10
         )
 
+        XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        let clients = try LocalTmuxSessionListParser().clients(result.stdout)
-        XCTAssertEqual(clients.map(\.clientID), ["/dev/ttys999"])
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(payload["sessions"] as? [[String: Any]])
+        let session = try XCTUnwrap(sessions.first)
+        XCTAssertEqual(session["session_name"] as? String, "client-tty")
+        XCTAssertEqual(session["clients"] as? Int, 1)
     }
 
     func testLocalTmuxDirectoryOverrideIsRejectedAsMissingExecutable() throws {

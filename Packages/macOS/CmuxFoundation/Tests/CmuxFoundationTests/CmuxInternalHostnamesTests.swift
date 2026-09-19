@@ -96,6 +96,10 @@ struct CmuxInternalHostnamesTests {
             CmuxInternalHostnames.directPortURL(privateAddress: "fd60:1e5e:6720::3", port: 22)
                 == "http://[fd60:1e5e:6720::3]:22"
         )
+        #expect(
+            CmuxInternalHostnames.directPortURL(privateAddress: "[fd60:1e5e:6720::3]", port: 22)
+                == "http://[fd60:1e5e:6720::3]:22"
+        )
     }
 
     @Test("A dev build's scoped block coexists with the production block; each clears only its own")
