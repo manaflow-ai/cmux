@@ -35,26 +35,35 @@ struct TerminalCustomUploadRunner {
     private let runProcess: ProcessRunner
     /// `DisableFileTransfer` (MDM), injected so tests can force it.
     private let isFileTransferDisabled: () -> Bool
+    /// The `terminal.uploadCommands` rules. The settings catalog (cmux.json) by default,
+    /// injected so tests can supply rules without a settings runtime.
+    private let uploadRules: @MainActor () -> [TerminalUploadCommandRule]
 
     init(
         runProcess: @escaping ProcessRunner = TerminalCustomUploadRunner.spawnCommand,
-        isFileTransferDisabled: @escaping () -> Bool = { ManagedFileTransferPolicy.isDisabled }
-    ) {
-        self.isFileTransferDisabled = isFileTransferDisabled
-        self.runProcess = runProcess
-    }
-
-    /// The command matching `endpoint.destination`, or nil when the built-in
-    /// transport should be used. Reads the `terminal.uploadCommands` rules from the
-    /// settings catalog (cmux.json). Called on the main thread from the drop/paste
-    /// sites, so the catalog is read via `MainActor.assumeIsolated`.
-    private func matchedCommand(for endpoint: Endpoint) -> String? {
-        let rules = MainActor.assumeIsolated {
+        isFileTransferDisabled: @escaping () -> Bool = { ManagedFileTransferPolicy.isDisabled },
+        uploadRules: @escaping @MainActor () -> [TerminalUploadCommandRule] = {
             AppDelegate.shared?.settingsRuntime.map {
                 $0.jsonStore.snapshotValue(for: $0.catalog.terminal.uploadCommands)
             } ?? []
         }
-        return TerminalUploadCommand(rules: rules).command(forDestination: endpoint.destination)
+    ) {
+        self.isFileTransferDisabled = isFileTransferDisabled
+        self.runProcess = runProcess
+        self.uploadRules = uploadRules
+    }
+
+    /// The command matching this endpoint, or nil when the built-in transport should be
+    /// used. Matching uses the first usable `HostName` in `endpoint.sshOptions` and falls
+    /// back to `endpoint.destination`, so a broker alias still matches the host it reaches.
+    /// Called on the main thread from the drop/paste sites, so the rules are read via
+    /// `MainActor.assumeIsolated`.
+    private func matchedCommand(for endpoint: Endpoint) -> String? {
+        let rules = MainActor.assumeIsolated { uploadRules() }
+        return TerminalUploadCommand(rules: rules).command(
+            forDestination: endpoint.destination,
+            sshOptions: endpoint.sshOptions
+        )
     }
 
     /// Runs `command` once per file and returns the space-joined string to type
