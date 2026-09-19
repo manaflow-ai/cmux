@@ -78,6 +78,14 @@ public struct StackAuthClient: AuthClient {
         return summaries
     }
 
+    public func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        guard let user = try await stack.getUser(or: .returnNull) else {
+            throw AuthError.unauthorized
+        }
+        let team = try await user.createTeam(displayName: displayName)
+        return CMUXAuthTeam(id: team.id, displayName: await team.displayName)
+    }
+
     public func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
         try await stack.sendMagicLinkEmail(email: email, callbackUrl: callbackURL)
     }

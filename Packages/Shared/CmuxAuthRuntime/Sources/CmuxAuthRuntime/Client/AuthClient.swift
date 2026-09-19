@@ -39,6 +39,15 @@ public protocol AuthClient: Sendable {
     /// - Returns: The user's teams; empty when no user is signed in.
     func listTeams() async throws -> [CMUXAuthTeam]
 
+    /// Create a team owned by the signed-in user, who becomes a member.
+    ///
+    /// The backend is the authority on membership: the caller does not get to
+    /// name the members, only the team. Throws when no user is signed in, so a
+    /// signed-out shell cannot mint a team nobody can reach.
+    /// - Parameter displayName: The team's human-readable name.
+    /// - Returns: The created team.
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam
+
     /// Send a magic-link email and return the opaque nonce to combine with the
     /// user-entered code.
     /// - Parameters:

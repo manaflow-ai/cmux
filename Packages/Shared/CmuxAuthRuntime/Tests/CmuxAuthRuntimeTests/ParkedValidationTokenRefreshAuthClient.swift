@@ -114,6 +114,10 @@ actor ParkedValidationTokenRefreshAuthClient: AuthClient {
     }
 
     func listTeams() async throws -> [CMUXAuthTeam] { [] }
+
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        throw AuthError.unauthorized
+    }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
     func signInWithMagicLink(code: String) async throws {}
     func signInWithCredential(email: String, password: String) async throws {

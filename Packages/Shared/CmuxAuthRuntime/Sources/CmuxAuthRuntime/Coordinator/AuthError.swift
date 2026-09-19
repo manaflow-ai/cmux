@@ -30,6 +30,8 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
     case unauthorized
     /// A generic credential failure (e.g. wrong email/password).
     case authFailure
+    /// A team name was empty or whitespace-only, so no team was created.
+    case invalidTeamName
     /// The user cancelled an interactive flow (e.g. dismissed the OAuth sheet).
     /// Surfaces no description so callers can silently ignore it.
     case cancelled
@@ -88,6 +90,12 @@ public enum AuthError: Error, LocalizedError, Equatable, Sendable {
             return String(
                 localized: "auth.error.wrong_password",
                 defaultValue: "Incorrect email or password.",
+                bundle: .main
+            )
+        case .invalidTeamName:
+            return String(
+                localized: "auth.error.invalid_team_name",
+                defaultValue: "Enter a team name.",
                 bundle: .main
             )
         case .cancelled:
