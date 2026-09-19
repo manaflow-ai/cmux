@@ -3445,7 +3445,7 @@ final class BrowserPanel: Panel, ObservableObject {
             GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             return
         }
-        currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+        currentURL = cloudAccess.displayURL(webView.url) ?? Self.remoteProxyDisplayURL(for: webView.url)
         navigationDelegate?.clearAttemptedRequest()
         refreshBackgroundAppearance()
         GlobalSearchCoordinator.shared.captureBrowserPanel(self)
@@ -4655,7 +4655,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 guard let self, isCurrentObservedWebView(self, webView) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
                 self.designModeController.webViewURLDidChange(to: observedURL)
-                self.currentURL = Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
+                self.currentURL = self.cloudAccess.displayURL(observedURL) ?? Self.remoteProxyDisplayURL(for: observedURL) ?? observedURL
                 self.refreshBackgroundAppearance()
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }

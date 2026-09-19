@@ -16,6 +16,21 @@ import WebKit
 @MainActor
 @Suite("Cloud browser proxy integration", .serialized, .timeLimit(.minutes(2)))
 struct CloudBrowserProxyIntegrationTests {
+    @Test("Desktop readiness uses the authenticated carrier and closes on failure")
+    func desktopReadinessThroughCarrier() async throws {
+        let server = try CloudBrowserProxyTestServer(address: "10.16.0.10", marker: "desktop-probe")
+        try await server.start()
+        defer { server.stop() }
+        #expect(try await CloudBrowserRouting.desktopIsReachable(endpoint: server.endpoint, address: server.address, port: 8000))
+        #expect(server.requests.count == 1)
+        #expect(server.requests.first?.method == "HEAD")
+        #expect(server.requests.first?.target == "/vnc.html")
+        let rejected = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: server.port, username: "wrong", password: "wrong")
+        #expect(try await !CloudBrowserRouting.desktopIsReachable(endpoint: rejected, address: server.address, port: 8000))
+        #expect(server.requests.count == 1, "Failed proxy auth must not reach the service")
+        #expect(try await !CloudBrowserRouting.desktopIsReachable(endpoint: server.endpoint, address: server.address, port: 6901))
+    }
+
     @Test("the browser carrier does not inherit app credentials")
     func browserCarrierSanitizesInheritedCredentials() {
         let environment = CloudBrowserProxyProcess.sanitizedEnvironment([

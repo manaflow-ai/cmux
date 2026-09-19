@@ -27,19 +27,9 @@ extension CmuxTuiSurfaceProvider {
         try Task.checkCancellation()
         try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
-        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
+        let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: nil, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
-        }
-        // The endpoint is asynchronous, but the pane is visible immediately. Replace
-        // WebKit's default about:blank with the same local connecting state used by
-        // other optimistic surface opens so the user never sees an empty document.
-        if existingPane == nil {
-            SurfacePaneFactory.showPlaceholder(
-                SurfaceBrowserPlaceholder.connecting(resource.title),
-                panelID: pane.panelID,
-                in: pane.workspaceID
-            )
         }
         switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
         case .privateDirect(let raw):
@@ -82,10 +72,9 @@ extension CmuxTuiSurfaceProvider {
                 wake: { [weak self] in
                     guard let self, self.isRegisteredInCatalog() else { throw CancellationError() }
                     let generation = self.currentLifecycleGeneration
-                    // Freestyle openPort only returns a private address and a
-                    // ledger token; it never publishes a port. For Desktop it
-                    // starts/heals noVNC even when cached status says running.
-                    if !self.isAwake || (self.providerID == "freestyle" && port == CmuxTuiSnapshotParser.desktopPort) {
+                    // Sleeping machines need the control plane to wake. An awake
+                    // desktop is checked through the existing browser carrier below.
+                    if !self.isAwake {
                         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
                         _ = try await client.openPort(id: self.machineID, port: target.port)
                     }
@@ -112,6 +101,13 @@ extension CmuxTuiSurfaceProvider {
                     guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
                     let generation = self.currentLifecycleGeneration
                     let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+                    if self.providerID == "freestyle", port == CmuxTuiSnapshotParser.desktopPort,
+                       try await !CloudBrowserRouting.desktopIsReachable(endpoint: endpoint, address: address, port: port) {
+                        try Task.checkCancellation()
+                        guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                        guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+                        _ = try await client.openPort(id: self.machineID, port: port)
+                    }
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
                     return endpoint
                 }

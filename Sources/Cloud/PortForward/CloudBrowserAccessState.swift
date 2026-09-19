@@ -63,6 +63,14 @@ final class CloudBrowserAccessState {
         return parts.url ?? remoteURL
     }
 
+    /// A bootstrap document belongs to WebKit, not to the user's navigation.
+    /// Keep the requested Cloud origin until a real service document commits.
+    func displayURL(_ observedURL: URL?) -> URL? {
+        guard let remoteURL, !hasCommittedNavigation,
+              observedURL == nil || observedURL?.scheme == "about" else { return nil }
+        return remoteURL
+    }
+
     func configure(model: CloudPortAccessModel, url: URL) {
         unavailable = nil
         self.model = model

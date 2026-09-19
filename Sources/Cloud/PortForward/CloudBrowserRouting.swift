@@ -5,6 +5,68 @@ import WebKit
 
 /// Browser identity and networking stay separate: an HTTP CONNECT proxy never changes the document URL.
 struct CloudBrowserRouting {
+    private static let probeQueue = DispatchQueue(label: "cmux.cloud.desktop-readiness")
+
+    /// Test the service through the same authenticated carrier the page will use.
+    /// A healthy desktop needs no control-plane exec. This short-lived stream is
+    /// closed after the headers; no listener or persistent connection is added.
+    static func desktopIsReachable(
+        endpoint: CloudBrowserProxyEndpoint,
+        address: String,
+        port: Int,
+        timeout: Duration = .seconds(2)
+    ) async throws -> Bool {
+        let host = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard endpoint.host == "127.0.0.1", endpoint.port != 0,
+              (1...65535).contains(port), IPv4Address(host) != nil || IPv6Address(host) != nil else { return false }
+        let authority = host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+        let credential = Data("\(endpoint.username):\(endpoint.password)".utf8).base64EncodedString()
+        let connection = NWConnection(host: "127.0.0.1", port: .init(rawValue: endpoint.port)!, using: .tcp)
+        defer { connection.cancel() }
+        do {
+            return try await withTaskCancellationHandler {
+                try await withThrowingTaskGroup(of: Bool.self) { group in
+                    group.addTask {
+                        try await connection.startAndWaitUntilReady(queue: probeQueue)
+                        try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
+                        guard try await responseStatus(connection) == 200 else { return false }
+                        try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
+                        return try await responseStatus(connection) == 200
+                    }
+                    group.addTask {
+                        try await Task.sleep(for: timeout)
+                        connection.cancel()
+                        return false
+                    }
+                    defer { group.cancelAll(); connection.cancel() }
+                    return try await group.next() ?? false
+                }
+            } onCancel: {
+                connection.cancel()
+            }
+        } catch {
+            try Task.checkCancellation()
+            return false
+        }
+    }
+
+    private static func responseStatus(_ connection: NWConnection) async throws -> Int? {
+        var data = Data()
+        let terminator = Data("\r\n\r\n".utf8)
+        while data.count < 8192 {
+            let chunk = try await connection.receiveChunk(maximumLength: 8192 - data.count)
+            if let bytes = chunk.data { data.append(bytes) }
+            if let end = data.range(of: terminator) {
+                let fields = String(decoding: data[..<end.lowerBound], as: UTF8.self)
+                    .components(separatedBy: "\r\n")[0].split(separator: " ")
+                guard fields.count >= 2, fields[0].hasPrefix("HTTP/1.") else { return nil }
+                return Int(fields[1])
+            }
+            if chunk.isComplete { return nil }
+        }
+        return nil
+    }
+
     static func storeID(panelID: UUID, profileID: UUID, machineID: String) -> UUID {
         let bytes = Array(SHA256.hash(data: Data("cloud-browser:\(panelID):\(profileID):\(machineID)".utf8)).prefix(16))
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
