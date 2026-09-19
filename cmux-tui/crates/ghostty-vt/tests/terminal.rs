@@ -634,6 +634,49 @@ fn selection_text_absolute_preserves_soft_wraps() {
 }
 
 #[test]
+fn vt_replay_preserves_a_hyperlink_across_soft_wrapped_rows() {
+    let url = "http://10.16.0.7:8000/probe/B?encoded=a%2Fb&duplicate=1&duplicate=2#frag-B";
+    let bytes = format!("\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\");
+    let mut source = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    source.vt_write(bytes.as_bytes());
+
+    // The source text is a single logical link even though its display spans
+    // several physical rows. A replay must retain every query item and the
+    // fragment, rather than stopping at the first soft-wrap boundary.
+    let source_text = source.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert!(source_text.contains("duplicate=2"), "source text was {source_text:?}");
+    assert!(source_text.contains("#frag-B"), "source text was {source_text:?}");
+
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    assert!(replay.windows(url.len()).any(|window| window == url.as_bytes()));
+
+    let mut target = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    let target_text = target.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert_eq!(target_text, source_text, "replayed soft-wrap text changed");
+    assert!(target_text.contains("duplicate=2"), "target text was {target_text:?}");
+    assert!(target_text.contains("#frag-B"), "target text was {target_text:?}");
+}
+
+#[test]
+fn vt_replay_preserves_plain_url_text_across_soft_wrapped_rows() {
+    let url = b"http://0.0.0.0:8000/probe/B?encoded=a%2Fb&duplicate=1&duplicate=2#frag-B";
+    let mut source = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    source.vt_write(url);
+
+    let source_text = source.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert_eq!(source_text.trim_end(), String::from_utf8_lossy(url));
+
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    let target_text = target.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert_eq!(target_text, source_text, "replayed plain URL text changed");
+    assert!(target_text.contains("duplicate=2"), "target text was {target_text:?}");
+    assert!(target_text.contains("#frag-B"), "target text was {target_text:?}");
+}
+
+#[test]
 fn selection_text_absolute_spans_scrolled_out_rows() {
     let mut term = Terminal::new(20, 3, 1000, Callbacks::default()).unwrap();
     for i in 0..8 {

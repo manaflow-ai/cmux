@@ -47,6 +47,17 @@ public struct TerminalLinkRouter: Sendable {
             return .external(URL(fileURLWithPath: trimmed))
         }
 
+        // Foundation parses `localhost:8000` as a custom URL scheme. Let the
+        // browser's host/port resolver recognize it before dispatching schemes.
+        if let webURL = hostNormalizer.navigableWebURL(trimmed),
+           let scheme = webURL.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            guard hostNormalizer.normalizedHost(webURL.host ?? "") != nil else {
+                return .external(webURL)
+            }
+            return .embeddedBrowser(webURL)
+        }
+
         if let parsed = URL(string: trimmed),
            let scheme = parsed.scheme?.lowercased() {
             if scheme == "http" || scheme == "https" {

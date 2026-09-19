@@ -1,60 +1,60 @@
-// Phone reply inbox — the server half of inline notification replies.
-//
-// A locked iPhone cannot be trusted to hold a live P2P session to the Mac: the
-// reply action wakes the app for seconds, and every transport dial is at the
-// mercy of iOS background scheduling. So the phone hands the reply to this
-// service with ONE authenticated HTTPS POST, the reply parks durably in the
-// account's connectivity Durable Object, and the Mac — which already holds the
-// account connectivity WebSocket — is nudged with the existing
-// `connectivity.invalidate` frame (revision 1, a value every deployed client
-// already treats as a stale-revision no-op for routes) and fetches the inbox
-// over HTTPS. Delivery to the terminal happens on the Mac, on wall power, on
-// a real network.
-//
-// This module is the pure half (validation, caps, storage ops against a
-// minimal storage interface) so it unit-tests without the Workers runtime,
-// mirroring core.ts/syncStorage.ts.
+// Phone reply inbox: the worker stores only an opaque, strictly validated
+// encrypted envelope. Authentication and account selection happen before the
+// request reaches the account Durable Object.
 
-/** One parked reply. Stored shape and wire shape are identical. */
+export interface PhoneReplyTuple {
+  accountID: string;
+  teamID: string | null;
+  iosBuildID: string;
+  iosInstallationID: string;
+  macDeviceID: string;
+  macInstanceTag: string | null;
+  macBuildID: string;
+}
+
+export interface PhoneReplyEncryptedPayload {
+  installationID: string;
+  keyID: string;
+  version: 2;
+  senderKeyID: string;
+  encapsulatedKey: string;
+  ciphertext: string;
+  tuple: PhoneReplyTuple;
+}
+
 export interface StoredPhoneReply {
   replyId: string;
   macDeviceId: string;
-  workspaceId: string;
-  surfaceId: string;
-  notificationId: string;
-  /** Whether the Mac may follow this surface to its live workspace owner. */
-  retargetsToLiveSurfaceOwner: boolean;
-  text: string;
+  macInstanceTag: string | null;
+  encryptedPayload: PhoneReplyEncryptedPayload;
   createdAtMs: number;
   expiresAtMs: number;
 }
 
-/** Replies target a live agent prompt; one that sat undelivered this long is
- * stale enough that typing it into the terminal would surprise the user. The
- * phone schedules its local "Reply not sent" notice past its own send
- * lifetime, so an expiry here is not silent on the phone side. */
+export interface PhoneReplyTarget {
+  macDeviceId: string;
+  macInstanceTag: string | null;
+  macBuildID: string | null;
+}
+
+export interface PhoneReplyParseContext {
+  accountID?: string;
+  target?: PhoneReplyTarget;
+}
+
 export const PHONE_REPLY_TTL_MS = 15 * 60 * 1000;
-/** Pending replies per account. Replies are human-typed and rare; a queue
- * this deep means the Mac has been away for a while, and older entries are
- * closer to their TTL anyway. Oldest is evicted first past the cap. */
 export const MAX_PENDING_PHONE_REPLIES = 20;
 export const MAX_PHONE_REPLY_TEXT_CHARS = 8_192;
 export const MAX_PHONE_REPLY_ID_CHARS = 64;
 export const MAX_PHONE_REPLY_TARGET_ID_CHARS = 128;
-/** Bound for the enqueue request body read. */
 export const MAX_PHONE_REPLY_BODY_BYTES = 64 * 1024;
-/** The revision broadcast as the inbox nudge. Deliberately the LOWEST valid
- * revision: every deployed client passes it to its route reconcile, which
- * treats an old revision as already-satisfied, so the frame costs old clients
- * nothing — while a reply-aware Mac sweeps the inbox on EVERY frame arrival,
- * regardless of revision. Never mint fresh revisions here: the account's real
- * revision sequence belongs to the connectivity publisher, and outbidding it
- * would make genuine route invalidations look stale. */
 export const PHONE_REPLY_NUDGE_REVISION = 1;
 
-const REPLY_PREFIX = "phonereply:";
+const REPLY_PREFIX = "phonereply:e2e:";
+const MAX_ENCRYPTED_FIELD_CHARS = 64 * 1024;
+const MAX_KEY_ID_CHARS = 128;
+const MAX_DECODED_CIPHERTEXT_BYTES = MAX_PHONE_REPLY_BODY_BYTES;
 
-/** The subset of `DurableObjectStorage` the inbox uses (Map-backed in tests). */
 export interface PhoneReplyStorage {
   get<T>(key: string): Promise<T | undefined>;
   put<T>(key: string, value: T): Promise<void>;
@@ -66,6 +66,15 @@ export type ParsePhoneReplyResult =
   | { ok: true; reply: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs"> }
   | { ok: false; error: string };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const allowed = new Set(keys);
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
 function boundedId(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
@@ -73,50 +82,109 @@ function boundedId(value: unknown, maxChars: number): string | null {
   return text;
 }
 
-/** Strictly parse an enqueue body. Unknown keys are ignored (additive wire),
- * required keys are bounded, and text is required non-empty: an empty reply
- * has nothing to type. */
-export function parsePhoneReply(body: Record<string, unknown>): ParsePhoneReplyResult {
-  const replyId = boundedId(body.replyId, MAX_PHONE_REPLY_ID_CHARS);
-  if (!replyId) return { ok: false, error: "invalid_reply_id" };
-  const macDeviceId = boundedId(body.macDeviceId, MAX_PHONE_REPLY_TARGET_ID_CHARS);
-  if (!macDeviceId) return { ok: false, error: "invalid_mac_device_id" };
-  const surfaceId = boundedId(body.surfaceId, MAX_PHONE_REPLY_TARGET_ID_CHARS);
-  if (!surfaceId) return { ok: false, error: "invalid_surface_id" };
-  // The workspace claim is optional on old push payloads; the Mac re-resolves
-  // the live owner of the surface anyway.
-  const workspaceId = body.workspaceId == null
-    ? ""
-    : boundedId(body.workspaceId, MAX_PHONE_REPLY_TARGET_ID_CHARS);
-  if (workspaceId === null) return { ok: false, error: "invalid_workspace_id" };
-  const notificationId = body.notificationId == null
-    ? ""
-    : boundedId(body.notificationId, MAX_PHONE_REPLY_TARGET_ID_CHARS);
-  if (notificationId === null) return { ok: false, error: "invalid_notification_id" };
-  // Old parked records omitted provenance and were generated by clients whose
-  // notifications were all retargetable; preserve that compatibility default.
-  const retargetsToLiveSurfaceOwner = body.retargetsToLiveSurfaceOwner == null
-    ? true
-    : body.retargetsToLiveSurfaceOwner;
-  if (typeof retargetsToLiveSurfaceOwner !== "boolean") {
-    return { ok: false, error: "invalid_retarget_policy" };
+function optionalId(value: unknown, maxChars: number): string | null | undefined {
+  if (value === undefined || value === null) return null;
+  return boundedId(value, maxChars);
+}
+
+function validBase64(value: unknown, minBytes: number, maxBytes: number): value is string {
+  if (typeof value !== "string" || value.length > MAX_ENCRYPTED_FIELD_CHARS) return false;
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    return false;
   }
-  if (typeof body.text !== "string") return { ok: false, error: "invalid_text" };
-  const text = body.text;
-  if (!text.trim()) return { ok: false, error: "invalid_text" };
-  if (text.length > MAX_PHONE_REPLY_TEXT_CHARS) return { ok: false, error: "text_too_long" };
+  try {
+    const bytes = atob(value).length;
+    return bytes >= minBytes && bytes <= maxBytes;
+  } catch {
+    return false;
+  }
+}
+
+function parseTuple(value: unknown): PhoneReplyTuple | null {
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "accountID", "teamID", "iosBuildID", "iosInstallationID",
+    "macDeviceID", "macInstanceTag", "macBuildID",
+  ])) return null;
+  const accountID = boundedId(value.accountID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const iosBuildID = boundedId(value.iosBuildID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const iosInstallationID = boundedId(value.iosInstallationID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const macDeviceID = boundedId(value.macDeviceID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const teamID = optionalId(value.teamID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const macInstanceTag = optionalId(value.macInstanceTag, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const macBuildID = boundedId(value.macBuildID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  if (!accountID || !iosBuildID || !iosInstallationID || !macDeviceID) return null;
+  if (teamID === undefined || macInstanceTag === undefined || !macBuildID) return null;
+  return { accountID, teamID, iosBuildID, iosInstallationID, macDeviceID, macInstanceTag, macBuildID };
+}
+
+function parseEncryptedPayload(value: unknown): PhoneReplyEncryptedPayload | null {
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "installationID", "keyID", "version", "senderKeyID", "encapsulatedKey", "ciphertext", "tuple",
+  ])) return null;
+  const installationID = boundedId(value.installationID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const keyID = boundedId(value.keyID, MAX_KEY_ID_CHARS);
+  const senderKeyID = boundedId(value.senderKeyID, MAX_KEY_ID_CHARS);
+  const tuple = parseTuple(value.tuple);
+  if (!installationID || !keyID || !senderKeyID || value.version !== 2 || !tuple) return null;
+  if (!validBase64(value.encapsulatedKey, 32, 32)) return null;
+  if (!validBase64(value.ciphertext, 16, MAX_DECODED_CIPHERTEXT_BYTES)) return null;
   return {
-    ok: true,
-    reply: {
-      replyId,
-      macDeviceId,
-      workspaceId,
-      surfaceId,
-      notificationId,
-      retargetsToLiveSurfaceOwner,
-      text,
-    },
+    installationID,
+    keyID,
+    version: 2,
+    senderKeyID,
+    encapsulatedKey: value.encapsulatedKey,
+    ciphertext: value.ciphertext,
+    tuple,
   };
+}
+
+function sameTarget(a: PhoneReplyTarget, b: PhoneReplyTarget): boolean {
+  return a.macDeviceId === b.macDeviceId
+    && a.macInstanceTag === b.macInstanceTag
+    && a.macBuildID === b.macBuildID;
+}
+
+function targetForReply(
+  reply: Pick<StoredPhoneReply, "macDeviceId" | "macInstanceTag" | "encryptedPayload">,
+): PhoneReplyTarget {
+  return {
+    macDeviceId: reply.macDeviceId,
+    macInstanceTag: reply.macInstanceTag,
+    macBuildID: reply.encryptedPayload.tuple.macBuildID,
+  };
+}
+
+export function parsePhoneReply(
+  body: Record<string, unknown>,
+  context: PhoneReplyParseContext = {},
+): ParsePhoneReplyResult {
+  if (!isRecord(body) || !hasOnlyKeys(body, [
+    "replyId", "macDeviceId", "macInstanceTag", "encryptedPayload",
+  ])) return { ok: false, error: "invalid_reply_envelope" };
+
+  const replyId = boundedId(body.replyId, MAX_PHONE_REPLY_ID_CHARS);
+  const macDeviceId = boundedId(body.macDeviceId, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const macInstanceTag = optionalId(body.macInstanceTag, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const encryptedPayload = parseEncryptedPayload(body.encryptedPayload);
+  if (!replyId) return { ok: false, error: "invalid_reply_id" };
+  if (!macDeviceId) return { ok: false, error: "invalid_mac_device_id" };
+  if (macInstanceTag === undefined) return { ok: false, error: "invalid_mac_instance_tag" };
+  if (!encryptedPayload) return { ok: false, error: "invalid_encrypted_payload" };
+  if (encryptedPayload.tuple.macDeviceID !== macDeviceId
+    || encryptedPayload.tuple.macInstanceTag !== macInstanceTag) {
+    return { ok: false, error: "reply_target_mismatch" };
+  }
+  if (context.accountID !== undefined && encryptedPayload.tuple.accountID !== context.accountID) {
+    return { ok: false, error: "account_mismatch" };
+  }
+  if (context.target && !sameTarget(context.target, targetForReply({
+    macDeviceId,
+    macInstanceTag,
+    encryptedPayload,
+  }))) return { ok: false, error: "reply_target_mismatch" };
+
+  return { ok: true, reply: { replyId, macDeviceId, macInstanceTag, encryptedPayload } };
 }
 
 function replyKey(replyId: string): string {
@@ -127,20 +195,27 @@ async function loadAll(storage: PhoneReplyStorage): Promise<Map<string, StoredPh
   return storage.list<StoredPhoneReply>({ prefix: REPLY_PREFIX });
 }
 
-/** Delete expired entries; returns the live remainder. Pruning is lazy (on
- * every inbox op) instead of alarm-driven so this stays additive to the DO's
- * presence alarm schedule. */
-async function pruneExpired(
-  storage: PhoneReplyStorage,
-  nowMs: number,
-): Promise<StoredPhoneReply[]> {
+function validStoredReply(reply: unknown): reply is StoredPhoneReply {
+  if (!isRecord(reply) || typeof reply.createdAtMs !== "number" || typeof reply.expiresAtMs !== "number") {
+    return false;
+  }
+  const parsed = parsePhoneReply({
+    replyId: reply.replyId,
+    macDeviceId: reply.macDeviceId,
+    macInstanceTag: reply.macInstanceTag,
+    encryptedPayload: reply.encryptedPayload,
+  });
+  return parsed.ok && Number.isFinite(reply.createdAtMs) && Number.isFinite(reply.expiresAtMs);
+}
+
+async function pruneExpired(storage: PhoneReplyStorage, nowMs: number): Promise<StoredPhoneReply[]> {
   const all = await loadAll(storage);
   const live: StoredPhoneReply[] = [];
-  for (const [key, reply] of all) {
-    if (reply.expiresAtMs <= nowMs) {
+  for (const [key, value] of all) {
+    if (!validStoredReply(value) || value.expiresAtMs <= nowMs) {
       await storage.delete(key);
     } else {
-      live.push(reply);
+      live.push(value);
     }
   }
   live.sort((a, b) => a.createdAtMs - b.createdAtMs);
@@ -148,23 +223,18 @@ async function pruneExpired(
 }
 
 export type EnqueuePhoneReplyResult =
-  | {
-      ok: true;
-      duplicate: boolean;
-      pending: number;
-      expiresAtMs: number;
-      /** Live subscriber sockets the enqueue nudge reached. Diagnostic only:
-       * 0 is not failure (the Mac also sweeps on stream start and app
-       * activation), but it tells a debugging session whether the account had
-       * any live channel at enqueue time. */
-      nudged?: number;
-    }
-  | { ok: false; error: "too_many_pending" };
+  | { ok: true; duplicate: boolean; pending: number; expiresAtMs: number; nudged?: number }
+  | { ok: false; error: "too_many_pending" | "reply_id_conflict" | "account_mismatch" };
 
-/** Park one reply. Idempotent on replyId: a retried POST (the phone's retry
- * ladder re-sends the same replyId) reports success without duplicating.
- * Past the per-account cap the OLDEST entries are evicted; the newest reply
- * is the user's most recent intent and always wins a slot. */
+function sameEnvelope(
+  a: StoredPhoneReply,
+  b: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs">,
+): boolean {
+  return a.macDeviceId === b.macDeviceId
+    && a.macInstanceTag === b.macInstanceTag
+    && JSON.stringify(a.encryptedPayload) === JSON.stringify(b.encryptedPayload);
+}
+
 export async function enqueuePhoneReply(
   storage: PhoneReplyStorage,
   reply: Omit<StoredPhoneReply, "createdAtMs" | "expiresAtMs">,
@@ -173,6 +243,7 @@ export async function enqueuePhoneReply(
   const live = await pruneExpired(storage, nowMs);
   const existing = live.find((entry) => entry.replyId === reply.replyId);
   if (existing) {
+    if (!sameEnvelope(existing, reply)) return { ok: false, error: "reply_id_conflict" };
     return {
       ok: true,
       duplicate: true,
@@ -201,40 +272,45 @@ export async function enqueuePhoneReply(
   };
 }
 
-/** Pending, unexpired replies for one Mac, oldest first (typing order). */
 export async function listPhoneReplies(
   storage: PhoneReplyStorage,
-  macDeviceId: string,
+  target: PhoneReplyTarget,
   nowMs: number,
 ): Promise<StoredPhoneReply[]> {
   const live = await pruneExpired(storage, nowMs);
-  return live.filter((reply) => reply.macDeviceId === macDeviceId);
+  return live.filter((reply) => sameTarget(targetForReply(reply), target));
 }
 
-/** Remove acknowledged replies. Unknown ids are a no-op (already expired or
- * acked by a previous sweep), so the Mac can ack the same batch twice safely. */
 export async function ackPhoneReplies(
   storage: PhoneReplyStorage,
   replyIds: string[],
+  target: PhoneReplyTarget,
   nowMs: number,
 ): Promise<{ removed: number }> {
-  await pruneExpired(storage, nowMs);
+  const live = await pruneExpired(storage, nowMs);
+  const byId = new Map(live.map((reply) => [reply.replyId, reply]));
   let removed = 0;
   for (const replyId of replyIds) {
     const bounded = boundedId(replyId, MAX_PHONE_REPLY_ID_CHARS);
-    if (!bounded) continue;
-    if (await storage.delete(replyKey(bounded))) removed += 1;
+    const reply = bounded ? byId.get(bounded) : undefined;
+    if (reply && sameTarget(targetForReply(reply), target)
+      && await storage.delete(replyKey(bounded))) {
+      removed += 1;
+    }
   }
   return { removed };
 }
 
-export type ParseAckResult = { ok: true; replyIds: string[] } | { ok: false; error: string };
+export type ParseAckResult =
+  | { ok: true; replyIds: string[]; target?: PhoneReplyTarget }
+  | { ok: false; error: string };
 
 export function parsePhoneReplyAck(body: Record<string, unknown>): ParseAckResult {
-  if (!Array.isArray(body.replyIds) || body.replyIds.length === 0) {
-    return { ok: false, error: "invalid_reply_ids" };
-  }
-  if (body.replyIds.length > MAX_PENDING_PHONE_REPLIES * 2) {
+  if (!isRecord(body) || !hasOnlyKeys(body, [
+    "replyIds", "macDeviceId", "macInstanceTag", "macBuildID",
+  ])) return { ok: false, error: "invalid_reply_ids" };
+  if (!Array.isArray(body.replyIds) || body.replyIds.length === 0
+    || body.replyIds.length > MAX_PENDING_PHONE_REPLIES * 2) {
     return { ok: false, error: "invalid_reply_ids" };
   }
   const replyIds: string[] = [];
@@ -243,5 +319,18 @@ export function parsePhoneReplyAck(body: Record<string, unknown>): ParseAckResul
     if (!bounded) return { ok: false, error: "invalid_reply_ids" };
     replyIds.push(bounded);
   }
-  return { ok: true, replyIds };
+  if (!Object.prototype.hasOwnProperty.call(body, "macDeviceId")) {
+    return { ok: true, replyIds };
+  }
+  const target = parsePhoneReplyTarget(body);
+  if (!target) return { ok: false, error: "invalid_reply_target" };
+  return { ok: true, replyIds, target };
+}
+
+export function parsePhoneReplyTarget(body: Record<string, unknown>): PhoneReplyTarget | null {
+  const macDeviceId = boundedId(body.macDeviceId, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const macInstanceTag = optionalId(body.macInstanceTag, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  const macBuildID = boundedId(body.macBuildID, MAX_PHONE_REPLY_TARGET_ID_CHARS);
+  if (!macDeviceId || macInstanceTag === undefined || !macBuildID) return null;
+  return { macDeviceId, macInstanceTag, macBuildID };
 }
