@@ -182,6 +182,109 @@ class LocalizeChangesTests(unittest.TestCase):
             self.assertEqual([(row["locale"], row["key"]) for row in rows], [("fr", "home.title")])
             self.assertIn("unchanged", rows[0]["issues"][0])
 
+    def test_swift_source_change_preserves_completed_translations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_catalog(root, {"open": {"localizations": {
+                "en": unit("Open"), "de": unit("Öffnen"), "ja": unit("開く"),
+            }}})
+            old = path.read_text()
+            strings = json.loads(old)["strings"]
+            strings["open"]["localizations"]["ja"] = unit("ファイルを開く")
+            write_catalog(root, strings)
+            message = MODULE.SwiftMessage("Sources/View.swift", "open", "Open File")
+            prepared = MODULE.prepare_macos(root, [message], None, {})
+            with patch.object(MODULE, "base_text", return_value=old):
+                MODULE.changed_catalog_keys(root, "base", [str(path.relative_to(root))])
+            values = json.loads(path.read_text())["strings"]["open"]["localizations"]
+            self.assertEqual(values["ja"], unit("ファイルを開く"))
+            self.assertEqual(values["de"], unit("Öffnen", "needs_review"))
+            self.assertEqual(values["en"], unit("Open File"))
+
+    def test_cross_file_conflicting_defaults_do_not_mutate_catalog(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_catalog(root, {})
+            before = path.read_bytes()
+            messages = [MODULE.SwiftMessage("Sources/A.swift", "shared", "First"),
+                        MODULE.SwiftMessage("Sources/B.swift", "shared", "Second")]
+            result = MODULE.prepare_macos(root, messages, None, {})
+            self.assertTrue(any("multiple default values" in item for item in result.attention))
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(result.changed_keys, [])
+
+    def test_web_parity_for_locale_routing_and_english_deletions(self):
+        cases = [
+            (["web/messages/ja.json"], {"title": "Title"}, {}, "title"),
+            (["web/messages/ja.json"], {"title": "Title"}, {"renamed": "題名"}, "renamed"),
+            (["web/i18n/routing.ts"], {"title": "Title"}, {}, "title"),
+            (["web/messages/en.json"], {}, {"title": "題名"}, "title"),
+        ]
+        for paths, english, japanese, key in cases:
+            with self.subTest(paths=paths, english=english, japanese=japanese), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / "web/messages").mkdir(parents=True)
+                for locale, data in [("en", english), ("ja", japanese)]:
+                    (root / f"web/messages/{locale}.json").write_text(json.dumps(data))
+                with patch.object(MODULE, "base_json", return_value={"title": "Title"}):
+                    rows, attention, changed = MODULE.web_work(root, "base", paths, ("en", "ja"))
+                self.assertTrue(any(row["key"] == key for row in rows) or any(key in item for item in attention))
+                if not english:
+                    self.assertEqual(changed, 1)
+
+    def test_translator_comments_follow_default_value(self):
+        for constructor in ['String(localized: ', 'LocalizedStringResource(']:
+            with self.subTest(constructor=constructor), tempfile.TemporaryDirectory() as directory:
+                text = constructor + '\"hello\", defaultValue: \"Hello\", bundle: .atURL(URL(string: \"file:///tmp\")!), comment: \"Greeting (shown at launch)\")'
+                text += '\nString(localized: \"other\", defaultValue: \"Other\", comment: \"Other context\")'
+                messages, attention = MODULE.parse_swift_messages("Sources/View.swift", text)
+                self.assertEqual(attention, [])
+                root = Path(directory)
+                path = write_catalog(root, {})
+                MODULE.prepare_macos(root, list(messages.values()), None, {})
+                entries = json.loads(path.read_text())["strings"]
+                self.assertEqual(entries["hello"]["comment"], "Greeting (shown at launch)")
+                self.assertEqual(entries["other"]["comment"], "Other context")
+
+    def test_packet_targets_validated_before_any_writes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_catalog(root, {"open": {"localizations": {"en": unit("Open")}}})
+            outside = root / "outside.xcstrings"
+            outside.write_bytes(path.read_bytes())
+            link = root / "Resources/Linked.xcstrings"
+            link.symlink_to(outside)
+            valid = {"catalog": "Resources/Localizable.xcstrings", "key": "open",
+                     "source": "Open", "locale": "de", "value": "Öffnen"}
+            invalid = [{"locale": "xx"}, {"catalog": str(outside)},
+                       {"catalog": "../outside.xcstrings"}, {"catalog": "outside.xcstrings"},
+                       {"catalog": "Resources/Linked.xcstrings"}, {"key": None}, {"source": []}]
+            before = path.read_bytes()
+            for overrides in invalid:
+                with self.subTest(overrides=overrides):
+                    with self.assertRaises(ValueError):
+                        MODULE.apply_completed(root, {"entries": [valid, {**valid, **overrides}]}, {})
+                    self.assertEqual(path.read_bytes(), before)
+                    self.assertEqual(outside.read_bytes(), before)
+
+    def test_catalog_diff_parses_current_once_and_batches_edits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            strings = {str(i): {"localizations": {"en": unit("Old"), "de": unit("Alt")}} for i in range(12)}
+            path = write_catalog(root, strings)
+            old = path.read_text()
+            for record in strings.values():
+                record["localizations"]["en"] = unit("New")
+            write_catalog(root, strings)
+            current = path.read_text()
+            with patch.object(MODULE, "base_text", return_value=old), patch.object(CATALOG, "catalog_entries", wraps=CATALOG.catalog_entries) as parse:
+                result = MODULE.changed_catalog_keys(root, "base", [str(path.relative_to(root))])
+            self.assertEqual(sum(call.args[0] == current for call in parse.call_args_list), 1)
+            self.assertLessEqual(parse.call_count, 3)  # base, current, optional final validation
+            self.assertEqual(result.stale, 12)
+            for record in json.loads(path.read_text())["strings"].values():
+                self.assertEqual(record["localizations"]["de"], unit("Alt", "needs_review"))
+
     def test_end_to_end_reports_failure_and_success(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
