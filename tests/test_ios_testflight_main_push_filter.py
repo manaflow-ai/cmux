@@ -265,6 +265,7 @@ const outputs = {{}};
 const compareCalls = [];
 const warnings = [];
 const notices = [];
+const debugMessages = [];
 const waitCalls = [];
 const workflowRunRequests = [];
 const artifactRequests = [];
@@ -456,7 +457,9 @@ const core = {{
     warnings.push(message);
   }},
   info: () => {{}},
-  debug: () => {{}},
+  debug: (message) => {{
+    debugMessages.push(message);
+  }},
   notice: (message) => {{
     notices.push(message);
   }},
@@ -483,6 +486,7 @@ process.stdout.write(JSON.stringify({{
   compareCalls,
   warnings,
   notices,
+  debugMessages,
   waitCalls,
   workflowRunCalls,
   workflowRunRequests,
@@ -1086,6 +1090,7 @@ def test_internal_poll_skips_when_ordering_cannot_be_checked() -> None:
         # The run page is public: the notice must not carry the API's message.
         assert len(result["notices"]) == 1
         assert f"transient {failed_api} failure" not in result["notices"][0]
+        assert any(f"transient {failed_api} failure" in message for message in result["debugMessages"])
         assert result["outputs"] == {
             "should_build": "false",
             "last_uploaded_sha": "",
