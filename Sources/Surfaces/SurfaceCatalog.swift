@@ -146,7 +146,6 @@ final class SurfaceCatalog {
     }
 
     // MARK: Providers
-
     func register(_ provider: any SurfaceProvider) {
         if let previous = providers[provider.machine], previous !== provider {
             cloudWorkspaceProjectionCoordinator.cancel(machine: provider.machine)
@@ -448,11 +447,12 @@ final class SurfaceCatalog {
         // canonical resource map.
         rebuildResourceIndex(for: state.machine)
 
+        let freshnessChanged = cloudStateObservations[state.machine]?.freshness != observation.freshness
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
         machines[state.machine] = machineInfoPreservingCanonicalCloudState(info, state: state)
         resolvePendingRestoredProjections(on: state.machine)
-        updateCloudDirectoryMetadata(on: state.machine)
+        updateCloudDirectoryMetadata(on: state.machine, affectedResourceIDs: freshnessChanged ? nil : affectedResourceIDs)
         notifyChange()
         return changed
     }

@@ -77,6 +77,9 @@ struct CloudDirectoryLifecycleTests {
         let fixture = try CloudDirectoryTestFixture()
         defer { fixture.close() }
         let old = try #require(fixture.provider.cloudState)
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "temporary gap")
+        try fixture.changeDirectory("/srv/resumed", terminal: 0)
+        #expect(fixture.workspace.reportedPanelDirectory(panelId: fixture.panels[1]) == "/home/cmux/second")
         fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
         #expect(fixture.workspace.presentedCurrentDirectory == nil)
         #expect(fixture.catalog.snapshot.staleMachineIDs.contains(fixture.machine))
