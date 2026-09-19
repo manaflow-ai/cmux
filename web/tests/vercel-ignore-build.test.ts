@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   mkdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -97,6 +98,24 @@ test("skips commits that do not change web build inputs", () => {
   writeFileSync(join(repository, "Sources", "App.swift"), "let app = false\n");
   const nativeChange = commit("native change");
   expect(ignoreBuild(base, nativeChange)).toBe(0);
+});
+
+test("still skips native-only commits after Vercel applies the deployment exclusions", () => {
+  // Vercel removes .vercelignore matches before running the ignored-build
+  // command. Use the real rules, not a fixture which always retains Git.
+  writeFileSync(
+    join(repository, ".vercelignore"),
+    readFileSync(new URL("../../.vercelignore", import.meta.url)),
+  );
+  const base = commit("base");
+  writeFileSync(join(repository, "Sources", "App.swift"), "let app = false\n");
+  const current = commit("native change");
+  const excluded = spawnSync("git", [
+    "-c", "core.excludesFile=.vercelignore",
+    "check-ignore", "--no-index", ".git/HEAD",
+  ], { cwd: repository });
+  if (excluded.status === 0) rmSync(join(repository, ".git"), { recursive: true });
+  expect(ignoreBuild(base, current)).toBe(0);
 });
 
 test("builds when a web or shared build input changes", () => {
