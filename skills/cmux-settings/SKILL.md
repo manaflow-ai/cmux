@@ -32,7 +32,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 | `cmux-settings validate` | Run the same semantic validation as `cmux config validate` (unknown paths, types, enums, bounds, nested constraints, and config scope). |
 | `cmux-settings open` | Open `cmux.json` in `$EDITOR`, VS Code, Cursor, or TextEdit. |
 
-`--file <path>` overrides the target file, useful for `--file ~/.config/cmux/settings.json`.
+`--file <path>` overrides the target file. Scope is inferred from the real global paths and the project config discovered from the current directory; use `--scope global|project` to override that inference for an arbitrary file.
 
 ## Workflow
 
