@@ -263,14 +263,16 @@ struct CMUXConfigSemanticValidator {
             if let propertyNameSchema {
                 issues.append(contentsOf: validate(key, against: propertyNameSchema, path: child))
             }
-            if let propertySchema = properties[key] as? [String: Any] {
-                issues.append(contentsOf: validate(value[key] as Any, against: propertySchema, path: child))
+            if let propertySchema = properties[key] as? [String: Any],
+               let childValue = value[key] {
+                issues.append(contentsOf: validate(childValue, against: propertySchema, path: child))
                 continue
             }
             if let allowed = additional as? Bool, !allowed {
                 issues.append(CMUXConfigSemanticIssue(path: child, message: "unknown configuration key"))
-            } else if let additionalSchema = additional as? [String: Any] {
-                issues.append(contentsOf: validate(value[key] as Any, against: additionalSchema, path: child))
+            } else if let additionalSchema = additional as? [String: Any],
+                      let childValue = value[key] {
+                issues.append(contentsOf: validate(childValue, against: additionalSchema, path: child))
             }
         }
         return issues
@@ -381,10 +383,12 @@ struct CMUXConfigSemanticValidator {
             return left == right
         }
         if let left = lhs as? [Any], let right = rhs as? [Any] {
-            return left.count == right.count && zip(left, right).allSatisfy(jsonEqual)
+            return left.count == right.count && zip(left, right).allSatisfy { pair in
+                jsonEqual(pair.0, pair.1)
+            }
         }
         if let left = lhs as? [String: Any], let right = rhs as? [String: Any] {
-            guard left.keys == right.keys else { return false }
+            guard Set(left.keys) == Set(right.keys) else { return false }
             return left.allSatisfy { key, value in
                 guard let other = right[key] else { return false }
                 return jsonEqual(value, other)
