@@ -412,12 +412,33 @@ final class CloudVMLoadingPanel: Panel {
         case failed(String, elapsedSeconds: Int)
     }
 
+    /// Which create the placeholder stands in for. Drives the headline and
+    /// the step copy; runtime only (loading panels are never persisted).
+    enum Flow: Equatable {
+        /// `cmux vm base open`: the persistent Base slot.
+        case base
+        /// `cmux vm new`: a fresh machine.
+        case newMachine
+        /// `cmux vm fork <id>`: a machine started from a snapshot of `sourceName`.
+        case fork(sourceName: String)
+
+        var isBase: Bool { self == .base }
+    }
+
     let id: UUID
     let workspaceId: UUID
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cloudVMLoading
     @Published var startedAt: Date
     @Published var phase: Phase = .loading
+    @Published var flow: Flow = .base
+    /// What Retry does for this placeholder. Nil means the Base open path.
+    /// Set by whoever launched the create; cleared when a retry would mint a
+    /// second machine (the machine exists but opening it failed).
+    var retryHandler: (@MainActor () -> Void)?
+    /// False once the create minted a machine that failed to open: a retry
+    /// would create another one, so the panel offers the Machines panel instead.
+    @Published var canRetry = true
 
     var displayTitle: String {
         String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")

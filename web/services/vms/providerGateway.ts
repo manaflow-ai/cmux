@@ -71,6 +71,7 @@ export type VmProviderGatewayShape = {
     vmId: string,
     snapshotId: string,
   ) => Effect.Effect<void, VmProviderOperationError>;
+  readonly supportsNativeFork?: (provider: ProviderId) => boolean;
   readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   /** Driver capabilities. Optional for compatibility with older test doubles. */
   readonly capabilities?: (provider: ProviderId) => VmCapabilities;
@@ -248,6 +249,7 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       await impl.deleteSnapshot(vmId, snapshotId);
     }),
+  supportsNativeFork: (provider) => typeof getProvider(provider).fork === "function",
   fork: (provider, vmId) =>
     providerEffect(provider, "fork", async () => {
       const driver = getProvider(provider);

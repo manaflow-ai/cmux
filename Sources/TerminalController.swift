@@ -320,6 +320,7 @@ class TerminalController {
         "workspace.last",
         "workspace.group.focus",
         "workspace.cloud_vm_open",
+        "workspace.cloud_vm_create",
         "surface.focus",
         "pane.focus",
         "pane.last",
@@ -2931,6 +2932,8 @@ class TerminalController {
         // workspace.remote.pty_* methods stay on the app-side worker path.
         case "workspace.cloud_vm_open":
             return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
+        case "workspace.cloud_vm_create":
+            return v2Result(id: id, self.v2WorkspaceCloudVMCreate(params: params))
         case "workspace.cloud_vm_terminal_ready":
             return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
         case "workspace.cloud_vm_bind":
@@ -3264,6 +3267,7 @@ class TerminalController {
             "workspace.list",
             "workspace.create",
             "workspace.cloud_vm_open",
+            "workspace.cloud_vm_create",
             "workspace.cloud_vm_terminal_ready",
             "workspace.cloud_vm_bind",
             "workspace.env",

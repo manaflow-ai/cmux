@@ -1,6 +1,18 @@
 import CmuxFoundation
 import Foundation
 
+enum CloudLinkRetryPolicy {
+    nonisolated static let delays: [Duration] = [
+        .seconds(5), .seconds(10), .seconds(20), .seconds(40), .seconds(40), .seconds(40),
+    ]
+
+    /// The wait before retry number `attempt` (1-based); nil once the budget is spent.
+    nonisolated static func delay(forAttempt attempt: Int) -> Duration? {
+        guard attempt >= 1, attempt <= delays.count else { return nil }
+        return delays[attempt - 1]
+    }
+}
+
 /// The app's headless cmux-tui links, one per awake cloud machine. Links are created on
 /// demand (a tree read, a terminal open) — never to list a sleeping machine, since the
 /// control plane wakes a machine on attach — and torn down when the machine is deleted
@@ -62,7 +74,7 @@ actor CloudMachineLinkManager {
     /// How long a link may take to report its socket: the daemon accepts a
     /// carrier or enrolled session immediately, so anything slower than this is
     /// a broken route rather than a slow one.
-    private let connectTimeout: Duration = .seconds(60)
+    private let connectTimeout: Duration = .seconds(25)
     /// This Mac's resolved Ghostty default colors ("#rrggbb"), pushed to each machine as
     /// its cmux-tui session defaults (`set-default-colors`) so remote panes render with
     /// the local theme. Injected so tests need no Ghostty runtime.
@@ -221,38 +233,47 @@ actor CloudMachineLinkManager {
             guard let hub else { throw ManagerError.wireGuardHubMissing }
             try Task.checkCancellation()
             guard isCloudEnabled() else { throw VMClientError.cloudMachinesDisabled }
-            let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
-            let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
-            let reachableRoute: String
-            do {
+            for attempt in 0..<2 {
                 try Task.checkCancellation()
-                reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
-            } catch {
-                await releaseLease()
-                throw error
-            }
-            #if DEBUG
-            cmuxDebugLog("cloud.link.wireguardHub machine=\(machineID) socket=\(claim.ready.socketPath)")
-            #endif
-            do {
-                try Task.checkCancellation()
-                let connected = try await link.connect(
-                    route: reachableRoute,
-                    session: session,
-                    carrier: carrier,
-                    timeout: connectTimeout,
-                    wireguardHubSocket: claim.ready.socketPath,
-                    releaseHubLease: releaseLease
-                )
-                try Task.checkCancellation()
-                if carrier, knownFingerprint == nil {
-                    paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+                guard isCloudEnabled() else { throw VMClientError.cloudMachinesDisabled }
+                let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
+                self.store(link: link, for: machineID)
+                let claim = try await CloudOperationContext.phase(.tunnel) { try await hub.acquire() }
+                let releaseLease: @Sendable () async -> Void = { await hub.release(claim.lease) }
+                let reachableRoute: String
+                do {
+                    try Task.checkCancellation()
+                    reachableRoute = try await CloudOperationContext.phase(.route) { try await self.resolvedPrivateRoute(machineID: machineID, through: claim.ready) }
+                } catch {
+                    await releaseLease()
+                    throw error
                 }
-                return connected
-            } catch {
-                await link.disconnect()
-                throw error
+                #if DEBUG
+                cmuxDebugLog("cloud.link.wireguardHub machine=\(machineID) socket=\(claim.ready.socketPath)")
+                #endif
+                do {
+                    try Task.checkCancellation()
+                    let connected = try await link.connect(
+                        route: reachableRoute,
+                        session: session,
+                        carrier: carrier,
+                        timeout: connectTimeout,
+                        wireguardHubSocket: claim.ready.socketPath,
+                        releaseHubLease: releaseLease
+                    )
+                    try Task.checkCancellation()
+                    if carrier, knownFingerprint == nil {
+                        paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+                    }
+                    return connected
+                } catch {
+                    await link.disconnect()
+                    guard attempt == 0, !Task.isCancelled,
+                          case CloudMachineLink.LinkError.timedOut = error else { throw error }
+                }
             }
+            throw CancellationError()
+
         }
         connecting[machineID] = task
         defer { if connecting[machineID] == task { connecting[machineID] = nil } }

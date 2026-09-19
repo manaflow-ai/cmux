@@ -282,8 +282,8 @@ final class NewCloudWorkspaceShortcutTests: XCTestCase {
         let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
         let menu = try XCTUnwrap(appDelegate.makeNewWorkspaceContextMenu(context: context, cmuxConfigStore: store))
         let rows = builtInMenuRows(menu)
-        XCTAssertEqual(rows.prefix(2).map(\.action), [.newTerminal, .newCloudWorkspace])
-        XCTAssertEqual(rows[1].item.keyEquivalent, "y")
+        XCTAssertEqual(rows.prefix(5).map(\.action), [.newWorkspace, .newCloudMachine, .newBrowser, .newTerminal, .newCloudWorkspace])
+        XCTAssertEqual(rows[4].item.keyEquivalent, "y")
     }
 
     // MARK: Shared action path

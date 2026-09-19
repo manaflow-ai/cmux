@@ -60,6 +60,7 @@ struct NewMachineModelTests {
         memoryOptionsMb: [Int] = NewMachineModel.memoryOptionsMb,
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
+        sourceOptions: [NewMachineModel.SourceMachine] = [],
         starts: Bool = true
     ) -> (NewMachineModel, Box<[MachineCreateRequest]>) {
         let recorder = Box<[MachineCreateRequest]>([])
@@ -68,7 +69,8 @@ struct NewMachineModelTests {
             plan: plan,
             memoryOptionsMb: memoryOptionsMb,
             lockedMemoryOptionsMb: lockedMemoryOptionsMb,
-            memoryUpgradePlanId: memoryUpgradePlanId
+            memoryUpgradePlanId: memoryUpgradePlanId,
+            sourceOptions: sourceOptions
         ) { request in
             recorder.value.append(request)
             return starts
@@ -252,5 +254,61 @@ struct NewMachineModelTests {
         #expect(recorder.value.count == 1)
         #expect(model.outcome == nil)
         #expect(model.errorText != nil)
+    }
+    private static let sources = [
+        NewMachineModel.SourceMachine(id: "vm-base", name: "Base"),
+        NewMachineModel.SourceMachine(id: "vm-kind-otter", name: "kind-otter"),
+    ]
+
+    @Test func defaultImageStaysSelectedUntilASourceIsPicked() {
+        let (model, _) = makeModel(sourceOptions: Self.sources)
+        #expect(model.supportsSource)
+        #expect(model.source == .image)
+        #expect(model.sourceSelectionID == "")
+        #expect(model.supportsSize)
+        #expect(model.cliArguments == ["vm", "new", NewMachineModel.machineKind.cliFlag, "--size", "8192", "--focus", "false"])
+    }
+
+    @Test func forkSourceHidesSizeAndRunsVmFork() {
+        let (model, recorder) = makeModel(sourceOptions: Self.sources)
+        model.sourceSelectionID = "vm-kind-otter"
+        #expect(model.source == .fork(Self.sources[1]))
+        #expect(!model.supportsSize)
+        #expect(model.cliArguments == ["vm", "fork", "vm-kind-otter", "--focus", "false"])
+        model.create()
+        let request = recorder.value.first
+        #expect(request?.source == .fork(vmID: "vm-kind-otter", name: "kind-otter"))
+        #expect(request?.displayName == "Fork of kind-otter")
+        #expect(request?.progressLabel == "Forking kind-otter…")
+        #expect(request?.failureLabel == "Couldn't fork kind-otter")
+        #expect(request?.loadingFlow == .fork(sourceName: "kind-otter"))
+    }
+
+    @Test func unknownSourceSelectionFallsBackToTheImage() {
+        let (model, _) = makeModel(sourceOptions: Self.sources)
+        model.sourceSelectionID = "vm-kind-otter"
+        model.sourceSelectionID = "vm-gone"
+        #expect(model.source == .image)
+        #expect(model.supportsSize)
+    }
+
+    @Test func baseSetupNeverOffersSources() {
+        let (model, _) = makeModel(mode: .base(workspaceID: UUID()), sourceOptions: Self.sources)
+        #expect(!model.supportsSource)
+        #expect(model.sourceOptions.isEmpty)
+    }
+
+    @Test func requestBindsToAPlaceholderWorkspaceOnce() {
+        let (model, recorder) = makeModel()
+        model.create()
+        let request = try! #require(recorder.value.first)
+        #expect(request.placeholderWorkspaceID == nil)
+        #expect(request.loadingFlow == .newMachine)
+        let workspaceID = UUID()
+        let bound = request.withPlaceholder(workspaceID: workspaceID)
+        #expect(bound.placeholderWorkspaceID == workspaceID)
+        #expect(bound.arguments == ["vm", "new", NewMachineModel.machineKind.cliFlag, "--size", "8192", "--focus", "false", "--workspace", workspaceID.uuidString])
+        let rebound = bound.withPlaceholder(workspaceID: UUID())
+        #expect(rebound.arguments == bound.arguments, "a second bind never appends a second --workspace")
     }
 }

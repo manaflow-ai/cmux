@@ -174,6 +174,65 @@ extension TerminalController {
         ])
     }
 
+    /// Starts a machine create the way the New Machine sheet's Create does:
+    /// a loading-pane workspace appears at once and the CLI fills it in.
+    /// `source_vm_id` forks that machine (its snapshot becomes the new
+    /// machine); otherwise the default image with optional `size_mb`.
+    /// Returns the placeholder workspace so automation can watch it.
+    func v2WorkspaceCloudVMCreate(params: [String: Any]) -> V2CallResult {
+        guard ManagedCloudPolicy.isEnabled, CloudMachinesFeature.offMainIsEnabled() else {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let appDelegate = AppDelegate.shared else {
+            return .err(code: "unavailable", message: "AppDelegate not available", data: nil)
+        }
+        let request: MachineCreateRequest
+        if let sourceVMID = (params["source_vm_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !sourceVMID.isEmpty {
+            let sourceName = (params["source_name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? sourceVMID
+            request = MachineCreateRequest(
+                mode: .newMachine,
+                kind: .defaultKind,
+                name: nil,
+                arguments: ["vm", "fork", sourceVMID, "--focus", "false"],
+                source: .fork(vmID: sourceVMID, name: sourceName)
+            )
+        } else {
+            var arguments = ["vm", "new", VMMachineKind.defaultKind.cliFlag]
+            if let sizeMb = params["size_mb"] as? Int, sizeMb > 0 {
+                arguments += ["--size", String(sizeMb)]
+            }
+            arguments += ["--focus", "false"]
+            request = MachineCreateRequest(mode: .newMachine, kind: .defaultKind, name: nil, arguments: arguments)
+        }
+        let beforeIds = Set(tabManager.tabs.map(\.id))
+        let didStart = appDelegate.startCloudMachineCreate(
+            request,
+            tabManager: tabManager,
+            preferredWindow: nil,
+            debugSource: "rpc.workspace.cloud_vm_create"
+        )
+        guard didStart else {
+            return .err(code: "unavailable", message: "Cloud VM create could not be started", data: nil)
+        }
+        let workspace = tabManager.tabs.first { workspace in
+            !beforeIds.contains(workspace.id)
+                && workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading })
+        }
+        let workspaceId = workspace?.id
+        let windowId = v2ResolveWindowId(tabManager: tabManager)
+        return .ok([
+            "started": didStart,
+            "window_id": v2OrNull(windowId?.uuidString),
+            "workspace_id": v2OrNull(workspaceId?.uuidString),
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "arguments": request.withPlaceholder(workspaceID: workspaceId ?? UUID()).arguments,
+        ])
+    }
+
     func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
         // `DisableCloud` (MDM): these sit under the `workspace.` prefix, so the
         // `vm.*` socket gate never sees them.

@@ -470,7 +470,7 @@ struct CloudManualMirrorTransportTests {
         ))
         #expect(timeout.isRetryable)
         #expect(!timeout.cannotServeTerminalID)
-        #expect(CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.timedOut).isRetryable)
+        #expect(CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.timedOut(after: .seconds(25), output: "")).isRetryable)
 
         // The structured form a current client prints for the same timeout.
         let structuredTimeout = CloudTuiDaemonAnswer(error: CloudMachineLink.LinkError.exited(
