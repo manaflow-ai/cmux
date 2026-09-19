@@ -168,6 +168,20 @@ extension Workspace {
         cancel?()
     }
 
+    /// Drops a reservation when its remote workspace is invalidated before the
+    /// provider create can begin. The pane is owned by this request, so leaving
+    /// it visible would strand a loading surface after cancellation.
+    func discardReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
+        guard cloudPendingCreations[reservation.panelID] === reservation else { return }
+        cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        reservation.inputRelay.discard()
+        let cancel = reservation.cancel
+        reservation.cancel = nil
+        reservation.retry = nil
+        cancel?()
+        _ = closePanel(reservation.panelID, force: true)
+    }
+
     /// Workspace teardown: every pending request ends without touching remote terminals.
     func cancelAllReservedCloudTerminalPanes() {
         for panelID in Array(cloudPendingCreations.keys) {

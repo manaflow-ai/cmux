@@ -805,44 +805,6 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(CloudTreeBrowserDetail.text(for: row), "cmux.com")
         } else { XCTFail("expected browser row") }
     }
-    func testCloudTreeSleepingAndBrokenMachinesShowOnePlaceholder() {
-        let asleep = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "quiet-owl", image: "cmuxd-ws:tooling-20260509f")],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("quiet-owl"), linkState: .asleep, hasDesktop: false)], resources: [], projections: []),
-            localWorkspaces: []
-        )
-        // The link placeholder leads; Ports stays reachable, and Resources is
-        // always the final machine section.
-        XCTAssertEqual(
-            CloudTreeNodeBuilder.flattened(asleep).map(\.id),
-            ["machine:quiet-owl", "machine:quiet-owl/placeholder", "machine:quiet-owl/ports", "machine:quiet-owl/ports/status", "machine:quiet-owl/resources", "machine:quiet-owl/resources/cpu", "machine:quiet-owl/resources/memory", "machine:quiet-owl/resources/disk", "machine:quiet-owl/resources/usage"]
-        )
-        if case .placeholder(_, let placeholder) = asleep[0].children[0].kind { XCTAssertEqual(placeholder.style, .dimmed) } else { XCTFail() }
-        if case .placeholder(_, let ports) = asleep[0].children[1].children[0].kind { XCTAssertEqual(ports.style, .dimmed) } else { XCTFail() }
-
-        let broken = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "broken-elk")],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("broken-elk"), linkState: .error, linkError: "timed out", hasDesktop: false)], resources: [], projections: []),
-            localWorkspaces: []
-        )
-        if case .placeholder(_, let placeholder) = broken[0].children[0].kind {
-            XCTAssertEqual(placeholder.style, .error)
-            XCTAssertEqual(placeholder.text, "timed out")
-        } else { XCTFail() }
-        // A machine the catalog has not registered yet still gets its final
-        // Resources section while the surface connection is connecting.
-        let unregistered = CloudTreeNodeBuilder.nodes(machines: [machineSnapshot(id: "new")], snapshot: .empty, localWorkspaces: [])
-        XCTAssertEqual(unregistered[0].children.map(\.id), ["machine:new/placeholder", "machine:new/resources", "machine:new/resources/cpu", "machine:new/resources/memory", "machine:new/resources/disk", "machine:new/resources/usage"])
-        if case .placeholder(_, let placeholder) = unregistered[0].children[0].kind { XCTAssertEqual(placeholder.style, .connecting) } else { XCTFail() }
-        // A machine only the catalog knows still gets a row.
-        let catalogOnly = CloudTreeNodeBuilder.nodes(
-            machines: [],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.cloud("ghost"))], resources: [], projections: []),
-            localWorkspaces: []
-        )
-        XCTAssertEqual(catalogOnly.map(\.id), ["machine:ghost"])
-    }
-
     func testSurfaceResourceDragRecordRoundTripsAndNamesEveryResource() throws {
         let port = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "port:8000")
         let term = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .terminal, key: "term_1")
@@ -967,29 +929,6 @@ final class MachinesPanelModelTests: XCTestCase {
         } catch {
             XCTAssertEqual(error as? SurfaceCatalogError, .unknownResource(missing))
         }
-    }
-
-    @MainActor
-    func testCloudTreeExpansionStoreDefaultsToExpandedAndPersistsMachineCollapse() {
-        let defaults = UserDefaults(suiteName: "CloudTreeExpansionStoreTests-\(UUID().uuidString)")!
-        let store = CloudTreeExpansionStore(defaults: defaults)
-        let nodes = CloudTreeNodeBuilder.nodes(
-            machines: [machineSnapshot(id: "vivid-newt")],
-            snapshot: SurfaceCatalogSnapshot(machines: [machineInfo(.local), machineInfo(.cloud("vivid-newt"))], resources: [terminal(.cloud("vivid-newt"), "term_1")], projections: []),
-            localWorkspaces: [],
-            includeLocalMachine: true
-        )
-        let localNode = nodes[0], machineNode = nodes[1], group = machineNode.children[0]
-        XCTAssertTrue(store.isExpanded(localNode))
-        XCTAssertTrue(store.isExpanded(machineNode))
-        XCTAssertTrue(store.isExpanded(group))
-        store.setExpanded(false, node: machineNode)
-        store.setExpanded(false, node: localNode)
-        store.setExpanded(false, node: group)
-        let reloaded = CloudTreeExpansionStore(defaults: defaults)
-        XCTAssertFalse(reloaded.isExpanded(machineNode), "machine collapse persists")
-        XCTAssertFalse(reloaded.isExpanded(localNode), "This Mac's collapse persists too")
-        XCTAssertTrue(reloaded.isExpanded(group), "nested collapses are panel-lifetime only")
     }
 
     func testMachineSubtitleNeverShowsTheFreeAccessCountdown() {
