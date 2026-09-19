@@ -21,16 +21,26 @@ export function cloudAxiomConfiguration(env = process.env): CloudAxiomConfigurat
   const origin = trustedAxiomOrigin(env.CMUX_CLOUD_AXIOM_ORIGIN);
   if (!origin) return null;
   const production = env.VERCEL_ENV === "production";
-  const development = !env.VERCEL_ENV && !!env.CMUX_DEV_BUILD_TAG?.trim();
+  const development = isDevelopmentBuild(env);
   return {
     origin, token, identityKey,
-    tracesDataset: development ? "cmux-dev-otel-traces" : production ? "cmux-prod-otel-traces" : "cmux-preview-otel-traces",
-    errorsDataset: development ? "cmux-dev-otel-traces" : production ? "cmux-cloud-errors-prod" : "cmux-cloud-errors-preview",
+    tracesDataset: telemetryDataset(development, production, false),
+    errorsDataset: telemetryDataset(development, production, true),
     environment: production ? "production" : env.VERCEL_ENV === "preview" ? "preview" : "development",
     tag: development ? env.CMUX_DEV_BUILD_TAG : undefined,
     sourceSha256: development ? env.CMUX_DEV_BUILD_SOURCE_SHA256?.match(/^[0-9a-f]{64}$/)?.[0] : undefined,
     revision: (development ? env.CMUX_DEV_BUILD_COMMIT : env.VERCEL_GIT_COMMIT_SHA)?.match(/^[0-9a-f]{7,64}$/)?.[0] ?? "unknown",
   };
+}
+
+function isDevelopmentBuild(env: NodeJS.ProcessEnv): boolean {
+  return !env.VERCEL_ENV && !!env.CMUX_DEV_BUILD_TAG?.trim();
+}
+
+function telemetryDataset(development: boolean, production: boolean, errors: boolean): string {
+  if (development) return "cmux-dev-otel-traces";
+  if (production) return errors ? "cmux-cloud-errors-prod" : "cmux-prod-otel-traces";
+  return errors ? "cmux-cloud-errors-preview" : "cmux-preview-otel-traces";
 }
 
 export async function exportCloudDiagnostics(
