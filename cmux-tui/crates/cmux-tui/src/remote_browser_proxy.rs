@@ -214,7 +214,7 @@ async fn serve_connect_connection(
     let header_end = loop {
         let read = tokio::time::timeout_at(
             handshake_deadline,
-            tokio::io::AsyncReadExt::read(&mut socket, &mut buffer),
+            AsyncReadExt::read(&mut socket, &mut buffer),
         )
         .await??;
         if read == 0 {
@@ -336,7 +336,7 @@ async fn serve_connect_connection(
     let upload = async {
         let mut buffer = [0_u8; 16 * 1024];
         loop {
-            let read = tokio::io::AsyncReadExt::read(&mut reader, &mut buffer).await?;
+            let read = AsyncReadExt::read(&mut reader, &mut buffer).await?;
             if read == 0 {
                 stream.close().await?;
                 return Ok::<(), anyhow::Error>(());
@@ -566,4 +566,15 @@ pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String
     let host = normalize_proxy_host(host)?;
     let port = port.parse::<u16>().map_err(|_| anyhow!("invalid CONNECT port"))?;
     Ok((host, port))
+}
+
+fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
+    let mut difference = left.len() ^ right.len();
+    let length = left.len().max(right.len());
+    for index in 0..length {
+        let left_byte = left.get(index).copied().unwrap_or(0);
+        let right_byte = right.get(index).copied().unwrap_or(0);
+        difference |= usize::from(left_byte ^ right_byte);
+    }
+    difference == 0
 }
