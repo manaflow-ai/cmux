@@ -1,5 +1,8 @@
 # cmux Cloud CLI reference
 
+See the [provider and transport matrix](../../../docs/cloud-vm-provider-matrix.md)
+for image, attach, and checkpoint compatibility.
+
 Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cmux cloud` is an alias for `cmux vm` (`cmux cloud ls` == `cmux vm self`). Verbs that exist only in an open PR are listed at the end under [In flight](#in-flight) and nowhere else, so nothing above that heading is something you cannot run today. `tests/test_cloud_vm_skill_coverage.py` fails CI when this file and `CLI/cmux.swift` disagree.
 
 ## Conventions
@@ -802,8 +805,8 @@ Policy (shared with `run` and `agent`): the machine bound to the directory → a
 ## Lifecycle
 
 ```bash
-cmux vm new --detach                   # new Desktop machine (screen + shell), headless create
-cmux vm new --base --detach            # shell-only machine
+cmux vm new --detach                   # new devbox with a screen, headless create
+cmux vm new --base --detach            # compatibility flag; same devbox with a screen
 cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|24g|32g or raw MB (disk follows memory, 16 GB max)
 cmux vm new --name "build box" --detach # display label; the id stays the address
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
@@ -812,6 +815,11 @@ cmux vm rename <id> --clear
 cmux vm resume <id>                    # wake a paused machine (the same plan limits as a create apply)
 cmux vm rm <id>                        # PERMANENT delete of machine + data (aliases: destroy, delete)
 ```
+
+`vm new` requests `desktop`; `--base` and `--no-desktop` are compatibility
+flags. The current manifest serves the same sized desktop images for both
+kinds. Inspect `cmux vm ls --json` and `limits.imageKinds` for the deployed
+image configuration.
 
 Without `--detach`, `vm new`, `vm fork`, and `vm restore` also open the machine as a workspace in the user's app.
 
@@ -966,7 +974,7 @@ it wrote. No control-plane credential enters a machine.
 ## SSH (provider-dependent)
 
 ```bash
-cmux vm ssh <id>                       # cmux-managed SSH workspace (not on every provider)
+cmux vm ssh <id>                       # legacy SSH workspace; unsupported by current Freestyle
 cmux vm ssh-info <id>                  # raw SSH endpoint details when available
 ```
 
