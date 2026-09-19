@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import Foundation
 
 /// Immutable display and action data for one live agent session in the computer-use menu.

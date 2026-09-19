@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import Foundation
 import Testing
 import CmuxControlSocket

@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import Foundation
 
 /// The one evaluator for "is this restored or hook-published agent still

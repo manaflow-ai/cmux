@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import CmuxWorkspaces
 import Foundation
 import Observation

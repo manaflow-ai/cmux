@@ -1,5 +1,5 @@
 /// A macOS permission owned by the standalone Computer Use helper.
-enum ComputerUseSystemPermission: String, Hashable, Sendable {
+public enum ComputerUseSystemPermission: String, Hashable, Sendable {
     case accessibility
     case screenRecording = "screen_recording"
 }

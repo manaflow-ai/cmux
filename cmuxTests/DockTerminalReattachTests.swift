@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import AppKit
 import CmuxWorkspaces
 import Combine

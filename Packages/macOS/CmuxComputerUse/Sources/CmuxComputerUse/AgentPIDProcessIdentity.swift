@@ -1,11 +1,16 @@
 import Darwin
 
-struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
-    let pid: pid_t
-    let startSeconds: Int64
-    let startMicroseconds: Int64
+/// The agent pidprocess identity exposed to the host application.
+public struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
+    /// The pid exposed to the host application.
+    public let pid: pid_t
+    /// The start seconds exposed to the host application.
+    public let startSeconds: Int64
+    /// The start microseconds exposed to the host application.
+    public let startMicroseconds: Int64
 
-    init(pid: pid_t, startSeconds: Int64, startMicroseconds: Int64) {
+    /// Creates a AgentPIDProcessIdentity with the supplied values.
+    public init(pid: pid_t, startSeconds: Int64, startMicroseconds: Int64) {
         self.pid = pid
         self.startSeconds = startSeconds
         self.startMicroseconds = startMicroseconds
@@ -24,7 +29,7 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     /// reaped, which `proc_pidinfo` refused. Zombies are rejected explicitly so
     /// a readable identity keeps meaning the process is running — callers such
     /// as session restore treat it as proof the agent is still alive.
-    init?(pid: pid_t) {
+    public init?(pid: pid_t) {
         guard let snapshot = Self.processSnapshot(pid: pid) else { return nil }
         self = snapshot.identity
     }
@@ -32,7 +37,7 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     /// Reads identity and ancestry from one kernel snapshot so callers do not
     /// accidentally combine a reused pid with metadata from different process
     /// generations. Zombies are rejected just as in `init?(pid:)`.
-    static func processSnapshot(
+    public static func processSnapshot(
         pid: pid_t
     ) -> (identity: AgentPIDProcessIdentity, parentPID: pid_t)? {
         guard let entry = processTableEntry(pid: pid), !entry.hasExited else { return nil }
@@ -52,7 +57,7 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     /// `kill(pid, 0)` cannot distinguish it from a running process. It runs no
     /// code and can own no resources, so callers weighing whether a PID might
     /// still hold something read it as gone.
-    static func hasExitedWithoutReaping(pid: pid_t) -> Bool {
+    public static func hasExitedWithoutReaping(pid: pid_t) -> Bool {
         processTableEntry(pid: pid)?.hasExited ?? false
     }
 

@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import Foundation
 import CMUXAgentLaunch
 extension RestorableAgentSessionIndex {

@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import CMUXAgentLaunch
 import Darwin
 import Foundation

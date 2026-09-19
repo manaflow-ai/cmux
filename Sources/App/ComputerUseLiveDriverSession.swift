@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import Foundation
 
 /// The logical agent session and process roots currently assigned to a Computer Use driver session.
