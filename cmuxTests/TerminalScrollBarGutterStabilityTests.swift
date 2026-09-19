@@ -28,6 +28,7 @@ struct TerminalScrollBarGutterStabilityTests {
         let hostedView: GhosttySurfaceScrollView
         let paneWidth: CGFloat = 640
 
+        /// Hosts a fresh pane in a 640pt-wide window laid out with `scrollerStyle`.
         init(scrollerStyle: NSScroller.Style) {
             let surfaceView = GhosttyNSView(frame: .zero)
             hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
@@ -91,5 +92,4 @@ struct TerminalScrollBarGutterStabilityTests {
         #expect(withHistory == harness.paneWidth)
         #expect(afterReset == harness.paneWidth)
     }
-
 }
