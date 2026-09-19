@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import WebKit
@@ -95,6 +96,55 @@ struct BrowserFailedNavigationReloadTests {
         #expect(webView.requests.isEmpty)
         #expect(webView.reloadCount == (action == .hardRefresh ? 0 : 1))
         #expect(webView.originReloadCount == (action == .hardRefresh ? 1 : 0))
+    }
+
+    @Test(arguments: Action.allCases)
+    func URLOnlyFailureStillStartsARealLoad(action: Action) throws {
+        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        let webView = installRecordingWebView(in: panel)
+        let request = URLRequest(url: try #require(URL(string: "https://refresh.example/recovered")))
+        fail(request, in: panel, webView: webView)
+        webView.reportedURL = URL(string: "about:blank")
+
+        action.perform(on: panel)
+
+        let replay = try #require(webView.requests.first)
+        #expect(replay.url == request.url)
+        #expect(replay.httpMethod == "GET")
+        #expect(replay.cachePolicy == (action == .hardRefresh ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy))
+    }
+
+    @Test func portalRebindPreservesDocumentAndRoutesRefreshToTheSameWebView() throws {
+        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        let webView = installRecordingWebView(in: panel)
+        webView.reportedURL = URL(string: "https://refresh.example/current")
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .closable], backing: .buffered, defer: false
+        )
+        defer { window.orderOut(nil) }
+        let content = try #require(window.contentView)
+        let first = NSView(frame: NSRect(x: 20, y: 20, width: 350, height: 400))
+        content.addSubview(first)
+        BrowserWindowPortalRegistry.bind(webView: webView, to: first, visibleInUI: true)
+        let slot = try #require(webView.superview)
+        BrowserWindowPortalRegistry.hide(webView: webView)
+        first.removeFromSuperview()
+        let replacement = NSView(frame: NSRect(x: 400, y: 20, width: 350, height: 400))
+        content.addSubview(replacement)
+        BrowserWindowPortalRegistry.bind(webView: webView, to: replacement, visibleInUI: true)
+        BrowserWindowPortalRegistry.refresh(webView: webView, reason: "test.paneReplacement")
+
+        #expect(webView.superview === slot)
+        #expect(webView.isDescendant(of: try #require(window.contentView)))
+        #expect(BrowserWindowPortalRegistry.isPresented(webView))
+        #expect(webView.requests.isEmpty)
+        #expect(webView.reloadCount == 0)
+        panel.reload()
+        #expect(webView.reloadCount == 1)
+        #expect(panel.webView === webView)
     }
 
     private func installRecordingWebView(in panel: BrowserPanel) -> BrowserReloadRecordingWebView {
