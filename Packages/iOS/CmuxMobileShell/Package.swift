@@ -28,7 +28,7 @@ let package = Package(
         .package(path: "../CmuxMobileRPC"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
-        .package(path: "../CmuxMobileTransport"),
+        .package(path: "../../Shared/CmuxMobileTransport"),
     ],
     targets: [
         .target(

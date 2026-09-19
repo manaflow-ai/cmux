@@ -408,6 +408,14 @@ public protocol CmxByteTransport: Sendable {
     func receive() async throws -> Data?
     func send(_ data: Data) async throws
     func close() async
+    func connectionDiagnostics() async -> CmxConnectionDiagnostics
+}
+
+extension CmxByteTransport {
+    /// Returns best-effort route metadata for diagnostics and route reporting.
+    public func connectionDiagnostics() async -> CmxConnectionDiagnostics {
+        CmxConnectionDiagnostics(kind: nil, endpoint: nil, rttMilliseconds: nil)
+    }
 }
 
 /// Optional privacy-safe identity for the exact native connection underneath a

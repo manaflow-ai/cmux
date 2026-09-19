@@ -16713,7 +16713,7 @@
 		};
 		1A0B0C0D0E0F101112132001 /* XCLocalSwiftPackageReference "CmuxMobileTransport" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/iOS/CmuxMobileTransport;
+			relativePath = Packages/Shared/CmuxMobileTransport;
 		};
 		C1A072000000000000000001 /* XCLocalSwiftPackageReference "CmuxMobileRPC" */ = {
 			isa = XCLocalSwiftPackageReference;

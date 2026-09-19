@@ -48,7 +48,7 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxMobileTerminal"),
         .package(path: "../../Packages/iOS/CmuxMobileToast"),
         .package(path: "../../Packages/iOS/CmuxMobileTerminalKit"),
-        .package(path: "../../Packages/iOS/CmuxMobileTransport"),
+        .package(path: "../../Packages/Shared/CmuxMobileTransport"),
         .package(path: "../../Packages/iOS/CmuxMobileWorkspace"),
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
