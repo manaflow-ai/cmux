@@ -15,7 +15,11 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         fixture = FileManager.default.temporaryDirectory
             .appendingPathComponent("terminal-link-placement-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: fixture, withIntermediateDirectories: true)
-        socketPath = "/tmp/cmux-debug-issue-\(UUID().uuidString).sock"
+        // The sandboxed XCTest runner can connect to Unix sockets in its own
+        // temporary directory. An app-owned /tmp socket is denied with EPERM.
+        // Keep the basename short enough for sockaddr_un.sun_path.
+        socketPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("tl-\(UUID().uuidString.prefix(8)).sock").path
         launchTag = "issue-12798-ui-\(UUID().uuidString.prefix(8))"
     }
 
@@ -165,7 +169,8 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     }
 
     private func selectPlacementInSettings(_ placement: String, app: XCUIApplication) throws {
-        _ = try rpc("settings.open", ["target": "browser", "activate": true])
+        app.activate()
+        app.typeKey(",", modifierFlags: .command)
         let settings = app.windows["cmux.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         let search = settings.searchFields.firstMatch
