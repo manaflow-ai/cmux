@@ -1303,7 +1303,14 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi
 
-RELOAD_SOURCE_CHANGE_DIGEST="$(git diff --binary -- Sources cmuxd scripts/reload.sh 2>/dev/null | shasum -a 256 | awk '{print $1}')"
+# cmuxd is built after xcodebuild from the checkout, so its state is an input of the
+# post-build work: the committed tree, plus any uncommitted or untracked change.
+RELOAD_CMUXD_SOURCE_DIGEST="$({
+  git rev-parse HEAD:cmuxd 2>/dev/null || echo no-cmuxd-tree
+  git diff --binary HEAD -- cmuxd 2>/dev/null
+  git ls-files --others --exclude-standard -z -- cmuxd 2>/dev/null | xargs -0 shasum -a 256 2>/dev/null
+} | shasum -a 256 | awk '{print $1}')"
+RELOAD_SCRIPT_DIGEST="$(cat "$SCRIPT_DIR/reload.sh" "$SCRIPT_DIR/lib/reload-incremental.sh" | shasum -a 256 | awk '{print $1}')"
 GHOSTTY_SOURCE_DIGEST=""
 if [[ -d "$PWD/ghostty/.git" || -f "$PWD/ghostty/HEAD" ]]; then
   GHOSTTY_SOURCE_DIGEST="$(git -C "$PWD/ghostty" rev-parse HEAD 2>/dev/null || true):$(git -C "$PWD/ghostty" status --porcelain 2>/dev/null || true)"
@@ -1319,8 +1326,8 @@ RELOAD_INPUT_MANIFEST="$(printf '%s\n' \
   "auth_file=$AUTH_CREDENTIALS_FILE" "auth_profile=$AUTH_PROFILE" \
   "tui_manifest=$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
   "tui_local=${CMUX_TUI_CLIENT_LOCAL:-}" "tui_skip=${CMUX_SKIP_CMUX_TUI_CLIENT:-0}" \
-  "cloud_origin=${CMUX_DEV_BACKEND_URL:-}" "source=$RELOAD_SOURCE_CHANGE_DIGEST" \
-  "ghostty=$GHOSTTY_SOURCE_DIGEST" "script=$SCRIPT_DIR/reload.sh")"
+  "cloud_origin=${CMUX_DEV_BACKEND_URL:-}" "cmuxd=$RELOAD_CMUXD_SOURCE_DIGEST" \
+  "ghostty=$GHOSTTY_SOURCE_DIGEST" "script=$RELOAD_SCRIPT_DIGEST")"
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
 # plistbuddy, etc.) to a single log file. On success we print only a one-line
@@ -1723,6 +1730,12 @@ if [[ -z "${APP_PATH}" || ! -d "${APP_PATH}" ]]; then
 fi
 validate_app_bundle "$APP_PATH" "$APP_EXECUTABLE_NAME"
 XCODEBUILD_OUTPUT_VALID=1
+# The app xcodebuild just produced is the main input of the post-build work. Its
+# fingerprint covers every compiled source and resource, whether the change was
+# uncommitted, committed, or came from switching branches.
+RELOAD_INPUT_DIGEST="$(reload_incremental_manifest_digest "${RELOAD_INPUT_MANIFEST}
+built_app=$(reload_incremental_app_digest "$APP_PATH")")"
+reload_phase_finished built_app_fingerprint
 RELOAD_RECEIPT_DIR="${DERIVED_DATA}/.cmux-reload/${TAG_SLUG:-untagged}"
 RELOAD_POSTBUILD_NOOP=0
 
