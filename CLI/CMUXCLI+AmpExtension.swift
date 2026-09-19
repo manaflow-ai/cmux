@@ -44,11 +44,35 @@ extension CMUXCLI {
             .appendingPathComponent(Self.ampExtensionFilename, isDirectory: false)
     }
 
+    static func ampExtensionInstallState(existing: String) -> String {
+        if existing.isEmpty { return "missing" }
+        if existing == ampExtensionSource { return "installed" }
+        if existing.contains(ampExtensionMarker) { return "stale" }
+        return "conflict"
+    }
+
+    private func printAmpExtensionStatusJSON(path: String, existing: String) throws {
+        let payload: [String: String] = [
+            "integration": "amp",
+            "state": Self.ampExtensionInstallState(existing: existing),
+            "path": path,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        guard let json = String(data: data, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode Amp hook installation status")
+        }
+        print(json)
+    }
+
     func installAmpExtensionHooks(_ def: AgentHookDef) throws {
         let extensionURL = ampExtensionURL(for: def)
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
         let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        if ProcessInfo.processInfo.arguments.contains("--status-json") {
+            try printAmpExtensionStatusJSON(path: extensionURL.path, existing: existing)
+            return
+        }
         if existing == Self.ampExtensionSource {
             print(String.localizedStringWithFormat(
                 String(
