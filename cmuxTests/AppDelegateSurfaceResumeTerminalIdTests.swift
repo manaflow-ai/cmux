@@ -209,6 +209,67 @@ final class AppDelegateSurfaceResumeTerminalIdTests: XCTestCase {
         XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panel.id)?.source, "agent-hook")
     }
 
+    func testDockManagedAgentResumeHidesOrdinaryMenuWhenProcessBindingIsEffective() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let dock = app.windowDock(forWindowId: windowId)
+        let panel = TerminalPanel(workspaceId: windowId, runtimeSpawnPolicy: .pacedSessionRestore)
+        let pane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        dock.panels[panel.id] = panel
+        let tabID = try XCTUnwrap(dock.bonsplitController.createTab(
+            title: "Dock terminal",
+            icon: panel.displayIcon,
+            kind: panel.panelType.rawValue,
+            isDirty: false,
+            inPane: pane
+        ))
+        dock.bindSurface(tabID, toPanelId: panel.id)
+        dock.focusPaneFromDockInteraction(pane, window: window)
+        let managed = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume managed-session",
+            checkpointId: "managed-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        dock.managedAgentResumeBindingsByPanelId[panel.id] = managed
+        dock.surfaceResumeBindingsByPanelId[panel.id] = SurfaceResumeBindingSnapshot(
+            kind: "tmux",
+            command: "tmux attach -t transient",
+            source: "process-detected",
+            autoResume: false
+        )
+
+        let surfaceView = panel.hostedView.surfaceView
+        XCTAssertEqual(surfaceView.currentSurfaceResumeContextMenuState(), .agentManaged)
+        let menu = NSMenu()
+        XCTAssertFalse(surfaceView.appendCurrentSurfaceResumeMenuItems(to: menu))
+        XCTAssertTrue(menu.items.isEmpty)
+        XCTAssertEqual(dock.managedAgentResumeBinding(panelId: panel.id)?.command, managed.command)
+    }
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),

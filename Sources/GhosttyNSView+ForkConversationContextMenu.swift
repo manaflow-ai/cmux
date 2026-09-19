@@ -89,8 +89,16 @@ extension GhosttyNSView {
 
     func currentSurfaceResumeContextMenuState() -> SurfaceResumeContextMenuState {
         guard let surfaceID = terminalSurface?.id else { return .unavailable }
+        let routing = currentSurfaceResumeRouting(surfaceID: surfaceID)
+        if let managedBinding = TerminalController.shared.controlSurfaceManagedAgentResumeBinding(
+            routing: routing,
+            explicitTargetID: surfaceID,
+            hasResolvedWindowID: false
+        ), managedBinding.isAgentHookBinding {
+            return .agentManaged
+        }
         let resolution = TerminalController.shared.controlSurfaceResumeGet(
-            routing: currentSurfaceResumeRouting(surfaceID: surfaceID),
+            routing: routing,
             explicitTargetID: surfaceID,
             hasResolvedWindowID: false,
             claimCheckpointID: nil,
