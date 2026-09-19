@@ -1221,6 +1221,7 @@
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
+          "showWorkspaceTitleBar": "Mostra a linha de título do espaço de trabalho independentemente das abas dos painéis. Defina esta opção e app.minimalMode como false para recuperar o espaço da linha e manter as abas e os controles padrão da barra lateral. Os controles da janela usam a área compacta da barra lateral ou aparecem ao lado das abas em tela cheia quando a barra lateral está oculta. O modo mínimo sempre oculta o título e mantém os demais comportamentos existentes; ao sair dele, esta preferência volta a valer. As alterações são imediatas e persistem após reiniciar. Com a barra lateral fechada, a área reservada ao redor dos botões da janela continua permitindo arrastá-la. Os cliques duplos nas abas dos painéis mantêm suas ações padrão.",
           "forkConversationDefaultDestination": "Destino padrão da ação principal Fork Conversation no menu de contexto da aba. O submenu ainda mostra todos os destinos.",
           "globalFontMagnification": "Escala por esta porcentagem os terminais, títulos de abas, barras laterais, ajustes, sobreposições e chrome do app pertencentes ao cmux. O conteúdo renderizado das páginas do navegador fica excluído."
         },

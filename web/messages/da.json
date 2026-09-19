@@ -1221,6 +1221,7 @@
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
+          "showWorkspaceTitleBar": "Viser arbejdsområdets titellinje uafhængigt af rudernes faner. Sæt denne indstilling og app.minimalMode til false for at frigøre titellinjens plads og beholde fanerne samt sidepanelets standardkontroller. Vindueskontrollerne placeres i sidepanelets kompakte område eller ved siden af fanerne i fuld skærm, når sidepanelet er skjult. Minimal tilstand skjuler altid titellinjen og bevarer ellers sin nuværende adfærd; når den slås fra, gælder denne indstilling igen. Ændringer træder straks i kraft og bevares efter genstart. Når sidepanelet er lukket, kan vinduet stadig trækkes via det reserverede område omkring vinduesknapperne. Dobbeltklik på rudernes faner beholder deres standardhandlinger.",
           "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer.",
           "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
         },

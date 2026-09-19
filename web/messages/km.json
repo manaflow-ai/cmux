@@ -1221,6 +1221,7 @@
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
+          "showWorkspaceTitleBar": "បង្ហាញជួរចំណងជើងកន្លែងធ្វើការដោយឯករាជ្យពីផ្ទាំងរបស់បន្ទះ។ កំណត់ជម្រើសនេះ និង app.minimalMode ជា false ដើម្បីយកទំហំជួរចំណងជើងមកប្រើវិញ ដោយរក្សាផ្ទាំង និងប៊ូតុងបញ្ជាស្តង់ដារនៃរបារចំហៀង។ ប៊ូតុងបញ្ជាបង្អួចប្រើតំបន់តូចក្នុងរបារចំហៀង ឬបង្ហាញនៅក្បែរផ្ទាំងក្នុងរបៀបពេញអេក្រង់ នៅពេលលាក់របារចំហៀង។ របៀបអប្បបរមាតែងតែលាក់ជួរចំណងជើង ហើយរក្សាឥរិយាបថផ្សេងទៀតដដែល។ ពេលចេញពីរបៀបនេះ ជម្រើសនេះនឹងត្រូវបានអនុវត្តឡើងវិញ។ ការផ្លាស់ប្តូរមានប្រសិទ្ធភាពភ្លាមៗ និងរក្សាទុកបន្ទាប់ពីចាប់ផ្តើមកម្មវិធីឡើងវិញ។ ពេលបិទរបារចំហៀង អ្នកនៅតែអាចអូសបង្អួចតាមតំបន់ដែលបានទុកជុំវិញប៊ូតុងបង្អួច។ ការចុចពីរដងលើផ្ទាំងរបស់បន្ទះនៅតែអនុវត្តសកម្មភាពស្តង់ដារដដែល។",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },

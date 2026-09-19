@@ -1221,6 +1221,7 @@
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
+          "showWorkspaceTitleBar": "独立于窗格标签页显示工作区标题行。将此选项和 app.minimalMode 均设为 false，即可释放标题行占用的空间，同时保留窗格标签页和标准侧边栏控件。窗口控件会移至侧边栏的紧凑区域；全屏且侧边栏隐藏时，控件会显示在标签页旁。极简模式始终隐藏标题行，其他现有行为保持不变；退出极简模式后会恢复此偏好设置。更改立即生效，并在重启后保留。关闭侧边栏时，仍可从窗口按钮周围的预留区域拖动窗口；双击窗格标签页仍会执行标准操作。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",
           "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
         },

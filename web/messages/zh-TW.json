@@ -1221,6 +1221,7 @@
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
+          "showWorkspaceTitleBar": "獨立於窗格分頁顯示工作區標題列。將此選項和 app.minimalMode 均設為 false，即可釋放標題列占用的空間，同時保留窗格分頁和標準側邊欄控制項。視窗控制項會移至側邊欄的精簡區域；全螢幕且側邊欄隱藏時，控制項會顯示在分頁旁。極簡模式一律隱藏標題列，其他現有行為保持不變；離開極簡模式後會恢復此偏好設定。變更立即生效，並在重新啟動後保留。關閉側邊欄時，仍可從視窗按鈕周圍的預留區域拖移視窗；按兩下窗格分頁仍會執行標準操作。",
           "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。",
           "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
