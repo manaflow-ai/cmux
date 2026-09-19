@@ -37,12 +37,14 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     /// Delivers everything queued so far to `router` and forwards from now on.
     func attach(_ router: CloudTuiManualIOInputRouter) {
         lock.lock()
-        self.router = router
-        let queued = pending
+        // Enqueue the backlog before publishing the router. send() only queues
+        // work, so holding this lock performs no socket I/O. A concurrent key
+        // cannot overtake earlier input at the handoff boundary.
+        for input in pending { router.send(input) }
         pending.removeAll()
         discarded = false
+        self.router = router
         lock.unlock()
-        for input in queued { router.send(input) }
     }
 
     /// Drops queued input and stops forwarding: the request was cancelled or the

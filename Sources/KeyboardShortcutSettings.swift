@@ -441,11 +441,11 @@ enum KeyboardShortcutSettings {
                 // without colliding with any cmux default or an AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
             case .newCloudWorkspace:
-                // Cmd+Y: free in cmux and in AppKit's standard menus, so the
+                // Shift+Cmd+Y: free in cmux and in AppKit's standard menus, so the
                 // plus menu, File menu, and palette can all advertise it.
-                return StoredShortcut(key: "y", command: true, shift: false, option: false, control: false)
-            case .newCloudMachine:
                 return StoredShortcut(key: "y", command: true, shift: true, option: false, control: false)
+            case .newCloudMachine:
+                return StoredShortcut(key: "y", command: true, shift: false, option: false, control: false)
             case .saveLayoutTemplate:
                 return StoredShortcut(key: "s", command: true, shift: false, option: false, control: true)
             case .openFolder:

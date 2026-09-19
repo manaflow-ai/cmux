@@ -215,6 +215,50 @@ mkdir -p "$ARTIFACT_ROOT"
 
 ARCHIVE_PATH=""
 
+resolve_appstore_extension_profile() {
+  [[ "$LANE" == "appstore" ]] || return 0
+  [[ -n "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}" ]] && return 0
+
+  local team_id plistbuddy app_bundle_identifier extension_bundle_identifier
+  team_id="${IOS_APPSTORE_TEAM_ID:-7WLXT3NR37}"
+  app_bundle_identifier="${IOS_APPSTORE_BUNDLE_ID:-${IOS_APPSTORE_BUNDLE_IDENTIFIER:-com.cmux.app}}"
+  extension_bundle_identifier="${app_bundle_identifier}.NotificationService"
+  export IOS_APPSTORE_BUNDLE_IDENTIFIER="$app_bundle_identifier"
+  export IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER="$extension_bundle_identifier"
+  plistbuddy="/usr/libexec/PlistBuddy"
+
+  local profile_helper env_output keychain identity local_config
+  profile_helper="$REPO_ROOT/.github/scripts/install-app-store-provisioning-profile.sh"
+  [[ -x "$profile_helper" ]] || die "missing App Store profile helper: $profile_helper"
+  local_config="$IOS_DIR/Config/AppStoreConnect.local.plist"
+  if [[ -f "$local_config" ]]; then
+    ASC_API_KEY_ID="${ASC_API_KEY_ID:-$($plistbuddy -c 'Print :ASC_API_KEY_ID' "$local_config" 2>/dev/null || true)}"
+    ASC_API_ISSUER_ID="${ASC_API_ISSUER_ID:-$($plistbuddy -c 'Print :ASC_API_ISSUER_ID' "$local_config" 2>/dev/null || true)}"
+    ASC_API_KEY_PATH="${ASC_API_KEY_PATH:-$($plistbuddy -c 'Print :ASC_API_KEY_PATH' "$local_config" 2>/dev/null || true)}"
+    export ASC_API_KEY_ID ASC_API_ISSUER_ID ASC_API_KEY_PATH
+  fi
+
+  identity="${IOS_DISTRIBUTION_IDENTITY:-}"
+  if [[ -z "$identity" ]]; then
+    identity="$(security find-identity -v -p codesigning 2>/dev/null | sed -n "s/.*\"\(.* Distribution: .* ($team_id)\)\".*/\1/p" | head -n 1)"
+  fi
+  [[ -n "$identity" ]] || die "could not find an Apple Distribution identity for the App Store extension profile"
+  export IOS_DISTRIBUTION_IDENTITY="$identity"
+  keychain="${IOS_APPSTORE_KEYCHAIN_NAME:-$(security default-keychain -d user 2>/dev/null | tr -d '"')}"
+  [[ -n "$keychain" ]] || die "could not resolve the keychain containing the Apple Distribution identity"
+  env_output="$ARTIFACT_ROOT/appstore-profile-env"
+  : > "$env_output"
+  GITHUB_ENV="$env_output" IOS_APPSTORE_KEYCHAIN_NAME="$keychain" "$profile_helper"
+  while IFS='=' read -r profile_env_key profile_env_value; do
+    [[ -n "$profile_env_key" ]] || continue
+    export "$profile_env_key=$profile_env_value"
+  done < "$env_output"
+  [[ -n "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}" ]] ||
+    die "App Store profile helper did not provide an extension provisioning profile"
+}
+
+resolve_appstore_extension_profile
+
 build_archive_cloud() {
   local hq_cloud="$1" log line
   # BSD mktemp only expands trailing Xs, so the template must END with XXXXXX.
@@ -263,7 +307,8 @@ build_archive_local() {
       -destination 'generic/platform=iOS' \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$out/DerivedData" \
-      PRODUCT_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
+      CMUX_APP_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
+      CMUX_HOST_BUNDLE_IDENTIFIER="$BETA_BUNDLE_ID" \
       ${LANE_DISPLAY_NAME:+PRODUCT_DISPLAY_NAME="$LANE_DISPLAY_NAME"} \
       CURRENT_PROJECT_VERSION="$build_number" \
       ${MARKETING_VERSION_OVERRIDE:+MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"} \

@@ -1,7 +1,10 @@
 import AppKit
 import Bonsplit
+import CmuxAppKitSupportUI
+import CmuxAuthRuntime
 import CmuxPanes
 import Testing
+import SwiftUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -122,19 +125,21 @@ import Testing
     }
 
     /// Exercises the cloud shortcut failure route and verifies it stays non-modal.
-    @Test("Failed cloud pane creation does not enter a process-modal run loop")
-    func failedCloudPaneCreationStaysInWorkspaceState() async throws {
+    @Test("Cloud shortcut failures show their cause and export a matching diagnostic", arguments: [false, true])
+    func failedCloudPaneCreationStaysInWorkspaceState(split: Bool) async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
+        let diagnostics = CloudPaneCapturedDiagnostics()
+        let identity = AuthenticatedSessionIdentity(generation: 1, accountID: "test-account")
+        let recorder = CloudOperationRecorder(uploader: diagnostics, identity: { identity })
+        let previousRecorder = harness.appDelegate.cloudOperations
+        harness.appDelegate.cloudOperations = recorder
+        defer { harness.appDelegate.cloudOperations = previousRecorder }
         let workspace = harness.workspace
         let paneID = try #require(workspace.bonsplitController.focusedPaneId)
         let sourcePanelID = try #require(workspace.focusedPanelId)
         let machine = SurfaceMachineID.cloud("failed-pane-\(UUID().uuidString)")
-        let error = NSError(
-            domain: "CloudPaneCreationFailureTests",
-            code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "connection refused"]
-        )
+        let error = CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab-failure")
         let provider = CloudCreationProvider(machine: machine, workingDirectory: nil, creationError: error)
         let catalog = SurfaceCatalog.shared
         catalog.register(provider)
@@ -161,29 +166,137 @@ import Testing
             remoteTabID: "tab-failure"
         ))
 
-        #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        if split {
+            #expect(workspace.routeCloudPaneTerminalSplit(from: sourcePanelID, orientation: .horizontal, insertFirst: false, focus: false))
+        } else {
+            #expect(workspace.routeCloudPaneTerminalTab(inPane: paneID, focus: false))
+        }
         let pendingPanelID = try #require(workspace.cloudPendingCreations.keys.first)
         await provider.creationAttemptSignal.wait()
-        let failure = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
+        let presentation = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while recorder.operations.first?.outcome == nil, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
 
         #expect(NSApp.modalWindow == nil)
-        #expect(workspace.cloudPaneCreationFailureStore.failure == nil)
-        #expect(workspace.cloudPendingCreations[pendingPanelID]?.machine == machine)
-        #expect(!failure.detail.isEmpty)
-        #expect(!failure.detail.contains("connection refused"))
-        #expect(failure.showsReconnectButton)
+        #expect(workspace.cloudPaneCreationFailureStore.failure == nil, "A reserved terminal owns its error; no duplicate source-pane card")
+        let panelID = try #require(workspace.cloudMaterializationFailures.keys.first)
+        #expect(panelID != sourcePanelID)
+        #expect(workspace.cloudMaterializationFailures.count == 1)
+        let failure = try #require(workspace.cloudMaterializationFailures[panelID])
+        #expect(panelID == pendingPanelID)
+        #expect(workspace.cloudPendingCreations[panelID]?.machine == machine)
+        #expect(failure.detail == error.errorDescription)
+        #expect(presentation.showsReconnectButton)
+        let operation = try #require(recorder.operations.first)
+        #expect(operation.operation == .terminal)
+        #expect(operation.failure == .notFound)
+        #expect(failure.reference?.contains(operation.traceID) == true)
+        let spans = await diagnostics.spans
+        #expect(spans.contains { $0.parentSpanId == nil && $0.failure == .notFound && $0.traceId == operation.traceID })
         var requestIterator = provider.creationRequests.stream.makeAsyncIterator()
         let firstRequest = await requestIterator.next()
-        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: pendingPanelID))
+        #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
         let retryRequest = await requestIterator.next()
-        _ = try await waitForPaneFailure(workspace, panelID: pendingPanelID)
         #expect(firstRequest != nil)
         #expect(retryRequest == firstRequest)
+        _ = try await waitForPaneFailure(workspace, panelID: panelID)
         #expect(workspace.cloudPendingCreations.count == 1)
+        #expect(workspace.closePanel(panelID, force: true))
+        #expect(workspace.cloudPendingCreations[panelID] == nil)
+        #expect(workspace.panels[panelID] == nil)
+        workspace.cloudPaneCreationFailureStore.cancelAll()
+    }
 
-        #expect(workspace.closePanel(pendingPanelID, force: true))
-        #expect(workspace.cloudPendingCreations[pendingPanelID] == nil)
-        #expect(workspace.panels[pendingPanelID] == nil)
+    @Test("Provider and placement failures retain safe error categories")
+    func knownCloudTerminalFailuresAreNotUnknown() {
+        let errors: [(Error, CloudDiagnosticFailure)] = [
+            (CmuxTuiSurfaceProvider.ProviderError.remoteTabNotFound("tab"), .notFound),
+            (CmuxTuiSurfaceProvider.ProviderError.noWorkspaceOnMachine("machine"), .placement),
+            (CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("machine"), .response),
+            (CmuxTuiSurfaceProvider.ProviderError.terminalExited("term"), .process),
+            (CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated("private response"), .process),
+            (SurfaceCatalogError.ambiguousRemotePlacement(.init(machine: .cloud("machine"), kind: .terminal, key: "term"), workspaceID: "private-workspace"), .conflict)
+        ]
+        for (error, expected) in errors {
+            #expect(CloudDiagnosticFailure.classify(error) == expected)
+            let failure = CloudPaneCreationFailure(machine: .cloud("machine"), error: error)
+            #expect(!failure.errorText.contains("unknown error"))
+            #expect(!failure.copyableText.contains("private response"))
+            #expect(!failure.copyableText.contains("private-workspace"))
+        }
+    }
+
+    @Test("Cloud failure controls stay above native surfaces and stop intercepting input after dismissal")
+    func cloudFailureOwnsItsRenderedHitRegion() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let window = try #require(NSApp.windows.first {
+            $0.identifier?.rawValue == "cmux.main.\(harness.windowId.uuidString)"
+        })
+        let target = try #require(AppWindowChromeComposition().contentOverlayTargetResolver.installationTarget(for: window))
+        let store = harness.workspace.cloudPaneCreationFailureStore
+        let sourcePanelID = try #require(harness.workspace.focusedPanelId)
+        let source = try #require(harness.workspace.terminalPanel(for: sourcePanelID))
+        let request = store.beginRequest()
+        harness.workspace.presentCloudPaneCreationFailure(
+            machine: .cloud("overlay-test"),
+            error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("overlay-test"),
+            requestID: request
+        )
+
+        func card() -> NSView? {
+            target.container.subviews.first { $0.identifier?.rawValue == "cmux.cloudPaneCreationFailure.card" }
+        }
+        let deadline = ContinuousClock.now + .seconds(3)
+        while card() == nil, ContinuousClock.now < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        let overlay = try #require(card())
+        #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
+        let terminalFrame = target.container.convert(source.hostedView.bounds, from: source.hostedView)
+        #expect(abs(overlay.frame.midX - terminalFrame.midX) < 2)
+        #expect(abs(overlay.frame.midY - terminalFrame.midY) < 2)
+        #expect(terminalFrame.contains(overlay.frame), "The card must not cover Bonsplit tabs or adjacent panes")
+
+        // A browser portal installed after the card must remain underneath it.
+        let browserPortal = WindowBrowserPortal(window: window)
+        _ = browserPortal.webViewAtWindowPoint(.zero)
+        let nativeHosts = target.container.subviews.filter {
+            $0 is WindowTerminalHostView || $0 is WindowBrowserHostView
+        }
+        #expect(!nativeHosts.isEmpty)
+        let overlayIndex = try #require(target.container.subviews.firstIndex(of: overlay))
+        for host in nativeHosts {
+            #expect(try #require(target.container.subviews.firstIndex(of: host)) < overlayIndex)
+        }
+        let point = overlay.convert(NSPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: target.container.superview)
+        let hit = try #require(target.container.hitTest(point))
+        #expect(hit === overlay || hit.isDescendant(of: overlay))
+
+        let outside = overlay.convert(NSPoint(x: -20, y: overlay.bounds.midY), to: target.container.superview)
+        if let outsideHit = target.container.hitTest(outside) {
+            #expect(outsideHit !== overlay && !outsideHit.isDescendant(of: overlay))
+        }
+
+        store.dismiss(id: try #require(store.failure?.id))
+        let dismissDeadline = ContinuousClock.now + .seconds(3)
+        while card() != nil, ContinuousClock.now < dismissDeadline {
+            await Task.yield()
+        }
+        #expect(card() == nil)
+    }
+
+    @Test("Failure text uses the full width in narrow terminals", arguments: [CGFloat(166), 260, 360])
+    func narrowFailureCardRemainsReadable(width: CGFloat) {
+        let failure = CloudPaneCreationFailure(machine: .cloud("narrow-pane"), error: CmuxTuiSurfaceProvider.ProviderError.stateUnavailable("narrow-pane"))
+        let host = NSHostingView(rootView: CloudPaneCreationFailureView(failure: failure, onRetry: {}, onDismiss: {})
+            .frame(width: width).fixedSize(horizontal: false, vertical: true))
+        let size = host.fittingSize
+        #expect(abs(size.width - width) < 1)
+        #expect(size.height < 210, "The detail must not be squeezed into a side column")
     }
 
     @Test("A retained Cloud projection never falls back to a local terminal", arguments: ["split", "tab", "splitButton"])
@@ -241,58 +354,41 @@ import Testing
         #expect(CloudDiagnosticFailure.classify(error).label.contains("placement"))
     }
 
-    @Test("Creation failure belongs to its visible workspace and stays above native content")
+    @Test("Creation failure belongs to its visible workspace and detaches with its anchor")
     func failureCardTracksWorkspaceVisibilityAndWindow() throws {
         let window = NSWindow(contentRect: NSRect(x: 20, y: 20, width: 720, height: 480),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
         let content = try #require(window.contentView)
-        let root = try #require(content.superview)
-        let host = CloudPaneCreationFailureOverlayHostView(frame: content.bounds)
-        host.translatesAutoresizingMaskIntoConstraints = true
-        host.autoresizingMask = [.width, .height]
+        let target = try #require(AppWindowChromeComposition().contentOverlayTargetResolver.installationTarget(for: window))
+        let root = target.container
+        let source = NSView(frame: content.bounds)
+        content.addSubview(source)
+        let host = CloudPaneCreationFailurePresentation.NativeOverlay.AnchorView(frame: content.bounds)
+        let coordinator = CloudPaneCreationFailurePresentation.NativeOverlay.Coordinator()
+        coordinator.anchor = host
+        host.coordinator = coordinator
         content.addSubview(host)
-        defer { host.detach() }
-        // Like WindowTerminalHostView, this sibling is above SwiftUI content.
-        let terminal = NSView(frame: content.frame)
-        root.addSubview(terminal, positioned: .above, relativeTo: content)
+        defer { coordinator.removeCard() }
         let failure = CloudPaneCreationFailure(machine: .cloud("fixture"), error: URLError(.timedOut))
-        var retriedIDs: [UUID] = []
-        var dismissedIDs: [UUID] = []
-        host.update(
-            failure: failure,
-            onRetry: { retriedIDs.append($0) },
-            onDismiss: { dismissedIDs.append($0) }
-        )
-        root.layoutSubtreeIfNeeded()
-        let card = try #require(root.subviews.compactMap { $0 as? CloudPaneCreationFailureOverlayView }.first)
-        #expect(!card.isDescendant(of: content))
-        let cardIndex = try #require(root.subviews.firstIndex(of: card))
-        let terminalIndex = try #require(root.subviews.firstIndex(of: terminal))
-        #expect(cardIndex > terminalIndex)
-        #expect(card.frame.width > 0 && card.frame.height > 0)
-        #expect(content.convert(card.bounds, from: card).minX >= 0)
-        #expect(content.convert(card.bounds, from: card).maxX <= content.bounds.maxX)
-        #expect(host.hitTest(NSPoint(x: 5, y: 5)) == nil, "The bridge must not intercept terminal input")
-        let buttons = card.subviews
-            .compactMap { $0 as? NSStackView }
-            .flatMap { $0.arrangedSubviews.compactMap { $0 as? NSButton } }
-        let retry = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureRetry" })
-        retry.performClick(nil)
-        #expect(retriedIDs == [failure.id])
-        let dismiss = try #require(buttons.first { $0.accessibilityIdentifier() == "CloudPaneCreationFailureDismiss" })
-        dismiss.performClick(nil)
-        #expect(dismissedIDs == [failure.id])
-
+        coordinator.update(failure: failure, layoutDirection: .leftToRight, colorScheme: .light,
+                           sourceView: source, style: .compact, onRetry: nil, onDismiss: { _ in })
+        func card() -> NSView? {
+            root.subviews.first { $0.identifier?.rawValue == "cmux.cloudPaneCreationFailure.card" }
+        }
+        let visibleCard = try #require(card())
+        #expect(!visibleCard.isDescendant(of: content))
+        #expect(visibleCard.frame.width > 0 && visibleCard.frame.height > 0)
+        #expect(content.convert(visibleCard.bounds, from: visibleCard).minX >= 0)
+        #expect(content.convert(visibleCard.bounds, from: visibleCard).maxX <= content.bounds.maxX)
+        #expect(host.hitTest(NSPoint(x: 5, y: 5)) == nil)
         host.isHidden = true
-        host.layoutSubtreeIfNeeded()
-        #expect(card.superview == nil, "Switching workspaces must remove its window-level error")
+        #expect(card() == nil, "Switching workspaces must remove its window-level error")
         host.isHidden = false
-        host.layoutSubtreeIfNeeded()
-        #expect(card.superview === root)
+        #expect(card() != nil)
         host.removeFromSuperview()
-        #expect(card.superview == nil, "An unmounted workspace must not leave an orphan card")
+        #expect(card() == nil, "An unmounted workspace must not leave an orphan card")
     }
 
     /// Ensures a suspended older request cannot replace a newer request's failure.
@@ -349,6 +445,7 @@ import Testing
         private(set) var createdWorkingDirectory: String?
         private(set) var createdRemoteWorkspaceID: String?
 
+        var materializePane: ((SurfaceResource, SurfaceDestination, Bool) throws -> SurfaceProjection)?
         let creationError: Error?
         let creationAttemptSignal = CreationAttemptSignal()
         let creationRequests = AsyncStream<UUID>.makeStream()
@@ -429,8 +526,9 @@ import Testing
         }
 
         /// Returns a projection fixture for unrelated provider protocol calls.
-        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus _: Bool) async throws -> SurfaceProjection {
-            SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
+        func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+            if let materializePane { return try materializePane(resource, destination, focus) }
+            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
         }
 
         /// Records no state when the test projection ends.
@@ -499,6 +597,50 @@ import Testing
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    @Test("Cloud resource drop hands keyboard ownership to its first pane")
+    func cloudPaneFocusTransfersKeyboardOwnershipFromSidebar() async throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let window = try #require(harness.appDelegate.mainWindow(for: harness.windowId))
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let catalog = SurfaceCatalog()
+        let provider = CloudCreationProvider(machine: .cloud("drop-fixture"), workingDirectory: nil)
+        catalog.register(provider)
+        var created: [UUID] = []
+        provider.materializePane = { resource, destination, focus in
+            let panel = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil, workingDirectory: nil, at: destination, focus: focus
+            )
+            created.append(panel.panelID)
+            return SurfaceProjection(resource: resource.id, workspaceID: panel.workspaceID, panelID: panel.panelID)
+        }
+        let resources = ["first", "second"].map { name in
+            SurfaceResource(id: SurfaceResourceID(machine: provider.machine, kind: .terminal, key: name),
+                            title: name, detail: nil, lifecycle: .running, agent: nil,
+                            remoteWorkspace: nil, port: nil, url: nil)
+        }
+        catalog.replaceResources(resources, on: provider.machine)
+        harness.appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .machines, in: window)
+        #expect(harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
+        #expect(workspace.handleSurfaceResourceDrop(
+            group: SurfaceResourceGroup(title: "drop", resources: resources.map(\.id)),
+            destination: .split(targetPane: paneID, orientation: .horizontal, insertFirst: false),
+            catalog: catalog
+        ))
+        let deadline = ContinuousClock.now + .seconds(3)
+        while ContinuousClock.now < deadline,
+              created.count < 2 || harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(created.count == 2)
+        let first = try #require(created.first)
+        #expect(workspace.focusedPanelId == first)
+        #expect(workspace.paneId(forPanelId: first) != paneID)
+        #expect(!harness.appDelegate.rightSidebarOwnsInputFocus(for: workspace))
+        #expect(harness.appDelegate.allowsTerminalKeyboardFocus(workspaceId: workspace.id, panelId: first, in: window))
+    }
+
     /// Inside a socket command whose policy forbids focus mutations, the factory must
     /// not re-enable them: the outer policy wins over the caller's `focus: true`.
     @Test func focusRequestCannotEscapeAFocusForbiddingSocketPolicy() throws {
@@ -550,4 +692,10 @@ import Testing
             }
         }
     }
+}
+
+private actor CloudPaneCapturedDiagnostics: CloudTelemetrySending {
+    private(set) var spans: [CloudTelemetrySpan] = []
+    func enqueue(_ span: CloudTelemetrySpan, identity: AuthenticatedSessionIdentity) { spans.append(span) }
+    func clearForSignOut() { spans.removeAll() }
 }
