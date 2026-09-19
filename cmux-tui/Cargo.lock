@@ -808,10 +808,12 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
+ "socket2 0.5.10",
  "tempfile",
  "terminput",
  "terminput-crossterm",
  "tokio",
+ "tokio-util",
  "toml",
  "toml_edit 0.22.27",
  "unicode-segmentation",
@@ -853,6 +855,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "socket2 0.5.10",
  "tungstenite",
  "uds_windows",
  "url",
@@ -4901,6 +4904,16 @@ dependencies = [
  "rustc_version",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "socket2"
+version = "0.5.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e22376abed350d73dd1cd119b57ffccad95b4e585a7cda43e286245ce23c0678"
+dependencies = [
+ "libc",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

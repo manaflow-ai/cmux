@@ -31,10 +31,12 @@ use crate::machine_provider_client::{
     MachineProviderConnector, ProviderClient, ProviderClientError,
 };
 use crate::machine_runtime::{
-    MachineConnectFn, MachineConnection, MachineConnectionHub, MachineRuntime,
+    MachineConnectContext, MachineConnectFn, MachineConnection, MachineConnectionHub,
+    MachineRuntime,
 };
 use crate::session::{RemoteSession, Session};
 
+const PROVIDER_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Clone)]
@@ -59,7 +61,7 @@ impl Drop for ProviderMachineConnectionLease {
         {
             registry.remove(&self.key);
         }
-        let _ = self.open.client.close_machine(self.open.connection_id.clone());
+        close_provider_machine(&self.open.client, self.open.connection_id.clone());
     }
 }
 
@@ -2096,20 +2098,37 @@ fn connect_client(
     protocol::MachineLifecycleSnapshotResult,
     Option<protocol::WorkspaceSnapshotResult>,
 )> {
+    let context = MachineConnectContext::new(Duration::from_secs(5 * 60));
+    connect_client_with_context(connector, notice_identity, &context)
+}
+
+fn connect_client_with_context(
+    connector: Arc<dyn MachineProviderConnector>,
+    notice_identity: &mut ProviderNoticeIdentity,
+    context: &MachineConnectContext,
+) -> anyhow::Result<(
+    ProviderClient,
+    protocol::SnapshotResult,
+    protocol::MachineLifecycleSnapshotResult,
+    Option<protocol::WorkspaceSnapshotResult>,
+)> {
+    context.check()?;
     let client_descriptor = protocol::ClientDescriptor {
         name: "cmux-tui".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         supported_versions: vec![protocol::PROTOCOL_VERSION],
     };
     let (client, _hello) =
-        ProviderClient::connect_authenticated_with(connector, client_descriptor)?;
-    if client.supports_capability(protocol::DURABLE_NOTICES_CAPABILITY)? {
+        ProviderClient::connect_authenticated_with_context(connector, client_descriptor, context)?;
+    context.check()?;
+    if client.supports_capability_with_context(protocol::DURABLE_NOTICES_CAPABILITY, context)? {
         let consumer_id = notice_identity.consumer_id()?.clone();
-        client.subscribe_notices(consumer_id)?;
+        client.subscribe_notices_with_context(consumer_id, context)?;
     }
-    let snapshot = client.snapshot(None)?;
-    let machine_lifecycle_snapshot = load_machine_lifecycle_snapshot(&client, &snapshot)?;
-    let workspace_snapshot = load_workspace_snapshot(&client, &snapshot)?;
+    let snapshot = client.snapshot_with_context(None, context)?;
+    let machine_lifecycle_snapshot =
+        load_machine_lifecycle_snapshot_with_context(&client, &snapshot, context)?;
+    let workspace_snapshot = load_workspace_snapshot_with_context(&client, &snapshot, context)?;
     Ok((client, snapshot, machine_lifecycle_snapshot, workspace_snapshot))
 }
 
@@ -2158,21 +2177,43 @@ fn load_machine_lifecycle_snapshot(
     client: &ProviderClient,
     snapshot: &protocol::SnapshotResult,
 ) -> anyhow::Result<protocol::MachineLifecycleSnapshotResult> {
-    if !client.supports_capability(protocol::MACHINE_LIFECYCLE_CAPABILITY)? {
+    let context = MachineConnectContext::new(Duration::from_secs(30));
+    load_machine_lifecycle_snapshot_with_context(client, snapshot, &context)
+}
+
+fn load_machine_lifecycle_snapshot_with_context(
+    client: &ProviderClient,
+    snapshot: &protocol::SnapshotResult,
+    context: &MachineConnectContext,
+) -> anyhow::Result<protocol::MachineLifecycleSnapshotResult> {
+    if !client.supports_capability_with_context(protocol::MACHINE_LIFECYCLE_CAPABILITY, context)? {
         return Ok(protocol::MachineLifecycleSnapshotResult {
             revision: snapshot.revision,
             scope_id: snapshot.selected_scope_id.clone(),
             machines: Vec::new(),
         });
     }
-    client.machine_lifecycle_snapshot(snapshot.selected_scope_id.clone(), None).map_err(Into::into)
+    client
+        .machine_lifecycle_snapshot_with_context(snapshot.selected_scope_id.clone(), None, context)
+        .map_err(Into::into)
 }
 
 fn load_workspace_snapshot(
     client: &ProviderClient,
     snapshot: &protocol::SnapshotResult,
 ) -> anyhow::Result<Option<protocol::WorkspaceSnapshotResult>> {
-    if !client.supports_capability(protocol::WORKSPACE_LIFECYCLE_CAPABILITY)? {
+    let context = MachineConnectContext::new(Duration::from_secs(30));
+    load_workspace_snapshot_with_context(client, snapshot, &context)
+}
+
+fn load_workspace_snapshot_with_context(
+    client: &ProviderClient,
+    snapshot: &protocol::SnapshotResult,
+    context: &MachineConnectContext,
+) -> anyhow::Result<Option<protocol::WorkspaceSnapshotResult>> {
+    if !client
+        .supports_capability_with_context(protocol::WORKSPACE_LIFECYCLE_CAPABILITY, context)?
+    {
         return Ok(None);
     }
     let Some(machine_id) = snapshot.selected_machine_id.as_ref() else {
@@ -2184,7 +2225,10 @@ fn load_workspace_snapshot(
     if !matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. }) {
         return Ok(None);
     }
-    client.workspace_snapshot(machine_id.clone(), None).map(Some).map_err(Into::into)
+    client
+        .workspace_snapshot_with_context(machine_id.clone(), None, context)
+        .map(Some)
+        .map_err(Into::into)
 }
 
 impl Drop for ProviderMachineRuntime {
@@ -2259,8 +2303,14 @@ fn provider_machine_connector(
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
 ) -> MachineConnectFn {
-    Arc::new(move || {
-        connect_provider_machine(Arc::clone(&client), machine.clone(), key, Arc::clone(&registry))
+    Arc::new(move |context| {
+        connect_provider_machine(
+            Arc::clone(&client),
+            machine.clone(),
+            key,
+            Arc::clone(&registry),
+            context,
+        )
     })
 }
 
@@ -2269,16 +2319,21 @@ fn connect_provider_machine(
     machine: protocol::MachineDescriptor,
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    context: &MachineConnectContext,
 ) -> anyhow::Result<MachineConnection> {
+    context.check()?;
     let provider_managed =
         matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. });
     if provider_managed
-        && !client.supports_capability(protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY)?
+        && !client.supports_capability_with_context(
+            protocol::WORKSPACE_MIRROR_AUTHORITY_CAPABILITY,
+            context,
+        )?
     {
         anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_unsupported);
     }
 
-    let opened = client.open_machine(machine.id.clone(), provider_managed)?;
+    let opened = client.open_machine_with_context(machine.id.clone(), provider_managed, context)?;
     let connection_id = opened.connection_id.clone();
     let workspace_mirror_authority = opened.workspace_mirror_authority;
     let authority_is_valid = workspace_mirror_authority.as_ref().is_some_and(|authority| {
@@ -2287,34 +2342,45 @@ fn connect_provider_machine(
     if provider_managed != workspace_mirror_authority.is_some()
         || (provider_managed && !authority_is_valid)
     {
-        let _ = client.close_machine(connection_id);
+        close_provider_machine(&client, connection_id);
         anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_invalid);
     }
-    let transport = match client.consume_transport(opened.transport) {
+    if let Err(error) = context.check() {
+        close_provider_machine(&client, connection_id);
+        return Err(error);
+    }
+    let transport = match client.consume_transport_with_context(opened.transport, context) {
         Ok(transport) => transport,
         Err(error) => {
-            let _ = client.close_machine(connection_id);
+            close_provider_machine(&client, connection_id);
             return Err(error.into());
         }
     };
     let remote = match workspace_mirror_authority {
-        Some(authority) => RemoteSession::connect_provider_transport(transport, authority),
-        None => RemoteSession::connect_transport(transport),
+        Some(authority) => {
+            RemoteSession::connect_provider_transport_with_context(transport, authority, context)
+        }
+        None => RemoteSession::connect_transport_with_context(transport, context),
     };
     let remote = match remote {
         Ok(remote) => remote,
         Err(error) => {
-            let _ = client.close_machine(connection_id);
+            close_provider_machine(&client, connection_id);
             return Err(error);
         }
     };
+    if let Err(error) = context.check() {
+        remote.begin_shutdown();
+        close_provider_machine(&client, connection_id);
+        return Err(error);
+    }
     let session = Session::Remote(remote);
     let open = OpenConnection { client, connection_id, machine_id: machine.id };
     let mut connections = match registry.lock() {
         Ok(connections) => connections,
         Err(_) => {
             session.begin_shutdown();
-            let _ = open.client.close_machine(open.connection_id);
+            close_provider_machine(&open.client, open.connection_id);
             anyhow::bail!(localization::catalog().sidebar.machine_provider_update_failed);
         }
     };
@@ -2324,6 +2390,14 @@ fn connect_provider_machine(
         session,
         _lease: Some(Box::new(ProviderMachineConnectionLease { open, key, registry })),
     })
+}
+
+/// Cleanup runs after the connection context may already be cancelled. Use a
+/// fresh, short-lived context so a known provider-side machine is still
+/// released instead of rejecting the close request at the first check.
+fn close_provider_machine(client: &ProviderClient, connection_id: protocol::OpaqueId) {
+    let context = MachineConnectContext::new(PROVIDER_CLEANUP_TIMEOUT);
+    let _ = client.close_machine_with_context(connection_id, &context);
 }
 
 fn machine_ui_state(
@@ -2644,7 +2718,7 @@ mod tests {
             machine_id,
         };
         let connector: MachineConnectFn =
-            Arc::new(|| anyhow::bail!("test connection must be served from the ready cache"));
+            Arc::new(|_| anyhow::bail!("test connection must be served from the ready cache"));
         runtime.connections.register(key, connector);
         runtime.connection_registry.lock().unwrap().insert(key, open.clone());
         let lease = close_on_drop.then(|| {
