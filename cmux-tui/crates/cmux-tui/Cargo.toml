@@ -32,6 +32,7 @@ ratatui.workspace = true
 crossterm.workspace = true
 crossbeam-channel.workspace = true
 anyhow.workspace = true
+bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
 serde.workspace = true

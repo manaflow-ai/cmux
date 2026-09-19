@@ -149,6 +149,7 @@ struct Tokens {
 
 pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
+    super::shorthand::normalize_words(&mut tokens.words);
     let scope = tokens
         .words
         .first()
@@ -297,7 +298,7 @@ const BOOLEAN_FLAGS: &[&str] = &[
     "ignore-case",
 ];
 
-fn is_boolean_flag(name: &str) -> bool {
+pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
 }
 
@@ -1801,7 +1802,10 @@ fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageEr
         if !request.is_object() {
             return Err(UsageError::new("--request-json must be a JSON object"));
         }
-        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan { request }));
+        return Ok(CommandPlan::RawCommand(super::raw::RawCommandPlan {
+            request,
+            stream: flags.boolean("stream"),
+        }));
     }
     let operation = match refs.as_slice() {
         ["operation", operation] => *operation,
