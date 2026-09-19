@@ -23,7 +23,7 @@ async function readStats(state: string, sample: Record<string, unknown> | undefi
   });
   const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("Unexpected install"); } });
   const repo = {
-    findUserVm: () => Effect.succeed({ provider: "freestyle", providerVmId: "vm-stats", billingTeamId: null,
+    findUserVm: () => Effect.succeed({ provider: "freestyle", providerVmId: "vm-stats", billingTeamId: null, ownerTeamId: "user",
       providerMetadata: sample ? { [VM_RESOURCE_USAGE_KEY]: sample } : {} }),
   } as unknown as VmRepositoryShape;
   const providers = {

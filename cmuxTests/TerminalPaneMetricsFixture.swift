@@ -67,13 +67,16 @@ final class TerminalPaneMetricsFixture {
     func settle() async throws {
         try await waitUntil("native grid convergence") {
             self.window.contentView?.layoutSubtreeIfNeeded()
-            guard let sample = self.surface.rawSizingSample() else { return false }
+            guard let sample = self.surface.rawSizingSample(),
+                  let geometry = self.surface.committedPaneGeometry,
+                  geometry.phase == .settled else { return false }
             let view = self.hosted.surfaceView
             guard let scroll = self.hosted.subviews.compactMap({ $0 as? NSScrollView }).first else { return false }
             var grid = ghostty_surface_grid_metrics_s()
             guard let runtime = self.surface.surface,
                   ghostty_surface_grid_metrics(runtime, &grid) else { return false }
-            return abs(self.hosted.frame.width - self.anchor.frame.width) < 1 &&
+            return geometry.size == view.frame.size &&
+                abs(self.hosted.frame.width - self.anchor.frame.width) < 1 &&
                 abs(view.frame.width - scroll.contentView.bounds.width) < 1 &&
                 abs(view.frame.height - scroll.contentView.bounds.height) < 1 &&
                 abs(CGFloat(sample.surfaceWidthPx) - view.bounds.width * self.window.backingScaleFactor) < 2 &&

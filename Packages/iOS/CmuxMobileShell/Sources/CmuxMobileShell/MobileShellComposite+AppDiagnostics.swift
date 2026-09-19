@@ -22,6 +22,25 @@ extension MobileShellComposite {
         )
     }
 
+    /// Adds one bounded terminal trace phase to the diagnostic spine.
+    public func recordTerminalTrace(
+        operation: DiagnosticTerminalTraceOperation,
+        phase: DiagnosticTerminalTracePhase,
+        traceID: DiagnosticTerminalTraceID,
+        surfaceID: String? = nil,
+        startedAt: Date? = nil,
+        detail: Int? = nil
+    ) {
+        diagnosticLog?.recordTerminalTrace(
+            operation: operation,
+            phase: phase,
+            traceID: traceID,
+            surface: DiagnosticCorrelation().handle(for: surfaceID),
+            elapsedMilliseconds: startedAt.map { appDiagnosticElapsedMilliseconds(since: $0) },
+            detail: detail
+        )
+    }
+
     /// Emits one app event with a typed categorical payload.
     public func recordAppEvent(
         _ kind: DiagnosticAppEventKind,

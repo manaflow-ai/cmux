@@ -78,28 +78,32 @@ struct TerminalPaneMetricInvalidationTests {
         try await fixture.bind()
         let portal = try #require(TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(fixture.window)])
         portal.isWindowLiveResizeActiveOverrideForTesting = true
+        defer { portal.isWindowLiveResizeActiveOverrideForTesting = false }
+        fixture.split.setPosition(320, ofDividerAt: 0)
         TerminalWindowPortalRegistry.synchronizeForAnchor(fixture.anchor, syncLayout: false)
-        #expect(portal.isRendererResizeDeferred)
+        #expect(fixture.surface.committedPaneGeometry?.phase == .interactive)
         portal.isWindowLiveResizeActiveOverrideForTesting = false
         // No window notification: only the surviving pane's layout changes.
         try await fixture.closeSibling()
-        #expect(!portal.isRendererResizeDeferred)
+        #expect(fixture.surface.committedPaneGeometry?.phase == .settled)
     }
 
     @Test func activeDividerDoesNotFinishWhenNativeWindowResizeIsInactive() async throws {
         let fixture = try await TerminalPaneMetricsFixture()
         defer { fixture.tearDown() }
         try await fixture.bind()
-        let portal = try #require(TerminalWindowPortalRegistry.portalsByWindowId[ObjectIdentifier(fixture.window)])
         TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: fixture.window)
-        defer { TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window) }
+        var dividerActive = true
+        defer {
+            if dividerActive { TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window) }
+        }
         fixture.split.setPosition(320, ofDividerAt: 0)
         TerminalWindowPortalRegistry.synchronizeExternalGeometryNow(for: fixture.window)
-        #expect(portal.isRendererResizeDeferred)
+        #expect(fixture.surface.committedPaneGeometry?.phase == .interactive)
         TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: fixture.window)
-        try await fixture.waitUntil("divider completion") { !portal.isRendererResizeDeferred }
+        dividerActive = false
         try await fixture.settle()
-        #expect(!portal.isRendererResizeDeferred)
+        #expect(fixture.surface.committedPaneGeometry?.phase == .settled)
     }
 
     private func assertGridAndText(_ fixture: TerminalPaneMetricsFixture, cell: CGSize, font: Float) throws {

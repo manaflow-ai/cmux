@@ -23,4 +23,6 @@ enum CloudTuiManualIOFrame: Equatable, Sendable {
         accepted: Bool?,
         error: String?
     )
+    /// Undecoded envelope for the per-machine resource multiplexer.
+    case message(Data)
 }

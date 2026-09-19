@@ -30,7 +30,7 @@ let hostedCutoverReady = true;
 const hostedSubrouterCutoverReadyForTeam = mock(async () => hostedCutoverReady);
 
 mock.module("../app/lib/stack", () => ({
-  getStackServerApp: () => ({ getUser, getAuthJson }),
+  getStackServerApp: () => ({ getUser, getAuthJson, getTeam: async (id: string) => ({ id }) }),
   getNonRedirectingStackServerApp: () => ({ getUser, signOut }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
@@ -247,6 +247,7 @@ describe("hosted Subrouter account routes", () => {
     // both capabilities, so the hosted tenant exchange asks for both and the
     // upload succeeds.
     currentUser = Object.assign(stackUser(), {
+      hasPermission: async () => false,
       listPermissions: async () => [],
     });
 
@@ -703,6 +704,7 @@ function request(path: string, init: TestRequestInit = {}): Request {
 
 function stackUser() {
   return {
+    hasPermission: async () => true,
     id: "user-1",
     displayName: "User One",
     primaryEmail: "user@example.com",
