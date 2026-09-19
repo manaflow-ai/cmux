@@ -206,6 +206,19 @@ public struct CmuxConfigSemanticValidator {
         if let maximum = schemaNumber(schema["exclusiveMaximum"]), value >= maximum {
             issues.append(CmuxConfigSemanticIssue(path: path, message: "must be < \(formatNumber(maximum))"))
         }
+        if let multiple = schemaNumber(schema["multipleOf"]), multiple > 0 {
+            let quotient = value / multiple
+            let distance = abs(quotient - quotient.rounded())
+            let tolerance = 1e-10 * max(1, abs(quotient))
+            if distance > tolerance {
+                issues.append(
+                    CmuxConfigSemanticIssue(
+                        path: path,
+                        message: "must be a multiple of \(formatNumber(multiple))"
+                    )
+                )
+            }
+        }
         return issues
     }
 
@@ -254,23 +267,35 @@ public struct CmuxConfigSemanticValidator {
         }
 
         let properties = schema["properties"] as? [String: Any] ?? [:]
+        let patternProperties = schema["patternProperties"] as? [String: Any] ?? [:]
         let propertyNameSchema = schema["propertyNames"] as? [String: Any]
         let additional = schema["additionalProperties"]
 
         for key in value.keys.sorted() {
             let child = childPath(path, key: key)
+            guard let childValue = value[key] else { continue }
             if let propertyNameSchema {
                 issues.append(contentsOf: validate(key, against: propertyNameSchema, path: child))
             }
-            if let propertySchema = properties[key] as? [String: Any],
-               let childValue = value[key] {
+
+            var matchedPropertySchema = false
+            if let propertySchema = properties[key] as? [String: Any] {
                 issues.append(contentsOf: validate(childValue, against: propertySchema, path: child))
+                matchedPropertySchema = true
+            }
+            for pattern in patternProperties.keys.sorted()
+            where matchesPattern(key, pattern: pattern) {
+                guard let patternSchema = patternProperties[pattern] as? [String: Any] else { continue }
+                issues.append(contentsOf: validate(childValue, against: patternSchema, path: child))
+                matchedPropertySchema = true
+            }
+            if matchedPropertySchema {
                 continue
             }
+
             if let allowed = additional as? Bool, !allowed {
                 issues.append(CmuxConfigSemanticIssue(path: child, message: "unknown configuration key"))
-            } else if let additionalSchema = additional as? [String: Any],
-                      let childValue = value[key] {
+            } else if let additionalSchema = additional as? [String: Any] {
                 issues.append(contentsOf: validate(childValue, against: additionalSchema, path: child))
             }
         }
