@@ -12325,8 +12325,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "CMUX_DIFF_SIDECAR_ARCHS=\"${ARCHS}\" CMUX_DIFF_SIDECAR_MIN_MACOS=\"${MACOSX_DEPLOYMENT_TARGET}\" CMUX_DIFF_SIDECAR_STAMP=\"${TARGET_TEMP_DIR}/cmux-diff-sidecar.arch-${ARCHS}.min-${MACOSX_DEPLOYMENT_TARGET}.stamp\" \"${SRCROOT}/scripts/build-diff-sidecar.sh\"\n";
-		};
+			shellScript = "rm -f \"${TARGET_TEMP_DIR}\"/cmux-diff-sidecar.arch-*.min-*.stamp\nCMUX_DIFF_SIDECAR_ARCHS=\"${ARCHS}\" CMUX_DIFF_SIDECAR_MIN_MACOS=\"${MACOSX_DEPLOYMENT_TARGET}\" CMUX_DIFF_SIDECAR_STAMP=\"${TARGET_TEMP_DIR}/cmux-diff-sidecar.arch-${ARCHS}.min-${MACOSX_DEPLOYMENT_TARGET}.stamp\" \"${SRCROOT}/scripts/build-diff-sidecar.sh\"\n";		};
 		A9E030000000000000000009 /* Reject Bundled Provider Binaries */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
