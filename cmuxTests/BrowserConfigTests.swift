@@ -6010,3 +6010,273 @@ final class BrowserOmnibarFocusPolicyTests: XCTestCase {
         )
     }
 }
+
+
+@MainActor
+final class BrowserLocalFileTextEncodingTests: XCTestCase {
+    private func makeTemporaryDirectory() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("BrowserLocalFileTextEncodingTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return directory
+    }
+
+    private func waitForBrowserPanel(
+        _ panel: BrowserPanel,
+        url: URL,
+        timeout: TimeInterval = 10.0,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            if panel.webView.url?.absoluteString == url.absoluteString,
+               !panel.webView.isLoading,
+               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
+               !panel.isLoading {
+                return
+            }
+        }
+
+        XCTFail(
+            "Timed out waiting for browser panel to load \(url.absoluteString). "
+                + "Live=\(panel.webView.url?.absoluteString ?? "nil") "
+                + "webViewLoading=\(panel.webView.isLoading) panelLoading=\(panel.isLoading)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func evaluateString(
+        _ script: String,
+        in panel: BrowserPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> String {
+        var value: String?
+        var failure: (any Error)?
+        let finished = expectation(description: "evaluate \(script)")
+        panel.webView.evaluateJavaScript(script) { result, error in
+            if let error {
+                failure = error
+            } else {
+                value = result as? String
+            }
+            finished.fulfill()
+        }
+        wait(for: [finished], timeout: 5.0)
+        if let failure {
+            XCTFail("JavaScript failed: \(failure)", file: file, line: line)
+            throw failure
+        }
+        return try XCTUnwrap(value, file: file, line: line)
+    }
+
+    /// A local Markdown file declares no charset, so WebKit fell back to the
+    /// locale's legacy encoding and rendered UTF-8 text as mojibake.
+    func testUTF8MarkdownFileRendersAsUTF8() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("notes.md")
+        let contents = "# 산책의 즐거움"
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "UTF-8")
+        XCTAssertEqual(
+            try evaluateString("document.body.innerText.trim()", in: panel),
+            contents
+        )
+    }
+
+    func testUTF8PlainTextFileRendersAsUTF8() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("notes.txt")
+        let contents = "日本語とハングル 한글"
+        try contents.write(to: file, atomically: true, encoding: .utf8)
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "UTF-8")
+        XCTAssertEqual(
+            try evaluateString("document.body.innerText.trim()", in: panel),
+            contents
+        )
+    }
+
+    func testSniffAcceptsUTF8File() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("notes.md")
+        try "# 산책의 즐거움".write(to: file, atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    func testSniffRejectsFileThatIsNotUTF8() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("legacy.md")
+        // "한글" in EUC-KR, which is not valid UTF-8.
+        try Data([0xC7, 0xD1, 0xB1, 0xDB]).write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    /// The sniff reads a fixed prefix, which can stop partway through a
+    /// multi-byte scalar. That truncation must not read as "not UTF-8".
+    func testSniffAcceptsUTF8FileWhoseSniffWindowSplitsAScalar() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("long.md")
+        var contents = Data(repeating: UInt8(ascii: "a"), count: BrowserLocalFileTextEncoding.sniffedByteCount - 1)
+        contents.append(Data("가나다".utf8))
+        try contents.write(to: file)
+
+        XCTAssertTrue(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    /// A byte no scalar can start with means the file is not UTF-8. It must
+    /// never be mistaken for a scalar the sniff window cut in half.
+    func testSniffRejectsFileEndingInAnInvalidByte() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("invalid-tail.txt")
+        try Data([0x41, 0xFF]).write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    func testSniffRejectsWindowFillingFileEndingInAnInvalidByte() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("long-invalid-tail.md")
+        var contents = Data(repeating: UInt8(ascii: "a"), count: BrowserLocalFileTextEncoding.sniffedByteCount - 1)
+        contents.append(contentsOf: [0xFF, 0x61, 0x61])
+        try contents.write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    /// A file that ends mid-scalar within the sniff window is not truncated by
+    /// the window — it is simply not valid UTF-8.
+    func testSniffRejectsWholeFileEndingMidScalar() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("cut-scalar.txt")
+        try (Data([0x41]) + Data("가".utf8).dropLast()).write(to: file)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+    }
+
+    /// UTF-8 constrains the second byte of some scalars, so `E0 80` and friends
+    /// are malformed rather than cut short, however much file follows them.
+    func testSniffRejectsWindowEndingInAMalformedScalarPrefix() throws {
+        let directory = try makeTemporaryDirectory()
+        let malformedTails: [[UInt8]] = [
+            [0xE0, 0x80],   // overlong three-byte scalar
+            [0xED, 0xA0],   // surrogate
+            [0xF0, 0x80],   // overlong four-byte scalar
+            [0xF4, 0x90],   // past U+10FFFF
+            [0xC0, 0x80]    // overlong two-byte scalar
+        ]
+
+        for tail in malformedTails {
+            let file = directory.appendingPathComponent("malformed-\(tail[0]).md")
+            try Self.windowFillingFile(endingIn: tail).write(to: file)
+            XCTAssertFalse(
+                BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file),
+                "\(tail) is not a scalar the window cut short"
+            )
+        }
+    }
+
+    /// A lead byte alone can still be completed by whatever follows the window,
+    /// and so can a lead byte plus a second byte it actually allows.
+    func testSniffAcceptsWindowEndingInACutScalar() throws {
+        let directory = try makeTemporaryDirectory()
+        let cutTails: [[UInt8]] = [
+            [0xE0], [0xED], [0xF4],                 // lead bytes with narrowed second bytes
+            [0xE0, 0xA0], [0xED, 0x80],             // second bytes at the edge of what
+            [0xF0, 0x90], [0xF4, 0x8F]              // each of those lead bytes allows
+        ]
+
+        for tail in cutTails {
+            let file = directory.appendingPathComponent("cut-\(tail.count)-\(tail[0]).md")
+            try Self.windowFillingFile(endingIn: tail).write(to: file)
+            XCTAssertTrue(
+                BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file),
+                "\(tail) is a scalar the window cut short"
+            )
+        }
+    }
+
+    /// Fills the sniff window with ASCII, ending it in `tail`, and leaves more
+    /// file behind the window so the tail really is cut short by it.
+    private static func windowFillingFile(endingIn tail: [UInt8]) -> Data {
+        var contents = Data(
+            repeating: UInt8(ascii: "a"),
+            count: BrowserLocalFileTextEncoding.sniffedByteCount - tail.count
+        )
+        contents.append(contentsOf: tail)
+        contents.append(Data(repeating: UInt8(ascii: "a"), count: 16))
+        return contents
+    }
+
+    func testSniffRejectsEmptyMissingAndRemoteURLs() throws {
+        let directory = try makeTemporaryDirectory()
+        let empty = directory.appendingPathComponent("empty.md")
+        try Data().write(to: empty)
+
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: empty))
+        XCTAssertFalse(
+            BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(
+                for: directory.appendingPathComponent("missing.md")
+            )
+        )
+        XCTAssertFalse(
+            BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: URL(string: "https://example.com/notes.md"))
+        )
+        XCTAssertFalse(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: nil))
+    }
+
+    /// A local page whose bytes are not UTF-8 keeps decoding through the
+    /// charset it declares, exactly as it did before the fallback existed.
+    func testLocalHTMLThatIsNotUTF8KeepsItsDeclaredCharset() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("legacy.html")
+        // "한글" in EUC-KR, which is not valid UTF-8.
+        var bytes = Data("<html><head><meta charset=\"euc-kr\"></head><body>".utf8)
+        bytes.append(contentsOf: [0xC7, 0xD1, 0xB1, 0xDB])
+        bytes.append(contentsOf: Data("</body></html>".utf8))
+        try bytes.write(to: file)
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "EUC-KR")
+        XCTAssertEqual(try evaluateString("document.body.innerText.trim()", in: panel), "한글")
+    }
+
+    /// The fallback only fills in for a document that declares nothing, so a
+    /// page that declares a charset keeps it even when its bytes would pass as
+    /// UTF-8 and the sniff selects the UTF-8 fallback.
+    func testDeclaredCharsetWinsOverTheUTF8Fallback() throws {
+        let directory = try makeTemporaryDirectory()
+        let file = directory.appendingPathComponent("declared.html")
+        // 0xC2 0xA3 is valid UTF-8 for "£", and windows-1252 for "Â£".
+        var bytes = Data("<html><head><meta charset=\"windows-1252\"></head><body>".utf8)
+        bytes.append(contentsOf: [0xC2, 0xA3])
+        bytes.append(contentsOf: Data("</body></html>".utf8))
+        try bytes.write(to: file)
+        XCTAssertTrue(BrowserLocalFileTextEncoding.shouldUseUTF8Fallback(for: file))
+
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: file)
+        defer { panel.close() }
+        waitForBrowserPanel(panel, url: file)
+
+        XCTAssertEqual(try evaluateString("document.characterSet", in: panel), "windows-1252")
+        XCTAssertEqual(try evaluateString("document.body.innerText.trim()", in: panel), "Â£")
+    }
+}
