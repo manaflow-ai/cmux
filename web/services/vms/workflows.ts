@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { applyVmResourceUsage, parseVmResourceUsage } from "./resourceUsage";
+import {
+  applyVmResourceUsage,
+  parseVmResourceUsage,
+  shouldReadVmResourceStatsDirectly,
+} from "./resourceUsage";
 import { GUEST_RESOURCE_SAMPLE_SCRIPT } from "./guestResourceReporter";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -2990,10 +2994,11 @@ export function getVmStats(input: {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
         // Local GCP dev backends do not share the production coderouter edge,
-        // so their baked guest reporter cannot authenticate its callback. Keep
-        // this explicit dev-only fallback behind an operator-set flag; release
-        // and staging continue to use the normal reporter metadata path.
-        if (process.env.CMUX_DEV_RESOURCE_STATS_DIRECT !== "1") {
+        // so their baked guest reporter cannot authenticate its callback. A
+        // validated direct backend selects the fallback automatically; the
+        // explicit operator override remains available for other environments.
+        // Never exec against a sleeping guest: stats reads must not wake VMs.
+        if (stats.state !== "awake" || !shouldReadVmResourceStatsDirectly()) {
           return Effect.succeed(reported);
         }
         const command = `python3 - <<'PY'\n${GUEST_RESOURCE_SAMPLE_SCRIPT}\nimport json\nprint(json.dumps(sample()))\nPY`;
@@ -3003,11 +3008,12 @@ export function getVmStats(input: {
             try {
               const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
               if (!usage) return reported;
+              const sampledAt = Date.now();
               return {
                 ...stats,
                 ...usage,
-                sampledAt: now,
-                resourceSampledAt: now,
+                sampledAt,
+                resourceSampledAt: sampledAt,
               };
             } catch {
               return reported;

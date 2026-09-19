@@ -10,7 +10,11 @@ import { VM_RESOURCE_USAGE_KEY, applyVmResourceUsage, parseVmResourceUsage } fro
 
 const gauges = { cpuPercent: 37.5, memoryUsedMb: 1234, diskUsedMb: 5678 };
 
-type ReadStatsOptions = { readonly directBackend?: boolean };
+type ReadStatsOptions = {
+  readonly directBackend?: boolean;
+  readonly execExitCode?: number;
+  readonly execOutput?: unknown;
+};
 
 async function readStats(
   state: string,
@@ -37,7 +41,13 @@ async function readStats(
     getStats: () => Effect.promise(() => provider.getStats("vm-stats")),
     exec: (_provider: string, _vmId: string, command: string) => {
       execCalls.push(command);
-      return Effect.succeed({ exitCode: 0, stdout: JSON.stringify(gauges), stderr: "" });
+      return Effect.succeed({
+        exitCode: options.execExitCode ?? 0,
+        stdout: typeof options.execOutput === "string"
+          ? options.execOutput
+          : JSON.stringify(options.execOutput ?? gauges),
+        stderr: "",
+      });
     },
   } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(
@@ -81,11 +91,29 @@ describe("Freestyle live machine stats", () => {
   test("direct dev backends sample an awake guest when callback telemetry is unavailable", async () => {
     const { result, execCalls } = await readStats("running", undefined, { directBackend: true });
     expect(execCalls).toHaveLength(1);
-    expect(result).toMatchObject({ state: "awake", resourceSampledAt: expect.any(Number), ...gauges });
+    expect(result).toMatchObject({ state: "awake", ...gauges });
+    expect(typeof result.resourceSampledAt).toBe("number");
+  });
+
+  test.each([
+    { label: "a failed probe", execExitCode: 1 },
+    { label: "malformed output", execOutput: "not json" },
+    { label: "invalid gauges", execOutput: { cpuPercent: 101 } },
+  ])("$label keeps provisioned capacity without inventing usage", async ({ execExitCode, execOutput }) => {
+    const { result, execCalls } = await readStats("running", undefined, {
+      directBackend: true, execExitCode, execOutput,
+    });
+    expect(execCalls).toHaveLength(1);
+    expect(result).toMatchObject({ state: "awake", cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384 });
+    expect(result.cpuPercent).toBeUndefined();
+    expect(result.memoryUsedMb).toBeUndefined();
+    expect(result.diskUsedMb).toBeUndefined();
+    expect(result.resourceSampledAt).toBeUndefined();
   });
 
   test.each(["paused", "pausing", "stopped", "starting"])("a %s machine never exposes an old reading or touches the guest", async (state) => {
-    const { result } = await readStats(state, { ...gauges, receivedAt: Date.now(), providerVmId: "vm-stats" });
+    const { result, execCalls } = await readStats(state, { ...gauges, receivedAt: Date.now(), providerVmId: "vm-stats" }, { directBackend: true });
+    expect(execCalls).toHaveLength(0);
     expect(result.state).toBe(state === "starting" ? "unknown" : "asleep");
     expect(result.cpuPercent).toBeUndefined();
     expect(result.memoryUsedMb).toBeUndefined();
