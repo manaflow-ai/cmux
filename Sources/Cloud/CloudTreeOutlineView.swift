@@ -610,14 +610,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
-            case .displaysPool:
-                return [
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+            case .displaysPool(let machine, let count):
+                var items: [NSMenuItem] = []
+                if count > 0 {
+                    items.append(item(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) { [nodeActions] in nodeActions.newDisplay(machine) })
+                }
+                items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() })
+                return items
             case .workspacesGroup(let machine):
                 return [
                     item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    item(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) { [nodeActions] in nodeActions.newDisplay(machine) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _, _, let openIn):
@@ -632,6 +636,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return [
                     item(openTitle) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
+                    item(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) { [nodeActions] in nodeActions.newDisplay(machine) },
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },

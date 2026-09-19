@@ -28,6 +28,9 @@ struct CloudTreeNodeActions {
     /// Create a workspace on the machine (its ⌘N: `workspace create`, then a starter
     /// terminal) and open it as a new local workspace.
     let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
+    /// Open a fresh pane for an authoritative display already present in the
+    /// machine's catalog. Does nothing when display discovery has no result.
+    var newDisplay: @MainActor (_ machine: SurfaceMachineID) -> Void = { _ in }
     /// End a terminal on its machine (the process and its remote tab).
     let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
     /// Close a workspace on its machine AND kill every terminal in it (austin,
@@ -305,6 +308,24 @@ struct CloudTreeNodeActions {
                 run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true)
+                }
+            },
+            newDisplay: { machine in
+                // Display discovery is authoritative. Pick the stable desktop
+                // first when present, otherwise the first discovered screen.
+                // An empty result is a truthful no-op until the daemon reports a
+                // display; this action never invents a resource.
+                let displays = catalog().snapshot.resources(on: machine)
+                    .filter { $0.kind == .display }
+                    .sorted { $0.id.key < $1.id.key }
+                guard let display = displays.first else { return }
+                run(openingLabel(machine)) { catalog in
+                    _ = try await catalog.project(
+                        display.id,
+                        into: try destination(.split),
+                        focus: true,
+                        reuseExisting: false
+                    )
                 }
             },
             closeTerminal: { resource in
