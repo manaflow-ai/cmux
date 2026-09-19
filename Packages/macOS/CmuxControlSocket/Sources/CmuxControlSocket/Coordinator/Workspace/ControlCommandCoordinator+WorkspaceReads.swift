@@ -8,7 +8,7 @@ extension ControlCommandCoordinator {
     /// and caller-owned selection keys. `nonisolated`: the worker-lane
     /// list/current bodies build rows off-main; the ref is minted inside
     /// their resolution hop.
-    private nonisolated func workspaceSummaryPayload(
+    nonisolated func workspaceSummaryPayload(
         _ summary: ControlWorkspaceSummary,
         index: Int?,
         selected: Bool,
@@ -105,68 +105,6 @@ extension ControlCommandCoordinator {
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": windowRef,
                 "workspaces": .array(rows),
-            ]))
-        }
-    }
-
-    /// The `workspace.current` hop outcome (refs minted in payload order:
-    /// window, workspace).
-    private enum WorkspaceCurrentHopOutcome: Sendable {
-        case tabManagerUnavailable
-        case noWorkspaceSelected
-        case resolved(
-            windowID: UUID?,
-            workspaceID: UUID,
-            index: Int?,
-            summary: ControlWorkspaceSummary?,
-            windowRef: JSONValue,
-            workspaceRef: JSONValue
-        )
-    }
-
-    /// `workspace.current` — the selected workspace in the resolved window.
-    /// Worker-lane resolution read; see ``workspaceList(_:context:)``.
-    nonisolated func workspaceCurrent(
-        _ params: [String: JSONValue],
-        context: (any ControlCommandContext)?
-    ) -> ControlCallResult {
-        guard let context else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        }
-        let outcome: WorkspaceCurrentHopOutcome = context.controlResolveOnMain { seam in
-            switch seam.controlWorkspaceCurrent(routing: self.routingSelectors(params)) {
-            case .tabManagerUnavailable:
-                return .tabManagerUnavailable
-            case .noWorkspaceSelected:
-                return .noWorkspaceSelected
-            case .resolved(let windowID, let workspaceID, let index, let summary):
-                return .resolved(
-                    windowID: windowID,
-                    workspaceID: workspaceID,
-                    index: index,
-                    summary: summary,
-                    windowRef: self.ref(.window, windowID),
-                    workspaceRef: self.ref(.workspace, workspaceID)
-                )
-            }
-        }
-        switch outcome {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .noWorkspaceSelected:
-            return .err(code: "not_found", message: "No workspace selected", data: nil)
-        case let .resolved(windowID, workspaceID, index, summary, windowRef, workspaceRef):
-            return .ok(.object([
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": windowRef,
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": workspaceRef,
-                // The summary row's `ref` is the same workspace id, so the
-                // pre-minted ref is reused (the legacy in-payload mint was an
-                // idempotent second lookup).
-                "workspace": summary.map {
-                    workspaceSummaryPayload($0, index: index, selected: true, workspaceRef: workspaceRef)
-                } ?? .null,
             ]))
         }
     }
