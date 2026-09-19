@@ -296,6 +296,13 @@ public struct DiagnosticEventPresentation: Sendable {
             }
             fields.append(Field(key: key, value: String(surface)))
         }
+        if let traceID = event.traceID,
+           let validTraceID = DiagnosticTerminalTraceID(rawValue: traceID) {
+            fields.append(Field(
+                key: "trace_id",
+                value: validTraceID.stringValue
+            ))
+        }
         if let a = event.a {
             fields.append(decodeA(a, code: event.code))
         }
@@ -474,6 +481,8 @@ public struct DiagnosticEventPresentation: Sendable {
             localized("diagnostics.event.transportCloseAttribution", defaultValue: "Transport close attributed")
         case .transportCloseReason:
             localized("diagnostics.event.transportCloseReason", defaultValue: "Remote close reason")
+        case .terminalTrace:
+            localized("diagnostics.event.terminalTrace", defaultValue: "Terminal operation trace")
         case .transportPathEvent:
             localized("diagnostics.event.transportPathEvent", defaultValue: "Transport path changed")
         case .browserStreamLifecycle:
@@ -572,6 +581,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "leg", value: dialLegName(raw))
         case .lanPublicationState:
             return Field(key: "state", value: lanPublicationStateName(raw))
+        case .terminalTrace:
+            return Field(key: "operation", value: terminalTraceOperationName(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
@@ -610,6 +621,8 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "hints", value: String(raw))
         case .lanPublicationState:
             return Field(key: "reason", value: lanPublicationReasonName(raw))
+        case .terminalTrace:
+            return Field(key: "phase", value: terminalTracePhaseName(raw))
         case .simulatorStreamLifecycle:
             return Field(key: "owner", value: simulatorOwnershipName(raw))
         case .simulatorFrameLifecycle:
@@ -715,6 +728,16 @@ public struct DiagnosticEventPresentation: Sendable {
             )
         }
         return name(kind)
+    }
+
+    private func terminalTraceOperationName(_ raw: Int) -> String {
+        DiagnosticTerminalTraceOperation(rawValue: raw).map { String(describing: $0) }
+            ?? unknownPayloadName(raw)
+    }
+
+    private func terminalTracePhaseName(_ raw: Int) -> String {
+        DiagnosticTerminalTracePhase(rawValue: raw).map { String(describing: $0) }
+            ?? unknownPayloadName(raw)
     }
 
     private func terminalToolbarActionName(_ raw: Int) -> String {

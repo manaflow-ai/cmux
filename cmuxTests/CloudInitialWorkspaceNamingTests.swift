@@ -151,7 +151,8 @@ struct CloudInitialWorkspaceNamingTests {
             let request = MachineCreateRequest(
                 mode: .newMachine, kind: .desktop, name: nil,
                 arguments: ["vm", "new", "--focus", "false"],
-                selectionWindowID: firstWindowID
+                selectionWindowID: firstWindowID,
+                selectsCreatedWorkspace: true
             )
             let coordinator = MachineCreateCoordinator(
                 notifier: { _ in }, notificationCenter: NotificationCenter()

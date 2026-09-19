@@ -1632,7 +1632,6 @@ private struct MainWindowBootstrapView: View {
             })
     }
 }
-
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
     "cmux.about",
@@ -1667,6 +1666,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.devWindowDisplay",
     "cmux.mobilePairingWindow",
     "cmux.sidebarFooterIconBalanceDebug",
+    "cmux.cloudPaneCreationFailure.card",
     "cmux.sudo.approval",
 ]
 

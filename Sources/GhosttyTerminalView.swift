@@ -3955,12 +3955,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Deferred native input actions retain their authored order until the
     /// runtime surface is ready. Keeping paste and key actions in one queue
     /// prevents a later key from overtaking an earlier cold paste.
-    private enum PendingInputReplayAction {
+    enum PendingInputReplayAction {
         case keyDown(NSEvent)
         case keyUp(NSEvent)
         case paste(UUID)
     }
-    private var pendingInputReplayActions: [PendingInputReplayAction] = []
+    var pendingInputReplayActions: [PendingInputReplayAction] = []
     private var pendingKeyDownActionCount = 0
     private var pendingKeyActionCount = 0
     private var pendingPasteActionCount = 0
@@ -13080,10 +13080,7 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
             scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // Keep the scroller visible whenever terminal scrollback exists. The
-        // scroller style itself is intentionally left to AppKit, which follows
-        // the user's Appearance > Show scroll bars preference and updates this
-        // scroll view when NSScroller.preferredScrollerStyle changes.
+        // AppKit owns the style (Show scroll bars preference); the policy owns presence.
         scrollView.autohidesScrollers = false
         updateTrackingAreas()
         return didChange
@@ -13100,10 +13097,9 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scroller preference. Update the hosted surface/document frames through
-        // the same narrow path instead of running the full pane reconciliation,
-        // which can perturb split-layout overlays during a system preference
-        // change.
+        // scroller preference, and update the hosted surface/document frames
+        // through the same narrow path: the full pane reconciliation can
+        // perturb split-layout overlays during a system preference change.
         scrollView.tile()
         synchronizeTerminalGeometryAfterScrollerStyleChange()
     }
@@ -13160,14 +13156,11 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        guard terminalScrollBarAllowedBySettings() else { return false }
-        guard let hasScrollback = surfaceHasScrollback() else {
-            // Ghostty reports scrollback asynchronously. Until the first packet
-            // arrives, keep the scroller visible so restored/reattached
-            // surfaces with existing scrollback do not appear broken.
-            return true
-        }
-        return hasScrollback
+        TerminalScrollBarPresencePolicy.isPresent(
+            allowedBySettings: terminalScrollBarAllowedBySettings(),
+            scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
+            hasScrollback: surfaceHasScrollback()
+        )
     }
 
 }
