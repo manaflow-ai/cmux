@@ -159,7 +159,7 @@ struct DisconnectedWorkspaceShellView: View {
     /// Saved computers as the same coalesced snapshots the Computers screen
     /// shows, so a Mac paired under several stored ids is one row here too.
     private var savedComputers: [MacComputerSnapshot] {
-        store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
+        store.map { MacComputerSnapshot.snapshots(from: $0).filter { !$0.isDirectoryOnly } } ?? []
     }
 
     /// The Computers sheet includes both shown and hidden rows, so both sets
