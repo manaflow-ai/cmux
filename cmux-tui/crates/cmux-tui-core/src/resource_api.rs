@@ -1095,6 +1095,48 @@ mod tests {
         mux.shutdown();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn cloud_cwd_live_osc7_clear_reaches_snapshot() {
+        // A shell that reports a directory and later reports none (an empty
+        // OSC 7, as when it leaves the host it described) must clear the
+        // published cwd through the same incremental parser path.
+        let mux = Mux::new_for_test(
+            "cloud-cwd-osc-clear",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".into(),
+                    "-c".into(),
+                    "printf '\\033]7;file://localhost/srv/live\\007'; read value; printf '\\033]7;\\007'; read value"
+                        .into(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("osc-clear".into()), None).unwrap();
+        let wait_for_cwd = |expected: Option<&str>, message: &str| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            loop {
+                let epoch = mux.resource_event_epoch();
+                let cwd = &public_session_snapshot(&mux).unwrap()["terminals"][0]["cwd"];
+                let reached = match expected {
+                    Some(directory) => cwd == directory,
+                    None => cwd.is_null(),
+                };
+                if reached {
+                    break;
+                }
+                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+                assert!(!remaining.is_zero(), "{message}");
+                mux.wait_for_resource_event(epoch, remaining);
+            }
+        };
+        wait_for_cwd(Some("/srv/live"), "OSC 7 cwd never reached the public graph");
+        surface.write_bytes(b"\n").unwrap();
+        wait_for_cwd(None, "an empty OSC 7 report never cleared the published cwd");
+        mux.shutdown();
+    }
+
     #[test]
     fn snapshot_uses_durable_terminal_state_before_runtime_adoption() {
         let mux = Mux::new_for_test("snapshot-before-adoption", SurfaceOptions::default());
