@@ -408,6 +408,10 @@ final class CmuxTuiSurfaceProviderRegistry {
         }
     }
 
+    func resolvedPrivateRoute(machineID: String, through hub: CloudWireGuardHub.Ready, fallbackRoute: String, addresses: [String]) async throws -> String {
+        try await links.resolvedPrivateRoute(machineID: machineID, through: hub, fallbackRoute: fallbackRoute, addresses: addresses)
+    }
+
     // MARK: - internals
 
     private func performDiscovery(generation: UInt64, updateExisting: Bool) async -> [CmuxTuiSurfaceProvider]? {
