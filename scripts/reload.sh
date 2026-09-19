@@ -1825,6 +1825,12 @@ else
       --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
     )
   fi
+  # The installer verifies the published manifest's build-provenance attestation
+  # through gh. A dev Mac without an authenticated gh is the one explicit
+  # exception; the installer prints the unattested warning in that case.
+  if ! command -v gh >/dev/null 2>&1 || ! gh auth token >/dev/null 2>&1; then
+    cmux_tui_install_args+=(--allow-unattested)
+  fi
   "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
 if command -v xattr >/dev/null 2>&1; then

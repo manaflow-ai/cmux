@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxRemoteSession
 import CmuxTerminal
 import Foundation
@@ -12,6 +13,39 @@ import Foundation
 /// is shown inside the pane with Retry, never as a separate "starting" surface.
 @MainActor
 extension Workspace {
+    func reserveRestoredCloudTerminalPane(
+        snapshot: SessionPanelSnapshot,
+        projection: SurfaceProjectionRecord,
+        inPane pane: PaneID
+    ) -> UUID? {
+        guard projection.resource.kind == .terminal,
+              !projection.resource.machine.isLocal else { return nil }
+        let relay = CloudOptimisticInputRelay()
+        guard let panel = makeRemoteTmuxPanePanel(
+            onInput: { input in relay.send(input) },
+            keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+        ) else { return nil }
+        panel.surface.setManualIONoReflow(false)
+        do {
+            let panelID = try insertCloudManualMirrorPanel(
+                panel,
+                at: .tab(workspaceID: id, paneID: pane.id.uuidString, index: nil),
+                focus: false,
+                isLoading: false
+            )
+            applySessionPanelMetadata(snapshot, toPanelId: panelID)
+            cloudPendingCreations[panelID] = CloudTerminalPaneReservation(
+                workspaceID: id,
+                panelID: panelID,
+                machine: projection.resource.machine,
+                inputRelay: relay
+            )
+            return panelID
+        } catch {
+            return nil
+        }
+    }
+
     /// Inserts the pane a Cloud terminal will occupy before the machine has created it.
     /// Returns nil when the destination no longer exists.
     func reserveCloudTerminalPane(
@@ -132,6 +166,20 @@ extension Workspace {
         reservation.cancel = nil
         reservation.retry = nil
         cancel?()
+    }
+
+    /// Drops a reservation when its remote workspace is invalidated before the
+    /// provider create can begin. The pane is owned by this request, so leaving
+    /// it visible would strand a loading surface after cancellation.
+    func discardReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
+        guard cloudPendingCreations[reservation.panelID] === reservation else { return }
+        cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        reservation.inputRelay.discard()
+        let cancel = reservation.cancel
+        reservation.cancel = nil
+        reservation.retry = nil
+        cancel?()
+        _ = closePanel(reservation.panelID, force: true)
     }
 
     /// Workspace teardown: every pending request ends without touching remote terminals.

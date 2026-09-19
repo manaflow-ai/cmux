@@ -602,6 +602,10 @@ jobs:
       # Bundle once here, not per sign variant, so every variant carries the same
       # cmux-tui build and the download happens a single time.
       - name: Bundle the cmux-tui client
+        env:
+          # install-cmux-tui-client.sh verifies the manifest's build-provenance
+          # attestation with gh before trusting it.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"

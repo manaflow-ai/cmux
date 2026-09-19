@@ -108,14 +108,32 @@ public struct ManagedDevicePolicy: Sendable {
     /// app's own domain before the release-domain fallback. A non-`nil` object
     /// means the key is managed even when its value has the wrong type.
     public func forcedObject(forUserDefaultsKey userDefaultsKey: String) -> Any? {
+        forcedValue(forUserDefaultsKey: userDefaultsKey)?.object
+    }
+
+    /// Reads the forced object and its source in one probe pass, so a profile
+    /// change cannot pair a value from one domain with metadata from another.
+    /// - Parameter userDefaultsKey: The exact preference key to probe.
+    /// - Returns: The forced object and domain, or `nil` when unmanaged.
+    public func forcedValue(
+        forUserDefaultsKey userDefaultsKey: String
+    ) -> (object: Any, source: ManagedDevicePolicyValueSource)? {
         if let value = forcedObject(defaults, userDefaultsKey) {
-            return value
+            return (value, .appDomain)
         }
         if let releaseDomainDefaults,
            let value = forcedObject(releaseDomainDefaults, userDefaultsKey) {
-            return value
+            return (value, .releaseDomain)
         }
         return nil
+    }
+
+    /// Returns the domain that currently forces `userDefaultsKey`, or `nil`
+    /// when the key is only a normal user preference. This consults the same
+    /// `objectIsForced` probe as ``forcedObject(forUserDefaultsKey:)`` and
+    /// therefore cannot be impersonated by an ordinary `defaults write`.
+    public func forcedValueSource(forUserDefaultsKey userDefaultsKey: String) -> ManagedDevicePolicyValueSource? {
+        forcedValue(forUserDefaultsKey: userDefaultsKey)?.source
     }
 
     /// Whether a configuration profile forces any value for `key`, regardless
