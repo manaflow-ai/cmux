@@ -7542,20 +7542,43 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
+        // A native Cloud pane owns its presentation through the attachment
+        // session. Do not let a stale workspace controller state cover a
+        // usable terminal when the catalog projection is being refreshed.
+        if let panel = panels[surfaceId] as? TerminalPanel,
+           let attachment = panel.cloudAttachment {
+            return attachment.presentation
+        }
         if let failure = cloudMaterializationFailures[surfaceId] {
             return Self.cloudMaterializationFailurePresentation(
                 detail: failure.detail,
                 reference: failure.reference
             )
         }
-        // A reserved pane still waiting for its terminal shows nothing but its
-        // tab spinner; only a recorded failure (above) puts a card on it.
+        // A reserved pane only shows its tab spinner until creation fails.
         if cloudPendingCreations[surfaceId] != nil { return nil }
-        if let resource = cloudProjectedResource(forPanel: surfaceId), let machineID = resource.id.machine.cloudMachineID, let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] { return session.connectionPresentation }
+        let surfaceConnectionState: WorkspaceRemoteConnectionState
+        switch remoteTerminalSessionStatesBySurfaceId[surfaceId]?.phase {
+        case .some(.connected):
+            // A workspace controller can reconnect while this terminal's
+            // established PTY remains usable. Its per-surface liveness owns
+            // the card, so the controller state cannot cover this pane.
+            return nil
+        case .some(.launching):
+            // A workspace can be connected through another pane. Keep this
+            // panel's loading card until its own attach callback arrives.
+            surfaceConnectionState = remoteConnectionState == .connected
+                ? .connecting
+                : remoteConnectionState
+        case .some(.ended):
+            surfaceConnectionState = .disconnected
+        case .none:
+            surfaceConnectionState = remoteConnectionState
+        }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
-            connectionState: remoteConnectionState,
+            connectionState: surfaceConnectionState,
             detail: remoteConnectionDetail
         )
     }
