@@ -33,9 +33,9 @@ export type DashboardTeamScope =
 const CATALOG_TIMEOUT_MS = 10_000;
 
 /**
- * The dashboard-wide team scope. Every team-scoped page reads the same
- * persisted cookie on the server, so switching here changes what the whole
- * dashboard shows without a page-level picker.
+ * The dashboard-wide team scope. Stack Auth owns the selected team on the
+ * server, so switching here changes what every dashboard surface shows
+ * without a page-level picker. The legacy cookie is mirrored for older pages.
  */
 export function useDashboardTeamScope(userId: string | null): DashboardTeamScope {
   const router = useRouter();
