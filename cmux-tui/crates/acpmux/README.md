@@ -122,31 +122,56 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 
 ## TUI
 
-The TUI shares cmux-tui's chrome: the same 256-color palette for light and dark terminals, a
-single-rule sidebar with two-line rows, a status bar with an active chip, bordered dialogs with
-`[ Cancel esc ]  [ OK ⏎ ]` buttons, and the same scrollbar (`▕` thumb, `▐` while dragged,
-invisible track, only drawn when rows overflow). Every dialog (help, pickers, permission
-requests, forms, confirms) is one component (`src/tui/dialog.rs`): a fixed header, a body that
-scrolls with the wheel, PgUp/PgDn, Home/End, track click or thumb drag, and a `N-M/T` counter
-in the footer when rows overflow. Set `ACPMUX_THEME=light` or `dark` to override the
-`COLORFGBG` guess.
+The TUI is modelled on the Codex desktop app, screenshot by screenshot: a shaded sidebar
+without a rule, a conversation with muted activity lines, and a rounded composer with its
+controls inside. The same 256-color palette serves light and dark terminals (set
+`ACPMUX_THEME=light` or `dark` to override the `COLORFGBG` guess). Every dialog (help,
+pickers, forms, confirms) is one rounded-corner component (`src/tui/dialog.rs`): a fixed
+header, a body that scrolls with the wheel, PgUp/PgDn, Home/End, track click or thumb drag,
+and a `N-M/T` counter in the footer when rows overflow.
 
-The composer is boxed by two grey rules: a rule, `❯ ` and the message (wrapping under the
-prompt, growing to twelve rows), a rule, then one row of clickable settings: `⏵⏵ mode`, model,
-`◉ effort`, permissions, directory, and `? keys · / commands` on the right. Each chip opens its
-picker. The transcript title shows only the session name, its state and token usage. The
-status bar shows hosts (click one to filter the sidebar), the last message, and a
-`web dashboard ↗` link. The sidebar starts with `+ new session` and ends with `+ add host`.
+**Sidebar.** `✎ New session` on top; sessions grouped under their project (`▢ acpmux`, or
+`▢ host · project` for a peer, `~` for a home directory), one line each, titled by their first
+prompt when the name was generated and by the name you gave otherwise; a mark at the right
+edge (`?` needs a permission, `●` running, `•` finished or failed while you were elsewhere,
+`!` disconnected); `+ Add host` pinned to the bottom. The selected and hovered rows are full-
+width shades. Drag the sidebar's right edge to resize it.
 
-Sidebar rows follow cmux rails: the current row is filled and carries a `▎` rail glyph, an
-unread `•` marks sessions that finished a turn (green), wait for a permission (yellow) or
-failed (red) while you were elsewhere. The transcript pane has focus when its title is highlighted; there
-j/k, u/d, g/G scroll it. Errors are red rows in the transcript (or under a draft) and a red
+**Header.** `▢ project  ›  session`, a status word only when it needs attention (`needs
+permission`, `disconnected`), token use at the right edge.
+
+**Transcript.** A centered muted timestamp (`Today 2:15 AM`) before each of your messages,
+which sit in a tinted full-width band with `❯`. The turn's work follows under a handle,
+`Worked for 19s  ▾` (or `Working for 4s` while it runs), from the daemon's turn markers: each
+thought as `Thought  <first line>  ›`, each tool call as one muted line with a kind glyph
+(`≡ Read calc.py`, `$ echo hi`, `✎ Edited calc.py  +2 -1`, `⌕ Search …`), paths cut to the
+file name, red only when it failed; a run of tool calls collapses into `3 steps · Read, Bash,
+Edit`; permission rows read `? Needs permission`, `✓ Allowed`, `✗ Rejected`. Edits carry a
+diff: the counts on the row, and the `+`/`-` lines in the diff colors when opened. The final
+reply is plain markdown with no bullet. Click any handle, thought or tool line to open or
+close it; it lights up under the pointer. The thought being streamed stays open; `/thoughts`
+opens them all.
+
+**Composer.** A rounded box: your text (growing to twelve rows), and along its bottom edge the
+permission chip (`Full access` in a warm accent, `Edits allowed`, `Reads allowed`, `Ask
+before acting`, `Read-only`), the harness mode when it is not the default, and at the right
+the model, the effort and a `↑` send glyph. Every chip is clickable and opens its picker.
+
+**Permissions.** A pending request is a card docked above the composer, `Needs permission ·
+Write perm.txt`, with the options as chips; `y`, `n`, a digit or a click answers it. Nothing
+covers the conversation.
+
+**Empty states.** A new draft or a session without messages shows `What should we build in
+<project>?` centered, with the settings as one muted line under it.
+
+The status bar shows hosts (click one to filter the sidebar), the last message, `? keys · /
+commands`, and a `web dashboard ↗` link. Errors are red rows in the transcript and a red
 status-bar message with a `[copy]` button.
 
-Model pickers list every model a harness reports. At start the daemon probes each ACP harness
-once (spawn, `initialize`, `session/new`, read the list, kill) so Codex, OpenCode and Gemini
-show their catalogs before any session exists; Claude uses a fixed alias table.
+Model pickers list every model a harness declares or reports. At start the daemon probes each
+ACP harness once (spawn, `initialize`, `session/new`, read the list, kill) so Codex, OpenCode,
+pi and their forks show their catalogs before any session exists; Claude uses a fixed alias
+table.
 
 ```
 Enter        send prompt        Ctrl-s   steer, or queue when the agent cannot steer
@@ -171,11 +196,10 @@ Newline with Ctrl-j, Shift-Enter, or a trailing `\` then Enter. Up and Down move
 at the top or bottom they recall sent messages. Paste inserts at the cursor. The box grows to
 eight rows and scrolls inside after that; click to place the cursor.
 
-The row above the transcript is a set of clickable chips: `model`, `mode`, `perms`, `thinking`,
-and `dir`. Click one to change it. Model lists every harness on every host and forks into a new
-session tab when you pick a different harness. Mode, permissions, and thinking apply to the
-running session at once; thinking shows only for harnesses that expose an effort setting, which
-today is Codex. Directory opens a dialog: on a draft it just changes, on a running session it
+The composer's chips change the session: the model list covers every harness on every host
+and forks into a new session tab when you pick a different harness; mode, permissions and
+effort apply to the running session at once; effort shows only for harnesses that expose
+one. `/cwd` opens a directory dialog: on a draft it just changes, on a running session it
 opens a new session tab in that directory, since an agent cannot move mid-session.
 
 Hosts sit in the bottom-left of the status bar as chips: `● mac  ● lawbook  ○ box` with a
@@ -204,25 +228,14 @@ Claude adapter (`effort`) and Codex (`reasoning_effort`, up to `ultra`) all expo
 calls it `effort` everywhere and maps the name onto the harness's own option, so
 `acpmux new --effort high`, `acpmux session set NAME effort=low`, `/effort max`, Alt-e and
 the `thinking` chip all work on any of them. OpenCode and Gemini do not expose one over ACP.
-Assistant text renders as markdown (pulldown-cmark): headings, emphasis, inline code,
-links, nested lists, quotes, rules, simple tables, and fenced code blocks on a shaded
-background with syntect highlighting when the language is known. Every row starts after a
-two-column gutter (`❯` for you, `▸`/`▾` for collapsibles), so text lines up down the page.
-Your messages look like Codex's: a tinted full-width band with `› ` before the text. The
-transcript looks like Codex's: one blank row before every block, a tinted band with plain text
-and a bold dim `❯` for your messages, a dim `•` on the first line of a reply, green and red
-bullets for tool outcomes, dim italic thinking, and no rules inside the transcript. Markdown follows
-Codex's renderer too: a blank row between blocks, list items kept together with `- ` and
-`N. ` markers indented four columns per level, headings bold (h1 underlined, h3 italic),
-code and links cyan, quotes green. Your message shows the instant you press Enter; the
-daemon's echo is matched, not repeated. The
-transcript is a hierarchy of collapsibles, each toggled by a click: a turn's work (the
-`▾ worked · 3 tool calls · 1 thought` handle under your message collapses everything between
-the message and the turn's final reply; both stay visible), a run of
-consecutive tool calls (`▾ 3 tool calls · Read, Bash, Edit`), one tool call (`▸ ✓ title  kind
-first line of output`), and one thought. Turns and groups start open, details closed. The
-thought being streamed stays open; `/thoughts` opens them all. Right-click a row for
-Expand/Collapse everything, Copy message, Copy row, and Open link.
+Assistant text renders as markdown (pulldown-cmark): headings, emphasis, inline code as
+shaded chips, links in the link color, nested lists, quotes, rules, simple tables, and fenced
+code blocks on a shaded background with a language header and syntect highlighting when the
+language is known. Markdown spacing follows Codex's renderer: a blank row between blocks, list
+items kept together with `- ` and `N. ` markers indented four columns per level, headings bold
+(h1 underlined, h3 italic). Your message shows the instant you press Enter; the daemon's echo
+is matched, not repeated. Right-click a row for Expand/Collapse everything, Copy message, Copy
+row, and Open link.
 
 Right-click works everywhere: a sidebar session (rename, fork, new session in its
 directory, export, copy id, open in web, stop, delete), a draft (harness, directory,
