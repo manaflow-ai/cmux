@@ -7,6 +7,8 @@ struct LocalTmuxSettingsCard: View {
     let hostActions: SettingsHostActions
 
     @State private var sessions: [LocalTmuxSessionSummary] = []
+    @State private var liveSessionCount = 0
+    @State private var refreshGeneration = 0
     @State private var sessionName = ""
     @State private var isLoading = false
     @State private var actionInFlight = false
@@ -121,23 +123,26 @@ struct LocalTmuxSettingsCard: View {
             }
         }
         .accessibilityIdentifier("SettingsTerminalLocalTmuxCard")
-        .task { await loadSessions() }
+        .task(id: refreshGeneration) {
+            await loadSessions(generation: refreshGeneration)
+        }
     }
 
+    /// Renders the cached live-session count without scanning the session array from body.
     private var statusText: String {
         if isLoading {
             return String(localized: "settings.terminal.localTmux.checking", defaultValue: "Checking…")
         }
-        let liveCount = sessions.filter(\.isLive).count
-        if liveCount == 0 {
+        if liveSessionCount == 0 {
             return String(localized: "settings.terminal.localTmux.none", defaultValue: "No live sessions")
         }
         return String.localizedStringWithFormat(
             String(localized: "settings.terminal.localTmux.liveCount", defaultValue: "%lld live"),
-            liveCount
+            liveSessionCount
         )
     }
 
+    /// Formats one already-decoded session row for display.
     private func sessionSubtitle(_ session: LocalTmuxSessionSummary) -> String {
         var parts: [String] = []
         parts.append(
@@ -159,24 +164,35 @@ struct LocalTmuxSettingsCard: View {
         return parts.joined(separator: " · ")
     }
 
-    private func loadSessions() async {
+    /// Loads one generation of the authoritative session snapshot.
+    private func loadSessions(generation: Int) async {
+        guard generation == refreshGeneration else { return }
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            if generation == refreshGeneration {
+                isLoading = false
+            }
+        }
         do {
-            sessions = try await hostActions.localTmuxSessions()
+            let loadedSessions = try await hostActions.localTmuxSessions()
+            guard !Task.isCancelled, generation == refreshGeneration else { return }
+            sessions = loadedSessions
+            liveSessionCount = loadedSessions.lazy.filter(\.isLive).count
             errorMessage = nil
         } catch {
+            guard !Task.isCancelled, generation == refreshGeneration else { return }
             sessions = []
+            liveSessionCount = 0
             errorMessage = error.localizedDescription
         }
     }
 
+    /// Requests a new lifecycle-bound session snapshot.
     private func refresh() {
-        tasks.replaceOnMainActor("localTmuxRefresh") {
-            await loadSessions()
-        }
+        refreshGeneration &+= 1
     }
 
+    /// Starts a named persistent session through the host-owned CLI bridge.
     private func startSession() {
         let name = sessionName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
@@ -187,13 +203,14 @@ struct LocalTmuxSettingsCard: View {
                 try await hostActions.startLocalTmuxSession(name: name)
                 sessionName = ""
                 errorMessage = nil
-                await loadSessions()
+                refreshGeneration &+= 1
             } catch {
                 errorMessage = error.localizedDescription
             }
         }
     }
 
+    /// Attaches the selected persistent session through the host-owned CLI bridge.
     private func attach(_ session: LocalTmuxSessionSummary) {
         actionInFlight = true
         tasks.replaceOnMainActor("localTmuxAction") {
@@ -201,7 +218,7 @@ struct LocalTmuxSettingsCard: View {
             do {
                 try await hostActions.attachLocalTmuxSession(session)
                 errorMessage = nil
-                await loadSessions()
+                refreshGeneration &+= 1
             } catch {
                 errorMessage = error.localizedDescription
             }
