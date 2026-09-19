@@ -309,7 +309,11 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             for key in keys {
                 let metadata = try XCTUnwrap(key.userFacing)
-                let paletteToggle = try XCTUnwrap(metadata.commandPaletteToggle)
+                guard case .toggle(let toggle) = metadata.control else {
+                    XCTFail("Expected ordinary toggle metadata for \(key.id)")
+                    continue
+                }
+                let paletteToggle = try XCTUnwrap(toggle.commandPalette)
                 let descriptor = try XCTUnwrap(
                     CommandPaletteSettingsToggleCommands.descriptor(
                         commandId: "palette.toggleSetting.\(paletteToggle.id)"

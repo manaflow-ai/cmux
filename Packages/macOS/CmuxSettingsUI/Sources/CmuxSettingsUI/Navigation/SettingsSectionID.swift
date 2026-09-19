@@ -40,6 +40,17 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
 
     public var id: Self { self }
 
+    /// Maps the catalog-owned destination into this package's navigation id.
+    ///
+    /// Keep this switch exhaustive as UserFacingSettingSection grows so
+    /// catalog metadata can never refer to an unknown Settings destination.
+    public init(userFacingSection section: UserFacingSettingSection) {
+        switch section {
+        case .app:
+            self = .app
+        }
+    }
+
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {

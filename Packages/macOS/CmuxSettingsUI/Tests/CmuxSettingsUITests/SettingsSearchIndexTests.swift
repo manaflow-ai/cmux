@@ -67,7 +67,7 @@ struct SettingsSearchIndexTests {
 
         for key in keys {
             let descriptor = try #require(key.userFacing)
-            let expectedID = "setting:\(descriptor.sectionID):\(descriptor.searchID)"
+            let expectedID = "setting:\(descriptor.section.rawValue):\(descriptor.searchID)"
             let entry = try #require(index.entries.first { $0.id == expectedID })
 
             #expect(entry.title == descriptor.title)

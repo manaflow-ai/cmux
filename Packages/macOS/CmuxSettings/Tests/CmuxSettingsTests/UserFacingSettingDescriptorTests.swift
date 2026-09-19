@@ -14,12 +14,15 @@ struct UserFacingSettingDescriptorTests {
 
         for key in keys {
             let descriptor = try #require(key.userFacing)
-            #expect(descriptor.sectionID == "app")
-            #expect(descriptor.controlKind == .toggle)
+            #expect(descriptor.section == .app)
             #expect(!descriptor.title.isEmpty)
             #expect(!descriptor.searchID.isEmpty)
             #expect(!descriptor.searchKeywords.isEmpty)
-            #expect(descriptor.commandPaletteToggle != nil)
+            guard case .toggle(let toggle) = descriptor.control else {
+                Issue.record("Expected ordinary toggle metadata")
+                continue
+            }
+            #expect(toggle.commandPalette != nil)
         }
     }
 

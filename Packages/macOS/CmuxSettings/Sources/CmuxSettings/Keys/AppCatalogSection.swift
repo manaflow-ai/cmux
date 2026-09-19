@@ -153,14 +153,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 localized: "settings.app.warnBeforeClosingTab",
                 defaultValue: "Warn Before Closing Tab"
             ),
-            sectionID: "app",
+            section: .app,
             searchID: "warn-before-closing-tab",
             searchKeywords: ["close", "tab", "confirmation", "command-w", "cmd-w", "terminal", "surface"],
-            controlKind: .toggle,
-            commandPaletteToggle: .init(
-                id: "warnBeforeClosingTab",
-                keywords: ["warn", "close", "tab", "confirmation", "cmd-w"]
-            )
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingTab",
+                    keywords: ["warn", "close", "tab", "confirmation", "cmd-w"]
+                )
+            ))
         )
     )
 
@@ -179,14 +180,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 localized: "settings.app.hideTabCloseButton",
                 defaultValue: "Hide Tab Close Button"
             ),
-            sectionID: "app",
+            section: .app,
             searchID: "hide-tab-close-button",
             searchKeywords: ["hide", "x", "button", "close", "tab", "terminal", "surface"],
-            controlKind: .toggle,
-            commandPaletteToggle: .init(
-                id: "hideTabCloseButton",
-                keywords: ["hide", "close", "tab", "x", "button"]
-            )
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "hideTabCloseButton",
+                    keywords: ["hide", "close", "tab", "x", "button"]
+                )
+            ))
         )
     )
 
@@ -199,14 +201,15 @@ public struct AppCatalogSection: SettingCatalogSection {
                 localized: "settings.app.renameSelectsName",
                 defaultValue: "Rename Selects Existing Name"
             ),
-            sectionID: "app",
+            section: .app,
             searchID: "rename-selects-name",
             searchKeywords: ["rename", "select", "all", "existing", "title", "command", "palette", "workspace", "name", "text", "selection"],
-            controlKind: .toggle,
-            commandPaletteToggle: .init(
-                id: "renameSelectsExistingName",
-                keywords: ["rename", "select", "name", "title", "command", "palette"]
-            )
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "renameSelectsExistingName",
+                    keywords: ["rename", "select", "name", "title", "command", "palette"]
+                )
+            ))
         )
     )
 
