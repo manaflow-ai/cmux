@@ -32,15 +32,15 @@ struct CloudTreePendingMachineRowContent: View {
             HStack(alignment: .top, spacing: style.iconGap) {
                 leadingGlyph
                     .frame(width: scaled(style.iconSlot), height: scaled(style.machineNameLineHeight), alignment: .center)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
+                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     name
-                        .frame(height: style.machineNameLineHeight)
+                        .frame(height: scaled(style.machineNameLineHeight))
                     status
-                        .frame(height: style.machineSubtitleLineHeight)
+                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
                 Spacer(minLength: CloudTreeRowGrid.trailingGap)
             }
-            .padding(.vertical, style.machineVerticalPadding)
+            .padding(.vertical, scaled(style.machineVerticalPadding))
             .padding(.trailing, CloudTreeRowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)

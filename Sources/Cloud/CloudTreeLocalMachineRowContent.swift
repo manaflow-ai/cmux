@@ -28,28 +28,32 @@ struct CloudTreeLocalMachineRowContent: View {
         case .twoLine:
             HStack(alignment: .top, spacing: style.iconGap) {
                 CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
-                    .frame(height: GlobalFontMagnification.scaledSize(style.machineNameLineHeight, percent: magnification))
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
+                    .frame(height: scaled(style.machineNameLineHeight))
+                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     Text(row.name)
                         .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .frame(height: style.machineNameLineHeight)
+                        .frame(height: scaled(style.machineNameLineHeight))
                     Text(Self.summary(row))
                         .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .frame(height: style.machineSubtitleLineHeight)
+                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
                 Spacer(minLength: CloudTreeRowGrid.trailingGap)
             }
-            .padding(.vertical, style.machineVerticalPadding)
+            .padding(.vertical, scaled(style.machineVerticalPadding))
             .padding(.trailing, CloudTreeRowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(row.name)
         }
+    }
+
+    private func scaled(_ value: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(value, percent: magnification)
     }
 
     /// "3 terminals · 1 browser"
@@ -65,4 +69,3 @@ struct CloudTreeLocalMachineRowContent: View {
         return parts.joined(separator: " · ")
     }
 }
-
