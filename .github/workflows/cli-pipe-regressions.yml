@@ -14,6 +14,9 @@ on:
 permissions:
   contents: read
 
+env:
+  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/Packages/macOS/CMUXProjectModel/.swiftpm/configuration/mirrors.json
+
 concurrency:
   group: cli-pipes-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true

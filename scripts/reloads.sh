@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export SWIFTPM_MIRROR_CONFIG="${SWIFTPM_MIRROR_CONFIG:-$SCRIPT_DIR/../Packages/macOS/CMUXProjectModel/.swiftpm/configuration/mirrors.json}"
 set -euo pipefail
 
 APP_NAME="cmux STAGING"
