@@ -44,6 +44,7 @@ extension Workspace {
         let cachedTitle: String?
         let customTitle: String?
         let customTitleSource: Workspace.CustomTitleSource?
+        let customColor: String?
         let manuallyUnread: Bool
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
@@ -107,6 +108,7 @@ extension Workspace {
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 customTitleSource: customTitleSource,
+                customColor: customColor,
                 manuallyUnread: manuallyUnread,
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,

@@ -37,8 +37,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
             rootView: TmuxWorkspacePaneOverlayView(
                 unreadRects: [],
                 flashRect: nil,
-                activePaneBorderRect: nil,
-                activePaneBorderColorHex: nil,
+                paneBordersInDrawOrder: [],
                 flashStartedAt: nil,
                 flashReason: nil,
                 workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
@@ -105,8 +104,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
             hostingView.rootView = TmuxWorkspacePaneOverlayView(
                 unreadRects: model.unreadRects,
                 flashRect: model.flashRect,
-                activePaneBorderRect: model.activePaneBorderRect,
-                activePaneBorderColorHex: model.activePaneBorderColorHex,
+                paneBordersInDrawOrder: model.paneBordersInDrawOrder,
                 flashStartedAt: model.flashStartedAt,
                 flashReason: model.flashReason,
                 workspaceAttentionColor: model.workspaceAttentionColor
@@ -119,8 +117,7 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
             hostingView.rootView = TmuxWorkspacePaneOverlayView(
                 unreadRects: [],
                 flashRect: nil,
-                activePaneBorderRect: nil,
-                activePaneBorderColorHex: nil,
+                paneBordersInDrawOrder: [],
                 flashStartedAt: nil,
                 flashReason: nil,
                 workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)

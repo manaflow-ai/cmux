@@ -850,6 +850,7 @@ extension Workspace {
             customTitle: customTitle,
             customTitleSource: customTitleSource == .remote ? .user : customTitleSource,
             customTitleWasRemote: customTitleSource == .remote ? true : nil,
+            customColor: panelColorModel.color(forPanelID: panelId),
             directory: directory,
             directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
             directoryRequiresRemoteTrust: directoryRequiresRemoteTrust ? true : nil,
@@ -2354,6 +2355,7 @@ extension Workspace {
         }
 
         setPanelCustomTitle(panelId: panelId, title: snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user, propagateToCloud: false)
+        _ = setPanelCustomColor(panelId: panelId, colorHex: snapshot.customColor)
         setPanelPinned(panelId: panelId, pinned: snapshot.isPinned)
 
         // The bonsplit tab header only refreshes when `updateTab` is called; the writes
@@ -2641,6 +2643,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
+    )
+    static let panelCustomColorDidChangeNotification = Notification.Name(
+        "cmux.workspacePanelCustomColorDidChange"
     )
     let id: UUID
     private(set) var isRetiredFromOwningTabManager = false
@@ -3004,6 +3009,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         didSet { surfaceCatalogPanelMetadataDidChange(old: oldValue, new: panelTitles) }
     }
     @Published var panelCustomTitles: [UUID: String] = [:]
+    /// Observation-backed owner for per-panel custom colors.
+    let panelColorModel = WorkspacePanelColorModel()
     /// Provenance of entries in `panelCustomTitles` (see ``CustomTitleSource``).
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
@@ -5474,6 +5481,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return max(rawTarget, pinnedCount)
     }
 
+    /// Assigns or clears one live panel's custom color and refreshes its overlay.
+    @discardableResult
+    func setPanelCustomColor(panelId: UUID, colorHex: String?) -> Bool {
+        guard panels[panelId] != nil else { return false }
+        let previousColor = panelColorModel.color(forPanelID: panelId)
+        guard panelColorModel.setColor(colorHex, forPanelID: panelId) else { return false }
+        guard panelColorModel.color(forPanelID: panelId) != previousColor else { return true }
+        NotificationCenter.default.post(
+            name: Self.panelCustomColorDidChangeNotification,
+            object: self,
+            userInfo: ["panelId": panelId]
+        )
+        return true
+    }
+
     func isPanelPinned(_ panelId: UUID) -> Bool {
         pinnedPanelIds.contains(panelId)
     }
@@ -6494,6 +6516,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelTitles = panelTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitles = panelCustomTitles.filter { validSurfaceIds.contains($0.key) }
         panelCustomTitleSources = panelCustomTitleSources.filter { validSurfaceIds.contains($0.key) }
+        panelColorModel.retainColors(forPanelIDs: validSurfaceIds)
         pinnedPanelIds = pinnedPanelIds.filter { validSurfaceIds.contains($0) }
         pinMutationTokensByPanelId = pinMutationTokensByPanelId.filter { validSurfaceIds.contains($0.key) }
         manualUnreadPanelIds = manualUnreadPanelIds.filter { validSurfaceIds.contains($0) }
@@ -11063,6 +11086,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             restoredPanelTitleBoundariesByPanelId.removeValue(forKey: detached.panelId)
         }
+        _ = setPanelCustomColor(panelId: detached.panelId, colorHex: detached.customColor)
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
@@ -13976,6 +14000,7 @@ extension Workspace: BonsplitDelegate {
                 customTitleSource: panelCustomTitles[panelId] != nil
                     ? (panelCustomTitleSources[panelId] ?? .user)
                     : nil,
+                customColor: panelColorModel.color(forPanelID: panelId),
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),
                 restoredUnreadIndicator: restoredUnreadPanelIndicators[panelId],
                 restorableAgent: restorableAgent,

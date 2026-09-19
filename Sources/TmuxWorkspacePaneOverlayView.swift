@@ -5,8 +5,7 @@ import SwiftUI
 struct TmuxWorkspacePaneOverlayView: View {
     let unreadRects: [CGRect]
     let flashRect: CGRect?
-    let activePaneBorderRect: CGRect?
-    let activePaneBorderColorHex: String?
+    let paneBordersInDrawOrder: [TmuxWorkspacePaneColorBorder]
     let flashStartedAt: Date?
     let flashReason: WorkspaceAttentionFlashReason?
     let workspaceAttentionColor: WorkspaceAttentionColor
@@ -30,7 +29,7 @@ struct TmuxWorkspacePaneOverlayView: View {
                         }
                     }
             }
-        } else if !unreadRects.isEmpty || activePaneBorderRect != nil {
+        } else if !unreadRects.isEmpty || !paneBordersInDrawOrder.isEmpty {
             overlayCanvas(timelineDate: nil, attentionColor: attentionColor)
         } else {
             Color.clear
@@ -47,12 +46,11 @@ struct TmuxWorkspacePaneOverlayView: View {
 
     private func overlayCanvas(timelineDate: Date?, attentionColor: Color) -> some View {
         Canvas { context, _ in
-            if let activePaneBorderRect,
-               let activePaneBorderColorHex {
-                drawActivePaneBorder(
+            for border in paneBordersInDrawOrder {
+                drawPaneBorder(
                     in: &context,
-                    rect: activePaneBorderRect,
-                    colorHex: activePaneBorderColorHex
+                    rect: border.rect,
+                    colorHex: border.colorHex
                 )
             }
 
@@ -76,7 +74,7 @@ struct TmuxWorkspacePaneOverlayView: View {
         }
     }
 
-    private func drawActivePaneBorder(
+    private func drawPaneBorder(
         in context: inout GraphicsContext,
         rect: CGRect,
         colorHex: String

@@ -307,6 +307,7 @@ extension DockSplitStore {
             cachedTitle: titleMetadata.cachedTitle,
             customTitle: titleMetadata.customTitle,
             customTitleSource: titleMetadata.customTitleSource,
+            customColor: preservedTransfer?.customColor,
             manuallyUnread: wasManuallyUnread,
             restoredUnreadIndicator: preservedTransfer?.restoredUnreadIndicator,
             restorableAgent: transferredRestorableAgent,

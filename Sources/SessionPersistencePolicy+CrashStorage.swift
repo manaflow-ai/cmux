@@ -235,6 +235,7 @@ extension SessionPersistencePolicy {
 
     private static func panelCarriesRestorableUserState(_ panel: SessionPanelSnapshot) -> Bool {
         if !isNilOrBlank(panel.customTitle)
+            || !isNilOrBlank(panel.customColor)
             || panel.isPinned
             || panel.isManuallyUnread
             || panel.hasUnreadIndicator == true

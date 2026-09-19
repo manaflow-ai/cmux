@@ -59,6 +59,7 @@ extension TerminalController {
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
                 title: titleByPanelID[panel.id] ?? panel.displayTitle,
+                customColor: dock.detachedSurfaceTransfersByPanelId[panel.id]?.customColor,
                 isFocused: panel.id == dock.focusedPanelId,
                 paneID: paneByPanelID[panel.id],
                 indexInPane: indexInPaneByPanelID[panel.id],

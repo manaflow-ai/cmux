@@ -1721,6 +1721,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     /// case. Older builds ignore this field and read the encoded source as
     /// `.user`; newer builds restore the remote provenance from the marker.
     var customTitleWasRemote: Bool? = nil
+    var customColor: String? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil

@@ -37,11 +37,18 @@ extension ControlSystemContext {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        color: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution { .tabManagerUnavailable }
+    func controlTabActionStrings() -> ControlTabActionStrings {
+        ControlTabActionStrings(
+            missingColor: "Missing or invalid color",
+            invalidColor: "Invalid color. Use a hex value (#RRGGBB) or a named color."
+        )
+    }
     func controlSystemSurfaceNotFoundMessage() -> String { "Surface not found" }
     func controlSystemTabNotFoundMessage() -> String { "Tab not found" }
     func controlSurfaceSplitOff(params: [String: JSONValue]) -> ControlCallResult {
