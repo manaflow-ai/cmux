@@ -2,15 +2,18 @@ import Foundation
 
 struct SurfaceResumeBindingIndex: Sendable {
     static let empty = SurfaceResumeBindingIndex(bindingsByPanel: [:])
+    static let unavailable = SurfaceResumeBindingIndex(bindingsByPanel: [:], isAvailable: false)
 
     typealias PanelKey = RestorableAgentSessionIndex.PanelKey
 
     private let bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]
     private let bindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot]
     private let ambiguousPanelIds: Set<UUID>
+    let isAvailable: Bool
 
-    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot]) {
+    init(bindingsByPanel: [PanelKey: SurfaceResumeBindingSnapshot], isAvailable: Bool = true) {
         self.bindingsByPanel = bindingsByPanel
+        self.isAvailable = isAvailable
         var candidatesByPanelId: [UUID: [SurfaceResumeBindingSnapshot]] = [:]
         for (key, binding) in bindingsByPanel {
             candidatesByPanelId[key.panelId, default: []].append(binding)

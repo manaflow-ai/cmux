@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 
 /// Resolves the shell command to save for each live terminal when capturing a

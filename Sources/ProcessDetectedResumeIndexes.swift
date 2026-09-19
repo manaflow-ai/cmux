@@ -134,7 +134,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
             await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
         }
         guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
-            return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .empty)
+            return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .unavailable)
         }
         let capturedAt = processSnapshot.sampledAt.timeIntervalSince1970
         let restorableAgentIndex: RestorableAgentSessionIndex

@@ -39,7 +39,6 @@ final class AgentChatSessionRegistry {
         versionBySessionID[record.sessionID] = next
         record.version = next
     }
-
     /// Per-session process-exit watchers, keyed by session id, each tagged with
     /// the pid it watches. A `DispatchSourceProcess` (`.exit`) fires exactly
     /// when the agent process dies (crash, kill, closed terminal), so the
@@ -47,6 +46,7 @@ final class AgentChatSessionRegistry {
     /// and without polling `kill(pid,0)` on every read. `DispatchSource` is an
     /// event source, not a timer, and is cancellable.
     private var exitWatchers: [String: (pid: Int, source: DispatchSourceProcess)] = [:]
+    private var processExitRetryTasks: [String: Task<Void, Never>] = [:]
 
     /// Creates a registry.
     ///
@@ -67,7 +67,6 @@ final class AgentChatSessionRegistry {
             syncProcessExitWatch(for: record)
         }
     }
-
     /// All known sessions, optionally restricted to one workspace, most
     /// recent activity first.
     ///
@@ -193,7 +192,7 @@ final class AgentChatSessionRegistry {
     /// Ignores a stale fire (the session may have resumed under a new pid;
     /// `claude --resume`). `ended` is retained (the GUI stays shown, the input
     /// bar disables); only the watcher is torn down.
-    private func handleProcessExit(sessionID: String, pid: Int) {
+    private func handleProcessExit(sessionID: String, pid: Int, retryAttempt: Int = 0) {
         guard let record = records[sessionID], record.pid == pid, record.state != .ended else {
             return
         }
@@ -221,6 +220,7 @@ final class AgentChatSessionRegistry {
                 case .found, .notFound:
                     self.update(sessionID: sessionID) { $0.state = .ended }
                 case .unavailable:
+                    self.scheduleProcessExitRetry(sessionID: sessionID, pid: pid, attempt: retryAttempt + 1)
                     return
                 }
             }
