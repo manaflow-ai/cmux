@@ -136,7 +136,7 @@ struct CloudSurfaceDragFeedbackTests {
             let fixture = CloudSidebarOrderingFixture()
             defer { fixture.close() }
             fixture.coordinator.apply(nodes: fixture.nodes())
-            let outline = try #require(fixture.coordinator.outlineView as? CloudTreeNSOutlineView)
+            let outline = try #require(fixture.coordinator.outlineView)
             let target = try #require(CloudTreeNodeBuilder.flattened(fixture.nodes()).first { $0.structureTag == "workspace" })
             let panelID = try #require(app.workspace.focusedPanelId)
             let tabID = try #require(app.workspace.surfaceIdFromPanelId(panelID))

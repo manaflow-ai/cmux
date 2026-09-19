@@ -50,7 +50,8 @@ final class CloudPaneCreationFailureStore {
         onStart: @escaping @MainActor () -> Void,
         onFinish: @escaping @MainActor () -> Void,
         inlineFailure: (@MainActor (Error) -> Void)? = nil,
-        discardProjection: @escaping CloudTerminalCreationCoordinator.DiscardProjection
+        discardProjection: @escaping CloudTerminalCreationCoordinator.DiscardProjection,
+        operations: CloudOperationRecorder? = nil
     ) -> CloudTerminalCreationCoordinator {
         let coordinator = CloudTerminalCreationCoordinator(
             create: create,
@@ -83,7 +84,8 @@ final class CloudPaneCreationFailureStore {
                 self?.requests.removeValue(forKey: requestID)
                 if self?.activeRequestID == requestID { self?.phase = .idle }
             },
-            discardProjection: discardProjection
+            discardProjection: discardProjection,
+            operations: operations
         )
         requests[requestID] = coordinator
         coordinator.start()

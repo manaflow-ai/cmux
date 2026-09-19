@@ -96,9 +96,20 @@ def is_agent_session_web_change(path: str) -> bool:
 
 
 def is_macos_neutral(path: str) -> bool:
-    # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own `cmux-tui`
-    # workflow; it never affects the macOS app build or app-host tests.
-    if path.startswith(("docs/", "design/", "plans/", "ios/", "web/", "webviews/", "cmux-tui/")):
+    # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
+    # workflow. Packages/iOS stays macOS-relevant because the desktop app
+    # links CmuxMobileRPC, CmuxMobileTransport, and their package dependencies.
+    if path.startswith(
+        (
+            "docs/",
+            "design/",
+            "plans/",
+            "ios/",
+            "web/",
+            "webviews/",
+            "cmux-tui/",
+        )
+    ):
         return True
     return path == "README.md" or (path.startswith("README.") and path.endswith(".md"))
 
@@ -182,7 +193,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
 
-    if args.event_name != "pull_request":
+    if args.event_name not in {"pull_request", "merge_group"}:
         areas = ChangeAreas.all()
         print(f"Non-PR event '{args.event_name or 'unknown'}'; running all CI areas.")
         write_outputs(areas, args.github_output)
