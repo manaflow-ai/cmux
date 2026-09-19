@@ -84,6 +84,7 @@ struct CloudBrowserProxyIntegrationTests {
               ContinuousClock.now < websocketDeadline {
             try await Task.sleep(for: .milliseconds(20))
         }
+        #expect(!server.bridgeRequests.isEmpty, "The Cloud WebSocket bridge must receive the page upgrade")
         #expect(try await panel.webView.evaluateJavaScript("window.cloudWebSocketState") as? String == "open", "WebSocket traffic must use the same Cloud browser route")
         await model.retire()
     }
@@ -400,6 +401,8 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
     private(set) var port: UInt16 = 0
     var requests: [Request] { lock.withLock { capturedRequests } }
     var authorizedTargets: [String] { lock.withLock { capturedTargets } }
+    private var capturedBridgeRequests: [String] = []
+    var bridgeRequests: [String] { lock.withLock { capturedBridgeRequests } }
     var endpoint: CloudBrowserProxyEndpoint {
         CloudBrowserProxyEndpoint(host: "127.0.0.1", port: port, username: marker, password: "fixture-\(marker)", websocketToken: "ws-token")
     }
@@ -472,6 +475,7 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 guard bridge.target.hasPrefix("/__cmux_ws__/") else { return }
                 guard bridge.headers["sec-websocket-protocol"]?.contains("cmux-proxy-ws-token") == true,
                       let key = bridge.headers["sec-websocket-key"] else { return }
+                lock.withLock { capturedBridgeRequests.append(bridge.target + " | " + (bridge.headers["sec-websocket-protocol"] ?? "")) }
                 let acceptInput = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
                 let accept = Data(Insecure.SHA1.hash(data: acceptInput)).base64EncodedString()
                 try await connection.sendAll(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: cmux-proxy-ws-token\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8))
