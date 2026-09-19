@@ -726,11 +726,7 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-        observers.append(NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        observers.append(NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             MainActor.assumeIsolated { [weak self] in
                 self?.sidebarMetadataSettingsDidChange()
                 self?.focusHistoryScopeSettingsDidChange()
@@ -4220,20 +4216,13 @@ class TabManager: ObservableObject {
     /// Create a new split in the current tab
     @discardableResult
     func createSplit(direction: SplitDirection) -> UUID? {
-        guard let selectedTabId,
-              let tab = tabs.first(where: { $0.id == selectedTabId }),
-              let focusedPanelId = tab.focusedPanelId else { return nil }
-        return createSplit(tabId: selectedTabId, surfaceId: focusedPanelId, direction: direction)
+        createSplitOutcome(direction: direction).panel?.id
     }
 
     /// Create a new split from an explicit source panel.
     @discardableResult
     func createSplit(tabId: UUID, surfaceId: UUID, direction: SplitDirection, focus: Bool = true) -> UUID? {
-        guard let tab = tabs.first(where: { $0.id == tabId }),
-              tab.panels[surfaceId] != nil else { return nil }
-        tab.clearSplitZoom()
-        sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
-        return newSplit(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus)
+        createSplitOutcome(tabId: tabId, surfaceId: surfaceId, direction: direction, focus: focus).panel?.id
     }
 
     /// Create a new browser split from the currently focused panel.

@@ -87,15 +87,6 @@ struct MachinesPanelView: View {
         )
         content
     }
-    /// Clears the tunnel banner and opens the Cloud VPN setup flow.
-    private func openCloudVPNSetup(preferredWindow: NSWindow? = nil) {
-        bannerDismissals.clear(id: "machines.tunnel")
-        _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(
-            preferredTabManager: tabManager,
-            preferredWindow: preferredWindow
-        )
-    }
-
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
@@ -423,6 +414,9 @@ struct MachinesPanelView: View {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             memoryOptionsMb: viewModel.memoryOptionsMb,
+            lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
+            memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
+            memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
@@ -442,9 +436,6 @@ struct MachinesPanelView: View {
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setupVPN = { window in
-            openCloudVPNSetup(preferredWindow: window)
-        }
         machineActions.setDefault = { [weak viewModel] id in
             viewModel?.setDefaultMachine(id: id)
         }
@@ -725,7 +716,6 @@ struct MachinesChromeIconButton: View {
 /// see the store. All verbs go through `CloudVMActionLauncher` so this panel,
 /// the ＋ menu, the palette, and the CLI share one mutation path.
 struct MachineRowActions {
-    var setupVPN: @MainActor (NSWindow?) -> Void
     let openShell: @MainActor (String) -> Void
     let openDesktop: @MainActor (String) -> Void
     let runCommand: @MainActor (String, [String]) -> Void
@@ -751,7 +741,6 @@ struct MachineRowActions {
         onDidMutate: @escaping @MainActor () -> Void
     ) -> MachineRowActions {
         MachineRowActions(
-            setupVPN: { window in _ = AppDelegate.shared?.openCloudVPNSetupWorkspace(preferredWindow: window) },
             openShell: { id in
                 onWillMutate(String(format: String(localized: "machines.operation.openShell", defaultValue: "Opening %@\u{2026}"), id))
                 if !launch(arguments: ["vm", "shell", id], onDidMutate: onDidMutate) {

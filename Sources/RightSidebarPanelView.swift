@@ -160,7 +160,6 @@ struct RightSidebarPanelView: View {
     @State private var customSidebarWorkerClient: RenderWorkerClient?
     @State private var managedPolicyRevision = 0
 
-    // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
     // new items.
     private var feedPendingCount: Int {
@@ -271,7 +270,8 @@ struct RightSidebarPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: ManagedDevicePolicy.didChangeNotification)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: ManagedDevicePolicy.didChangeNotification)
+            .merge(with: NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange))) { _ in
             managedPolicyRevision &+= 1
             refreshModeAvailabilityAndFocusIfNeeded()
         }

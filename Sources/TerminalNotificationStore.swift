@@ -471,11 +471,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         indexes = Self.buildIndexes(for: notifications)
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshDockBadge()
             }

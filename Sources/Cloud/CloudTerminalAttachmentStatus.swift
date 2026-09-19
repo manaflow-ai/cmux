@@ -11,6 +11,9 @@ import Observation
 final class CloudTerminalAttachmentStatus {
     let machineID: String
     private(set) var state: CloudTerminalAttachmentState = .attaching(attempt: 1)
+    /// One-shot style hook for owners that are not SwiftUI views (the workspace
+    /// clearing an optimistic pane's tab spinner). Set by the pane owner only.
+    @ObservationIgnored var onStateChange: (@MainActor (CloudTerminalAttachmentState) -> Void)?
 
     init(machineID: String) {
         self.machineID = machineID
@@ -19,5 +22,6 @@ final class CloudTerminalAttachmentStatus {
     func update(_ state: CloudTerminalAttachmentState) {
         guard self.state != state else { return }
         self.state = state
+        onStateChange?(state)
     }
 }
