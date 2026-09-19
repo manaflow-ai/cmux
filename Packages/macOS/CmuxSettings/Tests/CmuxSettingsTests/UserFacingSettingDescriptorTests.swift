@@ -3,6 +3,7 @@ import Testing
 
 @Suite("UserFacingSettingDescriptor")
 struct UserFacingSettingDescriptorTests {
+    /// Verifies the bounded proof settings all carry the shared presentation metadata.
     @Test func representativeAppTogglesCarryCanonicalPresentationMetadata() throws {
         let catalog = SettingCatalog()
         let keys = [
@@ -22,6 +23,7 @@ struct UserFacingSettingDescriptorTests {
         }
     }
 
+    /// Verifies optional presentation metadata stays outside DefaultsKey equality.
     @Test func presentationMetadataDoesNotChangeDefaultsKeyEquality() {
         let catalogKey = SettingCatalog().app.warnBeforeClosingTab
         let storageEquivalent = DefaultsKey<Bool>(
