@@ -407,6 +407,20 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case pushDeeplinkExpired = 84
     case pushDeeplinkFailed = 85
     case pushDisabled = 86
+    /// The peer does not advertise authenticated push key exchange.
+    case pushKeyExchangeUnsupported = 87
+    /// Authenticated account or build context is missing for push key exchange.
+    case pushKeyExchangeContextMissing = 88
+    /// Bounded key exchange attempts failed; push features remain unavailable.
+    case pushKeyExchangeFailed = 89
+    /// A reply cannot be encrypted because its local or pinned peer key is missing.
+    case pushReplyKeyMissing = 90
+    /// A reply lacks the account or Mac installation/build needed for encryption.
+    case pushReplyContextMissing = 91
+    /// Reply encryption failed before any reply was submitted to the relay.
+    case pushReplyEncryptionFailed = 92
+    /// Authenticated push key exchange completed for the current connection.
+    case pushKeyExchangeSucceeded = 93
 
     // MARK: Computers and pairing (100-129)
     case pairingStarted = 100
@@ -846,6 +860,14 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// The transport that actually carries the foreground connection, recorded
     /// on connect and on every active-route change. `c`: ``DiagnosticTransportKind``.
     case foregroundTransportSelected = 662
+    /// Whether a DEBUG launch supplied an injected dogfood attach route.
+    /// `c`: boolean.
+    case dogfoodAttachEnvironmentObserved = 663
+    /// Whether authentication bootstrap completed with an authenticated user.
+    /// `c`: boolean.
+    case authBootstrapCompleted = 664
+    /// A DEBUG launch attach route was admitted by the startup coordinator.
+    case dogfoodAttachStarted = 665
 }
 
 /// The user's configured connection method, mirrored from the settings picker

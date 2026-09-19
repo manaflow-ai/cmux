@@ -23,7 +23,7 @@ async function readStats(state: string, sample: Record<string, unknown> | undefi
   });
   const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("Unexpected install"); } });
   const repo = {
-    findUserVm: () => Effect.succeed({ provider: "freestyle", providerVmId: "vm-stats", billingTeamId: null,
+    findUserVm: () => Effect.succeed({ provider: "freestyle", providerVmId: "vm-stats", billingTeamId: null, ownerTeamId: "user",
       providerMetadata: sample ? { [VM_RESOURCE_USAGE_KEY]: sample } : {} }),
   } as unknown as VmRepositoryShape;
   const providers = {
@@ -42,7 +42,7 @@ describe("Freestyle live machine stats", () => {
   test("existing stats workflow returns the guest sample without executing in the VM", async () => {
     const receivedAt = Date.now();
     const result = await readStats("running", { ...gauges, receivedAt, providerVmId: "vm-stats", diskTotalMb: 1 });
-    expect(result).toEqual({ state: "awake", sampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
+    expect(result).toEqual({ state: "awake", sampledAt: receivedAt, resourceSampledAt: receivedAt, cpus: 2, memoryTotalMb: 4096, diskTotalMb: 16384, ...gauges });
   });
 
   test.each(["paused", "pausing", "stopped", "starting"])("a %s machine never exposes an old reading or touches the guest", async (state) => {
@@ -58,6 +58,28 @@ describe("Freestyle live machine stats", () => {
     const result = await readStats("running", sample);
     expect(result.cpuPercent).toBeUndefined();
     expect(result.diskTotalMb).toBe(16384);
+  });
+
+  test("a stale guest sample keeps its timestamp without exposing old gauges", async () => {
+    const result = await readStats("running", { ...gauges, receivedAt: Date.now() - 90_001, providerVmId: "vm-stats" });
+    expect(result.cpuPercent).toBeUndefined();
+    expect(result.memoryUsedMb).toBeUndefined();
+    expect(result.resourceSampledAt).toBeDefined();
+  });
+
+  test("a fresh-to-stale transition clears the previously displayed gauges", () => {
+    const previous = { state: "awake" as const, sampledAt: 100_000, resourceSampledAt: 100_000,
+      cpuPercent: 37.5, memoryUsedMb: 1234, diskUsedMb: 5678 };
+    const stale = applyVmResourceUsage(
+      previous,
+      { [VM_RESOURCE_USAGE_KEY]: { ...gauges, receivedAt: 100_000, providerVmId: "vm-stats" } },
+      "vm-stats",
+      190_001,
+    );
+    expect(stale.cpuPercent).toBeUndefined();
+    expect(stale.memoryUsedMb).toBeUndefined();
+    expect(stale.diskUsedMb).toBeUndefined();
+    expect(stale.resourceSampledAt).toBe(100_000);
   });
 
   test("freshness boundary uses server time and retains partial zero readings", () => {

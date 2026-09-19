@@ -23,14 +23,11 @@ final class CloudTreeCellView: NSTableCellView {
         identifier = Self.identifier
         displayHost.translatesAutoresizingMaskIntoConstraints = false
         addSubview(displayHost)
-        // The outline's `frameOfCell` already shifted this cell 2pt past the 16pt
-        // disclosure slot; the remaining 4pt completes `CloudTreeRowGrid.disclosureGap`.
+        // The outline owns the complete disclosure slot and gap. The hosted
+        // content starts at the cell edge, with no second horizontal offset.
         // Content pads its own trailing edge (`CloudTreeRowGrid.trailingPadding`).
         NSLayoutConstraint.activate([
-            displayHost.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: CloudTreeRowGrid.disclosureGap - CloudTreeNSOutlineView.cellShift
-            ),
+            displayHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             displayHost.topAnchor.constraint(equalTo: topAnchor),
             displayHost.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -81,7 +78,7 @@ final class CloudTreeCellView: NSTableCellView {
             buttons.isHidden = false
             buttons.alphaValue = hovered ? 1 : 0
             buttonsLeadingConstraint?.isActive = true
-            // Cloud resources sit below the name; keep hover buttons on its line.
+            // Keep hover buttons on the name line above the resource summary.
             // Local and pending rows retain their preset alignment.
             let pinToNameLine = node.isMachineRow && (style.machineRowLayout == .twoLine || node.structureTag == "machine")
             buttonsTopConstraint?.constant = style.machineVerticalPadding + (style.machineBand ? 4 : 0)
@@ -103,6 +100,8 @@ final class CloudTreeCellView: NSTableCellView {
         }
         if case .machine(let machine, _) = node.kind {
             setAccessibilityLabel(CloudTreeMachineRowContent(machine: machine).accessibilityLabel)
+        } else if case .resource(_, let row) = node.kind {
+            setAccessibilityLabel(row.accessibilityLabel)
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }
@@ -145,6 +144,8 @@ final class CloudTreeCellView: NSTableCellView {
 /// it owns selection, drag, double-click, and the context menu.
 final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     override func hitTest(_ point: NSPoint) -> NSView? {
+        // The outline owns all ordinary row interaction. Returning nil here is
+        // what keeps a header click from being swallowed by the SwiftUI host.
         return nil
     }
 }

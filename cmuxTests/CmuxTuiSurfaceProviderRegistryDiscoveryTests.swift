@@ -10,6 +10,35 @@ import Testing
 @MainActor
 @Suite
 struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
+    @Test("A saved machine can resolve its private route before the first background list")
+    func privateRouteDiscoversBeforeFirstPoll() async {
+        let catalog = SurfaceCatalog()
+        var summary = machine("vm-saved")
+        summary.addressIPv4 = "10.16.0.7"
+        var lists = 0
+        var refreshes = 0
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: {
+                lists += 1
+                return VMListPage(vms: [summary], limits: nil)
+            },
+            refreshProvider: { _, _ in refreshes += 1 }
+        )
+        registry.start(catalog: catalog)
+
+        #expect(registry.provider(machineID: "vm-saved") == nil)
+        #expect(await registry.privateRoute(machineID: "vm-saved") == "ws://10.16.0.7:1337/v1/link")
+        #expect(await registry.privateRoute(machineID: "vm-saved") == "ws://10.16.0.7:1337/v1/link")
+        #expect(lists == 1, "Later opens reuse the discovered route")
+        #expect(refreshes == 0, "Route discovery must not wait for machine links or stats")
+
+        await registry.accessDidEnd()
+        #expect(await registry.privateRoute(machineID: "vm-saved") == nil)
+        #expect(lists == 1, "A signed-out registry must not start discovery")
+    }
+
     @Test("Discovering a new VM does not wait for another VM's blocked refresh")
     func missingProviderDiscoveryDoesNotWaitForUnrelatedLinks() async {
         let catalog = SurfaceCatalog()

@@ -2946,7 +2946,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // The same window shape MobilePairingWindowController creates, keyed by
         // the same identifier constant, so this test fails if the pairing
         // window's identifier ever drops out of cmuxAuxiliaryWindowIdentifiers
-        // (the regression: Cmd+W on "Tailscale Pairing" closed a terminal tab in the
+        // (the regression: Cmd+W on "Mobile Pairing" closed a terminal tab in the
         // main window behind it instead of the pairing window).
         let pairingWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 800),
@@ -2985,7 +2985,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertFalse(pairingWindow.isVisible, "Cmd+W should close the Tailscale Pairing window")
+        XCTAssertFalse(pairingWindow.isVisible, "Cmd+W should close the Mobile Pairing window")
         XCTAssertNotNil(self.window(withId: windowId), "Cmd+W in the pairing window should not close the main window")
         XCTAssertEqual(manager.tabs.count, mainWorkspaceCount, "Cmd+W in the pairing window should not close a terminal tab")
         XCTAssertNotEqual(
@@ -6306,6 +6306,53 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
         throw XCTSkip("debugHandleCustomShortcut is only available in DEBUG builds")
 #endif
+    }
+
+    func testWindowSendEventPreservesFirstCloudKeyBeforePortalMount() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+        let window = try XCTUnwrap(window(withId: windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = coldCloudTerminalPanel(workspace: workspace)
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel, at: .workspace(id: workspace.id, placement: .tab), focus: true, isLoading: false
+        )
+        // Keep the real manual pane unmounted and cold. Early typing must reach
+        // its actual input queue without depending on renderer availability.
+        TerminalWindowPortalRegistry.detach(hostedView: panel.hostedView)
+        panel.hostedView.removeFromSuperview()
+        _ = window.makeFirstResponder(nil)
+        let view = panel.hostedView.surfaceView
+        XCTAssertFalse(view.window === window)
+        XCTAssertFalse(panel.surface.hasLiveSurface)
+        XCTAssertTrue(panel.surface.canCreateRuntimeSurface)
+        XCTAssertEqual(workspace.focusedTerminalInputTarget()?.0, panel.id)
+#if DEBUG
+        let specification = try XCTUnwrap(SyntheticKeyEventFactory.parseShortcutCombo("e"))
+        let event = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: true, timestamp: ProcessInfo.processInfo.systemUptime
+        ))
+        window.sendEvent(event)
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14])
+        let keyUp = try XCTUnwrap(SyntheticKeyEventFactory.keyEvent(
+            specification: specification, keyDown: false, timestamp: ProcessInfo.processInfo.systemUptime
+        ))
+        window.sendEvent(keyUp)
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.type), [.keyDown, .keyUp])
+        XCTAssertEqual(pendingKeyEvents(in: view).map(\.keyCode), [14, 14])
+#endif
+    }
+
+    private func pendingKeyEvents(in view: GhosttyNSView) -> [NSEvent] {
+        view.pendingInputReplayActions.compactMap { action in
+            switch action {
+            case .keyDown(let event), .keyUp(let event): return event
+            case .paste: return nil
+            }
+        }
     }
 
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() throws {

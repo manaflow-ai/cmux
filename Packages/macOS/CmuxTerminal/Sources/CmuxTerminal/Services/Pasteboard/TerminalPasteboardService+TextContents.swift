@@ -9,7 +9,12 @@ extension TerminalPasteboardService: TerminalClipboardReading {
     public func stringContents(from pasteboard: NSPasteboard) -> String? {
         let types = pasteboard.types ?? []
 
-        if (types.contains(.fileURL) || types.contains(.URL)),
+        let hasImagePayload = hasImageData(in: pasteboard)
+        let hasRTFDAttachmentPayload = types.contains(.rtfd)
+        // Image copies may also advertise a source URL. Resolve their actual
+        // image/rich-text payload before treating that URL as paste text.
+        if !hasImagePayload && !hasRTFDAttachmentPayload,
+           (types.contains(.fileURL) || types.contains(.URL)),
            let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
            !urls.isEmpty {
             return urls
@@ -17,8 +22,6 @@ extension TerminalPasteboardService: TerminalClipboardReading {
                 .joined(separator: " ")
         }
 
-        let hasImagePayload = hasImageData(in: pasteboard)
-        let hasRTFDAttachmentPayload = types.contains(.rtfd)
         let plainText = plainTextContents(from: pasteboard)
         let parsedHTMLOutcome: HTMLPlainTextParseOutcome?
         if hasImagePayload || hasRTFDAttachmentPayload {

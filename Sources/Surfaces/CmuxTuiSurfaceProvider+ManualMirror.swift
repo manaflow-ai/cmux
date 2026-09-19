@@ -16,34 +16,53 @@ extension CmuxTuiSurfaceProvider {
         focus: Bool,
         adopting reservation: CloudTerminalPaneReservation? = nil
     ) async throws -> CloudManualMirrorMaterialization {
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else {
             throw ProviderError.machineAsleep(machineID)
         }
         let correlationID = UUID().uuidString.lowercased()
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         // A pool terminal opened into a mirrored workspace takes its tab there, not in
         // whichever workspace the daemon happens to focus.
-        let resolved = try await resolveSurfaceIDForMaterialization(
-            terminalID: resource.id.key,
-            socketPath: connected.socketPath,
-            link: link,
-            requiresExistingView: remoteTabID != nil,
-            correlationID: correlationID,
-            // A newly-created terminal carries the workspace selected by the
-            // creation request even before its first tab receipt arrives. Keep
-            // that identity ahead of the local binding or daemon focus so a
-            // missing tab_id cannot redirect projection to another workspace.
-            preferredWorkspaceID: resource.remoteWorkspace?.id
-                ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
-                    forLocalWorkspace: destination.workspaceID, on: machine
-                )
-        )
-
+        let resolved: (surfaceID: UInt64, placement: SurfaceRemotePlacement?)
+        if resource.creationAttachment != nil {
+            resolved = (0, nil)
+        } else {
+            resolved = try await resolveSurfaceIDForMaterialization(
+                terminalID: resource.id.key,
+                socketPath: connected.socketPath,
+                link: link,
+                requiresExistingView: remoteTabID != nil,
+                correlationID: correlationID,
+                // A newly-created terminal carries the workspace selected by the
+                // creation request even before its first tab receipt arrives. Keep
+                // that identity ahead of the local binding or daemon focus so a
+                // missing tab_id cannot redirect projection to another workspace.
+                preferredWorkspaceID: resource.remoteWorkspace?.id
+                    ?? catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                        forLocalWorkspace: destination.workspaceID, on: machine
+                    )
+            )
+        }
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
             remoteSurfaceID: resolved.surfaceID,
             operations: links.operations,
+            creationAttachment: resource.creationAttachment,
+            resolveLegacySurfaceID: { [weak self] in
+                guard let self else { throw CancellationError() }
+                let resolved = try await self.resolveSurfaceIDForMaterialization(
+                    terminalID: resource.id.key, socketPath: connected.socketPath, link: link,
+                    requiresExistingView: remoteTabID != nil, correlationID: correlationID,
+                    preferredWorkspaceID: resource.remoteWorkspace?.id
+                        ?? self.catalog.cloudPlacementCoordinator.boundRemoteWorkspaceID(
+                            forLocalWorkspace: destination.workspaceID, on: self.machine
+                        )
+                )
+                return resolved.surfaceID
+            },
             correlationID: correlationID,
             onNeedsReconnect: { [weak self] in
                 self?.scheduleRefresh()
@@ -51,6 +70,7 @@ extension CmuxTuiSurfaceProvider {
         )
         let inputRouter = session.inputRouter
         do {
+            try catalog.validateOwnership(of: [resource.id], at: destination)
             let created: (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)
             if let reservation {
                 // The user's pane already exists; bind the attachment to it. A pane
@@ -189,7 +209,7 @@ extension CmuxTuiSurfaceProvider {
         if let task = remoteTerminalProjectionTasks[key] { return try await task.value }
         let task = Task<SurfaceRemotePlacement, Error> { @MainActor [weak self] in
             guard let self else { throw ProviderError.terminalNotCreated(terminalID) }
-            let snapshot = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: socketPath))
+            let snapshot = try await link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: socketPath))
             guard let destination = await CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot, preferringWorkspace: preferredWorkspaceID) else {
                 throw ProviderError.noWorkspaceOnMachine(self.machineID)
             }

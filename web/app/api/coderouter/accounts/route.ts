@@ -26,7 +26,7 @@ async function handleGet(request: Request): Promise<Response> {
   const resolved = await resolveCoderouterUsageTeam(request);
   if (!resolved.ok) return resolved.response;
   const authMs = performance.now() - authStartedAt;
-  const result = await accountsWithUsage(resolved.teamId);
+  const result = await accountsWithUsage(resolved.teamId, resolved.access);
   const serializeStartedAt = performance.now();
   const body = JSON.stringify({
     teamId: resolved.teamId,
@@ -107,12 +107,15 @@ export function makeCoderouterAccountsPostHandler(
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
+  const visibility = value && typeof value === "object" && "visibility" in value ? (value as { visibility: unknown }).visibility : "private";
+  if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+  if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const credential = parseCredential(value);
   if (!credential) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   try {
-    const result = await dependencies.add(resolved.value.team.teamId, credential);
+    const result = await dependencies.add(resolved.value.team.teamId, credential, undefined, undefined, undefined, { createdBy: resolved.value.user.id, visibility });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: resolved.value.user.id,

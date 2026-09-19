@@ -26,6 +26,8 @@ import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
 
+private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
+
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -35,14 +37,12 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
     static let workstreamEventReceived = Notification.Name("cmux.workstreamEventReceived")
 }
-
 private struct SocketLineProcessingResult: Sendable {
     let response: String?
     let passwordAuthorization: SocketPasswordAuthorization
 }
 // Agent notification gating types (AgentNotifyCategory / AgentTurnCompleteMode /
 // AgentNotificationMeta / agentNotificationShouldDeliver) live in AgentNotificationGate.swift.
-
 #if DEBUG
 /// Accumulated worker→main `v2MainSync` hop time for the socket command
 /// currently executing on a worker thread. Confined to one thread: it lives in
@@ -56,7 +56,6 @@ private final class SocketCommandMainHopAccumulator {
     var hopCount: Int = 0
 }
 #endif
-
 private struct RemotePTYSocketTarget {
     let controller: RemoteSessionCoordinator?
     let windowId: UUID?
@@ -1874,6 +1873,70 @@ class TerminalController {
                     "closed_count": closed.count,
                 ])
             }
+        case "debug.mobile.transport.reconnect_loop":
+            guard let duration = request.params["duration_seconds"] as? NSNumber,
+                  let interval = request.params["interval_seconds"] as? NSNumber else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "duration_seconds and interval_seconds are required"
+                )
+            }
+            let durationSeconds = duration.doubleValue
+            let intervalSeconds = interval.doubleValue
+            guard durationSeconds > 0, durationSeconds <= 1_800,
+                  intervalSeconds >= 0.25, intervalSeconds <= 300 else {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "duration_seconds must be 0<value<=1800 and interval_seconds must be 0.25...300"
+                )
+            }
+            let selectedConnectionID: UUID?
+            if let rawConnectionID = request.params["connection_id"] {
+                guard let value = rawConnectionID as? String,
+                      let parsed = UUID(uuidString: value) else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "connection_id must be a UUID"
+                    )
+                }
+                selectedConnectionID = parsed
+            } else {
+                selectedConnectionID = nil
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: durationSeconds + 30) {
+                let startedAt = ContinuousClock.now
+                let clock = ContinuousClock()
+                var cycles = 0
+                var closedConnectionIDs: [String] = []
+                while startedAt.duration(to: ContinuousClock.now) < .seconds(durationSeconds) {
+                    guard !Task.isCancelled else { break }
+                    let closed = await MobileHostConnectionRegistry.shared
+                        .debugCloseConnections(connectionID: selectedConnectionID)
+                    cycles += 1
+                    closedConnectionIDs.append(contentsOf: closed.map(\.uuidString))
+                    mobileReconnectDebugLog.info(
+                        "debug.reconnect_loop cycle=\(cycles) closed=\(closed.count) interval_s=\(intervalSeconds)"
+                    )
+                    let elapsed = startedAt.duration(to: ContinuousClock.now)
+                    let elapsedComponents = elapsed.components
+                    let elapsedSeconds = Double(elapsedComponents.seconds)
+                        + Double(elapsedComponents.attoseconds) / 1_000_000_000_000_000_000
+                    let remaining = durationSeconds - elapsedSeconds
+                    guard remaining > 0 else { break }
+                    let delay = min(intervalSeconds, remaining)
+                    try? await clock.sleep(for: .seconds(delay))
+                }
+                return .ok([
+                    "duration_seconds": durationSeconds,
+                    "interval_seconds": intervalSeconds,
+                    "cycles": cycles,
+                    "closed_connection_ids": closedConnectionIDs,
+                    "closed_count": closedConnectionIDs.count,
+                ])
+            }
 #endif
         case "surface.catalog", "surface.project", "surface.new_terminal":
             return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
@@ -3121,8 +3184,9 @@ class TerminalController {
             "auth.sign_in_url",
             "auth.begin_sign_in",
             "auth.sign_out",
+            "vm.billing_checkout",
             "vm.list",
-            "vm.diagnostics",
+            "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",
@@ -3149,6 +3213,7 @@ class TerminalController {
             "vm.attach_info",
             "vm.cmux_remote_info",
             "vm.ssh_info",
+            "vm.scp_info",
             "vm.sessions",
             "vm.session_attach_info",
             "vm.tree",
@@ -3705,79 +3770,6 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private nonisolated func v2SystemMemory(params: [String: Any]) -> V2CallResult {
-        var baseParams = params
-        baseParams["include_processes"] = false
-        let base = v2MainSync {
-            self.v2RefreshKnownRefs()
-            return self.v2SystemTopBasePayload(params: baseParams)
-        }
-        guard case .ok(let value) = base else { return base }
-        guard var payload = value as? [String: Any],
-              var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
-            return .err(code: "internal_error", message: "Invalid system.memory payload", data: nil)
-        }
-        func intParam(_ key: String) -> Int? {
-            if let i = params[key] as? Int { return i }
-            if let n = params[key] as? NSNumber {
-                guard CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
-                let value = n.doubleValue
-                guard value.isFinite,
-                      value.rounded(.towardZero) == value,
-                      value >= Double(Int.min),
-                      value <= Double(Int.max) else {
-                    return nil
-                }
-                return n.intValue
-            }
-            if let s = params[key] as? String {
-                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty,
-                      trimmed.range(of: #"^[+-]?\d+$"#, options: .regularExpression) != nil else {
-                    return nil
-                }
-                return Int(trimmed)
-            }
-            return nil
-        }
-        var invalidLimitKey: String?
-        func groupLimitParam(_ key: String) -> Int? {
-            guard params[key] != nil else { return nil }
-            guard let value = intParam(key), (1...100).contains(value) else {
-                invalidLimitKey = key
-                return nil
-            }
-            return value
-        }
-        let topGroupLimitValue = groupLimitParam("top_group_limit")
-        if let invalidLimitKey {
-            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
-        }
-        let groupLimitValue = groupLimitParam("group_limit")
-        if let invalidLimitKey {
-            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
-        }
-        let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
-        let processSnapshot = CmuxTopProcessSnapshot.captureCached(
-            includeProcessDetails: true,
-            maximumAge: 2
-        )
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
-        _ = v2AnnotateTopWindows(
-            &windowNodes,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: false
-        )
-        payload["sample"] = processSnapshot.samplePayload()
-        payload["memory_diagnostic"] = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windowNodes,
-            topGroupLimit: topGroupLimit
-        )
-        return .ok(payload)
-    }
-
     func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
@@ -4236,7 +4228,11 @@ class TerminalController {
                 case .destinationNotFound:
                     return v2Error(id: id, code: "not_found", message: catalogError.localizedDescription)
                 default:
-                    break
+                    // Preserve the catalog's actionable ownership or transport detail.
+                    // Falling through to the generic VM message hides whether the
+                    // machine is disconnected, the surface is stale, or the provider
+                    // cannot perform this operation.
+                    return v2Error(id: id, code: "vm_error", message: catalogError.localizedDescription)
                 }
             }
             if let vmError = error as? VMClientError,
@@ -4299,10 +4295,7 @@ class TerminalController {
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(
-                    localized: "socket.cloudVM.requestFailed",
-                    defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
-                ),
+                message: Self.cloudVMSafeErrorMessage(error),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
@@ -4313,7 +4306,6 @@ class TerminalController {
             )
         }
     }
-
     /// Backend error metadata passthrough so the CLI can make compatibility
     /// decisions structurally instead of parsing formatted display text.
     private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
@@ -4326,12 +4318,68 @@ class TerminalController {
         if let code = object?["error"] as? String, !code.isEmpty {
             payload["backend_code"] = code
         }
+        if let retryable = object?["retryable"] as? Bool {
+            payload["retryable"] = retryable
+        }
         // The server trace id (support reference) travels with the structured
         // error so the CLI and scripts can log it without parsing display text.
         if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
             payload["trace_id"] = traceID
         }
         return payload
+    }
+
+    /// Surface only the server's public copy, never a raw response body or
+    /// provider diagnostics. Keep the support reference after sanitization.
+    private nonisolated static func cloudVMSafeErrorMessage(_ error: Error) -> String {
+        let fallback = String(
+            localized: "socket.cloudVM.requestFailed",
+            defaultValue: "The Cloud VM request failed. Retry, or check the machine's status with `cmux vm ls`."
+        )
+        if let catalogError = error as? SurfaceCatalogError {
+            switch catalogError {
+            case .unknownResource, .noProvider, .ambiguousRemotePlacement:
+                // These messages are app-owned copy with routing identifiers,
+                // not provider-supplied failure diagnostics.
+                let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(catalogError.localizedDescription)
+                return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+            default:
+                break
+            }
+        }
+        guard case let VMClientError.httpStatus(status, body) = error else {
+            guard let vmError = error as? VMClientError else { return fallback }
+            let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(String(describing: vmError))
+            return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
+        }
+        guard let data = body.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return formattedCloudVMHTTPError(status: status, body: "")
+        }
+        // Reuse the formatter's HTTP code and action copy, but pass only public
+        // fields. Provider details and unvalidated support references stay out.
+        var publicObject: [String: Any] = [:]
+        for key in ["error", "message", "reason", "action", "retryAfterSeconds"] {
+            publicObject[key] = object[key]
+        }
+        if let ui = object["ui"] as? [String: Any] {
+            var publicUI: [String: Any] = [:]
+            for key in ["title", "message", "retryAfterSeconds"] {
+                publicUI[key] = ui[key]
+            }
+            publicObject["ui"] = publicUI
+        }
+        let ui = object["ui"] as? [String: Any]
+        if let trace = (object["traceId"] as? String) ?? (ui?["traceId"] as? String),
+           trace.count == 32, trace.allSatisfy(\.isHexDigit) {
+            publicObject["traceId"] = trace
+        }
+        guard let publicData = try? JSONSerialization.data(withJSONObject: publicObject),
+              let publicBody = String(data: publicData, encoding: .utf8) else { return fallback }
+        let safe = CloudVMActionLauncher.sanitizedCloudVMStartOutput(
+            formattedCloudVMHTTPError(status: status, body: publicBody)
+        )
+        return safe.isEmpty || safe == CloudVMActionLauncher.hiddenOutputPlaceholder ? fallback : safe
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
@@ -4789,13 +4837,12 @@ class TerminalController {
                 requestedWorkspaceId: requestedWorkspaceId,
                 preferredSurfaceId: preferredSurfaceId
             )
-            if let error = resolved.error {
-                return (nil, error)
-            }
+            if let error = resolved.error { return (nil, error) }
             guard let target = resolved.target else {
                 return resolved
             }
-            if target.controller != nil || Date() >= deadline {
+            if target.controller != nil || Date() >= deadline ||
+                v2RemoteSessionParkedResult(workspaceId: target.workspaceId, params: params) != nil {
                 return (target, nil)
             }
 
@@ -5127,7 +5174,6 @@ class TerminalController {
         if let error = surfaceSelection.error { return error }
         let preferredSurfaceId = surfaceSelection.surfaceId ?? UUID(uuidString: attachmentID)
         let lifecycleID = (v2RawString(params, "lifecycle_id")?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? preferredSurfaceId?.uuidString.lowercased() ?? UUID().uuidString.lowercased()
-
         let controllerDeadline = Date().addingTimeInterval(waitForReady ? 90.0 : 8.0)
         let resolved = waitForReady
             ? v2ResolveRemotePTYTargetWaitingForController(
@@ -5146,7 +5192,7 @@ class TerminalController {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         }
         guard let controller = target.controller else {
-            return .err(code: "remote_pty_error", message: "remote connection is not active", data: [
+            return v2RemoteSessionParkedResult(workspaceId: target.workspaceId, params: params) ?? .err(code: "remote_pty_error", message: "remote connection is not active", data: [
                 "workspace_id": target.workspaceId.uuidString,
                 "workspace_ref": target.workspaceRef,
             ])
@@ -5168,8 +5214,10 @@ class TerminalController {
             payload["session_id"] = endpoint.sessionID
             payload["lifecycle_id"] = endpoint.lifecycleID
             payload["attachment_id"] = endpoint.attachmentID
+            payload["daemon_version"] = endpoint.daemonVersion ?? NSNull()
             return .ok(payload)
         } catch {
+            if let parked = error as? RemoteSessionParkedError { return v2RemoteSessionParkedResult(detail: parked.detail, workspaceId: target.workspaceId, workspaceRef: target.workspaceRef) }
             let code = (error as? RemotePTYLifecycleError) == .intentionallyClosed ? "pty_lifecycle_closed" : "remote_pty_error"
             return .err(code: code, message: v2RemotePTYUserFacingErrorMessage(error), data: [
                 "workspace_id": target.workspaceId.uuidString,
@@ -5262,7 +5310,7 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color", "mobile_connect", "cloud_vpn_setup"
+            "set_color", "clear_color", "mobile_connect"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -5271,23 +5319,6 @@ class TerminalController {
         ])
 
         v2MainSync {
-            if action == "cloud_vpn_setup" {
-                // Pane creation belongs to the main actor. The socket focus
-                // policy controls selection, just as for the mobile setup pane.
-                guard let workspace = AppDelegate.shared?.openCloudVPNSetupWorkspace(
-                    preferredTabManager: tabManager,
-                    focus: v2FocusAllowed()
-                ) else {
-                    result = .err(code: "unavailable", message: String(localized: "cloud.vpn.setup.openUnavailable", defaultValue: "Cloud VPN setup is unavailable"), data: nil)
-                    return
-                }
-                result = .ok([
-                    "action": action,
-                    "workspace_id": workspace.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id)
-                ])
-                return
-            }
             if action == "mobile_connect" {
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
                 guard let workspace = AppDelegate.shared?.performMobileConnectWorkspaceAction(
@@ -5300,7 +5331,7 @@ class TerminalController {
                         code: "unavailable",
                         message: String(
                             localized: "cli.workspaceAction.tailscalePairingUnavailable",
-                            defaultValue: "Tailscale Pairing is unavailable"
+                            defaultValue: "Mobile Pairing is unavailable"
                         ),
                         data: nil
                     )
@@ -5578,157 +5609,6 @@ class TerminalController {
         return (providerID, rendererKind, nil)
     }
 
-    // `internal` (not `private`): the Pane domain's app conformance forwards
-    // `pane.join` to this body. The Surface domain extraction will relocate it.
-    func v2SurfaceMove(params: [String: Any]) -> V2CallResult {
-        guard let surfaceId = v2UUID(params, "surface_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
-        }
-
-        let requestedPaneUUID = v2UUID(params, "pane_id")
-        let requestedWorkspaceUUID = v2UUID(params, "workspace_id")
-        let requestedWindowUUID = v2UUID(params, "window_id")
-        let beforeSurfaceId = v2UUID(params, "before_surface_id")
-        let afterSurfaceId = v2UUID(params, "after_surface_id")
-        let explicitIndex = v2Int(params, "index")
-        let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-
-        let anchorCount = (beforeSurfaceId != nil ? 1 : 0) + (afterSurfaceId != nil ? 1 : 0)
-        if anchorCount > 1 {
-            return .err(code: "invalid_params", message: "Specify at most one of before_surface_id or after_surface_id", data: nil)
-        }
-
-        var result: V2CallResult = .err(code: "internal_error", message: "Failed to move surface", data: nil)
-        v2MainSync {
-            guard let app = AppDelegate.shared else {
-                result = .err(code: "unavailable", message: "AppDelegate not available", data: nil)
-                return
-            }
-
-            guard let source = app.locateSurface(surfaceId: surfaceId),
-                  let sourceWorkspace = source.tabManager.tabs.first(where: { $0.id == source.workspaceId }) else {
-                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": surfaceId.uuidString])
-                return
-            }
-
-            let sourcePane = sourceWorkspace.paneId(forPanelId: surfaceId)
-            let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)
-
-            var targetWindowId = source.windowId
-            var targetTabManager = source.tabManager
-            var targetWorkspace = sourceWorkspace
-            var targetPane = sourcePane ?? sourceWorkspace.bonsplitController.focusedPaneId ?? sourceWorkspace.bonsplitController.allPaneIds.first
-            var targetIndex = explicitIndex
-
-            if let anchorSurfaceId = beforeSurfaceId ?? afterSurfaceId {
-                guard let anchor = app.locateSurface(surfaceId: anchorSurfaceId),
-                      let anchorWorkspace = anchor.tabManager.tabs.first(where: { $0.id == anchor.workspaceId }),
-                      let anchorPane = anchorWorkspace.paneId(forPanelId: anchorSurfaceId),
-                      let anchorIndex = anchorWorkspace.indexInPane(forPanelId: anchorSurfaceId) else {
-                    result = .err(code: "not_found", message: "Anchor surface not found", data: ["surface_id": anchorSurfaceId.uuidString])
-                    return
-                }
-                targetWindowId = anchor.windowId
-                targetTabManager = anchor.tabManager
-                targetWorkspace = anchorWorkspace
-                targetPane = anchorPane
-                targetIndex = (beforeSurfaceId != nil) ? anchorIndex : (anchorIndex + 1)
-            } else if let paneUUID = requestedPaneUUID {
-                guard let located = v2LocatePane(paneUUID) else {
-                    result = .err(code: "not_found", message: "Pane not found", data: ["pane_id": paneUUID.uuidString])
-                    return
-                }
-                targetWindowId = located.windowId
-                targetTabManager = located.tabManager
-                targetWorkspace = located.workspace
-                targetPane = located.paneId
-            } else if let workspaceUUID = requestedWorkspaceUUID {
-                guard let tm = app.tabManagerFor(tabId: workspaceUUID),
-                      let ws = tm.tabs.first(where: { $0.id == workspaceUUID }) else {
-                    result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceUUID.uuidString])
-                    return
-                }
-                targetTabManager = tm
-                targetWorkspace = ws
-                targetWindowId = app.windowId(for: tm) ?? targetWindowId
-                targetPane = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
-            } else if let windowUUID = requestedWindowUUID {
-                guard let tm = app.tabManagerFor(windowId: windowUUID) else {
-                    result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowUUID.uuidString])
-                    return
-                }
-                targetWindowId = windowUUID
-                targetTabManager = tm
-                guard let selectedWorkspaceId = tm.selectedTabId,
-                      let ws = tm.tabs.first(where: { $0.id == selectedWorkspaceId }) else {
-                    result = .err(code: "not_found", message: "Target window has no selected workspace", data: ["window_id": windowUUID.uuidString])
-                    return
-                }
-                targetWorkspace = ws
-                targetPane = ws.bonsplitController.focusedPaneId ?? ws.bonsplitController.allPaneIds.first
-            }
-
-            guard let destinationPane = targetPane else {
-                result = .err(code: "not_found", message: "No destination pane", data: nil)
-                return
-            }
-
-            if targetWorkspace.id == sourceWorkspace.id {
-                guard sourceWorkspace.moveSurface(panelId: surfaceId, toPane: destinationPane, atIndex: targetIndex, focus: focus) else {
-                    result = .err(code: "internal_error", message: "Failed to move surface", data: nil)
-                    return
-                }
-                result = .ok([
-                    "window_id": targetWindowId.uuidString,
-                    "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
-                    "workspace_id": targetWorkspace.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
-                    "pane_id": destinationPane.id.uuidString,
-                    "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ])
-                return
-            }
-
-            guard let transfer = sourceWorkspace.detachSurface(panelId: surfaceId) else {
-                result = .err(code: "internal_error", message: "Failed to detach surface", data: nil)
-                return
-            }
-
-            if targetWorkspace.attachDetachedSurface(transfer, inPane: destinationPane, atIndex: targetIndex, focus: focus) == nil {
-                // Roll back to source workspace if attach fails.
-                let rollbackPane = sourcePane.flatMap { sp in sourceWorkspace.bonsplitController.allPaneIds.first(where: { $0 == sp }) }
-                    ?? sourceWorkspace.bonsplitController.focusedPaneId
-                    ?? sourceWorkspace.bonsplitController.allPaneIds.first
-                if let rollbackPane {
-                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
-                }
-                result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)
-                return
-            }
-
-            if focus {
-                _ = app.focusMainWindow(windowId: targetWindowId)
-                setActiveTabManager(targetTabManager)
-                targetTabManager.selectWorkspace(targetWorkspace)
-            }
-
-            result = .ok([
-                "window_id": targetWindowId.uuidString,
-                "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
-                "workspace_id": targetWorkspace.id.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
-                "pane_id": destinationPane.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
-                "surface_id": surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-            ])
-        }
-
-        return result
-    }
-
     func v2DebugTerminals(params _: [String: Any]) -> V2CallResult {
         var payload: [String: Any]?
 
@@ -5806,23 +5686,19 @@ class TerminalController {
                 }
                 return chain
             }
-
             let windows = app.scriptableMainWindows()
             let windowIndexById = Dictionary(
                 uniqueKeysWithValues: windows.enumerated().map { ($0.element.windowId, $0.offset) }
             )
-
             @MainActor
             func resolvedWindowMetadata(for window: NSWindow?) -> (windowId: UUID?, windowIndex: Int?) {
                 guard let window else { return (nil, nil) }
-
                 if let match = windows.enumerated().first(where: { _, state in
                     guard let stateWindow = state.window else { return false }
                     return stateWindow === window || stateWindow.windowNumber == window.windowNumber
                 }) {
                     return (match.element.windowId, match.offset)
                 }
-
                 guard let raw = window.identifier?.rawValue else { return (nil, nil) }
                 let prefix = "cmux.main."
                 guard raw.hasPrefix(prefix),
@@ -12129,7 +12005,7 @@ class TerminalController {
             // connection diagnostics exist for). The wait blocks only on the
             // log's own drain actor, and the execution policy keeps this
             // command off the main thread, so the wait cannot self-deadlock.
-            let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
+            let report = await MobileHostDiagnostics.log.snapshot()
             export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }
@@ -12331,6 +12207,7 @@ class TerminalController {
           reset_bonsplit_underflow_count  - Reset bonsplit underflow counter (test-only)
           empty_panel_count               - Count EmptyPanelView appearances (test-only)
           reset_empty_panel_count         - Reset EmptyPanelView appearance count (test-only)
+          debug.mobile.transport.reconnect_loop - Repeatedly close mobile transports for a bounded duration (test-only)
         """
 #endif
         return text
@@ -15713,6 +15590,24 @@ class TerminalController {
     }
 
     func v2MobileTerminalReplay(params: [String: Any]) -> V2CallResult {
+        let traceID = v2String(params, "trace_id")
+            .flatMap(DiagnosticTerminalTraceID.init(stringValue:))
+        let traceStartedAt = DispatchTime.now().uptimeNanoseconds
+        func recordTrace(_ event: String) {
+            guard let traceID else { return }
+            let elapsed = (DispatchTime.now().uptimeNanoseconds - traceStartedAt) / 1_000_000
+            MobileHostIrxRuntime.journal.record(
+                "terminal-trace",
+                event,
+                [
+                    "trace_id": traceID.stringValue,
+                    "operation": "replay",
+                    "elapsed_ms": String(elapsed),
+                ]
+            )
+        }
+        recordTrace("host_received")
+        defer { recordTrace("host_response_ready") }
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -15869,6 +15764,7 @@ class TerminalController {
                 payload["data_b64"] = data.base64EncodedString()
             }
         }
+        recordTrace("host_capture_finished")
         return .ok(payload)
     }
 
@@ -16018,7 +15914,10 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalTarget.sendInputResult(text)
+        let sendResult = MobileTerminalByteTee.shared.performMobileInput(
+            surfaceID: surfaceId,
+            sequence: (params["input_sequence"] as? String).flatMap(UInt64.init)
+        ) { terminalTarget.sendInputResult(text) }
         switch sendResult {
         case .sent:
             // PTY output is already observed by MobileTerminalByteTee, which
