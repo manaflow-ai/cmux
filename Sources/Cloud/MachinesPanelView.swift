@@ -3,26 +3,6 @@ import CmuxCloudMachines
 import CmuxSettings
 import SwiftUI
 
-/// The local auth states that matter to the Cloud Machines panel. Keeping the
-/// projection here means the panel never has to infer auth from a failed VM
-/// request (which could otherwise briefly leave stale machine rows visible).
-enum CloudVMPanelAuthState: Equatable {
-    case checking
-    case signedOut
-    case signedIn
-
-    static func resolve(isAuthenticated: Bool, isWorkingOnAuth: Bool) -> Self {
-        if isAuthenticated { return .signedIn }
-        if isWorkingOnAuth { return .checking }
-        return .signedOut
-    }
-
-    /// Whether a native Cloud VM operation may start in this state.
-    var allowsAuthenticatedOperation: Bool {
-        self == .signedIn
-    }
-}
-
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
 /// tree (machine → Workspaces → terminals, Ports, Displays, Terminals). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
@@ -120,6 +100,9 @@ struct MachinesPanelView: View {
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
         }
+        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
+            if let id { viewModel.setDefaultMachine(id: id) }
+        }
         .onDisappear {
             viewModel.stopPolling()
         }
@@ -191,48 +174,15 @@ struct MachinesPanelView: View {
     }
 
     private var cloudStatus: some View {
-        Group {
-            if let operation = viewModel.activeOperation {
-                HStack(spacing: 5) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text(operation)
-                        .cmuxFont(size: 11)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            } else if viewModel.lastErrorDescription != nil, includesCloud && !includesDevices && !viewModel.machines.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
-                        .cmuxFont(size: 11)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .foregroundColor(.orange.opacity(0.9))
-                .help(viewModel.lastErrorDescription ?? "")
-                .cloudErrorCopyMenu(viewModel.lastErrorDescription)
-            } else if let treeError = viewModel.treeErrorDescription {
-                // The message itself, not a generic label: a failed tree verb (New
-                // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
-                // with the only explanation hidden behind a hover tooltip.
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(treeError)
-                        .cmuxFont(size: 11)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                }
-                .foregroundColor(.orange.opacity(0.9))
-                .help(treeError)
-                .cloudErrorCopyMenu(treeError)
-            } else if includesCloud, let plan = viewModel.plan {
-                MachinePlanMeter(plan: plan)
-            }
-        }
+        MachinesCloudStatus(
+            activeOperation: viewModel.activeOperation,
+            staleError: viewModel.machines.isEmpty ? nil : viewModel.lastErrorDescription.flatMap {
+                bannerDismissals.isDismissed(id: "machines.stale", signature: $0) ? nil : $0
+            },
+            treeError: viewModel.treeErrorDescription,
+            plan: viewModel.plan,
+            onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) }
+        )
     }
 
     private var controlBar: some View {
@@ -269,7 +219,7 @@ struct MachinesPanelView: View {
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
-        if includesCloud && includesDevices && viewModel.hasLoadedOnce && viewModel.lastErrorDescription != nil {
+        if includesCloud && includesDevices && viewModel.hasLoadedOnce && viewModel.machines.isEmpty && viewModel.lastErrorDescription != nil {
             VStack(spacing: 0) {
                 cloudMachinesUnavailableNotice
                 machinesList
@@ -586,14 +536,14 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// The Finder-like tree over the surface catalog: This Mac, then every
-    /// machine, with their workspaces, terminals, screens, browsers, and ports
-    /// underneath. Both closure bundles are bound here, above the outline; rows
-    /// never see the store.
+    /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
-            onDidMutate: { [weak viewModel] in viewModel?.endOperation() }
+            onDidMutate: { [weak viewModel] in
+                viewModel?.endOperation()
+                viewModel?.refresh(tree: true)
+            }
         )
         // The list endpoint is authoritative for the caller's plan-sized
         // memory ladder. Feed it into the menu so Pro users do not select a
@@ -884,6 +834,8 @@ struct MachineRowActions {
         let format: String
         if verb.contains("snapshot") {
             format = String(localized: "machines.operation.checkpoint", defaultValue: "Checkpointing %@\u{2026}")
+        } else if verb.contains("resize") {
+            format = String(localized: "machines.operation.resize", defaultValue: "Resizing %@\u{2026}")
         } else if verb.contains("fork") {
             format = String(localized: "machines.operation.fork", defaultValue: "Forking %@\u{2026}")
         } else if verb.contains("status") {

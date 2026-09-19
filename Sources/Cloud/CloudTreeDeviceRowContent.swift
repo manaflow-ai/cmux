@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Another Mac's header row, on the same grid as This Mac's row and the cloud
@@ -11,63 +12,53 @@ struct CloudTreeDeviceRowContent: View {
     var style: CloudTreeStyle = CloudTreeStyleStore.current
     /// Injected so rows never read the wall clock in `body` on their own.
     var now: Date = Date()
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var fontMagnification
 
     var body: some View {
-        switch style.machineRowLayout {
-        case .singleLine:
-            CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
-                    glyph(size: max(style.iconSize, 9))
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
-                        name(weight: style.machineBand ? .semibold : .medium)
-                        tag
-                        if let status = row.inlineStatus(now: now) {
-                            statusText(status)
-                        }
-                    }
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(accessibilityLabel)
-        case .twoLine:
+        CloudTreeMachineBand(style: style) {
             HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
                 glyph(size: 9)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
+                    .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
+                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
                         name(weight: .medium)
                         tag
+                        if style.machineRowLayout == .singleLine, let status = row.inlineStatus(now: now) {
+                            statusText(status)
+                        }
                         Spacer(minLength: 0)
                     }
-                    .frame(height: style.machineNameLineHeight)
-                    Text(Self.subtitle(row, now: now))
-                        .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineSubtitleLineHeight)
+                    .frame(height: scaled(style.machineNameLineHeight))
+                    if style.machineRowLayout == .twoLine {
+                        Text(Self.subtitle(row, now: now))
+                            .cmuxFont(size: style.detailSize, design: style.fontDesign)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(height: scaled(style.machineSubtitleLineHeight))
+                    }
                 }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
             }
-            .padding(.vertical, style.machineVerticalPadding)
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(accessibilityLabel)
+            .padding(.vertical, scaled(style.machineVerticalPadding))
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private func scaled(_ size: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(size, percent: fontMagnification)
     }
 
     private func glyph(size: CGFloat) -> some View {
         Image(systemName: "desktopcomputer")
-            .font(.system(size: size, weight: .regular))
+            .font(.system(size: size, weight: .medium))
             .foregroundStyle(glyphStyle)
             .accessibilityHidden(true)
     }
 
     private var glyphStyle: AnyShapeStyle {
         if !row.isOnline { return AnyShapeStyle(.tertiary) }
-        return style.iconTreatment == .monochrome ? AnyShapeStyle(.secondary) : AnyShapeStyle(CloudTreeIconPalette.machine)
+        return AnyShapeStyle(.secondary)
     }
 
     private func name(weight: Font.Weight) -> some View {
