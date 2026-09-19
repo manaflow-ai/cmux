@@ -56,6 +56,10 @@ enum SettingsWindowFactory {
         // the defaults is what produced the #8015 hybrid chrome.
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         window.title = String(localized: "settings.title", defaultValue: "Settings")
+        // Settings panes are not document windows: HIG guidance keeps the
+        // minimize and zoom controls visible but unavailable.
+        window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
         // [flexible space, sidebar toggle, sidebar tracking separator] is the
         // exact item layout the SwiftUI-owned 0.64.17 window built for its
         // NavigationSplitView: the toggle sits at the sidebar's trailing edge

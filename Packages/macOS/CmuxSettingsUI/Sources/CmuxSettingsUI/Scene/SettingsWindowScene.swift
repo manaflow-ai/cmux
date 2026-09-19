@@ -445,6 +445,7 @@ public struct SettingsWindowRoot: View {
                 .onReceive(NotificationCenter.default.publisher(for: Self.navigationRequestName)) { notification in
                     applyScrollNavigation(notification, proxy: proxy)
                 }
+                .navigationTitle(selectedSection.title)
             }
         }
     }
