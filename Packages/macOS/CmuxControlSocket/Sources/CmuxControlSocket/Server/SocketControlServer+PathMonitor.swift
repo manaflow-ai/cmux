@@ -60,14 +60,14 @@ extension SocketControlServer {
         }
 
         previousSource?.cancel()
-        source.resume()
 
-        // Directory events only cover changes after registration. Check once
-        // after arming so an unlink/replacement between bind and watch setup
-        // takes the same generation-validated recovery path as a later event.
-        socketListenerQueue.async { [weak self] in
+        // Registration is the lifecycle boundary for the watcher. This
+        // callback closes the bind-to-watch gap without scheduling an
+        // unowned queue hop that could outlive a cancelled source.
+        source.setRegistrationHandler { @Sendable [weak self] in
             self?.handleSocketPathDirectoryEvent(path: path, generation: generation)
         }
+        source.resume()
     }
 
     private nonisolated func handleSocketPathDirectoryEvent(path: String, generation: UInt64) {

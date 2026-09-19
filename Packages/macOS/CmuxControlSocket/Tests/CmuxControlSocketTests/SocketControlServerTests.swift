@@ -37,6 +37,7 @@ private final class ServerEventRecorder: Sendable {
 
     let missingEvents = AsyncStream<(path: String, generation: UInt64)>.makeStream()
 
+    /// Builds callbacks that record listener lifecycle events for assertions.
     func makeEvents(
         onStart: @escaping @MainActor @Sendable (String) -> Void = { _ in }
     ) -> SocketControlServerEvents {
@@ -95,6 +96,7 @@ private struct ServerHarness: ~Copyable {
     let recorder: ServerEventRecorder
     let server: SocketControlServer
 
+    /// Creates an isolated temporary socket server for path-monitor tests.
     init(onStart: @escaping @MainActor @Sendable (String) -> Void = { _ in }) throws {
         directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("scs-\(UUID().uuidString.prefix(8))", isDirectory: true)
@@ -458,6 +460,7 @@ struct SocketControlServerReservationTests {
 @MainActor
 @Suite("SocketControlServer path monitor")
 struct SocketControlServerPathMonitorTests {
+    /// Reports an unlink that happens before the watcher registration callback.
     @Test func detectsUnlinkBeforeMonitorRegistration() async throws {
         let harness = try ServerHarness(onStart: { path in
             #expect(unlink(path) == 0)
@@ -470,6 +473,7 @@ struct SocketControlServerPathMonitorTests {
         #expect(harness.server.shouldRestartForMissingPath(path: harness.socketPath, generation: generation))
     }
 
+    /// Ignores path events from listener generations that have already stopped.
     @Test func repeatedRecoveryRejectsCallbacksFromOlderGenerations() async throws {
         let harness = try ServerHarness()
         defer { harness.shutdown() }
@@ -493,6 +497,7 @@ struct SocketControlServerPathMonitorTests {
         }
     }
 
+    /// Stops the stale listener without replacing a socket or regular-file inode.
     @Test(arguments: [false, true])
     func replacementInodeFailsReconfigurationAndIsPreserved(isSocket: Bool) async throws {
         let harness = try ServerHarness()
@@ -537,6 +542,7 @@ struct SocketControlServerPathMonitorTests {
         if fd >= 0 { close(fd) }
     }
 
+    /// Waits for a matching path-missing event or a bounded test timeout.
     private static func nextMissingEvent(
         _ recorder: ServerEventRecorder, generation: UInt64
     ) async -> (path: String, generation: UInt64)? {
