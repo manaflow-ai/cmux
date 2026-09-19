@@ -19,7 +19,6 @@ extension CmuxTopProcessSnapshot {
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true
     ) -> CmuxTopProcessSnapshot {
-        let sampledAt = Date()
         let listing = DarwinProcessEnumerator().capture()
         return CmuxTopProcessSnapshot(
             processes: processRecords(
@@ -27,7 +26,7 @@ extension CmuxTopProcessSnapshot {
                 includeProcessDetails: includeProcessDetails,
                 includeCMUXScope: includeCMUXScope
             ),
-            sampledAt: sampledAt,
+            sampledAt: Date(),
             includesProcessDetails: includeProcessDetails,
             includesCMUXScope: includeCMUXScope,
             enumerationIsComplete: listing.isComplete,

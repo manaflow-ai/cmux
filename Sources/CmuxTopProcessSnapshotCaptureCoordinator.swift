@@ -7,38 +7,17 @@ import Foundation
 /// after the bridge is released. It retains at most one snapshot and one
 /// in-flight generation; callers opt into a documented maximum age or a fresh
 /// generation boundary.
-nonisolated final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
+final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
     typealias CaptureProvider = @Sendable (Bool, Bool) -> CmuxTopProcessSnapshot
     typealias NowProvider = @Sendable () -> Date
-
-    private struct Requirements: Sendable {
-        let includeProcessDetails: Bool
-        let includeCMUXScope: Bool
-
-        func satisfies(_ requested: Requirements) -> Bool {
-            (includeProcessDetails || !requested.includeProcessDetails) &&
-                (includeCMUXScope || !requested.includeCMUXScope)
-        }
-    }
-
-    private final class InFlightCapture {
-        let sequence: UInt64
-        let requirements: Requirements
-        var snapshot: CmuxTopProcessSnapshot?
-
-        init(sequence: UInt64, requirements: Requirements) {
-            self.sequence = sequence
-            self.requirements = requirements
-        }
-    }
 
     private let condition = NSCondition()
     private let captureProvider: CaptureProvider
     private let nowProvider: NowProvider
     private var cachedSnapshot: CmuxTopProcessSnapshot?
-    private var cachedRequirements: Requirements?
+    private var cachedRequirements: CmuxTopProcessSnapshotCaptureRequirements?
     private var nextCaptureSequence: UInt64 = 0
-    private var inFlightCapture: InFlightCapture?
+    private var inFlightCapture: CmuxTopProcessSnapshotInFlightCapture?
 
     init(
         captureProvider: @escaping CaptureProvider,
@@ -54,7 +33,7 @@ nonisolated final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sen
         maximumAge: TimeInterval
     ) -> CmuxTopProcessSnapshot {
         capture(
-            requirements: Requirements(
+            requirements: CmuxTopProcessSnapshotCaptureRequirements(
                 includeProcessDetails: includeProcessDetails,
                 includeCMUXScope: includeCMUXScope
             ),
@@ -74,7 +53,7 @@ nonisolated final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sen
         let boundary = nextCaptureSequence
         condition.unlock()
         return capture(
-            requirements: Requirements(
+            requirements: CmuxTopProcessSnapshotCaptureRequirements(
                 includeProcessDetails: includeProcessDetails,
                 includeCMUXScope: includeCMUXScope
             ),
@@ -84,7 +63,7 @@ nonisolated final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sen
     }
 
     private func capture(
-        requirements: Requirements,
+        requirements: CmuxTopProcessSnapshotCaptureRequirements,
         maximumAge: TimeInterval?,
         minimumSequence: UInt64?
     ) -> CmuxTopProcessSnapshot {
@@ -121,7 +100,7 @@ nonisolated final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sen
             }
 
             nextCaptureSequence &+= 1
-            let capture = InFlightCapture(
+            let capture = CmuxTopProcessSnapshotInFlightCapture(
                 sequence: nextCaptureSequence,
                 requirements: requirements
             )
