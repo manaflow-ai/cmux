@@ -65,6 +65,17 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the current persisted control-socket configuration to the live server.
     func socketControlConfigurationDidChange()
 
+    /// Reads the installer-owned on-disk state for a hook-managed agent integration.
+    func agentIntegrationInstallState(
+        _ integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationInstallState
+
+    /// Performs an explicit hook install, repair, removal, or instructions action.
+    func performAgentIntegrationAction(
+        _ action: AgentIntegrationInstallAction,
+        for integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationActionResult
+
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
 
@@ -343,6 +354,29 @@ public extension SettingsHostActions {
 
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
+
+    /// Hook installation is unavailable in package-only previews/tests.
+    func agentIntegrationInstallState(
+        _ integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationInstallState {
+        _ = integration
+        return .unavailable
+    }
+
+    /// Hook installation actions are unavailable in package-only previews/tests.
+    func performAgentIntegrationAction(
+        _ action: AgentIntegrationInstallAction,
+        for integration: AgentIntegrationInstallTarget
+    ) async -> AgentIntegrationActionResult {
+        _ = (action, integration)
+        return AgentIntegrationActionResult(
+            succeeded: false,
+            message: String(
+                localized: "settings.automation.integration.install.unavailable",
+                defaultValue: "Hook installation is unavailable in this settings host."
+            )
+        )
+    }
 
     /// Right-sidebar tab defaults for previews, tests, and package-only
     /// hosts: no tabs, refuse mutations, no updates.
