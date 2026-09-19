@@ -22,7 +22,7 @@ jobs:
     # dispatch. Default to the isolated WarpBuild ARM lane; the selector below
     # chooses its installed Xcode 26 toolchain and simulator runtime. Keep an
     # override for a future isolated runner migration.
-    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"
