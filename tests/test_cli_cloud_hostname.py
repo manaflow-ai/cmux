@@ -33,6 +33,37 @@ class CloudHostnameTests(unittest.TestCase):
         subprocess.run(["xcrun", "clang", "-dynamiclib", "-framework", "Foundation",
                         str(source), "-o", cls.library], check=True, capture_output=True)
 
+    def test_app_label_does_not_resolve_the_computers_name(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        temporary = Path(self.fixture.name)
+        # Compile only the label owner and its app caller; no app target or UI.
+        subprocess.run([
+            "xcrun", "swiftc", "-swift-version", "6", "-warnings-as-errors",
+            "-emit-library", "-emit-module", "-module-name", "CmuxFoundation",
+            "-emit-module-path", str(temporary / "CmuxFoundation.swiftmodule"),
+            str(root / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/RemoteClientDeviceName.swift"),
+            "-o", str(temporary / "libCmuxFoundation.dylib"),
+        ], check=True, capture_output=True)
+        fixture = temporary / "cloud-hostname"
+        subprocess.run([
+            "xcrun", "swiftc", "-swift-version", "6", "-warnings-as-errors",
+            "-I", str(temporary), "-L", str(temporary), "-lCmuxFoundation",
+            "-Xlinker", "-rpath", "-Xlinker", str(temporary),
+            str(root / "Sources/Cloud/CloudTuiClientPaths.swift"),
+            str(root / "tests/fixtures/CloudHostnameFixture.swift"), "-o", str(fixture),
+        ], check=True, capture_output=True)
+        environment = {**os.environ, "DYLD_INSERT_LIBRARIES": self.library}
+        result = subprocess.run([str(fixture)], env=environment, capture_output=True,
+                                text=True, timeout=10, check=True)
+        samples = json.loads(result.stdout)
+        self.assertEqual([sample["phase"] for sample in samples], ["cold", "warm"])
+        self.assertEqual(samples[0]["name"], samples[1]["name"])
+        self.assertTrue(samples[0]["name"].startswith("cmux-"))
+        self.assertNotIn("CMUX_TEST_HOSTNAME_RESOLVER_CALLED", result.stderr)
+        print("app_hostname_timing=" + json.dumps([
+            {key: sample[key] for key in ("phase", "duration_ms")} for sample in samples
+        ]))
+
     def test_cloud_attach_does_not_resolve_the_computers_name(self) -> None:
         workspace = str(uuid.uuid4())
         result = {
