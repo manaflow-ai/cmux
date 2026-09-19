@@ -68,7 +68,10 @@ public struct CmuxConfigSemanticValidator {
             return [
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: "is only supported in the global cmux.json"
+                    message: CmuxConfigValidationLocalization.string(
+                        "config.validation.scope.globalOnly",
+                        defaultValue: "is only supported in the global cmux.json"
+                    )
                 )
             ]
         }
@@ -77,7 +80,16 @@ public struct CmuxConfigSemanticValidator {
 
         if let ref = schema["$ref"] as? String {
             guard let target = resolvedReference(ref) else {
-                return [CmuxConfigSemanticIssue(path: path, message: "references an unknown schema definition '\(ref)'")]
+                return [
+                    CmuxConfigSemanticIssue(
+                        path: path,
+                        message: CmuxConfigValidationLocalization.format(
+                            "config.validation.schema.unknownReference",
+                            defaultValue: "references an unknown schema definition '%@'",
+                            ref
+                        )
+                    )
+                ]
             }
             issues.append(
                 contentsOf: validate(
@@ -93,7 +105,12 @@ public struct CmuxConfigSemanticValidator {
             return [
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: "expected \(typeDescription(typeSpec)), got \(kindDescription(instance))"
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.type.expected",
+                        defaultValue: "expected %@, got %@",
+                        typeDescription(typeSpec),
+                        kindDescription(instance)
+                    )
                 )
             ]
         }
@@ -102,7 +119,11 @@ public struct CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: "must equal \(displayJSON(constant))"
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.value.equal",
+                        defaultValue: "must equal %@",
+                        displayJSON(constant)
+                    )
                 )
             )
         }
@@ -112,7 +133,11 @@ public struct CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: "must be one of \(displayChoices(choices))"
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.value.oneOf",
+                        defaultValue: "must be one of %@",
+                        displayChoices(choices)
+                    )
                 )
             )
         }
@@ -142,7 +167,15 @@ public struct CmuxConfigSemanticValidator {
                     )
                 }
             if !alternatives.contains(where: \.isEmpty) {
-                issues.append(CmuxConfigSemanticIssue(path: path, message: "does not match any allowed form"))
+                issues.append(
+                    CmuxConfigSemanticIssue(
+                        path: path,
+                        message: CmuxConfigValidationLocalization.string(
+                            "config.validation.form.none",
+                            defaultValue: "does not match any allowed form"
+                        )
+                    )
+                )
                 if let best = alternatives.min(by: { $0.count < $1.count }) {
                     issues.append(contentsOf: best.prefix(2))
                 }
@@ -162,8 +195,14 @@ public struct CmuxConfigSemanticValidator {
             let passing = alternatives.filter(\.isEmpty).count
             if passing != 1 {
                 let message = passing == 0
-                    ? "does not match any allowed form"
-                    : "matches multiple mutually exclusive forms"
+                    ? CmuxConfigValidationLocalization.string(
+                        "config.validation.form.none",
+                        defaultValue: "does not match any allowed form"
+                    )
+                    : CmuxConfigValidationLocalization.string(
+                        "config.validation.form.multiple",
+                        defaultValue: "matches multiple mutually exclusive forms"
+                    )
                 issues.append(CmuxConfigSemanticIssue(path: path, message: message))
                 if passing == 0,
                    let best = alternatives.min(by: { $0.count < $1.count }) {
@@ -200,7 +239,10 @@ public struct CmuxConfigSemanticValidator {
             issues.append(
                 CmuxConfigSemanticIssue(
                     path: path,
-                    message: "uses a disallowed value combination"
+                    message: CmuxConfigValidationLocalization.string(
+                        "config.validation.form.disallowed",
+                        defaultValue: "uses a disallowed value combination"
+                    )
                 )
             )
         }
@@ -239,19 +281,54 @@ public struct CmuxConfigSemanticValidator {
     ) -> [CmuxConfigSemanticIssue] {
         var issues: [CmuxConfigSemanticIssue] = []
         if let minimum = schemaInteger(schema["minLength"]), value.count < minimum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must contain at least \(minimum) character(s)"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.string.min",
+                        defaultValue: "must contain at least %lld character(s)",
+                        Int64(minimum)
+                    )
+                )
+            )
         }
         if let maximum = schemaInteger(schema["maxLength"]), value.count > maximum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must contain at most \(maximum) character(s)"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.string.max",
+                        defaultValue: "must contain at most %lld character(s)",
+                        Int64(maximum)
+                    )
+                )
+            )
         }
         if let pattern = schema["pattern"] as? String,
            !matchesPattern(value, pattern: pattern) {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must match pattern \(displayJSON(pattern))"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.string.pattern",
+                        defaultValue: "must match pattern %@",
+                        displayJSON(pattern)
+                    )
+                )
+            )
         }
         if let format = schema["format"] as? String, format == "uri" {
             let components = URLComponents(string: value)
             if components?.scheme?.isEmpty != false {
-                issues.append(CmuxConfigSemanticIssue(path: path, message: "must be an absolute URI"))
+                issues.append(
+                    CmuxConfigSemanticIssue(
+                        path: path,
+                        message: CmuxConfigValidationLocalization.string(
+                            "config.validation.string.absoluteURI",
+                            defaultValue: "must be an absolute URI"
+                        )
+                    )
+                )
             }
         }
         return issues
@@ -264,16 +341,52 @@ public struct CmuxConfigSemanticValidator {
     ) -> [CmuxConfigSemanticIssue] {
         var issues: [CmuxConfigSemanticIssue] = []
         if let minimum = schemaNumber(schema["minimum"]), value < minimum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must be >= \(formatNumber(minimum))"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.number.min",
+                        defaultValue: "must be >= %@",
+                        formatNumber(minimum)
+                    )
+                )
+            )
         }
         if let maximum = schemaNumber(schema["maximum"]), value > maximum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must be <= \(formatNumber(maximum))"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.number.max",
+                        defaultValue: "must be <= %@",
+                        formatNumber(maximum)
+                    )
+                )
+            )
         }
         if let minimum = schemaNumber(schema["exclusiveMinimum"]), value <= minimum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must be > \(formatNumber(minimum))"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.number.gt",
+                        defaultValue: "must be > %@",
+                        formatNumber(minimum)
+                    )
+                )
+            )
         }
         if let maximum = schemaNumber(schema["exclusiveMaximum"]), value >= maximum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must be < \(formatNumber(maximum))"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.number.lt",
+                        defaultValue: "must be < %@",
+                        formatNumber(maximum)
+                    )
+                )
+            )
         }
         if let multiple = schemaNumber(schema["multipleOf"]), multiple > 0 {
             let quotient = value / multiple
@@ -283,7 +396,11 @@ public struct CmuxConfigSemanticValidator {
                 issues.append(
                     CmuxConfigSemanticIssue(
                         path: path,
-                        message: "must be a multiple of \(formatNumber(multiple))"
+                        message: CmuxConfigValidationLocalization.format(
+                            "config.validation.number.multiple",
+                            defaultValue: "must be a multiple of %@",
+                            formatNumber(multiple)
+                        )
                     )
                 )
             }
@@ -299,10 +416,28 @@ public struct CmuxConfigSemanticValidator {
     ) -> [CmuxConfigSemanticIssue] {
         var issues: [CmuxConfigSemanticIssue] = []
         if let minimum = schemaInteger(schema["minItems"]), value.count < minimum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must contain at least \(minimum) item(s)"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.array.min",
+                        defaultValue: "must contain at least %lld item(s)",
+                        Int64(minimum)
+                    )
+                )
+            )
         }
         if let maximum = schemaInteger(schema["maxItems"]), value.count > maximum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must contain at most \(maximum) item(s)"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.array.max",
+                        defaultValue: "must contain at most %lld item(s)",
+                        Int64(maximum)
+                    )
+                )
+            )
         }
 
         let prefixSchemas = (schema["prefixItems"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
@@ -339,15 +474,41 @@ public struct CmuxConfigSemanticValidator {
     ) -> [CmuxConfigSemanticIssue] {
         var issues: [CmuxConfigSemanticIssue] = []
         if let minimum = schemaInteger(schema["minProperties"]), value.count < minimum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must contain at least \(minimum) key(s)"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.object.min",
+                        defaultValue: "must contain at least %lld key(s)",
+                        Int64(minimum)
+                    )
+                )
+            )
         }
         if let maximum = schemaInteger(schema["maxProperties"]), value.count > maximum {
-            issues.append(CmuxConfigSemanticIssue(path: path, message: "must contain at most \(maximum) key(s)"))
+            issues.append(
+                CmuxConfigSemanticIssue(
+                    path: path,
+                    message: CmuxConfigValidationLocalization.format(
+                        "config.validation.object.max",
+                        defaultValue: "must contain at most %lld key(s)",
+                        Int64(maximum)
+                    )
+                )
+            )
         }
 
         if let required = schema["required"] as? [String] {
             for key in required where value[key] == nil {
-                issues.append(CmuxConfigSemanticIssue(path: childPath(path, key: key), message: "is required"))
+                issues.append(
+                    CmuxConfigSemanticIssue(
+                        path: childPath(path, key: key),
+                        message: CmuxConfigValidationLocalization.string(
+                            "config.validation.required",
+                            defaultValue: "is required"
+                        )
+                    )
+                )
             }
         }
 
@@ -401,7 +562,15 @@ public struct CmuxConfigSemanticValidator {
 
             if let allowed = additional as? Bool, !allowed {
                 if !tolerateUnknownProperties {
-                    issues.append(CmuxConfigSemanticIssue(path: child, message: "unknown configuration key"))
+                    issues.append(
+                        CmuxConfigSemanticIssue(
+                            path: child,
+                            message: CmuxConfigValidationLocalization.string(
+                                "config.validation.unknownKey",
+                                defaultValue: "unknown configuration key"
+                            )
+                        )
+                    )
                 }
             } else if let additionalSchema = additional as? [String: Any] {
                 issues.append(
