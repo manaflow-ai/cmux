@@ -80,8 +80,11 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
 
     @Test("A cached request does not join an in-flight generation past its age bound")
     func inFlightFreshnessBound() async throws {
-        let fixture = SyntheticProcessSnapshotFixture(processCount: 1_024)
         let clock = SyntheticSnapshotClock()
+        let fixture = SyntheticProcessSnapshotFixture(
+            processCount: 1_024,
+            timestampProvider: { clock.read() }
+        )
         let coordinator = CmuxTopProcessSnapshotCaptureCoordinator(
             captureProvider: { details, scope in
                 fixture.capture(includeDetails: details, includeScope: scope)
@@ -104,7 +107,7 @@ struct CmuxTopProcessSnapshotCaptureCoordinatorTests {
                 maximumAge: 2
             )
         }
-        await Task.yield()
+        clock.waitForReadCount(3)
         fixture.release()
         _ = await first.value
         _ = await second.value
@@ -126,9 +129,14 @@ private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
     private var released = false
     private var shouldBlockFirstCapture = true
     private var firstCaptureStarted = false
+    private let timestampProvider: @Sendable () -> Date
 
-    init(processCount: Int) {
+    init(
+        processCount: Int,
+        timestampProvider: @escaping @Sendable () -> Date = { Date() }
+    ) {
         self.processCount = processCount
+        self.timestampProvider = timestampProvider
     }
 
     func release() {
@@ -145,6 +153,7 @@ private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
     }
 
     func capture(includeDetails: Bool, includeScope: Bool) -> CmuxTopProcessSnapshot {
+        let sampledAt = timestampProvider()
         condition.lock()
         if shouldBlockFirstCapture {
             shouldBlockFirstCapture = false
@@ -174,7 +183,7 @@ private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
             ))
         }
         return CmuxTopProcessSnapshot(
-            processes: processes, sampledAt: Date(),
+            processes: processes, sampledAt: sampledAt,
             includesProcessDetails: includeDetails,
             includesCMUXScope: includeScope
         )
@@ -182,19 +191,31 @@ private final class SyntheticProcessSnapshotFixture: @unchecked Sendable {
 }
 
 private final class SyntheticSnapshotClock: @unchecked Sendable {
-    private let lock = NSLock()
+    private let condition = NSCondition()
     private var value = Date(timeIntervalSince1970: 100)
+    private var readCount = 0
 
     func read() -> Date {
-        lock.lock()
-        defer { lock.unlock() }
-        return value
+        condition.lock()
+        readCount += 1
+        condition.broadcast()
+        let result = value
+        condition.unlock()
+        return result
+    }
+
+    func waitForReadCount(_ expected: Int) {
+        condition.lock()
+        while readCount < expected {
+            condition.wait()
+        }
+        condition.unlock()
     }
 
     func advance(by seconds: TimeInterval) {
-        lock.lock()
+        condition.lock()
         value.addTimeInterval(seconds)
-        lock.unlock()
+        condition.unlock()
     }
 }
 

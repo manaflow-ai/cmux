@@ -16,6 +16,7 @@ final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
     private let nowProvider: NowProvider
     private var cachedSnapshot: CmuxTopProcessSnapshot?
     private var cachedRequirements: CmuxTopProcessSnapshotCaptureRequirements?
+    private var cachedSequence: UInt64?
     private var nextCaptureSequence: UInt64 = 0
     private var inFlightCapture: CmuxTopProcessSnapshotInFlightCapture?
 
@@ -65,14 +66,16 @@ final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
     private func capture(
         requirements: CmuxTopProcessSnapshotCaptureRequirements,
         maximumAge: TimeInterval?,
-        minimumSequence: UInt64?
+        minimumSequence initialMinimumSequence: UInt64?
     ) -> CmuxTopProcessSnapshot {
+        var minimumSequence = initialMinimumSequence
         condition.lock()
         while true {
             if let maximumAge,
                let cachedSnapshot,
                let cachedRequirements,
                cachedRequirements.satisfies(requirements),
+               minimumSequence.map({ (cachedSequence ?? 0) > $0 }) ?? true,
                nowProvider().timeIntervalSince(cachedSnapshot.sampledAt) <= max(0, maximumAge) {
                 condition.unlock()
                 return cachedSnapshot
@@ -96,6 +99,11 @@ final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
                     condition.unlock()
                     return snapshot
                 }
+                if !isFreshEnough {
+                    // This waiter must not accept the completion it is waiting
+                    // for. The next loop starts a successor generation.
+                    minimumSequence = max(minimumSequence ?? 0, inFlightCapture.sequence)
+                }
                 while inFlightCapture.snapshot == nil {
                     condition.wait()
                 }
@@ -118,6 +126,7 @@ final class CmuxTopProcessSnapshotCaptureCoordinator: @unchecked Sendable {
             capture.snapshot = snapshot
             cachedSnapshot = snapshot
             cachedRequirements = requirements
+            cachedSequence = capture.sequence
             if inFlightCapture === capture { inFlightCapture = nil }
             condition.broadcast()
             condition.unlock()
