@@ -414,6 +414,7 @@ jobs:
             "CI=${CI:-true}"
             "GITHUB_ACTIONS=${GITHUB_ACTIONS:-true}"
             "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-$PWD}"
+            "SWIFTPM_MIRROR_CONFIG=${SWIFTPM_MIRROR_CONFIG:-}"
             "RUNNER_TEMP=${RUNNER_TEMP:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
           )
