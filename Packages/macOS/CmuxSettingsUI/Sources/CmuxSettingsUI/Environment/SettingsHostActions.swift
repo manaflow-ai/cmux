@@ -296,50 +296,6 @@ public protocol SettingsHostActions: AnyObject {
     func openCloudMachinesBilling()
 }
 
-/// Shared localized copy for local-tmux host failures.
-public enum LocalTmuxSettingsText {
-    public static var unavailable: String {
-        String(
-            localized: "settings.terminal.localTmux.unavailable",
-            defaultValue: "Local session persistence is unavailable in this settings host.",
-            bundle: .module
-        )
-    }
-
-    public static var invalidResponse: String {
-        String(
-            localized: "settings.terminal.localTmux.invalidResponse",
-            defaultValue: "cmux local-tmux returned an invalid session list.",
-            bundle: .module
-        )
-    }
-
-    public static var cliMissing: String {
-        String(
-            localized: "settings.terminal.localTmux.cliMissing",
-            defaultValue: "The bundled cmux command-line tool could not be found.",
-            bundle: .module
-        )
-    }
-
-    public static var commandFailed: String {
-        String(
-            localized: "settings.terminal.localTmux.commandFailed",
-            defaultValue: "cmux local-tmux could not complete the requested action.",
-            bundle: .module
-        )
-    }
-}
-
-/// Error returned by package-only hosts that cannot perform local tmux actions.
-public enum LocalTmuxSettingsActionError: LocalizedError, Sendable {
-    case unavailable
-
-    public var errorDescription: String? {
-        LocalTmuxSettingsText.unavailable
-    }
-}
-
 /// Snapshot of the caller's Cloud Machines plan for the settings section.
 public struct CloudMachinesPlanSummary: Equatable, Sendable {
     public let planLabel: String

@@ -10,12 +10,6 @@ import SwiftUI
 
 private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
-private struct LocalTmuxSettingsCLIError: LocalizedError, Sendable {
-    let message: String
-
-    var errorDescription: String? { message }
-}
-
 /// App-side implementation of the package's `SettingsHostActions`
 /// protocol. Routes UI-triggered actions to the existing host
 /// services (`BrowserHistoryStore`, `BrowserDataImportCoordinator`,
@@ -251,7 +245,7 @@ final class HostSettingsActions: SettingsHostActions {
             return try LocalTmuxSessionListDecoder().decode(data)
         } catch {
             hostSettingsLogger.error("Bundled local-tmux CLI returned invalid session data")
-            throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.invalidResponse)
+            throw LocalTmuxSettingsActionError.invalidResponse
         }
     }
 
@@ -286,70 +280,28 @@ final class HostSettingsActions: SettingsHostActions {
 
     private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {
         guard let cliURL = CLIForwardingLaunchRouter.bundledCLIURL() else {
-            throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.cliMissing)
+            throw LocalTmuxSettingsActionError.cliMissing
         }
 
         return try await Self.runLocalTmuxCLI(executableURL: cliURL, arguments: arguments)
     }
 
     nonisolated static func runLocalTmuxCLI(executableURL cliURL: URL, arguments: [String]) async throws -> Data {
-        return try await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            let stdout = Pipe()
-            let stderr = Pipe()
-            process.executableURL = cliURL
-            process.arguments = arguments
-            process.standardInput = FileHandle.nullDevice
-            process.standardOutput = stdout
-            process.standardError = stderr
-
-            let (terminationEvents, terminationContinuation) = AsyncStream<Int32>.makeStream(
-                bufferingPolicy: .bufferingNewest(1)
-            )
-            process.terminationHandler = { process in
-                terminationContinuation.yield(process.terminationStatus)
-                terminationContinuation.finish()
+        try Task.checkCancellation()
+        let result = await CommandRunner().run(
+            directory: cliURL.deletingLastPathComponent().path,
+            executable: cliURL.path,
+            arguments: arguments,
+            timeout: nil
+        )
+        try Task.checkCancellation()
+        guard result.executionError == nil, !result.timedOut, result.exitStatus == 0 else {
+            if let diagnostics = result.stderr, !diagnostics.isEmpty {
+                hostSettingsLogger.error("Bundled local-tmux CLI failed: \(diagnostics, privacy: .private)")
             }
-
-            let outputTask = Task.detached(priority: .userInitiated) {
-                stdout.fileHandleForReading.readDataToEndOfFile()
-            }
-            let errorTask = Task.detached(priority: .userInitiated) {
-                stderr.fileHandleForReading.readDataToEndOfFile()
-            }
-
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                terminationContinuation.finish()
-                try? stdout.fileHandleForWriting.close()
-                try? stderr.fileHandleForWriting.close()
-                _ = await outputTask.value
-                _ = await errorTask.value
-                hostSettingsLogger.error(
-                    "Failed to launch bundled local-tmux CLI: \(String(describing: error), privacy: .private)"
-                )
-                throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.commandFailed)
-            }
-
-            var terminationIterator = terminationEvents.makeAsyncIterator()
-            let terminationStatus = await terminationIterator.next() ?? process.terminationStatus
-            let output = await outputTask.value
-            let errorData = await errorTask.value
-
-            guard terminationStatus == 0 else {
-                if let diagnostics = String(data: errorData, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                   !diagnostics.isEmpty {
-                    hostSettingsLogger.error(
-                        "Bundled local-tmux CLI failed: \(diagnostics, privacy: .private)"
-                    )
-                }
-                throw LocalTmuxSettingsCLIError(message: LocalTmuxSettingsText.commandFailed)
-            }
-            return output
-        }.value
+            throw LocalTmuxSettingsActionError.commandFailed
+        }
+        return Data((result.stdout ?? "").utf8)
     }
 
     // MARK: - Right sidebar tabs
