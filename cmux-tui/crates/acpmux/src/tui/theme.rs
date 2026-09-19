@@ -86,7 +86,7 @@ impl Chrome {
             prompt_button_hover_bg: Color::Indexed(240),
             toast_bg: Color::Indexed(240),
             toast_fg: Color::Indexed(255),
-            status_bg: Color::Indexed(236),
+            status_bg: Color::Indexed(234),
             status_fg: Color::Indexed(250),
             status_dim_fg: Color::Indexed(244),
             status_active_bg: Color::Indexed(240),

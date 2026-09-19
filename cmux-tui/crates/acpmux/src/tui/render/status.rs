@@ -49,14 +49,26 @@ pub(super) fn draw_status(f: &mut ratatui::Frame, area: Rect, app: &mut App) {
     }
     // Right side: a click opens the web dashboard (the URL carries a token,
     // so it is not printed).
+    let mut right_x = area.x + area.width;
     if app.web_url.is_some() {
         let right = " web dashboard ↗ ";
         let rw = right.width() as u16;
-        if x + rw < area.x + area.width {
-            let r = Rect { x: area.x + area.width - rw, y: area.y, width: rw, height: 1 };
+        if x + rw < right_x {
+            let r = Rect { x: right_x - rw, y: area.y, width: rw, height: 1 };
             let hovered = app.hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
             buf.set_stringn(r.x, r.y, right, rw as usize, if hovered { c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg) } else { c.status_dim() });
             app.buttons.push((r, ButtonAction::Web));
+            right_x = r.x;
+        }
+    }
+    {
+        let keys = " ? keys · / commands ";
+        let kw = keys.width() as u16;
+        if x + kw < right_x {
+            let r = Rect { x: right_x - kw, y: area.y, width: kw, height: 1 };
+            let hovered = app.hover.map(|(hx, hy)| hy == r.y && hx >= r.x && hx < r.x + r.width).unwrap_or(false);
+            buf.set_stringn(r.x, r.y, keys, kw as usize, if hovered { c.status().bg(c.status_active_bg).fg(c.prompt_button_accent_fg) } else { c.status_dim() });
+            app.buttons.push((r, ButtonAction::Help));
         }
     }
     app.host_chips = chips;

@@ -9,7 +9,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     // Title row: name, status, and token usage. Settings live under the
     // composer.
     let title_y = area.y;
-    let name = app.selected_name();
+    let name = truncate(&app.selected_session().map(session_title).unwrap_or_else(|| app.selected_name()), 64);
     let (status, mode, model) = app
         .selected_id()
         .and_then(|id| app.transcripts.get(&id))

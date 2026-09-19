@@ -468,6 +468,21 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
     rows
 }
 
+/// What a session is called in the sidebar and header: its title (the
+/// first prompt) when its name was generated (`codex`, `codex-3`), else
+/// the name the user gave it.
+pub fn session_title(s: &Value) -> String {
+    let name = s.get("name").and_then(Value::as_str).unwrap_or("?");
+    let harness = s.get("harness").and_then(Value::as_str).unwrap_or("");
+    let bare = name.rsplit('/').next().unwrap_or(name);
+    let auto = !harness.is_empty()
+        && (bare == harness || bare.strip_prefix(harness).and_then(|r| r.strip_prefix('-')).map(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit())).unwrap_or(false));
+    match s.get("title").and_then(Value::as_str).filter(|t| !t.trim().is_empty()) {
+        Some(t) if auto => t.to_owned(),
+        _ => name.to_owned(),
+    }
+}
+
 /// Tool titles as the Codex app shows them: verbs kept, absolute paths cut
 /// to their last two segments, shell commands left alone.
 pub fn shorten_tool_title(title: &str) -> String {
