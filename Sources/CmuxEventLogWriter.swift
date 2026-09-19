@@ -12,6 +12,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let eventLogURL: URL
     private let maxEventLogBytes: UInt64
     private let maxPendingLines: Int
+    private let writeData: @Sendable (FileHandle, Data) throws -> Void
     private let lock = NSLock()
     private var pendingLines: [String] = []
     private var flushScheduled = false
@@ -20,10 +21,18 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private var flushSuspendedForTesting = false
 #endif
 
-    init(eventLogURL: URL, maxEventLogBytes: UInt64, maxPendingLines: Int) {
+    init(
+        eventLogURL: URL,
+        maxEventLogBytes: UInt64,
+        maxPendingLines: Int,
+        writeData: @escaping @Sendable (FileHandle, Data) throws -> Void = { handle, data in
+            try handle.write(contentsOf: data)
+        }
+    ) {
         self.eventLogURL = eventLogURL
         self.maxEventLogBytes = max(1, maxEventLogBytes)
         self.maxPendingLines = max(1, maxPendingLines)
+        self.writeData = writeData
     }
 
     func enqueue(_ line: String) {
@@ -148,7 +157,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
                     handle = try FileHandle(forWritingTo: eventLogURL)
                     currentSize = 0
                 }
-                try handle.write(contentsOf: data)
+                try writeData(handle, data)
                 currentSize += UInt64(data.count)
             }
         } catch {
