@@ -29,6 +29,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "windowTitleTemplate"
     )
 
+    /// Minimum main-window height in points. The default preserves the chrome
+    /// layout guard; lower values support compact window-manager tiling.
+    public let minimumWindowHeight = DefaultsKey<Double>(
+        id: "app.minimumWindowHeight",
+        defaultValue: 400,
+        userDefaultsKey: "minimumWindowHeight"
+    )
+
     public let menuBarOnly = DefaultsKey<Bool>(
         id: "app.menuBarOnly",
         defaultValue: false,
