@@ -221,6 +221,78 @@ final class HostSettingsActions: SettingsHostActions {
         PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
+    func customSidebarNames() -> [String] {
+        CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(
+            sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
+        )
+    }
+
+    func createCustomSidebar(named name: String) -> CustomSidebarOnboardingResult {
+        guard let template = CustomSidebarOnboardingAssets.starterTemplate() else {
+            return .templateUnavailable
+        }
+        return installCustomSidebarTemplate(
+            template,
+            name: name,
+            uniquingIfNeeded: false
+        )
+    }
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        guard let template = CustomSidebarOnboardingAssets.exampleTemplate(id: id) else {
+            return .templateUnavailable
+        }
+        return installCustomSidebarTemplate(
+            template,
+            name: template.suggestedName,
+            uniquingIfNeeded: true
+        )
+    }
+
+    func openCustomSidebarInExternalEditor(named name: String) {
+        guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
+            return
+        }
+        PreferredEditorService(defaults: .standard).open(fileURL)
+    }
+
+    func openCustomSidebarsFolder() {
+        do {
+            let directory = try CmuxExtensionSidebarSelection.ensureCustomSidebarsDirectory(
+                CmuxExtensionSidebarSelection.customSidebarsDirectory
+            )
+            NSWorkspace.shared.open(directory)
+        } catch {
+            hostSettingsLogger.error("failed to open custom sidebars folder: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func installCustomSidebarTemplate(
+        _ template: CustomSidebarTemplate,
+        name: String,
+        uniquingIfNeeded: Bool
+    ) -> CustomSidebarOnboardingResult {
+        switch CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: name,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: uniquingIfNeeded,
+            sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
+        ) {
+        case let .created(createdName, fileURL):
+            PreferredEditorService(defaults: .standard).open(fileURL)
+            return .created(name: createdName)
+        case .invalidName:
+            return .invalidName
+        case .alreadyExists:
+            return .alreadyExists
+        case .invalidTemplate:
+            return .templateUnavailable
+        case .failed:
+            return .writeFailed
+        }
+    }
+
     func sendFeedback() {
         guard let url = URL(string: "https://github.com/manaflow-ai/cmux/issues/new") else { return }
         NSWorkspace.shared.open(url)
