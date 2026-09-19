@@ -16,9 +16,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           ref: ${{ inputs.source_ref }}
+      - run: git submodule update --init vendor/bonsplit
       - run: ./scripts/select-ci-xcode.sh
       - name: Git watcher lifecycle
-        run: swift test --package-path Packages/macOS/CmuxSidebarGit --filter WatcherRegistrationLifecycleTests
+        run: swift test --package-path Packages/macOS/CmuxSidebarGit --filter 'WatcherRegistrationLifecycleTests|WatcherSafetyTests'
       - name: Browser discovery
         if: ${{ !cancelled() }}
         run: swift test --package-path Packages/macOS/CmuxBrowser --filter BrowserInstalledBrowserDetector
