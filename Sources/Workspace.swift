@@ -179,6 +179,7 @@ extension Workspace {
             isPinned: isPinned,
             isMuted: isMuted,
             groupId: groupId,
+            sidebarCreationContextID: sidebarCreationContextID,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
             notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
@@ -245,6 +246,7 @@ extension Workspace {
             stableId = persistedStableId
         }
         taskCreateOperationID = snapshot.taskCreateOperationID
+        sidebarCreationContextID = snapshot.sidebarCreationContextID
 
         restoredTerminalScrollbackByPanelId.removeAll(keepingCapacity: false)
 #if DEBUG
@@ -2693,6 +2695,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
     @Published var groupId: UUID?
+    /// Sidebar parent membership. This controls which machine's child column
+    /// lists the workspace, independently from the local or remote transports
+    /// used by any surface inside it.
+    @Published var sidebarCreationContextID: String?
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
@@ -7030,6 +7036,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             clearRemoteRelayIDAliases()
         }
         remoteConfiguration = configuration
+        owningTabManager?.rememberSidebarRemoteCreationContext(
+            configuration: configuration,
+            title: customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+                ?? (configuration.managedCloudVMID == nil ? configuration.displayTarget : title)
+        )
         // Publish this workspace's owned-ID set (identity entries) before the
         // remote shell's first relay RPC can arrive (GHSA-9vmv-3hjw-j28c).
         syncRemoteRelayIDAliasesToController()
@@ -11521,7 +11532,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// Create a new terminal surface in the currently focused pane
     @discardableResult
-    func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
+    func newTerminalSurfaceInFocusedPane(
+        focus: Bool? = nil,
+        initialInput: String? = nil,
+        initialCommand: String? = nil,
+        tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        suppressWorkspaceRemoteStartupCommand: Bool = false
+    ) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
         // In canvas mode, Cmd+T means "new tab in the focused canvas pane":
         // remember the anchor panel so the new one joins its pane instead of
@@ -11530,7 +11548,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let panel = newTerminalSurface(
             inPane: focusedPaneId,
             focus: focus,
+            initialCommand: initialCommand,
+            tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
+            startupEnvironment: startupEnvironment,
+            suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             inheritWorkingDirectoryFallback: true
         )
         if let panel, let anchor = canvasAnchorPanelId {

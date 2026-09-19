@@ -467,6 +467,54 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    func testSidebarColumnWidthsRoundTripAndLegacySnapshotsRemainDecodable() throws {
+        let snapshot = SessionSidebarSnapshot(
+            isVisible: true,
+            selection: .init(selection: .tabs),
+            width: 280,
+            leadingColumnWidth: 176,
+            selectedCreationContextID: "remote-fixture",
+            creationContexts: [
+                SessionSidebarCreationContextSnapshot(
+                    title: "Fixture Mac",
+                    remote: SessionRemoteWorkspaceSnapshot(
+                        transport: .ssh,
+                        destination: "fixture.example",
+                        port: 2222
+                    )
+                ),
+            ],
+            creationContextOrder: ["remote-fixture", "local"],
+            focusedWorkspaceStableIDsByCreationContextID: [
+                "remote-fixture": UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+            ]
+        )
+        let decoded = try JSONDecoder().decode(
+            SessionSidebarSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+        XCTAssertEqual(decoded.width, 280)
+        XCTAssertEqual(decoded.leadingColumnWidth, 176)
+        XCTAssertEqual(decoded.selectedCreationContextID, "remote-fixture")
+        XCTAssertEqual(decoded.creationContexts?.first?.title, "Fixture Mac")
+        XCTAssertEqual(decoded.creationContexts?.first?.remote.destination, "fixture.example")
+        XCTAssertEqual(decoded.creationContextOrder, ["remote-fixture", "local"])
+        XCTAssertEqual(
+            decoded.focusedWorkspaceStableIDsByCreationContextID?["remote-fixture"],
+            UUID(uuidString: "11111111-1111-1111-1111-111111111111")
+        )
+
+        let legacy = Data(
+            #"{"isVisible":true,"selection":"tabs","width":260}"#.utf8
+        )
+        let legacyDecoded = try JSONDecoder().decode(SessionSidebarSnapshot.self, from: legacy)
+        XCTAssertNil(legacyDecoded.leadingColumnWidth)
+        XCTAssertNil(legacyDecoded.selectedCreationContextID)
+        XCTAssertNil(legacyDecoded.creationContexts)
+        XCTAssertNil(legacyDecoded.creationContextOrder)
+        XCTAssertNil(legacyDecoded.focusedWorkspaceStableIDsByCreationContextID)
+    }
+
     func testSessionRectSnapshotEncodesXYWidthHeightKeys() throws {
         let snapshot = SessionRectSnapshot(x: 101.25, y: 202.5, width: 903.75, height: 704.5)
         let data = try JSONEncoder().encode(snapshot)

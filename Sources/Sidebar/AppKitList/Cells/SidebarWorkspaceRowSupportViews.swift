@@ -12,15 +12,20 @@ struct SidebarRowPalette {
 
     var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
 
-    var selectedBackground: NSColor {
-        sidebarSelectedWorkspaceBackgroundNSColor(
-            for: colorScheme,
-            sidebarSelectionColorHex: model.settings.selectionColorHex
+    private var shared: SidebarListRowPalette {
+        SidebarListRowPalette(
+            isActive: model.isActive,
+            colorScheme: colorScheme,
+            selectionColorHex: model.settings.selectionColorHex
         )
     }
 
+    var selectedBackground: NSColor {
+        shared.selectedBackground
+    }
+
     func selectedForeground(_ opacity: CGFloat) -> NSColor {
-        sidebarSelectedWorkspaceForegroundNSColor(on: selectedBackground, opacity: opacity)
+        shared.selectedForeground(opacity)
     }
 
     /// Resolves semantic colors against the row's concrete cmux scheme.

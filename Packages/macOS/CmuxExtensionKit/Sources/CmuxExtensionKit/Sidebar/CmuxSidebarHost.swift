@@ -36,6 +36,47 @@ public struct CmuxSidebarHost {
         refreshSnapshot()
     }
 
+    /// Selects the parent context and the defaults shared creation actions use.
+    public func selectCreationContext(_ id: String) async throws {
+        try await send(.selectCreationContext(id))
+    }
+
+    /// Moves a machine creation context to a machine-only index. The host's
+    /// fixed `Automatic` mode is not part of this ordered collection.
+    public func reorderCreationContext(_ id: String, to index: Int) async throws {
+        try await send(.reorderCreationContext(id: id, toIndex: index))
+    }
+
+    /// Moves workspace navigation membership to another machine without
+    /// changing the runtime locality of any workspace or surface.
+    public func moveWorkspaces(
+        _ workspaceIDs: [UUID],
+        toCreationContext contextID: String
+    ) async throws {
+        try await send(.moveWorkspacesToCreationContext(
+            workspaceIDs: workspaceIDs,
+            contextID: contextID
+        ))
+    }
+
+    /// Adds a durable machine from an SSH config alias or `user@host`.
+    public func addSSHMachine(_ destination: String, select: Bool = true) async throws {
+        try await send(.addSSHMachine(destination: destination, select: select))
+    }
+
+    /// Attaches an existing remote cmux-TUI session as a terminal surface.
+    public func attachRemoteCmuxTUI(
+        contextID: String,
+        sessionName: String = "main",
+        in workspaceID: UUID? = nil
+    ) async throws {
+        try await send(.attachRemoteCmuxTUI(
+            contextID: contextID,
+            sessionName: sessionName,
+            workspaceID: workspaceID
+        ))
+    }
+
     /// Requests that CMUX create a workspace.
     public func createWorkspace(
         title: String? = nil,

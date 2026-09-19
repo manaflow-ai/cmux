@@ -18,7 +18,7 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let isPinned: Bool
     let isAnchorActive: Bool
     let isMultiSelected: Bool
-    let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
+    let multiSelectionBackgroundStyle: SidebarListRowBackgroundStyle
     let memberCount: Int
     var anchorUnreadCount: Int
     var canMarkRead: Bool

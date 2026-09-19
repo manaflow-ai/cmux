@@ -708,20 +708,6 @@ extension AppDelegate {
         var seenTabManagers: Set<ObjectIdentifier> = []
         var routes: [MainWindowSessionPersistenceRoute] = []
 
-        func sidebarSnapshot(for route: RecoverableMainWindowRoute) -> SessionSidebarSnapshot? {
-            if let sidebar = route.sidebar,
-               let selection = route.sidebarSelection {
-                return SessionSidebarSnapshot(
-                    isVisible: sidebar.isVisible,
-                    selection: SessionSidebarSelection(selection: selection.selection),
-                    width: SessionPersistencePolicy.sanitizedSidebarWidth(
-                        Double(sidebar.persistedWidth)
-                    )
-                )
-            }
-            return route.frozenWindowSnapshot?.sidebar
-        }
-
         for context in mainWindowLifecycleCoordinator.registeredContexts {
             let managerId = ObjectIdentifier(context.tabManager)
             guard seenWindowIds.insert(context.windowId).inserted,
@@ -741,7 +727,7 @@ extension AppDelegate {
         for route in sortedRecoverableMainWindowRoutes() {
             guard let manager = route.tabManager,
                   tabManagerCanOwnRecoverableMainWindowRoute(manager),
-                  let sidebarSnapshot = sidebarSnapshot(for: route) else {
+                  let sidebarSnapshot = sessionSidebarSnapshot(for: route) else {
                 continue
             }
             let managerId = ObjectIdentifier(manager)
@@ -765,14 +751,9 @@ extension AppDelegate {
         for route: RecoverableMainWindowRoute
     ) -> SessionSidebarSnapshot? {
         if let sidebar = route.sidebar,
-           let selection = route.sidebarSelection {
-            return SessionSidebarSnapshot(
-                isVisible: sidebar.isVisible,
-                selection: SessionSidebarSelection(selection: selection.selection),
-                width: SessionPersistencePolicy.sanitizedSidebarWidth(
-                    Double(sidebar.persistedWidth)
-                )
-            )
+           let selection = route.sidebarSelection,
+           let tabManager = route.tabManager {
+            return sessionSidebarSnapshot(sidebar: sidebar, selection: selection, tabManager: tabManager)
         }
         return route.frozenWindowSnapshot?.sidebar
     }
@@ -803,7 +784,12 @@ extension AppDelegate {
             isVisible: sidebarSnapshot.isVisible,
             persistedWidth: CGFloat(
                 SessionPersistencePolicy.sanitizedSidebarWidth(sidebarSnapshot.width)
-            )
+            ),
+            persistedLeadingColumnWidth: CGFloat(
+                SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(sidebarSnapshot.leadingColumnWidth)
+            ),
+            persistedLeadingColumnMode: SidebarState.sanitizedColumnMode(sidebarSnapshot.leadingColumnMode),
+            persistedPrimaryColumnMode: SidebarState.sanitizedColumnMode(sidebarSnapshot.primaryColumnMode)
         )
         let sidebarSelection = SidebarSelectionState(
             selection: sidebarSnapshot.selection.sidebarSelection

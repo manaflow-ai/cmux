@@ -72,14 +72,14 @@ import Testing
         let closeButtonWidth = SidebarTrailingAccessoryWidthPolicy().closeButtonWidth
         let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: 1)
 
-        #expect(SidebarWorkspaceListMetrics.rowContentHorizontalPadding == 10)
-        #expect(SidebarWorkspaceListMetrics.rowOuterHorizontalPadding == 6)
+        #expect(SidebarListMetrics.rowContentHorizontalPadding == 10)
+        #expect(SidebarListMetrics.rowOuterHorizontalPadding == 6)
         #expect(metrics.plusFrame == closeButtonWidth)
-        #expect(SidebarWorkspaceListMetrics.trailingAccessoryRightEdgeOffset == 16)
-        #expect(SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: metrics.plusFrame) == 24)
+        #expect(SidebarListMetrics.trailingAccessoryRightEdgeOffset == 16)
+        #expect(SidebarListMetrics.trailingAccessoryCenterOffset(controlWidth: metrics.plusFrame) == 24)
         #expect(
-            SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: metrics.plusFrame)
-                == SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: closeButtonWidth)
+            SidebarListMetrics.trailingAccessoryCenterOffset(controlWidth: metrics.plusFrame)
+                == SidebarListMetrics.trailingAccessoryCenterOffset(controlWidth: closeButtonWidth)
         )
     }
 
@@ -104,8 +104,8 @@ import Testing
 
             #expect(plusButtonWidth == closeButtonWidth)
             #expect(
-                SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: plusButtonWidth)
-                    == SidebarWorkspaceListMetrics.trailingAccessoryCenterOffset(controlWidth: closeButtonWidth)
+                SidebarListMetrics.trailingAccessoryCenterOffset(controlWidth: plusButtonWidth)
+                    == SidebarListMetrics.trailingAccessoryCenterOffset(controlWidth: closeButtonWidth)
             )
         }
     }

@@ -7,7 +7,19 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     public var selectedWorkspaceID: UUID?
     public var grantedReadScopes: Set<CmuxExtensionScope>
     public var grantedActionScopes: Set<CmuxExtensionActionScope>
+    public var creationContexts: [CmuxSidebarCreationContext]
+    public var selectedCreationContextID: String?
     public var workspaces: [CmuxSidebarWorkspace]
+
+    /// The child-column route owned by the selected creation context.
+    public var selectedChildColumn: CmuxSidebarChildColumn? {
+        if let selectedCreationContextID,
+           let selected = creationContexts.first(where: { $0.id == selectedCreationContextID })
+        {
+            return selected.childColumn
+        }
+        return creationContexts.first(where: \.isSelected)?.childColumn
+    }
 
     public init(
         apiVersion: CmuxExtensionAPIVersion = .sidebarV2,
@@ -16,6 +28,8 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         selectedWorkspaceID: UUID?,
         grantedReadScopes: Set<CmuxExtensionScope> = [],
         grantedActionScopes: Set<CmuxExtensionActionScope> = [],
+        creationContexts: [CmuxSidebarCreationContext] = [],
+        selectedCreationContextID: String? = nil,
         workspaces: [CmuxSidebarWorkspace]
     ) {
         self.apiVersion = apiVersion
@@ -24,6 +38,8 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         self.selectedWorkspaceID = selectedWorkspaceID
         self.grantedReadScopes = grantedReadScopes
         self.grantedActionScopes = grantedActionScopes
+        self.creationContexts = creationContexts
+        self.selectedCreationContextID = selectedCreationContextID
         self.workspaces = workspaces
     }
 
@@ -35,6 +51,14 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
         selectedWorkspaceID = try container.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceID)
         grantedReadScopes = try container.decodeLossySetIfPresent(CmuxExtensionScope.self, forKey: .grantedReadScopes)
         grantedActionScopes = try container.decodeLossySetIfPresent(CmuxExtensionActionScope.self, forKey: .grantedActionScopes)
+        creationContexts = try container.decodeIfPresent(
+            [CmuxSidebarCreationContext].self,
+            forKey: .creationContexts
+        ) ?? []
+        selectedCreationContextID = try container.decodeIfPresent(
+            String.self,
+            forKey: .selectedCreationContextID
+        )
         workspaces = try container.decode([CmuxSidebarWorkspace].self, forKey: .workspaces)
     }
 
@@ -45,28 +69,29 @@ public struct CmuxSidebarSnapshot: Codable, Equatable, Sendable {
     ) -> CmuxSidebarSnapshot {
         let scopeSet = Set(scopes)
         let actionScopeSet = Set(actionScopes)
-        guard scopeSet.contains(.workspaceList) || scopeSet.contains(.workspaceMetadata) else {
-            return CmuxSidebarSnapshot(
-                apiVersion: apiVersion,
-                sequence: sequence,
-                selectedWorkspaceID: nil,
-                grantedReadScopes: scopeSet,
-                grantedActionScopes: actionScopeSet,
-                workspaces: []
-            )
-        }
+        let canReadWorkspaces = scopeSet.contains(.workspaceList) || scopeSet.contains(.workspaceMetadata)
+        let canReadCreationContexts = scopeSet.contains(.creationContexts)
         return CmuxSidebarSnapshot(
             apiVersion: apiVersion,
             sequence: sequence,
-            windowID: scopeSet.contains(.workspaceMetadata) ? windowID : nil,
+            windowID: scopeSet.contains(.workspaceMetadata) || canReadCreationContexts ? windowID : nil,
             selectedWorkspaceID: scopeSet.contains(.workspaceMetadata) ? selectedWorkspaceID : nil,
             grantedReadScopes: scopeSet,
             grantedActionScopes: actionScopeSet,
-            workspaces: workspaces.map { workspace in
+            creationContexts: canReadCreationContexts ? creationContexts.map { context in
+                guard canReadWorkspaces else {
+                    var redacted = context
+                    redacted.workspaceIDs = []
+                    return redacted
+                }
+                return context
+            } : [],
+            selectedCreationContextID: canReadCreationContexts ? selectedCreationContextID : nil,
+            workspaces: canReadWorkspaces ? workspaces.map { workspace in
                 scopeSet.contains(.workspaceMetadata)
                     ? workspace.filtered(for: scopeSet)
                     : CmuxSidebarWorkspace(id: workspace.id, title: "")
-            }
+            } : []
         )
     }
 }

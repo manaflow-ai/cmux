@@ -4259,6 +4259,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         context.sidebarState.persistedWidth = CGFloat(
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
+        context.sidebarState.persistedLeadingColumnWidth = CGFloat(
+            SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(
+                snapshot.sidebar.leadingColumnWidth
+            )
+        )
+        context.sidebarState.persistedLeadingColumnMode =
+            SidebarState.sanitizedColumnMode(snapshot.sidebar.leadingColumnMode)
+        context.sidebarState.persistedPrimaryColumnMode =
+            SidebarState.sanitizedColumnMode(snapshot.sidebar.primaryColumnMode)
+        context.tabManager.restoreSidebarCreationContexts(
+            snapshot.sidebar.creationContexts ?? [],
+            selectedContextID: snapshot.sidebar.selectedCreationContextID,
+            machineOrder: snapshot.sidebar.creationContextOrder,
+            focusedWorkspaceStableIDs: snapshot.sidebar.focusedWorkspaceStableIDsByCreationContextID
+        )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
@@ -4733,6 +4748,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         ).rounded()
                     )
                 )
+                hasher.combine(
+                    Int(
+                        SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(
+                            Double(liveRoute.sidebar.persistedLeadingColumnWidth)
+                        ).rounded()
+                    )
+                )
+                hasher.combine(liveRoute.sidebar.persistedLeadingColumnMode.rawValue)
+                hasher.combine(liveRoute.sidebar.persistedPrimaryColumnMode.rawValue)
+                hasher.combine(liveRoute.tabManager.selectedSidebarCreationContextID)
+                for creationContext in liveRoute.tabManager.sidebarCreationContextSessionSnapshots() {
+                    hasher.combine(creationContext.title)
+                    hasher.combine(creationContext.remote.destination)
+                    hasher.combine(creationContext.remote.port)
+                    hasher.combine(creationContext.remote.managedCloudVMID)
+                }
 
                 if case .live(let dock)? = liveRoute.dock {
                     hasher.combine(
@@ -5430,10 +5461,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             frame: window.map { SessionRectSnapshot($0.frame) },
             display: displaySnapshot(for: window),
             tabManager: tabManagerSnapshot,
-            sidebar: SessionSidebarSnapshot(
-                isVisible: route.sidebar.isVisible,
-                selection: SessionSidebarSelection(selection: route.sidebarSelection.selection),
-                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebar.persistedWidth))
+            sidebar: sessionSidebarSnapshot(
+                sidebar: route.sidebar,
+                selection: route.sidebarSelection,
+                tabManager: route.tabManager
             ),
             configFrames: windowConfigFrames[route.windowId]?.entries,
             dock: route.dock?.sessionSnapshot(
@@ -5447,12 +5478,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func sessionSidebarSnapshot(for context: MainWindowContext) -> SessionSidebarSnapshot {
+        sessionSidebarSnapshot(
+            sidebar: context.sidebarState,
+            selection: context.sidebarSelectionState,
+            tabManager: context.tabManager
+        )
+    }
+
+    func sessionSidebarSnapshot(
+        sidebar: SidebarState,
+        selection: SidebarSelectionState,
+        tabManager: TabManager
+    ) -> SessionSidebarSnapshot {
         SessionSidebarSnapshot(
-            isVisible: context.sidebarState.isVisible,
-            selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
-            width: SessionPersistencePolicy.sanitizedSidebarWidth(
-                Double(context.sidebarState.persistedWidth)
-            )
+            isVisible: sidebar.isVisible,
+            selection: SessionSidebarSelection(selection: selection.selection),
+            width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(sidebar.persistedWidth)),
+            leadingColumnWidth: SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(
+                Double(sidebar.persistedLeadingColumnWidth)
+            ),
+            leadingColumnMode: sidebar.persistedLeadingColumnMode.rawValue,
+            primaryColumnMode: sidebar.persistedPrimaryColumnMode.rawValue,
+            selectedCreationContextID: tabManager.selectedSidebarCreationContextID,
+            creationContexts: tabManager.sidebarCreationContextSessionSnapshots(),
+            creationContextOrder: tabManager.sidebarMachineCreationContextOrderIDs(),
+            focusedWorkspaceStableIDsByCreationContextID:
+                tabManager.sidebarFocusedWorkspaceSessionSnapshot()
         )
     }
 
@@ -8679,6 +8730,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // A selected machine supplies defaults to the shared New Workspace
+        // action. The context remains independent from workspace grouping: the
+        // new workspace is created normally, then placed into the active group.
+        if initialSurface == .terminal {
+            let creationManager = context?.tabManager ?? preferredTabManager
+            if let creationManager,
+               let defaults = creationManager.selectedSidebarRemoteCreationDefaults(),
+               let initialCommand = defaults.initialCommand {
+                let appliesGroupTarget = context?.tabManager === creationManager
+                    ? workspaceGroupTarget
+                    : nil
+                let workspace = creationManager.addWorkspace(
+                    title: title,
+                    initialSurface: .terminal,
+                    initialTerminalCommand: initialCommand,
+                    initialTerminalEnvironment: defaults.environment,
+                    inheritWorkingDirectory: false,
+                    select: true,
+                    autoWelcomeIfNeeded: false,
+                    normalizeWorkspaceGroupsAfterInsert: appliesGroupTarget == nil,
+                    applyCreationTitleAsCustomTitle: applyCreationTitleAsCustomTitle
+                )
+                _ = workspace.configureRemoteConnection(
+                    defaults.configuration,
+                    autoConnect: true
+                )
+                if let appliesGroupTarget {
+                    creationManager.addWorkspaceToGroup(
+                        workspaceId: workspace.id,
+                        groupId: appliesGroupTarget.groupId,
+                        placement: appliesGroupTarget.placement,
+                        referenceWorkspaceId: appliesGroupTarget.referenceWorkspaceId
+                    )
+                }
+                createdWorkspaceHandler?(workspace)
+                return true
+            }
+        }
+
         if let context, let workspaceGroupTarget {
             guard let workspace = context.tabManager.createWorkspaceInGroup(
                 groupId: workspaceGroupTarget.groupId,
@@ -10234,12 +10324,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ClosedItemHistoryStore.shared.remapWorkspaceWindowIds(from: originalWindowId, to: windowId)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
+            tabManager.restoreSidebarCreationContexts(
+                sessionWindowSnapshot.sidebar.creationContexts ?? [],
+                selectedContextID: sessionWindowSnapshot.sidebar.selectedCreationContextID,
+                machineOrder: sessionWindowSnapshot.sidebar.creationContextOrder,
+                focusedWorkspaceStableIDs:
+                    sessionWindowSnapshot.sidebar.focusedWorkspaceStableIDsByCreationContextID
+            )
             restoredSessionSnapshotHandler?(restoredPanelIdsByWorkspaceIndex, tabManager)
         }
 
         let sidebarWidth = sessionWindowSnapshot?.sidebar.width
             .map { SessionPersistencePolicy.sanitizedSidebarWidth($0) }
             ?? SessionPersistencePolicy.defaultSidebarWidth
+        let sidebarLeadingColumnWidth = SessionPersistencePolicy.sanitizedSidebarLeadingColumnWidth(
+            sessionWindowSnapshot?.sidebar.leadingColumnWidth
+        )
 #if DEBUG
         let shouldStartWithHiddenSidebarForTerminalViewportUITest =
             ProcessInfo.processInfo.environment["CMUX_UI_TEST_TERMINAL_VIEWPORT_HIDE_SIDEBAR"] == "1"
@@ -10250,7 +10350,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isVisible: shouldStartWithHiddenSidebarForTerminalViewportUITest
                 ? false
                 : (sessionWindowSnapshot?.sidebar.isVisible ?? true),
-            persistedWidth: CGFloat(sidebarWidth)
+            persistedWidth: CGFloat(sidebarWidth),
+            persistedLeadingColumnWidth: CGFloat(sidebarLeadingColumnWidth),
+            persistedLeadingColumnMode: SidebarState.sanitizedColumnMode(
+                sessionWindowSnapshot?.sidebar.leadingColumnMode
+            ),
+            persistedPrimaryColumnMode: SidebarState.sanitizedColumnMode(
+                sessionWindowSnapshot?.sidebar.primaryColumnMode
+            )
         )
         let sidebarSelectionState = SidebarSelectionState(
             selection: sessionWindowSnapshot?.sidebar.selection.sidebarSelection ?? .tabs

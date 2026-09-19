@@ -955,6 +955,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(scope: CmuxExtensionScope) -> String {
         switch scope {
+        case .creationContexts:
+            return String(
+                localized: "sidebar.extensions.permission.creationContexts.detail",
+                defaultValue: "Read available creation contexts and the selected default"
+            )
         case .workspaceList:
             return String(localized: "sidebar.extensions.permission.workspaceList.detail", defaultValue: "Read workspace IDs and names")
         case .workspaceMetadata:
@@ -974,6 +979,26 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 
     private func permissionDescription(actionScope: CmuxExtensionActionScope) -> String {
         switch actionScope {
+        case .selectCreationContext:
+            return String(
+                localized: "sidebar.extensions.permission.selectCreationContext.detail",
+                defaultValue: "Change the defaults used by new workspace and terminal actions"
+            )
+        case .reorderCreationContexts:
+            return String(
+                localized: "sidebar.extensions.permission.reorderCreationContexts.detail",
+                defaultValue: "Reorder machines in the creation-context sidebar"
+            )
+        case .addSSHMachine:
+            return String(
+                localized: "sidebar.extensions.permission.addSSHMachine.detail",
+                defaultValue: "Add machines using SSH destinations"
+            )
+        case .attachRemoteSession:
+            return String(
+                localized: "sidebar.extensions.permission.attachRemoteSession.detail",
+                defaultValue: "Attach remote cmux sessions as terminal surfaces"
+            )
         case .createWorkspace:
             return String(localized: "sidebar.extensions.permission.createWorkspace.detail", defaultValue: "Create workspaces")
         case .selectWorkspace:
@@ -1078,6 +1103,11 @@ struct CMUXInstalledExtensionSidebarHostView: View {
 private extension CmuxExtensionScope {
     var displayName: String {
         switch self {
+        case .creationContexts:
+            return String(
+                localized: "sidebar.extensions.scope.creationContexts",
+                defaultValue: "Creation contexts"
+            )
         case .workspaceList:
             return String(localized: "sidebar.extensions.scope.workspaceList", defaultValue: "Workspace list")
         case .workspaceMetadata:
@@ -1099,6 +1129,26 @@ private extension CmuxExtensionScope {
 private extension CmuxExtensionActionScope {
     var displayName: String {
         switch self {
+        case .selectCreationContext:
+            return String(
+                localized: "sidebar.extensions.actionScope.selectCreationContext",
+                defaultValue: "Select creation contexts"
+            )
+        case .reorderCreationContexts:
+            return String(
+                localized: "sidebar.extensions.actionScope.reorderCreationContexts",
+                defaultValue: "Reorder creation contexts"
+            )
+        case .addSSHMachine:
+            return String(
+                localized: "sidebar.extensions.actionScope.addSSHMachine",
+                defaultValue: "Add SSH machines"
+            )
+        case .attachRemoteSession:
+            return String(
+                localized: "sidebar.extensions.actionScope.attachRemoteSession",
+                defaultValue: "Attach remote sessions"
+            )
         case .createWorkspace:
             return String(localized: "sidebar.extensions.actionScope.createWorkspace", defaultValue: "Create workspaces")
         case .selectWorkspace:

@@ -45,7 +45,7 @@ func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileD
 
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
+        guard let color = sidebarSelectedRowBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -57,7 +57,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 
     func testDarkModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
-        guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
+        guard let color = sidebarSelectedRowBackgroundNSColor(for: .dark).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -69,7 +69,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 
     func testSelectedWorkspaceForegroundUsesBlackOnLightSelectionBackground() {
-        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+        guard let color = sidebarSelectedRowForegroundNSColor(
             on: NSColor(hex: "#FFFFFF")!,
             opacity: 0.65
         ).usingColorSpace(.sRGB) else {
@@ -84,7 +84,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 
     func testSelectedWorkspaceForegroundUsesWhiteOnDarkSelectionBackground() {
-        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+        guard let color = sidebarSelectedRowForegroundNSColor(
             on: NSColor(hex: "#123456")!,
             opacity: 0.65
         ).usingColorSpace(.sRGB) else {
@@ -99,8 +99,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 
     func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
-        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
-            on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
+        guard let color = sidebarSelectedRowForegroundNSColor(
+            on: sidebarSelectedRowBackgroundNSColor(for: .light),
             opacity: 0.65
         ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
@@ -132,7 +132,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(workspace.customColor, "#C0392B")
         XCTAssertTrue(observedSidebarInvalidation)
 
-        let background = sidebarWorkspaceRowBackgroundStyle(
+        let background = sidebarListRowBackgroundStyle(
             activeTabIndicatorStyle: .solidFill,
             isActive: true,
             isMultiSelected: false,
@@ -143,7 +143,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            sidebarSelectedRowBackgroundNSColor(for: .light).hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -168,7 +168,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(workspace.customColor, "#C0392B")
         XCTAssertTrue(observedSidebarInvalidation)
 
-        let background = sidebarWorkspaceRowBackgroundStyle(
+        let background = sidebarListRowBackgroundStyle(
             activeTabIndicatorStyle: .leftRail,
             isActive: true,
             isMultiSelected: false,
@@ -179,7 +179,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         XCTAssertEqual(
             background.color?.hexString(),
-            sidebarSelectedWorkspaceBackgroundNSColor(for: .light).hexString()
+            sidebarSelectedRowBackgroundNSColor(for: .light).hexString()
         )
         XCTAssertEqual(background.opacity, 1.0, accuracy: 0.001)
         withExtendedLifetime(cancellable) {}
@@ -195,7 +195,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         manager.setTabColor(tabId: workspace.id, color: "#C0392B")
 
-        let background = sidebarWorkspaceRowBackgroundStyle(
+        let background = sidebarListRowBackgroundStyle(
             activeTabIndicatorStyle: .leftRail,
             isActive: false,
             isMultiSelected: false,
@@ -218,7 +218,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         manager.setTabColor(tabId: workspace.id, color: "#C0392B")
 
-        let railColor = sidebarWorkspaceRowExplicitRailNSColor(
+        let railColor = sidebarListRowExplicitRailNSColor(
             activeTabIndicatorStyle: .leftRail,
             customColorHex: workspace.customColor,
             colorScheme: .light
@@ -238,7 +238,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 
         manager.setTabColor(tabId: workspace.id, color: "#C0392B")
 
-        let background = sidebarWorkspaceRowBackgroundStyle(
+        let background = sidebarListRowBackgroundStyle(
             activeTabIndicatorStyle: .solidFill,
             isActive: false,
             isMultiSelected: false,
