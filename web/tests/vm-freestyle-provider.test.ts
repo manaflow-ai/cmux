@@ -194,6 +194,35 @@ describe("Freestyle platform contract", () => {
     expect(sizedResizes).toEqual([]);
   });
 
+  test("overlaps the grow-only resize with guest adapter installation", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const vm = fake.client.vms.ref(VM_ID) as unknown as {
+      resize: (request: unknown) => Promise<void>;
+      fs: { writeTextFile: (path: string, content: string, options?: unknown) => Promise<void> };
+    };
+    let resizeStarted = false;
+    let installStarted = false;
+    let overlapped = false;
+    vm.resize = async () => {
+      resizeStarted = true;
+      overlapped ||= installStarted;
+      await Promise.resolve();
+    };
+    vm.fs.writeTextFile = async () => {
+      installStarted = true;
+      overlapped ||= resizeStarted;
+      await Promise.resolve();
+    };
+
+    await providerWith(fake).create({
+      image: "sh-image",
+      network: { id: "vpc-test-1" },
+      memoryMb: 20480,
+    } as never);
+
+    expect(overlapped).toBe(true);
+  });
+
   test("network addresses persist from the create response, absent without a network", () => {
     expect(
       freestyleNetworkAddressMetadata({
