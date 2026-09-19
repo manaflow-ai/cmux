@@ -2602,6 +2602,7 @@
 		F6572052A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572053A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift */; };
 		C7C5FAF2145342F395DB4C40 /* RestoredAgentLifecycleCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */; };
 		C12793000000000000000002 /* RestoredAgentLifecycleProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12793000000000000000001 /* RestoredAgentLifecycleProjectionTests.swift */; };
+		C12793100000000000000002 /* RestoredProcessDetectedBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */; };
 		F6572072A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572073A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift */; };
 		F6572042A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6572043A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift */; };
 		A54730000000000000000004 /* RestoredStartupInputResendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54730000000000000000003 /* RestoredStartupInputResendTests.swift */; };
@@ -6400,6 +6401,7 @@
 		F6572053A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentForegroundProcess.swift; sourceTree = "<group>"; };
 		9864510A84F2428BB83568CF /* RestoredAgentLifecycleCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLifecycleCoordinator.swift; sourceTree = "<group>"; };
 		C12793000000000000000001 /* RestoredAgentLifecycleProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLifecycleProjectionTests.swift; sourceTree = "<group>"; };
+		C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredProcessDetectedBindingTests.swift; sourceTree = "<group>"; };
 		F6572073A1B2C3D4E5F60718 /* RestoredAgentLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentLiveness.swift; sourceTree = "<group>"; };
 		F6572043A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredAgentShellActivityLivenessTests.swift; sourceTree = "<group>"; };
 		A54730000000000000000003 /* RestoredStartupInputResendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestoredStartupInputResendTests.swift; sourceTree = "<group>"; };
@@ -10556,6 +10558,7 @@
 				A54730000000000000000001 /* AntigravityHookSessionSnapshotRestoreTests.swift */,
 				A54730000000000000000003 /* RestoredStartupInputResendTests.swift */,
 				C12793000000000000000001 /* RestoredAgentLifecycleProjectionTests.swift */,
+				C12793100000000000000001 /* RestoredProcessDetectedBindingTests.swift */,
 				A54730000000000000000005 /* DeferredAgentResumeIndexFallbackTests.swift */,
 				C11322A20000000000000001 /* CloudManualMirrorTransportTests.swift */,
 				C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */,
@@ -15634,6 +15637,7 @@
 					F54100B0A1B2C3D4E5F60718 /* RestorableCodexForkTagTests.swift in Sources */,
 				F6572062A1B2C3D4E5F60718 /* RestoreAdmissionRetryTests.swift in Sources */,
 				C12793000000000000000002 /* RestoredAgentLifecycleProjectionTests.swift in Sources */,
+				C12793100000000000000002 /* RestoredProcessDetectedBindingTests.swift in Sources */,
 				F6572042A1B2C3D4E5F60718 /* RestoredAgentShellActivityLivenessTests.swift in Sources */,
 				A54730000000000000000004 /* RestoredStartupInputResendTests.swift in Sources */,
 				9200B0019200B0019200B001 /* ResumeLauncherCwdConsistencyTests.swift in Sources */,
