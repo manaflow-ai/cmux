@@ -4,6 +4,7 @@ import Combine
 import CryptoKit
 import Foundation
 import CmuxSettings
+import CmuxTextActions
 
 extension CodingUserInfoKey {
     static let cmuxWorkspaceColorDefaults = CodingUserInfoKey(rawValue: "cmuxWorkspaceColorDefaults")!
@@ -828,6 +829,7 @@ enum CmuxButtonIcon: Codable, Sendable, Hashable {
 enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
     case builtIn(CmuxSurfaceTabBarBuiltInAction)
     case command(String)
+    case text(CmuxTextActionPayload)
     case agent(CmuxConfigAgentKind, args: String?)
     case workspaceCommand(String)
     case workspace(CmuxWorkspaceDefinition, restart: CmuxRestartBehavior?)
@@ -839,6 +841,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return action.configID
         case .command(let command):
             return "command." + Self.generatedCommandId(for: command)
+        case .text(let payload):
+            return "text." + payload.identifierSlug
         case .agent(let agent, _):
             return agent.commandName
         case .workspaceCommand(let commandName):
@@ -860,6 +864,8 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
             return .symbol(action.defaultIcon)
         case .command:
             return .symbol("terminal")
+        case .text:
+            return .symbol("text.cursor")
         case .agent(let agent, _):
             return agent.defaultIcon
         case .workspaceCommand, .workspace:
@@ -876,7 +882,7 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
         case .agent(let agent, let args):
             let trimmedArgs = args?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmedArgs.isEmpty ? agent.commandName : "\(agent.commandName) \(trimmedArgs)"
-        case .builtIn, .workspaceCommand, .workspace, .actionReference:
+        case .builtIn, .text, .workspaceCommand, .workspace, .actionReference:
             return nil
         }
     }
@@ -884,6 +890,16 @@ enum CmuxSurfaceTabBarButtonAction: Sendable, Hashable {
     var workspaceCommandName: String? {
         if case .workspaceCommand(let name) = self {
             return name
+        }
+        return nil
+    }
+
+    /// Literal text payload for `type: "text"` actions. Deliberately not
+    /// exposed through `terminalCommand`: text is pasted, never run as shell
+    /// input, unless the payload asks to submit.
+    var textPayload: CmuxTextActionPayload? {
+        if case .text(let payload) = self {
+            return payload
         }
         return nil
     }
@@ -931,6 +947,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
         case restart
         case confirm
         case target
+        case text
+        case submit
     }
 
     static let newTerminal = actionReference(CmuxSurfaceTabBarBuiltInAction.newTerminal.configID)
@@ -1019,7 +1037,7 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             switch action {
             case .builtIn(let builtIn):
                 return builtIn.bonsplitAction ?? .custom(id)
-            case .command, .agent, .workspaceCommand, .workspace, .actionReference:
+            case .command, .text, .agent, .workspaceCommand, .workspace, .actionReference:
                 return .custom(id)
             }
         }()
@@ -1134,6 +1152,8 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
                 let definition = try container.decode(CmuxWorkspaceDefinition.self, forKey: .workspace)
                 let restart = try container.decodeIfPresent(CmuxRestartBehavior.self, forKey: .restart)
                 action = .workspace(definition, restart: restart)
+            case "text":
+                action = .text(try Self.decodeTextPayload(from: container))
             default:
                 throw DecodingError.dataCorruptedError(
                     forKey: .type,
@@ -1241,9 +1261,42 @@ struct CmuxSurfaceTabBarButton: Codable, Sendable, Hashable, Identifiable {
             try container.encode("workspace", forKey: .type)
             try container.encode(definition, forKey: .workspace)
             try container.encodeIfPresent(restart, forKey: .restart)
+        case .text(let payload):
+            try container.encode("text", forKey: .type)
+            try container.encode(payload.text, forKey: .text)
+            if payload.submit {
+                try container.encode(true, forKey: .submit)
+            }
         case .actionReference(let identifier):
             try container.encode(identifier, forKey: .action)
         }
+    }
+
+    /// Shared `type: "text"` decoding for buttons and action definitions:
+    /// verbatim text (newlines and indentation preserved) minus bidi and
+    /// zero-width controls, blank rejected, `submit` defaulting to false.
+    private static func decodeTextPayload(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws -> CmuxTextActionPayload {
+        guard container.contains(.text) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.text,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "text actions require 'text'"
+                )
+            )
+        }
+        let raw = try container.decode(String.self, forKey: .text)
+        let submit = try container.decodeIfPresent(Bool.self, forKey: .submit) ?? false
+        guard let payload = CmuxTextActionPayload(text: raw, submit: submit) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .text,
+                in: container,
+                debugDescription: "text must not be blank"
+            )
+        }
+        return payload
     }
 
     private static func trimmedString(
@@ -1281,6 +1334,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
     var actionSourcePath: String?
     var iconSourcePath: String?
     var newWorkspaceMenu: Bool?
+    /// Grouping for the terminal right-click Snippets submenu.
+    var category: String?
 
     var terminalCommand: String? {
         action.terminalCommand
@@ -1331,6 +1386,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
         next.confirm = definition.confirm ?? next.confirm
         next.terminalCommandTarget = definition.terminalCommandTarget ?? next.terminalCommandTarget
         next.newWorkspaceMenu = definition.newWorkspaceMenu ?? next.newWorkspaceMenu
+        next.category = definition.category ?? next.category
         next.actionSourcePath = sourcePath ?? next.actionSourcePath
         if let action = definition.action {
             next.action = action
@@ -1361,7 +1417,8 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             terminalCommandTarget: definition.terminalCommandTarget,
             actionSourcePath: sourcePath,
             iconSourcePath: definition.icon == nil ? nil : sourcePath,
-            newWorkspaceMenu: definition.newWorkspaceMenu
+            newWorkspaceMenu: definition.newWorkspaceMenu,
+            category: definition.category
         )
     }
 
@@ -1398,7 +1455,7 @@ struct CmuxResolvedConfigAction: Identifiable, Sendable, Hashable {
             case .custom(let name):
                 return name
             }
-        case .command:
+        case .command, .text:
             return id
         case .workspaceCommand(let commandName):
             return commandName
@@ -1710,6 +1767,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
+    private var cachedSnippetMenuModel: (revision: UInt64, model: CmuxSnippetMenuModel)?
 
     /// Which config file each command came from, keyed by command id.
     private(set) var commandSourcePaths: [String: String] = [:]
@@ -2336,7 +2394,7 @@ final class CmuxConfigStore: ObservableObject {
             do {
                 let resolved = try resolvedSurfaceTabBarButton(button, actions: actions)
                 resolvedButtons.append(resolved.button)
-                guard resolved.button.terminalCommand != nil else { continue }
+                guard resolved.button.terminalCommand != nil || resolved.button.action.textPayload != nil else { continue }
                 if let commandSourcePath = resolved.terminalCommandSourcePath {
                     terminalCommandSourcePaths[resolved.button.id] = commandSourcePath
                 }
@@ -2375,7 +2433,8 @@ final class CmuxConfigStore: ObservableObject {
             )
             return ResolvedSurfaceTabBarButtonEntry(
                 button: resolvedButton,
-                terminalCommandSourcePath: resolvedButton.terminalCommand == nil ? nil : entry.actionSourcePath
+                terminalCommandSourcePath: (resolvedButton.terminalCommand == nil && resolvedButton.action.textPayload == nil)
+                    ? nil : entry.actionSourcePath
             )
         }
 
@@ -2464,6 +2523,31 @@ final class CmuxConfigStore: ObservableObject {
         let builtInIDs = Set(CmuxSurfaceTabBarBuiltInAction.allCases.map(\.configID))
         return loadedActions.filter { action in
             action.palette && !builtInIDs.contains(action.id)
+        }
+    }
+
+    /// Grouped, sorted Snippets menu for the current config revision. Built
+    /// once per revision and reused by every right-click until the next
+    /// reload, so menu construction does no per-click sorting.
+    func snippetMenuModel() -> CmuxSnippetMenuModel {
+        if let cached = cachedSnippetMenuModel, cached.revision == configRevision {
+            return cached.model
+        }
+        let model = CmuxSnippetMenuModel.build(from: snippetMenuEntries())
+        cachedSnippetMenuModel = (configRevision, model)
+        return model
+    }
+
+    /// `type: "text"` actions for the terminal right-click Snippets submenu.
+    func snippetMenuEntries() -> [CmuxSnippetMenuEntry] {
+        loadedActions.compactMap { action in
+            guard let payload = action.action.textPayload else { return nil }
+            return CmuxSnippetMenuEntry(
+                actionID: action.id,
+                title: action.title,
+                category: action.category,
+                payload: payload
+            )
         }
     }
 

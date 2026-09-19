@@ -162,6 +162,33 @@ Agent buttons alongside the default terminal and browser buttons.
 }
 ```
 
+## Prompt Snippets
+
+Reusable text pasted into the focused terminal, iTerm2-snippet style. `type: "text"` never runs anything on its own: the text lands in the shell line editor or agent composer verbatim (newlines and indentation preserved) and waits for you. Add `"submit": true` to press Enter afterwards; submitting text is gated by the same project-action trust prompt as `type: "command"`.
+
+```json
+{
+  "actions": {
+    "review-prompt": {
+      "type": "text",
+      "category": "Prompts",
+      "title": "Review Prompt",
+      "keywords": ["review", "snippet"],
+      "shortcut": "cmd+shift+r",
+      "text": "Review the staged diff for:\n  - regressions\n  - missing tests\n  - naming that hides intent\n"
+    },
+    "run-tests": {
+      "type": "text",
+      "title": "Run Tests",
+      "text": "npm test -- --watch=false",
+      "submit": true
+    }
+  }
+}
+```
+
+Both entries appear in Cmd+Shift+P, can be bound to a shortcut, and can be referenced from `ui.surfaceTabBar.buttons` like any other action. They also appear under **Snippets** in the terminal right-click menu; entries with a `category` are grouped into a sub-submenu named after it, uncategorised ones sit at the top.
+
 ## CI Watch
 
 Long-running monitors belong in Dock controls, not workspace panes.
