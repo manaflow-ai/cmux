@@ -406,6 +406,33 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     rows.push(Row { line: Line::from(vec![Span::styled(label, c.muted()), Span::styled(format!("  {}", if open { "▾" } else { "›" }), c.dim())]), text, item: i, toggle: Some(Toggle::Turn(i)) });
                     // Codex app: a hairline under the handle.
                     rows.push(Row { line: Line::from(Span::styled("─".repeat(width), Style::default().fg(c.composer_border_fg))), text: String::new(), item: i, toggle: None });
+                    // "Edited 2 files  +21 -2": the turn's file edits, summed, visible even when folded.
+                    let mut files: Vec<String> = Vec::new();
+                    let (mut plus, mut minus) = (0usize, 0usize);
+                    for &j in &work {
+                        if let Item::Tool { detail, .. } = &t.items[j] {
+                            if let Some((p, m)) = crate::transcript::diff_counts(detail) {
+                                plus += p;
+                                minus += m;
+                                for f in detail.lines().filter_map(|l| l.strip_prefix("@@ ")).map(|p| p.rsplit('/').next().unwrap_or(p).to_owned()) {
+                                    if !files.contains(&f) {
+                                        files.push(f);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !files.is_empty() {
+                        let label = format!("{GUTTER}✎ Edited {} file{}  ", files.len(), if files.len() == 1 { "" } else { "s" });
+                        let names = truncate(&files.join(", "), w.saturating_sub(label.width() + 14));
+                        let text = format!("{label}{names}  +{plus} -{minus}");
+                        rows.push(Row {
+                            line: Line::from(vec![Span::styled(label, c.muted()), Span::styled(names, c.dim()), Span::styled(format!("  +{plus}"), Style::default().fg(c.diff_add_fg)), Span::styled(format!(" -{minus}"), Style::default().fg(c.diff_del_fg))]),
+                            text,
+                            item: i,
+                            toggle: None,
+                        });
+                    }
                     if !open {
                         turn_open = false;
                         reopen_at = Some(work_end);

@@ -128,6 +128,12 @@
   .card { border: 1px solid var(--rule); background: var(--card); border-radius: 12px; padding: 12px 16px; display: flex; gap: 12px; align-items: center; }
   .card .ic { font-size: 16px; } .card.err .ic { color: var(--bad); }
   .card .t { font-weight: 600; } .card .s { color: var(--muted); font-size: 13px; }
+  .edits { border: 1px solid var(--rule); background: var(--card); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+  .edits .head { display: flex; gap: 12px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+  .edits .head .ic { width: 28px; height: 28px; border-radius: 8px; background: var(--raised); display: grid; place-items: center; color: var(--muted); }
+  .edits .head .t { font-weight: 600; } .edits .cnt { font-size: 12.5px; } .edits .cnt .a { color: var(--add); } .edits .cnt .d { color: var(--del); margin-left: 4px; }
+  .edits .file { display: flex; justify-content: space-between; padding: 7px 14px; border-bottom: 1px solid var(--rule); }
+  .edits .file:last-child { border-bottom: 0; } .edits .file .dir { color: var(--muted); }
   .working { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; padding: 4px 0; }
   .shimmer { background: linear-gradient(90deg, var(--muted) 0%, var(--ink) 50%, var(--muted) 100%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 1.6s linear infinite; }
   @keyframes shimmer { to { background-position: -200% 0; } }
@@ -293,7 +299,8 @@
 
   // ---------- diffs (mirror of src/transcript.rs)
   function diffLines(a, b) {
-    const A = a.split('\n'), B = b.split('\n');
+    // Like Rust's lines(): a trailing newline does not add an empty line.
+    const A = a.replace(/\n$/, '').split('\n'), B = b.replace(/\n$/, '').split('\n');
     if (A.length * B.length > 400000) return A.map((l) => ['-', l]).concat(B.map((l) => ['+', l]));
     const n = A.length, m = B.length, L = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
     for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
@@ -558,6 +565,23 @@
     d.innerHTML = '<summary><span>Worked' + (ms ? ' for ' + dur(ms) : '') + '</span><span class="chev">›</span></summary><div class="inner"></div>';
     nodes[0].before(d);
     const inner = d.querySelector('.inner'); for (const n of nodes) inner.appendChild(n);
+    // "Edited 2 files +21 -2", listed per file, outside the fold (Codex app).
+    const files = new Map(); let plus = 0, minus = 0;
+    for (let i = userIdx + 1; i < endIdx; i++) {
+      const x = t.items[i]; if (x.type !== 'tool') continue;
+      const c = diffCounts(x.detail); if (!c) continue;
+      plus += c[0]; minus += c[1];
+      for (const l of x.detail.split('\n')) if (l.startsWith('@@ ')) { const p = l.slice(3); const cur = files.get(p) || [0, 0]; files.set(p, cur); }
+      // Per-file counts: attribute this tool's lines to its files.
+      const own = x.detail.split(/^@@ /m).slice(1);
+      for (const chunk of own) { const nl = chunk.indexOf('\n'); const p = chunk.slice(0, nl < 0 ? undefined : nl).trim(); const body = nl < 0 ? '' : chunk.slice(nl + 1); const cur = files.get(p) || [0, 0]; cur[0] += (body.match(/^\+ /mg) || []).length; cur[1] += (body.match(/^- /mg) || []).length; files.set(p, cur); }
+    }
+    if (files.size) {
+      const card = document.createElement('div'); card.className = 'edits';
+      const rows = Array.from(files.entries()).map(([p, [a, b]]) => { const parts = p.split('/'); const base = parts.pop(); const dir = parts.length ? parts.slice(-2).join('/') + '/' : ''; return '<div class="file"><span><span class="dir">' + esc(dir) + '</span>' + esc(base) + '</span><span class="cnt"><span class="a">+' + a + '</span><span class="d">-' + b + '</span></span></div>'; });
+      card.innerHTML = '<div class="head"><span class="ic">✎</span><div><div class="t">Edited ' + files.size + ' file' + (files.size === 1 ? '' : 's') + '</div><div class="cnt"><span class="a">+' + plus + '</span><span class="d">-' + minus + '</span></div></div></div>' + rows.join('');
+      d.after(card);
+    }
   }
   let workingEl = null, workingTimer = null;
   function renderWorking(t) {
