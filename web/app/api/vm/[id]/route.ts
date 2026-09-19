@@ -1,5 +1,6 @@
-import { normalizedDisplayName, DISPLAY_NAME_VALIDATION_MESSAGE } from "../../../../services/vms/displayName";
+import { normalizedDisplayName } from "../../../../services/vms/displayName";
 import {
+  invalidVmDisplayNameResponse,
   jsonResponse,
   notFoundVm,
   resolveVmRouteAccountScope,
@@ -84,10 +85,7 @@ export async function PATCH(
       }
       const displayName = normalizedDisplayName((body as { displayName: unknown }).displayName);
       if (displayName === undefined) {
-        return jsonResponse(
-          { error: DISPLAY_NAME_VALIDATION_MESSAGE },
-          400,
-        );
+        return invalidVmDisplayNameResponse(request);
       }
       const run = await runVmRoute(renameVm({
         userId: user.id,

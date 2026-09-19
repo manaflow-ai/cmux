@@ -1,4 +1,4 @@
-import { normalizedDisplayName, DISPLAY_NAME_VALIDATION_MESSAGE } from "../../../services/vms/displayName";
+import { normalizedDisplayName } from "../../../services/vms/displayName";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
@@ -50,6 +50,7 @@ import {
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
 import {
+  invalidVmDisplayNameResponse,
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
@@ -427,7 +428,7 @@ async function parseCreateRequest(
     };
   }
   const candidate = (raw ?? {}) as Record<string, unknown>;
-  const invalid = invalidCreateFieldResponse(candidate, request);
+  const invalid = await invalidCreateFieldResponse(candidate, request);
   if (invalid) return { ok: false, response: invalid };
   const displayName = normalizedDisplayName(candidate.displayName ?? null) ?? null;
   const bodyBillingTeamId = candidate.billingTeamId ?? candidate.teamId;
@@ -455,13 +456,15 @@ function invalidCreateRequestResponse(message: string, action: string, details: 
 }
 
 /** The first field-level 400 for a create body, in the order the fields are documented. */
-function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Response | null {
-  return invalidCreateDisplayNameResponse(candidate) ?? invalidCreateFieldResponseWithoutDisplayName(candidate, request);
+async function invalidCreateFieldResponse(candidate: Record<string, unknown>, request: Request): Promise<Response | null> {
+  return (await invalidCreateDisplayNameResponse(candidate, request))
+    ?? invalidCreateFieldResponseWithoutDisplayName(candidate, request);
 }
 
-function invalidCreateDisplayNameResponse(candidate: Record<string, unknown>): Response | null {
+/** A person types the name, so unlike the other fields its rejection is localized. */
+async function invalidCreateDisplayNameResponse(candidate: Record<string, unknown>, request: Request): Promise<Response | null> {
   if (candidate.displayName !== undefined && normalizedDisplayName(candidate.displayName) === undefined) {
-    return jsonResponse({ error: DISPLAY_NAME_VALIDATION_MESSAGE }, 400);
+    return invalidVmDisplayNameResponse(request);
   }
   return null;
 }

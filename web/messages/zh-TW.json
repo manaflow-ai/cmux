@@ -23,6 +23,11 @@
       "message": "雲端虛擬機需要 cmux Pro 方案。",
       "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
     },
+    "displayName": {
+      "title": "機器名稱無效",
+      "message": "機器名稱必須是不超過 {maxLength} 個字元的可列印文字。",
+      "action": "請使用不含控制字元的較短名稱，或留空以清除名稱。"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",

@@ -172,6 +172,11 @@
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
     },
+    "displayName": {
+      "title": "Invalid machine name",
+      "message": "Machine names must be printable text of at most {maxLength} characters.",
+      "action": "Use a shorter name without control characters, or leave it empty to clear it."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",

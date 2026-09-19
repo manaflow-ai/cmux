@@ -8,9 +8,7 @@ export function normalizedDisplayName(raw: unknown): string | null | undefined {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return null;
   if (trimmed.length > DISPLAY_NAME_MAX_LENGTH) return undefined;
-  // eslint-disable-next-line no-control-regex
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: display names must reject ASCII control characters
   if (/[\u0000-\u001f\u007f]/.test(trimmed)) return undefined;
   return trimmed;
 }
-
-export const DISPLAY_NAME_VALIDATION_MESSAGE = `displayName must be a printable string of at most ${DISPLAY_NAME_MAX_LENGTH} characters, or null to clear`;
