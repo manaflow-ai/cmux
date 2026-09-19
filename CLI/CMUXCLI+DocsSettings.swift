@@ -64,12 +64,16 @@ extension CMUXCLI {
 
     private static let workflowExamplesURL = "https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-customization/references/examples.md"
 
+    private static func workflowText(_ key: String, _ defaultValue: String) -> String {
+        String(localized: key, defaultValue: defaultValue)
+    }
+
     private static let workflowSavedLayoutSteps: [(label: String, command: String)] = [
-        ("List saved layouts", "cmux layout list --json"),
-        ("Inspect a layout", "cmux layout get <name>"),
-        ("Open a layout for this project", "cmux layout open <name> --cwd <project>"),
-        ("Save the adapted workspace", "cmux layout save <name> --description \"<what this creates>\""),
-        ("Delete an old layout", "cmux layout delete <name>"),
+        (workflowText("cli.workflow.layouts.list", "List saved layouts"), "cmux layout list --json"),
+        (workflowText("cli.workflow.layouts.inspect", "Inspect a layout"), "cmux layout get <name>"),
+        (workflowText("cli.workflow.layouts.open", "Open a layout for this project"), "cmux layout open <name> --cwd <project>"),
+        (workflowText("cli.workflow.layouts.save", "Save the adapted workspace"), "cmux layout save <name> --description \"<what this creates>\""),
+        (workflowText("cli.workflow.layouts.delete", "Delete an old layout"), "cmux layout delete <name>"),
     ]
 
     private static var workflowCommands: [String] {
@@ -396,7 +400,7 @@ extension CMUXCLI {
         if reference.topic == "workflows" {
             payload["catalog_version"] = 1
             payload["saved_layouts"] = [
-                "description": "Saved layouts capture a live workspace arrangement. Use the shipped examples as starters, adapt the live workspace, then save the result for reuse.",
+                "description": Self.workflowText("cli.workflow.layouts.description", "Saved layouts capture a live workspace arrangement. Use the shipped examples as starters, adapt the live workspace, then save the result for reuse."),
                 "steps": Self.workflowSavedLayoutSteps.map { step in
                     ["label": step.label, "command": step.command]
                 },
@@ -501,17 +505,17 @@ extension CMUXCLI {
 
     private func printWorkflowCatalog() {
         print()
-        print("Saved layouts:")
+        print(Self.workflowText("cli.workflow.headings.savedLayouts", "Saved layouts:"))
         for step in Self.workflowSavedLayoutSteps {
             print("  \(step.label): \(step.command)")
         }
         print()
-        print("Native saved-layout entry points:")
+        print(Self.workflowText("cli.workflow.headings.nativeEntryPoints", "Native saved-layout entry points:"))
         print("  Command Palette: Save Layout as Template…")
         print("  Command Palette: New Workspace from Layout: <name>")
         print("  New Workspace menu: New Workspace from Template")
         print()
-        print("Shipped workflow examples:")
+        print(Self.workflowText("cli.workflow.headings.examples", "Shipped workflow examples:"))
         for example in Self.workflowExamples {
             print("  \(example.id) — \(example.title)")
             print("    \(example.summary)")
@@ -526,7 +530,7 @@ extension CMUXCLI {
             print("    Source: \(example.source)")
         }
         print()
-        print("Adapt and save:")
+        print(Self.workflowText("cli.workflow.headings.adaptAndSave", "Adapt and save:"))
         for step in Self.workflowAdaptAndSave {
             print("  - \(step)")
         }
