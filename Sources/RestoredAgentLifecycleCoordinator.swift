@@ -290,7 +290,7 @@ final class RestoredAgentLifecycleCoordinator {
         }
     }
 
-    /// Keeps mutable observations from replacing the session targeted by queued startup input.
+    /// Projects the queued target without publishing a lifecycle mutation during snapshot capture.
     @discardableResult
     func reconcileSnapshotWithQueuedRestoreIntent(
         panelId: UUID,
@@ -300,15 +300,11 @@ final class RestoredAgentLifecycleCoordinator {
               let queuedSnapshot = queuedRestoreSnapshotsByPanelId[panelId] else {
             return proposedSnapshot
         }
-        let resolvedSnapshot: SessionRestorableAgentSnapshot
         if let proposedSnapshot,
            Self.hasSameSessionIdentity(proposedSnapshot, queuedSnapshot) {
-            resolvedSnapshot = proposedSnapshot
-        } else {
-            resolvedSnapshot = queuedSnapshot
+            return proposedSnapshot
         }
-        setSnapshot(resolvedSnapshot, panelId: panelId)
-        return snapshotsByPanelId[panelId]
+        return queuedSnapshot
     }
 
     /// The restore selector for the matching structured session is queued but
@@ -371,6 +367,8 @@ final class RestoredAgentLifecycleCoordinator {
     }
 
     private func replaceSnapshot(_ snapshot: SessionRestorableAgentSnapshot?, panelId: UUID) {
+        // Dictionary's observable modify accessor publishes even an unchanged subscript.
+        guard snapshotsByPanelId[panelId] != snapshot else { return }
         if let snapshot {
             snapshotsByPanelId[panelId] = snapshot
         } else {
@@ -379,6 +377,7 @@ final class RestoredAgentLifecycleCoordinator {
     }
 
     private func replaceResumeState(_ state: Workspace.RestoredAgentResumeState?, panelId: UUID) {
+        guard resumeStatesByPanelId[panelId] != state else { return }
         if let state {
             resumeStatesByPanelId[panelId] = state
         } else {
