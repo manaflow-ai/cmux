@@ -65,7 +65,7 @@ public struct CustomSidebarsSection: View {
                 String(localized: "settings.networking.custom.name", defaultValue: "Name"),
                 text: $newSidebarName
             )
-            Button(String(localized: "settings.customSidebars.create.button", defaultValue: "Create")) {
+            Button(String(localized: "common.create", defaultValue: "Create")) {
                 applyOnboardingResult(hostActions.createCustomSidebar(named: newSidebarName))
             }
             .disabled(newSidebarName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -275,12 +275,12 @@ public struct CustomSidebarsSection: View {
         case .templateUnavailable:
             operationMessage = String(
                 localized: "settings.customSidebars.error.templateUnavailable",
-                defaultValue: "The bundled sidebar template could not be loaded or validated."
+                defaultValue: "The bundled sidebar template failed to load or validate."
             )
         case .writeFailed:
             operationMessage = String(
                 localized: "settings.customSidebars.error.writeFailed",
-                defaultValue: "cmux could not write the sidebar file."
+                defaultValue: "cmux failed to write the sidebar file."
             )
         }
     }
