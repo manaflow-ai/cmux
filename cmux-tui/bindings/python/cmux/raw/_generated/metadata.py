@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '0672a3504dc1dbed95437e590805e972a9f12f42171c8c8bac8c87994277ca8c'
+IR_SHA256 = '7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0'
 
 
 @dataclass(frozen=True)
@@ -662,6 +662,18 @@ COMMANDS = {
             'index': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'move-tab-to-workspace': CommandMetadata(
+        'move-tab-to-workspace',
+        'control',
+        12,
+        'tab-workspace-move-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
         },
     ),
     'move-terminal': CommandMetadata(
@@ -1392,6 +1404,52 @@ COMMANDS = {
         {
         },
     ),
+    'url-open': CommandMetadata(
+        'url-open',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-claim': CommandMetadata(
+        'url-open-claim',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-result': CommandMetadata(
+        'url-open-result',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        None,
+        {
+            'opened': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'url-open-subscribe': CommandMetadata(
+        'url-open-subscribe',
+        'frontend',
+        12,
+        None,
+        ('frontend',),
+        'subscribe',
+        {
+            'terminal_ids': CommandFieldMetadata(None, None),
+        },
+    ),
     'vt-state': CommandMetadata(
         'vt-state',
         'control',
@@ -1473,6 +1531,7 @@ EVENTS = {
     'terminal-registry-changed': EventMetadata('terminal-registry-changed', 9, None, ('subscribe',), 'emitted'),
     'title-changed': EventMetadata('title-changed', 5, None, ('subscribe',), 'emitted'),
     'tree-changed': EventMetadata('tree-changed', 5, None, ('subscribe',), 'emitted'),
+    'url-open': EventMetadata('url-open', 12, None, ('control',), 'emitted'),
     'vt-state': EventMetadata('vt-state', 5, None, ('attach-byte',), 'emitted'),
     'window-title-requested': EventMetadata('window-title-requested', 6, None, ('subscribe',), 'emitted'),
     'workspace-added': EventMetadata('workspace-added', 7, None, ('subscribe-deltas',), 'emitted'),

@@ -52,7 +52,9 @@ pub(super) fn parse_browser_proxy_args(args: &[String]) -> anyhow::Result<Browse
                 index += 2;
             }
             "-h" | "--help" => {
-                return Err(anyhow!(crate::localization::catalog().remote_client.browser_proxy_help));
+                return Err(anyhow!(
+                    crate::localization::catalog().remote_client.browser_proxy_help
+                ));
             }
             value if value.starts_with('-') => {
                 // Keep all connection options for the normal authenticated route parser.
@@ -305,12 +307,12 @@ async fn serve_browser_connection(
     }
     let (mut reader, mut writer) = socket.into_split();
     let stream = Arc::new(stream);
-    if !initial_payload.is_empty() {
-        if let Err(error) = stream.send(Bytes::from(initial_payload)).await {
-            let _ = stream.close().await;
-            let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
-            return Err(error.into());
-        }
+    if !initial_payload.is_empty()
+        && let Err(error) = stream.send(Bytes::from(initial_payload)).await
+    {
+        let _ = stream.close().await;
+        let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
+        return Err(error.into());
     }
     let upload = async {
         let mut buffer = [0_u8; 16 * 1024];

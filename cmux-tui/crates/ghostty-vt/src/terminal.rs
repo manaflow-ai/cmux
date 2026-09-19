@@ -3767,7 +3767,8 @@ impl Terminal {
         include_palette: bool,
         unwrap_soft_wrap: bool,
     ) -> sys::GhosttyFormatterTerminalOptions {
-        let mut options = Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
+        let mut options =
+            Self::vt_replay_options(Some(selection), include_palette, unwrap_soft_wrap);
         options.extra.palette = include_palette && first;
         options.extra.modes = first;
         options.extra.scrolling_region = last;
