@@ -343,13 +343,23 @@ impl Transcript {
             "user_message" => {
                 let text = msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned();
                 let steer = msg.get("steer").and_then(Value::as_bool).unwrap_or(false);
-                // A queued message becomes the live one when its turn starts.
-                let promoted = self.items.iter_mut().find_map(|i| match i {
-                    Item::User { text: t, queued, .. } if *queued && *t == text => Some(queued),
-                    _ => None,
-                });
+                // A queued message becomes the live one when its turn starts:
+                // it moves to the end so it sits after the turn that ran before it.
+                let promoted = self.items.iter().position(|i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text));
                 match promoted {
-                    Some(q) => *q = false,
+                    Some(pos) => {
+                        let item = self.items.remove(pos);
+                        let moved: std::collections::HashMap<usize, u64> = self.user_at.drain().filter_map(|(k, v)| if k == pos { None } else if k > pos { Some((k - 1, v)) } else { Some((k, v)) }).collect();
+                        self.user_at = moved;
+                        for tt in self.turn_times.iter_mut() {
+                            if tt.0 > pos {
+                                tt.0 -= 1;
+                            }
+                        }
+                        if let Item::User { text, steer, .. } = item {
+                            self.items.push(Item::User { text, steer, queued: false });
+                        }
+                    }
                     None => {
                         if let Some(pos) = self.optimistic.iter().position(|t| *t == text) {
                             // Already on screen from the local echo.

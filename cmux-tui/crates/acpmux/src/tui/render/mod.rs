@@ -291,6 +291,9 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
         }
     };
 
+    // Queued messages wait at the bottom, under the running turn, until
+    // their own turn starts (Codex app).
+    let queued: Vec<usize> = vis.iter().copied().filter(|&i| matches!(t.items[i], Item::User { queued: true, .. })).collect();
     let mut k = 0usize;
     let mut turn_open = true;
     // When a turn's work is collapsed, rendering resumes at this item (the
@@ -303,6 +306,10 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
             reopen_at = None;
         }
         let item = &t.items[i];
+        if matches!(item, Item::User { queued: true, .. }) {
+            k += 1;
+            continue;
+        }
         match item {
             Item::User { text, steer, queued } => {
                 k += 1;
@@ -352,7 +359,7 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                 // The turn's work: everything visible between this message
                 // and the final reply. Two or more blocks get a handle row
                 // that collapses them all; one block collapses on its own.
-                let next_user = t.items[i + 1..].iter().position(|x| matches!(x, Item::User { .. })).map(|p| i + 1 + p).unwrap_or(t.items.len());
+                let next_user = t.items[i + 1..].iter().position(|x| matches!(x, Item::User { queued: false, .. })).map(|p| i + 1 + p).unwrap_or(t.items.len());
                 let turn_live = running && next_user == t.items.len();
                 // While the turn runs there is no final reply yet: every block
                 // is work and the handle reads "Working for …".
@@ -524,6 +531,33 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
                     _ => {}
                 }
             }
+        }
+    }
+    for &i in &queued {
+        if let Item::User { text, .. } = &t.items[i] {
+            spacer(&mut rows, i, false);
+            let bg = Style::default().bg(c.user_bg);
+            let style = c.dim().bg(c.user_bg);
+            let bubble_w = if width < 50 { width } else { (width * 7 / 10).max(40).min(width) };
+            let inner_w = bubble_w.saturating_sub(4);
+            let left = " ".repeat(width.saturating_sub(bubble_w));
+            let mut body: Vec<Row> = Vec::new();
+            wrap(text, inner_w, style, "", i, &mut body);
+            plain("queued · sends when the running turn ends · Ctrl-x cancels it", c.dim().bg(c.user_bg), i, &mut body);
+            let bubble_row = |content: Vec<Span<'static>>, used: usize, text: String| -> Row {
+                let mut spans = vec![Span::raw(left.clone()), Span::styled(" ".to_owned(), bg)];
+                spans.extend(content);
+                spans.push(Span::styled(" ".repeat(bubble_w.saturating_sub(2 + used)), bg));
+                Row { line: Line::from(spans), text, item: i, toggle: None }
+            };
+            rows.push(bubble_row(vec![], 0, String::new()));
+            for (n, r) in body.into_iter().enumerate() {
+                let m = if n == 0 { "⋯ " } else { "  " };
+                let content = r.text.clone();
+                let used = 2 + content.width();
+                rows.push(bubble_row(vec![Span::styled(m.to_owned(), bg.fg(c.status_dim_fg).add_modifier(Modifier::BOLD)), Span::styled(content.clone(), style)], used, format!("{left}{m}{content}")));
+            }
+            rows.push(bubble_row(vec![], 0, String::new()));
         }
     }
     if running {

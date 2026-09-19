@@ -353,7 +353,13 @@
     const push = (x) => t.items.push(x);
     switch (kind) {
       case 'queued': { const local = t.items.findIndex((x) => x.type === 'user' && x.local && x.text === (msg.text || '')); if (local >= 0) { t.items[local].queued = true; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: false, queued: true }); break; }
-      case 'user_message': { const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && x.text === (msg.text || '')); if (local >= 0) { t.items[local].local = false; t.items[local].queued = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); } else push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at }); break; }
+      case 'user_message': {
+        const local = t.items.findIndex((x) => x.type === 'user' && (x.local || x.queued) && x.text === (msg.text || ''));
+        if (local >= 0 && t.items[local].queued) { t.items.splice(local, 1); push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at }); t.reorder = true; }
+        else if (local >= 0) { t.items[local].local = false; t.items[local].at = ev.at || t.items[local].at; touch(t, local); }
+        else push({ type: 'user', text: msg.text || '', steer: !!msg.steer, at: ev.at });
+        break;
+      }
       case 'turn_started': t.turnStartAt = ev.at || Date.now(); break;
       case 'turn_result': push({ type: 'turn_result', status: msg.status || '', at: ev.at, startAt: t.turnStartAt }); break;
       case 'status': t.status = msg.status || ''; if (t.status === 'running') { if (!t.runningSince) t.runningSince = Date.now(); } else t.runningSince = 0; break;
@@ -518,16 +524,21 @@
   }
   function renderLogIncremental() {
     const log = $('#log'); const t = state.transcripts.get(selected); if (!t) return;
+    if (t.reorder) { t.reorder = false; renderLog(); return; }
     if (!col) { renderLog(); return; }
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
     for (const i of t.dirty) { if (i < renderedCount) { const old = col.querySelector('[data-idx="' + i + '"]'); if (old) old.replaceWith(renderItem(t.items[i], i)); } }
     t.dirty.clear();
     for (; renderedCount < t.items.length; renderedCount++) {
       const it = t.items[renderedCount];
-      if (it.type === 'user' && it.at) { const w = document.createElement('div'); w.className = 'when'; w.textContent = when(it.at); col.appendChild(w); }
+      // Queued messages stay at the bottom, under the running turn's work,
+      // until their own turn starts.
+      const firstQueued = col.querySelector('.msg.user.queued');
+      const put = (n) => (firstQueued && !(it.type === 'user' && it.queued)) ? col.insertBefore(n, firstQueued) : col.appendChild(n);
+      if (it.type === 'user' && it.at) { const w = document.createElement('div'); w.className = 'when'; w.textContent = when(it.at); put(w); }
       const el = renderItem(it, renderedCount);
       if (it.type === 'turn_result' || it.type === 'turn_end') { wrapWork(t, renderedCount, it); }
-      col.appendChild(el);
+      put(el);
     }
     renderWorking(t);
     if (atBottom) log.scrollTop = log.scrollHeight;
