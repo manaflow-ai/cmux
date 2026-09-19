@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -41,8 +42,15 @@ def normalize_path(path: str) -> str:
     return normalized
 
 
-def is_workflow(path: str) -> bool:
-    return path.startswith(".github/workflows/")
+CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+
+
+def is_other_workflow_config(path: str) -> bool:
+    # ci.yml's macOS and web jobs read no other workflow file. An edit to one is
+    # checked by workflow-guard-tests and by that workflow's own triggers.
+    if path == CI_WORKFLOW_PATH:
+        return False
+    return path.startswith(".github/workflows/") or path == ".github/actionlint.yaml"
 
 
 def forces_all_areas(path: str) -> bool:
@@ -50,7 +58,55 @@ def forces_all_areas(path: str) -> bool:
     is_direct_ci_python = path.startswith(ci_script_prefix) and path.endswith(".py")
     if is_direct_ci_python:
         is_direct_ci_python = "/" not in path[len(ci_script_prefix) :]
-    return is_workflow(path) or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
+    return path == CI_WORKFLOW_PATH or is_direct_ci_python or path == "tests/test_ci_change_areas.py"
+
+
+_TEST_REFERENCE_RE = re.compile(r"tests/[A-Za-z0-9_./-]*")
+
+
+def macos_job_test_references(workflow: str) -> Optional[tuple[frozenset[str], frozenset[str]]]:
+    """Return the tests/ paths ci.yml names in macOS jobs and in all jobs.
+
+    A macOS job that runs tests through a glob yields the glob's literal prefix.
+    Returns None when the jobs cannot be read, so the caller fails open.
+    """
+    _, found, body = workflow.partition("\njobs:\n")
+    if not found:
+        return None
+    macos: set[str] = set()
+    everywhere: set[str] = set()
+    jobs = 0
+    for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
+        runs_on = re.search(r"(?m)^    runs-on:\s*(.+)$", block)
+        if not runs_on:
+            continue
+        jobs += 1
+        references = set(_TEST_REFERENCE_RE.findall(block))
+        everywhere |= references
+        if re.search(r"macos", runs_on.group(1), re.IGNORECASE):
+            macos |= references
+    if jobs == 0:
+        return None
+    return frozenset(macos), frozenset(everywhere)
+
+
+def load_macos_job_test_references() -> Optional[tuple[frozenset[str], frozenset[str]]]:
+    try:
+        return macos_job_test_references(Path(CI_WORKFLOW_PATH).read_text(encoding="utf-8"))
+    except OSError:
+        return None
+
+
+def is_guard_only_test(path: str, references: Optional[tuple[frozenset[str], frozenset[str]]]) -> bool:
+    # A tests/ file is macOS-neutral only when ci.yml names it and every job
+    # that names it runs on Linux. An unnamed file may be imported by a test a
+    # macOS job runs, so it stays macOS-relevant.
+    if references is None or not path.startswith("tests/"):
+        return False
+    macos, everywhere = references
+    if path not in everywhere:
+        return False
+    return not any(path.startswith(reference) for reference in macos)
 
 
 def is_web_change(path: str) -> bool:
@@ -130,6 +186,7 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
     macos = False
     web = False
     agent_session_web = False
+    test_references = load_macos_job_test_references()
 
     for raw_path in paths:
         path = normalize_path(raw_path)
@@ -139,6 +196,8 @@ def classify_files(paths: Iterable[str]) -> ChangeAreas:
             macos = True
             web = True
             agent_session_web = True
+            continue
+        if is_other_workflow_config(path) or is_guard_only_test(path, test_references):
             continue
         if is_web_change(path):
             web = True
