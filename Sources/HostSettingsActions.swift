@@ -191,7 +191,7 @@ final class HostSettingsActions: SettingsHostActions {
         return installCustomSidebarTemplate(
             template,
             name: name,
-            uniquingIfNeeded: false
+            uniquingIfNeeded: true
         )
     }
 
