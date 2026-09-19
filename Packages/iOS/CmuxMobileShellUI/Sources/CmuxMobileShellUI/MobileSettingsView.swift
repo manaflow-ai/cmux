@@ -457,7 +457,8 @@ struct MobileSettingsView: View {
                     MobilePushSettingsContent(
                         readiness: pushCoordinator.readiness(
                             macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true
+                            macAccountMismatch: store?.connectionRequiresReauth == true,
+                            securePushSetupFailed: store?.phonePushKeyExchangeFailed == true
                         ),
                         phoneEnabled: $notificationsEnabled,
                         macStatus: store?.phonePushMacStatus,
@@ -494,6 +495,11 @@ struct MobileSettingsView: View {
                         .foregroundStyle(.secondary)
                     }
 #else
+                    if store?.phonePushKeyExchangeFailed == true {
+                        MobilePushSecuritySetupFailureView(
+                            onRetry: retrySecurePushSetup
+                        )
+                    }
                     MobilePushToggle(
                         isEnabled: $notificationsEnabled,
                         applyEnabledIntent: setPhonePushEnabledIntent
@@ -772,6 +778,8 @@ struct MobileSettingsView: View {
             return await store?.updatePhonePushSettings(
                 forwardingEnabled: true
             ) == true
+        case .retrySecurePushSetup:
+            return store?.retryPhonePushKeyExchange() == true
         case .waitForDeviceToken, .finishAccountDeletion,
              .disablePushOnAnotherDevice, .rebuildMatchingApps:
             return false
@@ -810,6 +818,11 @@ struct MobileSettingsView: View {
             )
         }
         return stage
+    }
+
+    @MainActor
+    private func retrySecurePushSetup() async -> Bool {
+        store?.retryPhonePushKeyExchange() == true
     }
 
     private static var crashReportingEnabled: Bool {
