@@ -495,13 +495,26 @@ private final class CloudBrowserProxyTestServer: @unchecked Sendable {
                 try await connection.finishSending()
                 return
             }
-            guard connect.method == "CONNECT", connect.target == "\(address):8000" else {
+            guard connect.method == "CONNECT" else {
                 try await connection.sendAll(Data("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8))
                 try await connection.finishSending()
                 return
             }
             lock.withLock { capturedTargets.append(connect.target) }
             try await connection.sendAll(Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8))
+            if connect.target.hasPrefix("127.0.0.1:") {
+                let bridge = try await readRequest(connection, buffered: &buffered)
+                lock.withLock { capturedBridgeRequests.append(bridge.target + " | " + (bridge.headers["sec-websocket-protocol"] ?? "")) }
+                guard bridge.target.hasPrefix("/__cmux_ws__/"),
+                      bridge.headers["sec-websocket-protocol"]?.contains("cmux-proxy-ws-token") == true,
+                      let key = bridge.headers["sec-websocket-key"] else { return }
+                let acceptInput = Data((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").utf8)
+                let accept = Data(Insecure.SHA1.hash(data: acceptInput)).base64EncodedString()
+                try await connection.sendAll(Data("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: cmux-proxy-ws-token\r\nSec-WebSocket-Accept: \(accept)\r\n\r\n".utf8))
+                try await Task.sleep(for: .seconds(5))
+                return
+            }
+            guard connect.target == "\(address):8000" else { return }
             var request = try await readRequest(connection, buffered: &buffered)
             if request.method == "OPTIONS" {
                 try await connection.sendAll(Data("HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET,POST,OPTIONS\r\nAccess-Control-Allow-Headers: content-type\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n".utf8))

@@ -166,12 +166,13 @@ pub(super) async fn serve_browser_proxy(
                     continue;
                 }
                 let client = client.clone();
+                let proxy_port = address.port();
                 let allowed_hosts = allowed_hosts.clone();
                 let credentials = credentials.clone();
                 let workspace = workspace.clone();
                 let websocket_token = websocket_token.clone();
                 tasks.spawn(async move {
-                    let _ = serve_browser_connection(socket, client, workspace, allowed_hosts, credentials, websocket_token).await;
+                    let _ = serve_browser_connection(socket, client, workspace, allowed_hosts, credentials, websocket_token, proxy_port).await;
                 });
             }
             _ = parent_check.tick() => {
@@ -191,6 +192,7 @@ async fn serve_browser_connection(
     allowed_hosts: Arc<Vec<String>>,
     credentials: String,
     websocket_token: String,
+    proxy_port: u16,
 ) -> anyhow::Result<()> {
     let mut first = [0_u8; 1];
     socket.peek(&mut first).await?;
@@ -198,7 +200,7 @@ async fn serve_browser_connection(
         return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token)
             .await;
     }
-    serve_connect_connection(socket, client, workspace, allowed_hosts, credentials).await
+    serve_connect_connection(socket, client, workspace, allowed_hosts, credentials, websocket_token, proxy_port).await
 }
 
 async fn serve_connect_connection(
@@ -207,6 +209,8 @@ async fn serve_connect_connection(
     workspace: cmux_remote_protocol::WorkspaceId,
     allowed_hosts: Arc<Vec<String>>,
     credentials: String,
+    websocket_token: String,
+    proxy_port: u16,
 ) -> anyhow::Result<()> {
     let handshake_deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
     let mut request = Vec::with_capacity(4096);
@@ -251,6 +255,10 @@ async fn serve_connect_connection(
     if !auth.is_some_and(|provided| constant_time_equal(provided.as_bytes(), expected.as_bytes())) {
         socket.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=cmux\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
+    }
+    if host == "127.0.0.1" && port == proxy_port {
+        socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
+        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token).await;
     }
     if !allowed_hosts.iter().any(|allowed| allowed == &host) {
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
