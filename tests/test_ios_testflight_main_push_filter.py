@@ -1043,12 +1043,8 @@ def test_manual_run_waits_behind_a_scheduled_upload() -> None:
 
 
 def test_internal_poll_skips_instead_of_queueing_behind_an_upload() -> None:
-    # Every queued poll re-lists the runs ahead of it once a minute, so N
-    # waiting polls cost about N*N/2 API calls a minute. Sixteen of them spent
-    # roughly 8,000 requests an hour against the repository's 1,000-request
-    # GITHUB_TOKEN budget and broke every workflow that calls the API. A poll
-    # is idempotent: the next one, twenty minutes later, builds whatever main
-    # is by then, so it must leave instead of waiting.
+    # Waiting polls cost API calls quadratically. A poll is idempotent, so it
+    # must leave and let the next one build whatever main is by then.
     for prior_event in ("schedule", "workflow_dispatch"):
         result = run_decision_scenario(
             event_name="schedule",
