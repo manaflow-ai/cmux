@@ -1572,7 +1572,7 @@ func shouldHandleMinimalModeWindowTitlebarDoubleClick(
         height: window.frame.height
     )
     return shouldHandleMinimalModeWindowTitlebarDoubleClick(
-        isMinimalMode: WorkspaceTitlebarSettings(defaults: defaults).isHidden,
+        isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
         isFullScreen: window.styleMask.contains(.fullScreen),
         isMainWindow: isMainWorkspaceWindow(window),
         clickCount: event.clickCount,
@@ -1594,7 +1594,7 @@ func isMinimalModeWindowTitlebarClickCandidate(
         height: window.frame.height
     )
     return isMinimalModeWindowTitlebarClickCandidate(
-        isMinimalMode: WorkspaceTitlebarSettings(defaults: defaults).isHidden,
+        isMinimalMode: WorkspacePresentationModeSettings.isMinimal(defaults: defaults),
         isFullScreen: window.styleMask.contains(.fullScreen),
         isMainWindow: isMainWorkspaceWindow(window),
         locationInWindow: event.locationInWindow,
@@ -1682,7 +1682,7 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 height: window.frame.height
             )
             guard isMinimalModeWindowTitlebarClickCandidate(
-                isMinimalMode: WorkspaceTitlebarSettings().isHidden,
+                isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
                 isFullScreen: window.styleMask.contains(.fullScreen),
                 isMainWindow: isMainWorkspaceWindow(window),
                 locationInWindow: locationInWindow,

@@ -211,7 +211,7 @@ final class WindowDecorationsController {
             height: window.frame.height
         )
         guard isMinimalModeWindowTitlebarClickCandidate(
-            isMinimalMode: WorkspaceTitlebarSettings().isHidden,
+            isMinimalMode: WorkspacePresentationModeSettings.isMinimal(),
             isFullScreen: window.styleMask.contains(.fullScreen),
             isMainWindow: isMainWorkspaceWindow(window),
             locationInWindow: locationInWindow,

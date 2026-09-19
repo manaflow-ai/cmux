@@ -6,6 +6,6 @@ struct MinimalModeTitlebarEventSurfaceLayer: View {
     @WorkspaceTitlebarConfiguration private var titlebarSettings
 
     var body: some View {
-        MinimalModeTitlebarEventSurfaceView(isEnabled: titlebarSettings.isHidden && !isFullScreen)
+        MinimalModeTitlebarEventSurfaceView(isEnabled: titlebarSettings.isMinimalMode && !isFullScreen)
     }
 }

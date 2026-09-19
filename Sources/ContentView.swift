@@ -2686,7 +2686,14 @@ struct ContentView: View {
                     workspaceTitlebarBand(appearance: appearance)
                         .zIndex(100)
                 } compactControls: {
-                    if !sidebarState.isVisible { workspaceFullscreenControls(appearance: appearance).zIndex(100) }
+                    if !sidebarState.isVisible {
+                        if isFullScreen { workspaceFullscreenControls(appearance: appearance).zIndex(100) }
+                        else {
+                            WorkspaceTitlebarDragRegion()
+                                .frame(width: CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset), height: WindowChromeMetrics.appTitlebarHeight)
+                                .zIndex(100)
+                        }
+                    }
                 }
             }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -3396,6 +3403,7 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
+        view = AnyView(view.onChange(of: fullscreenControlsWidth) { _, _ in syncTrafficLightInset() })
         view = AnyView(view.onChange(of: titlebarControlsStyleRawValue) { _ in
             clampSidebarWidthIfNeeded()
             updateSidebarResizerBandState()

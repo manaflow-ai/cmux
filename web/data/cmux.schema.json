@@ -462,7 +462,7 @@
           "type": "boolean",
           "default": true,
           "descriptionKey": "schemaDescriptions.app.showWorkspaceTitleBar",
-          "description": "Show the workspace title row independently of pane tabs. Set false with app.minimalMode false to reclaim the row while keeping pane tabs and standard sidebar controls. Window controls use the compact sidebar area, or sit beside the tabs in fullscreen when the sidebar is hidden. Minimal Mode always hides the title row and otherwise keeps its existing behavior; leaving it restores this preference. Changes apply immediately and persist across restarts."
+          "description": "Show the workspace title row independently of pane tabs. Set false with app.minimalMode false to reclaim the row while keeping pane tabs and standard sidebar controls. Window controls use the compact sidebar area, or sit beside the tabs in fullscreen when the sidebar is hidden. Minimal Mode always hides the title row and otherwise keeps its existing behavior; leaving it restores this preference. Changes apply immediately and persist across restarts. With the sidebar closed, the reserved area around the traffic lights remains draggable; pane-tab double-clicks retain their standard actions."
         },
         "minimalMode": {
           "type": "boolean",

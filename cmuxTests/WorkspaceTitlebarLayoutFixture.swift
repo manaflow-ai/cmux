@@ -15,7 +15,7 @@ final class WorkspaceTitlebarLayoutFixture {
     let controller: BonsplitController
     let terminalPane: PaneID
     private let suite: String
-    private let window: NSWindow
+    let window: NSWindow
     private let host: NSView
 
     init(tabCount: Int, split: Bool) throws {
@@ -28,12 +28,13 @@ final class WorkspaceTitlebarLayoutFixture {
         controller.configuration.appearance.tabBarHeight = WindowChromeMetrics.bonsplitTabBarHeight
         controller.configuration.appearance.enableAnimations = false
         terminalPane = try #require(controller.focusedPaneId)
+        let initialTabs = controller.tabs(inPane: terminalPane)
         for index in 0..<tabCount {
             controller.createTab(title: "Terminal \(index)", kind: "terminal", inPane: terminalPane)
         }
+        for tab in initialTabs { controller.closeTab(tab.id) }
         if split {
-            let pane = try #require(controller.splitPane(terminalPane, orientation: .horizontal))
-            controller.createTab(title: "Browser", kind: "browser", inPane: pane)
+            _ = try #require(controller.splitPane(terminalPane, orientation: .horizontal, withTab: Tab(title: "Browser", kind: "browser")))
         }
         let root = ZStack(alignment: .topLeading) {
             BonsplitView(controller: controller) { tab, _ in
