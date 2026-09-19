@@ -69,14 +69,6 @@ extension Workspace {
             attachment: attachment
         )
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
-        // The tab-strip spinner clears on real attachment, not on adoption.
-        let panelID = reservation.panelID
-        attachment.onStateChange = { [weak self, weak attachment] state in
-            guard state == .attached || state == .ended else { return }
-            attachment?.onStateChange = nil
-            self?.setCloudManualMirrorTabLoading(panelID: panelID, false)
-        }
-        if attachment.state == .attached { attachment.onStateChange?(.attached) }
         panel.surface.flushPendingManualSizeReportIfAttached()
         return (id, panel.id, panel.surface)
     }
@@ -100,7 +92,6 @@ extension Workspace {
     /// explain inside it, with Reconnect wired to the same request's retry.
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
-        setCloudManualMirrorTabLoading(panelID: reservation.panelID, false)
         let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
@@ -113,7 +104,8 @@ extension Workspace {
     func restartReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
-        setCloudManualMirrorTabLoading(panelID: reservation.panelID, true)
+        // Keep the reserved tab visually stable while retrying. The pane itself
+        // reports any failure through its reconnect affordance.
     }
 
     /// Reconnect pressed on a reserved pane's failure card replays the request.
