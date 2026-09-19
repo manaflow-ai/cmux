@@ -1388,6 +1388,7 @@
       "restartNew": "Crea un nuovo workspace (predefinito)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Attiva o disattiva il ritorno a capo nell’editor di file (Option+Z).",
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",

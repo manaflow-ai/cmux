@@ -2565,6 +2565,7 @@
       "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z).",
       "title": "キーボードショートカット",
       "description": "cmuxのデフォルトショートカット一覧です。cmux管理のショートカットはすべて設定画面または ~/.config/cmux/cmux.json で変更でき、2段階のコードにも対応しています。",
       "chordsTitle": "ショートカットコード",

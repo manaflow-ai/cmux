@@ -1,6 +1,7 @@
 import AppKit
 
 extension SavingTextView {
+    /// Joins save and zoom in the editor’s existing chord dispatcher.
     func filePreviewWordWrapShortcutCandidates() -> [
         (shortcut: StoredShortcut, isAllowed: (NSEvent) -> Bool, perform: () -> Void)
     ] {
@@ -16,26 +17,17 @@ extension SavingTextView {
                 return KeyboardShortcutSettings.effectiveWhenClause(for: .toggleFileEditorWordWrap)
                     .evaluate(Self.filePreviewTextEditorShortcutContext)
             },
-            { [weak self] in self?.toggleFilePreviewWordWrap() }
+            { [weak self] in _ = self?.toggleFilePreviewWordWrap() }
         )]
     }
 
+    /// Changes the shared preference and immediately reflows this editor in place.
     @discardableResult
     func toggleFilePreviewWordWrap() -> Bool {
-        guard let scrollView = enclosingScrollView else { return false }
-        let selectedRanges = self.selectedRanges
-        let previousOrigin = scrollView.contentView.bounds.origin
-        let enabled = !FilePreviewWordWrapSettings.isEnabled()
-        FilePreviewWordWrapSettings.setEnabled(enabled)
-        applyFilePreviewWordWrap(enabled, scrollView: scrollView)
-        scrollView.layoutSubtreeIfNeeded()
-        let clipView = scrollView.contentView
-        let origin = clipView.constrainBoundsRect(
-            NSRect(origin: previousOrigin, size: clipView.bounds.size)
-        ).origin
-        clipView.scroll(to: origin)
-        scrollView.reflectScrolledClipView(clipView)
-        setSelectedRanges(selectedRanges, affinity: .downstream, stillSelecting: false)
+        wordWrapSettings.setEnabled(!wordWrapSettings.isEnabled())
+        if let scrollView = enclosingScrollView {
+            applyFilePreviewWordWrap(wordWrapSettings.isEnabled(), scrollView: scrollView)
+        }
         return true
     }
 }

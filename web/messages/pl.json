@@ -1389,6 +1389,7 @@
       "restartNew": "Utwórz nowy workspace (domyślnie)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Przełącz zawijanie wierszy w edytorze plików (Option+Z).",
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",

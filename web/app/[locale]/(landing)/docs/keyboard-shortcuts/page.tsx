@@ -38,6 +38,7 @@ export default function KeyboardShortcutsPage() {
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("description")}</p>
       <p>{t("paneResizeDescription")}</p>
+      <p>{t("fileEditorWordWrap")}</p>
 
       <DocsHeading level={2} id="shortcut-chords" className="scroll-mt-24">{t("chordsTitle")}</DocsHeading>
       <p>

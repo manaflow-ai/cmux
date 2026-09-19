@@ -70,13 +70,6 @@ extension TabManager {
     }
 
     @discardableResult
-    func toggleFocusedTextFilePreviewWordWrap() -> Bool {
-        performFocusedTextFilePreviewZoom { panel in
-            (panel.textView as? SavingTextView)?.toggleFilePreviewWordWrap() ?? false
-        } ?? false
-    }
-
-    @discardableResult
     func zoomInFocusedBrowserOrTextFilePreview() -> Bool {
         if let result = performFocusedTextFilePreviewZoom({ $0.zoomTextPreviewIn() }) { return result }
         return zoomInFocusedBrowser()

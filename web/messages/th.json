@@ -1390,6 +1390,7 @@
       "restartNew": "สร้าง workspace ใหม่ (ค่าเริ่มต้น)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "สลับการตัดบรรทัดในตัวแก้ไขไฟล์ (Option+Z).",
       "title": "คีย์ลัด",
       "description": "คีย์ลัดทั้งหมดใน cmux จัดกลุ่มตามหมวดหมู่",
       "metaDescription": "คีย์ลัด cmux ทั้งหมดสำหรับ workspace, surface, แยกหน้าจอ, เบราว์เซอร์, แจ้งเตือน, ค้นหา และจัดการหน้าต่างบน macOS",

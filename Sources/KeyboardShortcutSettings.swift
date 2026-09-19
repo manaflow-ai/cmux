@@ -193,16 +193,16 @@ enum KeyboardShortcutSettings {
         case canvasDistributeHorizontally
         case canvasDistributeVertically
 
+        // File Explorer
         case toggleRightSidebar = "toggleFileExplorer"
         case fileExplorerOpenSelection
         case fileExplorerOpenSelectionFinderAlias
 
+        // Panels
         case saveFilePreview, toggleFileEditorWordWrap
         case openBrowser
         case focusBrowserAddressBar
-        case browserBack
-        case browserForward
-        case browserReload
+        case browserBack, browserForward, browserReload
         case browserHardReload
         case browserZoomIn
         case browserZoomOut

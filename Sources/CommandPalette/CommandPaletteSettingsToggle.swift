@@ -261,8 +261,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: app,
                 keywords: ["fileEditor.wordWrap", "file", "editor", "word", "wrap", "soft", "reflow", "lines", "preview"],
-                defaultValue: FilePreviewWordWrapSettings.defaultEnabled,
-                defaultsKey: FilePreviewWordWrapSettings.key
+                isOn: { FilePreviewWordWrapSettings(defaults: $0).isEnabled() },
+                setOn: { value, defaults, _ in FilePreviewWordWrapSettings(defaults: defaults).setEnabled(value) }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "fileEditorSyntaxHighlighting",

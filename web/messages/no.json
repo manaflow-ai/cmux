@@ -1388,6 +1388,7 @@
       "restartNew": "Opprett et nytt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z).",
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",

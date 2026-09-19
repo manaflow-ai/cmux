@@ -1388,6 +1388,7 @@
       "restartNew": "建立新的 workspace（預設）"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "切換檔案編輯器自動換行 (Option+Z).",
       "title": "鍵盤快捷鍵",
       "description": "cmux 中所有可用的鍵盤快捷鍵，依類別分組。",
       "metaDescription": "cmux 所有鍵盤快捷鍵，涵蓋工作區、surface、分割窗格、瀏覽器、通知、搜尋和 macOS 視窗管理。",
