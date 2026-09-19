@@ -53,3 +53,7 @@ repository root. Tests cover round-trip use, profile decoder rejection,
 cross-context substitution, ciphertext corruption, deletion authentication,
 wrong/short keys, and record limits. They do not establish iOS runtime or
 end-to-end connection behavior.
+
+The known-answer test opens an independently generated Python cryptography
+50.0.1 AESGCM vector using public synthetic key/nonce bytes. This pins the
+length-prefixed associated-data format for other platform implementations.

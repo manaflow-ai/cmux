@@ -6,6 +6,20 @@ import Testing
 @Suite struct MobileRemoteVaultTests {
     let cipher = MobileRemoteVaultCipher()
 
+    @Test func opensIndependentPythonAESGCMVector() throws {
+        // Generated with cryptography 50.0.1 AESGCM, bytes(0..<32) as the
+        // public test key, bytes(0..<12) as the test nonce, and the v1
+        // length-prefixed associated-data fields. Production uses random nonces.
+        let combined = try #require(Data(base64Encoded:
+            "AAECAwQFBgcICQoLJG+jY+iVt3nhKPSmxYwLGa6g4leEFC37Fbv4gBRuPXNdmISzY9St"
+        ))
+        let envelope = try MobileRemoteVaultEnvelope(sealedBox: combined)
+        let opened = try cipher.decrypt(
+            envelope, context: context(), key: SymmetricKey(data: Data(0..<32))
+        )
+        #expect(opened == Data("cmux-public-test-vector".utf8))
+    }
+
     @Test func roundTripsAfterSerializationWithFreshNonces() throws {
         let key = SymmetricKey(size: .bits256)
         let context = try context()
