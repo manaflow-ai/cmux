@@ -62,7 +62,7 @@ struct CloudTreeCompactLayoutTests {
         #expect(outline.isItemExpanded(folder))
     }
 
-    @Test("Expanded and collapsed chevrons have equal ink area and rotated bounds")
+    @Test("Expanded and collapsed chevrons keep the same square ink bounds")
     func disclosureArtwork() throws {
         let button = CloudTreeDisclosureButton(nativeButton: NSButton(frame: NSRect(x: 0, y: 0, width: 20, height: 20)))
         let window = NSWindow(contentRect: button.frame, styleMask: [], backing: .buffered, defer: false)
@@ -72,8 +72,8 @@ struct CloudTreeCompactLayoutTests {
         let collapsed = try ink(in: button)
         button.state = .on
         let expanded = try ink(in: button)
-        #expect(abs(collapsed.bounds.width - expanded.bounds.height) <= 1)
-        #expect(abs(collapsed.bounds.height - expanded.bounds.width) <= 1)
+        #expect(abs(collapsed.bounds.width - expanded.bounds.width) <= 1)
+        #expect(abs(collapsed.bounds.height - expanded.bounds.height) <= 1)
         #expect(abs(collapsed.area - expanded.area) <= 2, "Rotation must not change caret weight or size")
     }
 
