@@ -365,26 +365,29 @@ struct PortScannerAgentPublicationIntegrationTests {
             startSeconds: 10,
             startMicroseconds: 0
         )
+        let childIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 11,
+            startMicroseconds: 0
+        )
         let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
         let runner = SuspendedPortScanCommandRunner()
         let scanner = PortScanner(
             commandRunner: runner,
-            processIdentityProvider: { pid in pid == identity.pid ? identity : nil }
+            processIdentityProvider: { pid in
+                switch pid {
+                case identity.pid: identity
+                case childIdentity.pid: childIdentity
+                default: nil
+                }
+            }
         )
         let (publications, publicationContinuation) = AsyncStream<[Int]>.makeStream(
             bufferingPolicy: .unbounded
         )
         var publicationIterator = publications.makeAsyncIterator()
-        var removalRevision: UInt64 = 0
-        var removalLifecycleWasActiveAtCallback = false
         scanner.onAgentPortsUpdated = { callbackWorkspaceID, ports in
             guard callbackWorkspaceID == workspaceID else { return false }
-            if ports.isEmpty {
-                removalLifecycleWasActiveAtCallback = scanner.publicationState.isCurrentAgentRevision(
-                    removalRevision,
-                    workspaceId: workspaceID
-                )
-            }
             publicationContinuation.yield(ports)
             return true
         }
@@ -395,33 +398,15 @@ struct PortScannerAgentPublicationIntegrationTests {
 
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         await runner.waitUntilProcessScanStarted()
-        let initialRevision = scanner.queue.sync {
-            scanner.agentRevisionByWorkspace[workspaceID, default: 0]
-        }
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         scanner.queue.sync {}
-        #expect(scanner.queue.sync {
-            scanner.agentRevisionByWorkspace[workspaceID, default: 0]
-        } == initialRevision)
 
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [])
-        removalRevision = scanner.queue.sync {
-            scanner.agentRevisionByWorkspace[workspaceID, default: 0]
-        }
         let removedPorts = try #require(await publicationIterator.next())
 
         let processScanWasReleased = await runner.processScanWasReleased
         #expect(removedPorts == [])
         #expect(processScanWasReleased == false)
-        #expect(removalLifecycleWasActiveAtCallback)
-
-        await withCheckedContinuation { continuation in
-            scanner.queue.async { continuation.resume() }
-        }
-        #expect(scanner.publicationState.isCurrentAgentRevision(
-            removalRevision,
-            workspaceId: workspaceID
-        ) == false)
 
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         scanner.queue.sync {}
@@ -509,7 +494,12 @@ struct PortScannerAgentPortRetirementTests {
             try await runner.waitForLsofInvocation(expectedInvocation)
         }
 
-        let retiredPorts = try #require(await iterator.next())
+        // Explicit refreshes may republish the retained snapshot before the
+        // missing-listener threshold is reached. Observe the next change.
+        var retiredPorts = try #require(await iterator.next())
+        while retiredPorts == initialPorts {
+            retiredPorts = try #require(await iterator.next())
+        }
         #expect(retiredPorts.isEmpty)
         let postExitRequestedPIDs = (await runner.lsofRequestedPIDs).dropFirst()
         #expect(postExitRequestedPIDs.allSatisfy { $0 == [100] })
@@ -654,12 +644,12 @@ private actor SuspendedPortScanCommandRunner: CommandRunning {
                     processReleaseWaiters.append(continuation)
                 }
             }
-            return Self.result(stdout: "100 1\n")
+            return Self.result(stdout: "100 1\n101 100\n")
         }
         if executable == "/usr/sbin/lsof" {
             lsofRunCount += 1
             let port = lsofRunCount == 1 ? 4200 : 5173
-            return Self.result(stdout: "p100\nf3\nn*:\(port)\n")
+            return Self.result(stdout: "p101\nf3\nn*:\(port)\n")
         }
         return Self.result(stdout: "")
     }

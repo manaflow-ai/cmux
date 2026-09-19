@@ -1256,6 +1256,118 @@ struct PortScannerLsofBatchingTests {
 
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
+    /// Regression for https://github.com/manaflow-ai/cmux port-badge noise: an
+    /// agent binary such as Claude Code running fullscreen becomes the panel's
+    /// foreground process, so its own loopback sandbox-proxy listeners must
+    /// never badge the card, while a dev server it launches as a child keeps
+    /// its badge.
+    @Test("An agent root's own ports never badge its panel, but its child dev server keeps its badge")
+    func agentRootOwnPortsExcludedFromPanelBadgeButChildPortsKept() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys910"
+        let rootPID = 9001
+        let childPID = 9002
+        let runner = AgentRootPanelCommandRunner(
+            ttyName: ttyName,
+            rootPID: rootPID,
+            childPID: childPID,
+            rootPorts: [55936, 55937],
+            childPorts: [5173]
+        )
+        let rootIdentity = AgentPIDProcessIdentity(pid: pid_t(rootPID), startSeconds: 1, startMicroseconds: 0)
+        let childIdentity = AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 2, startMicroseconds: 0)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { pid in
+                switch pid {
+                case rootIdentity.pid: rootIdentity
+                case childIdentity.pid: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present }
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+            scanner.refreshAgentPorts(
+                workspaceId: workspaceId,
+                agentRoots: [AgentPortRootIdentity(pid: rootPID, processIdentity: rootIdentity)]
+            )
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishChildPortOnly = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [5173] },
+            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+        )
+        try #require(didPublishChildPortOnly, "the child dev server's port was never published")
+
+        let everPublishedRootPort = publishedPorts.withLock { $0.contains { $0.contains(55936) || $0.contains(55937) } }
+        #expect(!everPublishedRootPort, "the agent root's own sandbox proxy ports must never badge the panel")
+    }
+
+    /// Regression: exclusion must key off identity, not raw PID. If the
+    /// tracked root exits and the OS recycles its PID for an ordinary process
+    /// before the next `refreshAgentPorts` update, that process still badges.
+    @Test("A recycled agent-root PID keeps badging its panel once its identity no longer matches")
+    func recycledAgentRootPIDKeepsBadgingPanel() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys911"
+        let recycledPID = 9101
+        let unrelatedChildPID = 9102
+        let runner = AgentRootPanelCommandRunner(
+            ttyName: ttyName,
+            rootPID: recycledPID,
+            childPID: unrelatedChildPID,
+            rootPorts: [4444],
+            childPorts: []
+        )
+        let recordedRootIdentity = AgentPIDProcessIdentity(pid: pid_t(recycledPID), startSeconds: 1, startMicroseconds: 0)
+        let liveIdentity = AgentPIDProcessIdentity(pid: pid_t(recycledPID), startSeconds: 99, startMicroseconds: 0)
+        let childIdentity = AgentPIDProcessIdentity(pid: pid_t(unrelatedChildPID), startSeconds: 2, startMicroseconds: 0)
+        let scanner = PortScanner(
+            commandRunner: runner,
+            processIdentityProvider: { pid in
+                switch pid {
+                case liveIdentity.pid: liveIdentity
+                case childIdentity.pid: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present }
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+            scanner.refreshAgentPorts(
+                workspaceId: workspaceId,
+                agentRoots: [AgentPortRootIdentity(pid: recycledPID, processIdentity: recordedRootIdentity)]
+            )
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishRecycledPIDPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [4444] },
+            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+        )
+        #expect(didPublishRecycledPIDPort, "an unrelated process reusing a stale agent-root PID must still badge its panel")
+    }
+
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.
@@ -1565,6 +1677,71 @@ private actor PortLifecycleCommandRunner: CommandRunning {
             timedOut: false,
             executionError: nil
         )
+    }
+}
+
+/// Simulates a terminal panel whose foreground process is an agent root PID
+/// with a child dev-server PID sharing its TTY (a real child process launched
+/// without redirection inherits the controlling terminal). `ps -t` reports
+/// both PIDs on the panel's TTY; `lsof` reports listeners for both.
+private actor AgentRootPanelCommandRunner: CommandRunning {
+    private let ttyName: String
+    private let rootPID: Int
+    private let childPID: Int
+    private let rootPorts: [Int]
+    private let childPorts: [Int]
+
+    init(ttyName: String, rootPID: Int, childPID: Int, rootPorts: [Int], childPorts: [Int]) {
+        self.ttyName = ttyName
+        self.rootPID = rootPID
+        self.childPID = childPID
+        self.rootPorts = rootPorts
+        self.childPorts = childPorts
+    }
+
+    func run(
+        directory: String,
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval?
+    ) async -> CommandResult {
+        if executable.hasSuffix("ps") {
+            if arguments.first == "-ax" {
+                return Self.output("\(rootPID) 1\n\(childPID) \(rootPID)\n")
+            }
+            guard Self.selection(for: "-t", in: arguments).contains(ttyName) else {
+                return Self.noSelectedFiles()
+            }
+            return Self.output("\(rootPID) \(ttyName)\n\(childPID) \(ttyName)\n")
+        }
+        let requestedPIDs = Self.selection(for: "-p", in: arguments)
+        var lines = ""
+        if requestedPIDs.contains(String(rootPID)) {
+            lines += "p\(rootPID)\n"
+            for port in rootPorts { lines += "f3\nn127.0.0.1:\(port)\n" }
+        }
+        if requestedPIDs.contains(String(childPID)) {
+            lines += "p\(childPID)\n"
+            for port in childPorts { lines += "f3\nn127.0.0.1:\(port)\n" }
+        }
+        guard !lines.isEmpty else { return Self.noSelectedFiles() }
+        return Self.output(lines)
+    }
+
+    /// The comma-separated values the command was asked to select on.
+    private static func selection(for flag: String, in arguments: [String]) -> Set<String> {
+        guard let flagIndex = arguments.firstIndex(of: flag) else { return [] }
+        let valueIndex = arguments.index(after: flagIndex)
+        guard valueIndex < arguments.endIndex else { return [] }
+        return Set(arguments[valueIndex].split(separator: ",").map(String.init))
+    }
+
+    private static func output(_ stdout: String, stderr: String = "") -> CommandResult {
+        CommandResult(stdout: stdout, stderr: stderr, exitStatus: 0, timedOut: false, executionError: nil)
+    }
+
+    private static func noSelectedFiles() -> CommandResult {
+        CommandResult(stdout: "", stderr: "", exitStatus: 1, timedOut: false, executionError: nil)
     }
 }
 
