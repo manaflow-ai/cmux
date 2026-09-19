@@ -4,6 +4,7 @@ import CmuxTerminal
 import Foundation
 
 extension ContentView {
+    /// Maps built-in palette commands back to their configurable action identifiers.
     func commandPaletteConfigActionID(for commandId: String) -> String? {
         switch commandId {
         case "palette.newTerminalTab":
@@ -23,6 +24,7 @@ extension ContentView {
         }
     }
 
+    /// Returns the built-in Agent Chat palette contribution when its rollout is enabled.
     static func commandPaletteNewAgentChatContributions() -> [CommandPaletteCommandContribution] {
         guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else { return [] }
         return [CommandPaletteCommandContribution(
@@ -34,6 +36,7 @@ extension ContentView {
         )]
     }
 
+    /// Registers the shared Agent Chat action path with the command palette.
     func registerAgentChatCommandPaletteHandler(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.newAgentChat") {
             guard CmuxFeatureFlags.shared.isAgentChatUIEnabled else {
@@ -54,27 +57,24 @@ extension ContentView {
         }
     }
 
+    /// Palette context key indicating that the selected workspace is remotely managed.
     static let commandPaletteWorkspaceIsRemoteKey = CommandPaletteContextKeys(
         rawValue: "workspace.isRemote"
     )
     static let commandPaletteLaunchClaudeTeamsCommandID = "palette.launchClaudeTeams"
     static let commandPaletteLaunchCodexTeamsCommandID = "palette.launchCodexTeams"
 
+    /// Builds launcher commands from availability already resolved away from the main actor.
     static func commandPaletteAgentLauncherContributions(
-        claudeTeamsAvailable: Bool? = nil,
-        codexTeamsAvailable: Bool? = nil
+        availableProviders: Set<AgentSessionProviderID>
     ) -> [CommandPaletteCommandContribution] {
-        let claudeTeamsAvailable = claudeTeamsAvailable
-            ?? commandPaletteAgentLauncherIsAvailable(provider: .claude)
-        let codexTeamsAvailable = codexTeamsAvailable
-            ?? commandPaletteAgentLauncherIsAvailable(provider: .codex)
         let canLaunchFromCurrentWorkspace: (CommandPaletteContextSnapshot) -> Bool = { snapshot in
             snapshot.bool(CommandPaletteContextKeys.hasWorkspace)
                 && !snapshot.bool(commandPaletteWorkspaceIsRemoteKey)
         }
 
         var contributions: [CommandPaletteCommandContribution] = []
-        if claudeTeamsAvailable {
+        if availableProviders.contains(.claude) {
             contributions.append(CommandPaletteCommandContribution(
                 commandId: commandPaletteLaunchClaudeTeamsCommandID,
                 title: { _ in
@@ -93,7 +93,7 @@ extension ContentView {
                 when: canLaunchFromCurrentWorkspace
             ))
         }
-        if codexTeamsAvailable {
+        if availableProviders.contains(.codex) {
             contributions.append(CommandPaletteCommandContribution(
                 commandId: commandPaletteLaunchCodexTeamsCommandID,
                 title: { _ in
@@ -115,10 +115,46 @@ extension ContentView {
         return contributions
     }
 
-    static func commandPaletteAgentLauncherIsAvailable(
+    /// Resolves all palette launcher providers with one shared search-directory scan.
+    nonisolated static func commandPaletteAvailableAgentLauncherProviders(
+        environment: [String: String],
+        bundleResourceURL: URL?,
+        configuredExecutablePaths: [AgentSessionProviderID: String],
+        fileManager: FileManager = .default
+    ) -> Set<AgentSessionProviderID> {
+        guard let bundleResourceURL else { return [] }
+        let cliURL = bundleResourceURL
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: false)
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: cliURL.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue,
+              fileManager.isExecutableFile(atPath: cliURL.path) else {
+            return []
+        }
+
+        let resolver = AgentExecutableResolver(
+            environment: environment,
+            fileManager: fileManager,
+            bundleResourceURL: bundleResourceURL,
+            configuredExecutablePaths: configuredExecutablePaths
+        )
+        let searchDirectories = resolver.resolvedSearchDirectories()
+        var available: Set<AgentSessionProviderID> = []
+        for provider in [AgentSessionProviderID.claude, .codex] {
+            if (try? resolver.resolve(provider, searchDirectories: searchDirectories)) != nil {
+                available.insert(provider)
+            }
+        }
+        return available
+    }
+
+    /// Rechecks one provider immediately before launching its bundled CLI command.
+    nonisolated static func commandPaletteAgentLauncherIsAvailable(
         provider: AgentSessionProviderID,
-        resolver: AgentExecutableResolver? = nil,
-        bundleResourceURL: URL? = Bundle.main.resourceURL,
+        environment: [String: String],
+        bundleResourceURL: URL?,
+        configuredExecutablePaths: [AgentSessionProviderID: String],
         fileManager: FileManager = .default
     ) -> Bool {
         guard let bundleResourceURL else { return false }
@@ -132,63 +168,33 @@ extension ContentView {
             return false
         }
 
-        let resolver = resolver ?? AgentExecutableResolver(
+        let resolver = AgentExecutableResolver(
+            environment: environment,
             fileManager: fileManager,
             bundleResourceURL: bundleResourceURL,
-            configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
+            configuredExecutablePaths: configuredExecutablePaths
         )
         return (try? resolver.resolve(provider)) != nil
     }
 
-    static func commandPaletteAgentLauncherShellInput(
+    /// Formats the exact bundled-CLI command injected into the new terminal tab.
+    nonisolated static func commandPaletteAgentLauncherShellInput(
         cliURL: URL,
         subcommand: String
     ) -> String {
         "\(cliURL.path.terminalShellEscaped) \(subcommand.terminalShellEscaped)\n"
     }
 
+    /// Registers thin palette handlers that delegate launch ownership to the bundled CLI.
     func registerAgentLauncherCommandPaletteHandlers(
         _ registry: inout CommandPaletteHandlerRegistry
     ) {
         registry.register(commandId: Self.commandPaletteLaunchClaudeTeamsCommandID) {
-            launchCommandPaletteAgentLauncher(provider: .claude, subcommand: "claude-teams")
+            startCommandPaletteAgentLauncherActivation(provider: .claude, subcommand: "claude-teams")
         }
         registry.register(commandId: Self.commandPaletteLaunchCodexTeamsCommandID) {
-            launchCommandPaletteAgentLauncher(provider: .codex, subcommand: "codex-teams")
+            startCommandPaletteAgentLauncherActivation(provider: .codex, subcommand: "codex-teams")
         }
-    }
-
-    private func launchCommandPaletteAgentLauncher(
-        provider: AgentSessionProviderID,
-        subcommand: String
-    ) {
-        guard let workspace = tabManager.selectedWorkspace,
-              !workspace.isRemoteWorkspace,
-              let bundleResourceURL = Bundle.main.resourceURL else {
-            NSSound.beep()
-            return
-        }
-
-        let resolver = AgentExecutableResolver(
-            bundleResourceURL: bundleResourceURL,
-            configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
-        )
-        guard Self.commandPaletteAgentLauncherIsAvailable(
-            provider: provider,
-            resolver: resolver,
-            bundleResourceURL: bundleResourceURL
-        ) else {
-            NSSound.beep()
-            return
-        }
-
-        let cliURL = bundleResourceURL
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: false)
-        tabManager.newSurface(initialInput: Self.commandPaletteAgentLauncherShellInput(
-            cliURL: cliURL,
-            subcommand: subcommand
-        ))
     }
 
 }
