@@ -142,6 +142,7 @@ final class SettingsAutomationBehaviorUITests: SettingsUITestCase {
 
     // MARK: - TIER 1: Existing automation rules are discoverable and reloadable
 
+    /// Verifies the native card is discoverable and routes reload to the existing engine.
     func testAutomationRulesCardExposesNativeActionsAndReloadsEngine() {
         let app = makeLaunchedApp()
         let window = openAutomation(app)
