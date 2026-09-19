@@ -252,7 +252,7 @@ final class HostSettingsActions: SettingsHostActions {
 
     func startLocalTmuxSession(name: String) async throws {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cwd = AppDelegate.shared?.tabManager?.selectedWorkspace?.currentDirectory
+        let cwd = AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
