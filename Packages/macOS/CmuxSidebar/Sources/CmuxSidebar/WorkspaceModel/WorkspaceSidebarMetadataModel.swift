@@ -61,6 +61,13 @@ public final class WorkspaceSidebarMetadataModel {
         didSet { panelGitBranchesSubject.send(panelGitBranches) }
     }
 
+    /// Per-panel prompt state keyed by panel id. Lets a workspace report which
+    /// of its surfaces last received a prompt, rather than only the newest one
+    /// across the whole workspace.
+    public var panelPrompts: [UUID: SidebarPanelPromptState] = [:] {
+        didSet { panelPromptsSubject.send(panelPrompts) }
+    }
+
     /// The workspace-level pull-request state shown in the sidebar (legacy
     /// `Workspace.pullRequest`).
     public var pullRequest: SidebarPullRequestState? {
@@ -96,6 +103,8 @@ public final class WorkspaceSidebarMetadataModel {
     private lazy var gitBranchSubject = CurrentValueSubject<SidebarGitBranchState?, Never>(gitBranch)
     @ObservationIgnored
     private lazy var panelGitBranchesSubject = CurrentValueSubject<[UUID: SidebarGitBranchState], Never>(panelGitBranches)
+    @ObservationIgnored
+    private lazy var panelPromptsSubject = CurrentValueSubject<[UUID: SidebarPanelPromptState], Never>(panelPrompts)
     @ObservationIgnored
     private lazy var pullRequestSubject = CurrentValueSubject<SidebarPullRequestState?, Never>(pullRequest)
     @ObservationIgnored
@@ -145,6 +154,12 @@ public final class WorkspaceSidebarMetadataModel {
     /// every change (replaces the legacy `Workspace.$panelGitBranches`).
     public var panelGitBranchesPublisher: AnyPublisher<[UUID: SidebarGitBranchState], Never> {
         panelGitBranchesSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current per-panel prompt state on subscription, then on every
+    /// change.
+    public var panelPromptsPublisher: AnyPublisher<[UUID: SidebarPanelPromptState], Never> {
+        panelPromptsSubject.eraseToAnyPublisher()
     }
 
     /// Emits the current workspace pull-request state on subscription, then on
