@@ -215,10 +215,11 @@ def semantic_scope_for(path: Path) -> str:
     global_paths = {
         DEFAULT_PATH.expanduser().resolve(),
         (Path.home() / ".config" / "cmux" / "settings.json").resolve(),
+        (Path.home() / "Library" / "Application Support" / "com.cmuxterm.app" / "settings.json").resolve(),
     }
     if resolved in global_paths:
         return "global"
-    if resolved.parent.name == ".cmux":
+    if resolved.parent.name == ".cmux" or resolved.name == "cmux.json":
         return "project"
     return "global"
 
