@@ -12,12 +12,33 @@ final class CloudWorkspaceDeletionLedger {
     }
     struct Entry {
         let token: UUID
-        var previous: SurfaceCatalogSnapshot?
         var terminalIDs: Set<SurfaceResourceID>
         var completed = false
         var absentAt: CloudVMCursor?
         var task: Task<Int, Error>?
+        var closedTerminalCount = 0
     }
+    private struct TerminalKey: Hashable {
+        let resource: SurfaceResourceID
+        let provider: ObjectIdentifier
+    }
+    private var terminalTasks: [TerminalKey: Task<Void, Error>] = [:]
+
+    /// Concurrent workspace deletes share a terminal close while either request
+    /// is pending. Completed terminal receipts disappear when the lane drains.
+    func closeTerminal(_ id: SurfaceResourceID, provider: any SurfaceProvider) async throws {
+        let key = TerminalKey(resource: id, provider: ObjectIdentifier(provider))
+        if let existing = terminalTasks[key] { return try await existing.value }
+        let task = Task { @MainActor in try await provider.closeTerminal(id) }
+        terminalTasks[key] = task
+        try await task.value
+    }
+
+    private func releaseTerminalTasksIfIdle(on machine: SurfaceMachineID) {
+        guard !entries.contains(where: { $0.key.machine == machine && !$0.value.completed }) else { return }
+        terminalTasks = terminalTasks.filter { $0.key.resource.machine != machine }
+    }
+
     private(set) var entries: [Key: Entry] = [:]
 
     var pending: [SurfaceMachineID: Set<String>] {
@@ -32,7 +53,7 @@ final class CloudWorkspaceDeletionLedger {
         let key = Key(machine: machine, workspaceID: workspaceID)
         guard entries[key] == nil else { return nil }
         let token = UUID()
-        entries[key] = Entry(token: token, previous: previous, terminalIDs: Set(previous.resources.filter {
+        entries[key] = Entry(token: token, terminalIDs: Set(previous.resources.filter {
             $0.machine == machine && $0.kind == .terminal && $0.remoteWorkspaces.contains { $0.id == workspaceID }
         }.map(\.id)))
         return token
@@ -49,11 +70,13 @@ final class CloudWorkspaceDeletionLedger {
     }
 
     @discardableResult
-    func succeed(machine: SurfaceMachineID, workspaceID: String, token: UUID) -> Bool {
+    func succeed(machine: SurfaceMachineID, workspaceID: String, token: UUID, closedTerminalCount: Int = 0) -> Bool {
         let key = Key(machine: machine, workspaceID: workspaceID)
         guard entries[key]?.token == token, entries[key]?.completed == false else { return false }
         entries[key]?.completed = true
-        entries[key]?.previous = nil
+        entries[key]?.task = nil
+        entries[key]?.closedTerminalCount = closedTerminalCount
+        releaseTerminalTasksIfIdle(on: machine)
         return true
     }
 
@@ -62,6 +85,7 @@ final class CloudWorkspaceDeletionLedger {
         let key = Key(machine: machine, workspaceID: workspaceID)
         guard entries[key]?.token == token, entries[key]?.completed == false else { return false }
         entries[key] = nil
+        releaseTerminalTasksIfIdle(on: machine)
         return true
     }
 
@@ -79,17 +103,21 @@ final class CloudWorkspaceDeletionLedger {
         guard state.document.containsCollection("workspaces"), let cursor = state.cursor else { return }
         for (key, entry) in entries where key.machine == state.machine && entry.completed {
             if !state.workspaceIDs.contains(key.workspaceID) {
-                if entry.absentAt == nil || cursor.isNewer(than: entry.absentAt) {
+                if entry.absentAt == nil || cursor.generation != entry.absentAt?.generation || cursor.isNewer(than: entry.absentAt) {
                     entries[key]?.absentAt = cursor
                 }
             } else if let absent = entry.absentAt,
-                      cursor.generation != absent.generation || cursor.revision > absent.revision {
+                      cursor.generation == absent.generation && cursor.revision > absent.revision {
                 entries[key] = nil
             }
         }
     }
 
     func remove(machine: SurfaceMachineID) {
+        for (key, task) in terminalTasks where key.resource.machine == machine {
+            task.cancel()
+            terminalTasks[key] = nil
+        }
         for (key, entry) in entries where key.machine == machine {
             entry.task?.cancel()
             entries[key] = nil

@@ -55,6 +55,13 @@ public final class CloudMachinePinStore {
         activeScope.flatMap { scopes[$0]?.pinned } ?? []
     }
 
+    /// Current account/team identity, captured by callers before an asynchronous
+    /// fleet request so a response cannot write into a different account's pins.
+    public var scopeIdentifier: String? {
+        let scope = scopeProvider()?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return scope?.isEmpty == false ? scope : nil
+    }
+
     /// Re-reads the account/team scope after sign-in, sign-out, or a team switch.
     public func refreshScope() {
         syncScope()
@@ -135,7 +142,7 @@ public final class CloudMachinePinStore {
     }
 
     private func syncScope() {
-        let nextScope = scopeProvider()?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let nextScope = scopeIdentifier
         guard nextScope != activeScope else { return }
         activeScope = nextScope?.isEmpty == false ? nextScope : nil
     }

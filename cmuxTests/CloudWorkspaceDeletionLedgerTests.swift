@@ -58,9 +58,22 @@ struct CloudWorkspaceDeletionLedgerTests {
         #expect(ledger.hides(machine: machine, workspaceID: "workspace-4"))
         #expect(!ledger.hides(machine: machine, workspaceID: "workspace-9"))
     }
-    private func graph(_ ids: [String], revision: Int) throws -> CloudVMState {
+    @Test("A different generation cannot itself resurrect a deleted workspace")
+    func generationChangeRequiresAbsenceBeforeReuse() throws {
+        let ledger = CloudWorkspaceDeletionLedger()
+        let token = try #require(ledger.begin(machine: machine, workspaceID: "old"))
+        #expect(ledger.succeed(machine: machine, workspaceID: "old", token: token))
+        ledger.reconcile(try graph([], revision: 4))
+        ledger.reconcile(try graph(["old"], revision: 100, generation: "other"))
+        #expect(ledger.hides(machine: machine, workspaceID: "old"))
+        ledger.reconcile(try graph([], revision: 101, generation: "other"))
+        ledger.reconcile(try graph(["old"], revision: 102, generation: "other"))
+        #expect(!ledger.hides(machine: machine, workspaceID: "old"))
+    }
+
+    private func graph(_ ids: [String], revision: Int, generation: String = "delete") throws -> CloudVMState {
         try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
-            "cursor": ["generation": "delete", "revision": String(revision)],
+            "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": ids.map { ["id": $0, "name": $0] },
             "screens": [], "panes": [], "tabs": [], "terminals": [], "browsers": [], "agents": []
         ], machine: machine))

@@ -221,6 +221,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
     private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
+    private var awaitingCatalogScope = false
 
     init(
         createCoordinator: MachineCreateCoordinator? = nil,
@@ -342,7 +343,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Publishes the catalog's current value and the local workspace list. Cheap
     /// (a value read), so every change notification may call it.
     func readCatalog() {
-        catalog = catalogProvider()
+        catalog = scopedCatalogSnapshot()
         // Catalog discoveries join the remembered fleet order as they appear, so a
         // machine the list endpoint has not returned yet still has a stable slot.
         machinePinStore?.remember(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(machines, catalog: catalog).map(\.id))
@@ -566,6 +567,37 @@ final class MachinesPanelViewModel: ObservableObject {
         isLoading = false
     }
 
+    /// Retire old requests before changing pin scope. Catalog discoveries are
+    /// admitted again only after the shared registry refreshes the new account.
+    @discardableResult
+    func refreshAccountScope(
+        refreshCatalog: @escaping @MainActor () async -> Bool = { await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) }
+    ) -> Task<Void, Never> {
+        resetForAuthTransition()
+        machinePinStore?.refreshScope()
+        awaitingCatalogScope = true
+        let generation = refreshGeneration
+        let task = Task { @MainActor [weak self] in
+            let accepted = await refreshCatalog()
+            guard let self, !Task.isCancelled, generation == self.refreshGeneration else { return }
+            if accepted { self.awaitingCatalogScope = false }
+            self.readCatalog()
+            self.treeTask = nil
+        }
+        treeTask = task
+        if wantsPolling { startPolling() }
+        return task
+    }
+
+    private func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
+        let snapshot = catalogProvider()
+        guard awaitingCatalogScope else { return snapshot }
+        let allowed = Set(machines.map { SurfaceMachineID.cloud($0.id) }).union([.local])
+        return SurfaceCatalogSnapshot(machines: snapshot.machines.filter { allowed.contains($0.id) },
+            resources: snapshot.resources.filter { allowed.contains($0.machine) },
+            projections: snapshot.projections.filter { allowed.contains($0.resource.machine) })
+    }
+
     private func performRefresh() async {
         guard CloudMachinesFeature.isEnabled else {
             isLoading = false
@@ -575,10 +607,13 @@ final class MachinesPanelViewModel: ObservableObject {
             isLoading = false
             return
         }
+        let generation = refreshGeneration
+        let scope = machinePinStore?.scopeIdentifier
         do {
             let page = try await client.listPage()
             try Task.checkCancellation()
-            guard CloudMachinesFeature.isEnabled else { return }
+            guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier,
+                  CloudMachinesFeature.isEnabled else { return }
             let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
@@ -601,7 +636,7 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             // The authoritative fleet plus catalog-only rows is the complete
             // visible set: a pin whose machine is gone from both is pruned.
-            machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: catalogProvider()).map(\.id))
+            machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
@@ -611,7 +646,10 @@ final class MachinesPanelViewModel: ObservableObject {
             plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
             listProblem = nil
+        } catch is CancellationError {
+            return
         } catch let error as VMClientError {
+            guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier else { return }
             if case .notSignedIn = error {
                 // A request can race sign-out before the auth observation or
                 // notification arrives. Clear the authoritative-looking
@@ -629,6 +667,7 @@ final class MachinesPanelViewModel: ObservableObject {
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
         } catch {
+            guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier else { return }
             lastErrorDescription = String(describing: error)
             listProblem = .unreachable
         }

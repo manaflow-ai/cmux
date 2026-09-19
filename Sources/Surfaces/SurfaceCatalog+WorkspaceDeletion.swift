@@ -10,7 +10,10 @@ extension SurfaceCatalog {
     ) -> Task<Int, Error> {
         let ledger = cloudWorkspaceDeletionLedger
         let key = CloudWorkspaceDeletionLedger.Key(machine: machine, workspaceID: workspaceID)
-        if let existing = ledger.entries[key]?.task { return existing }
+        if let entry = ledger.entries[key] {
+            if let existing = entry.task { return existing }
+            if entry.completed { return Task { entry.closedTerminalCount } }
+        }
         guard let token = ledger.begin(machine: machine, workspaceID: workspaceID, previous: authoritativeSnapshot) else {
             return Task { throw CancellationError() }
         }
@@ -26,8 +29,9 @@ extension SurfaceCatalog {
                 guard let provider = suppliedProvider ?? self.provider(for: machine) else {
                     throw SurfaceCatalogError.noProvider(machine)
                 }
+                try self.checkDeletionProvider(provider, machine: machine)
                 await provider.refresh()
-                try Task.checkCancellation()
+                try self.checkDeletionProvider(provider, machine: machine)
                 // Read authoritative rows: the visible snapshot deliberately hides
                 // this workspace already. Refresh captures terminals created while
                 // the confirmation dialog was open.
@@ -37,14 +41,15 @@ extension SurfaceCatalog {
                 ledger.rememberTerminals(Set(doomed.map(\.id)), key: key, token: token)
                 self.notifyChange()
                 for terminal in doomed {
-                    try Task.checkCancellation()
-                    try await provider.closeTerminal(terminal.id)
+                    try self.checkDeletionProvider(provider, machine: machine)
+                    try await ledger.closeTerminal(terminal.id, provider: provider)
                 }
-                try Task.checkCancellation()
+                try self.checkDeletionProvider(provider, machine: machine)
                 try await provider.closeRemoteWorkspace(id: workspaceID)
+                guard self.provider(for: machine) === provider else { throw CancellationError() }
                 // Once close returns successfully, cancellation must not undo a
                 // committed remote mutation or display the old row again.
-                _ = ledger.succeed(machine: machine, workspaceID: workspaceID, token: token)
+                _ = ledger.succeed(machine: machine, workspaceID: workspaceID, token: token, closedTerminalCount: doomed.count)
                 if let state = self.cloudStates[machine], self.cloudStateObservations[machine]?.freshness == .current {
                     ledger.reconcile(state)
                 }
@@ -79,6 +84,10 @@ extension SurfaceCatalog {
         if let workspaceID = remoteWorkspaceID,
            isCloudWorkspaceDeletionHidden(machine: id.machine, workspaceID: workspaceID) { return true }
         return cloudWorkspaceDeletionLedger.entries.values.contains { $0.terminalIDs.contains(id) }
+    }
+    private func checkDeletionProvider(_ provider: any SurfaceProvider, machine: SurfaceMachineID) throws {
+        try Task.checkCancellation()
+        guard self.provider(for: machine) === provider else { throw CancellationError() }
     }
 
 }

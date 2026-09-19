@@ -83,12 +83,10 @@ struct MachinesPanelView: View {
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
         .onChange(of: accountFlow?.selectedTeamID) { _, _ in
-            viewModel.machinePinStore?.refreshScope()
-            viewModel.refresh()
+            viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
-            viewModel.machinePinStore?.refreshScope()
-            viewModel.refresh()
+            viewModel.refreshAccountScope()
         }
         .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
             if let id { viewModel.setDefaultMachine(id: id) }

@@ -196,4 +196,41 @@ struct CloudWorkspaceDeleteOptimismTests {
         try fixture.attachScreenshot(named: "cloud-delete-rollback")
     }
 
+    @Test("A provider replaced during refresh cannot receive destructive calls")
+    func providerReplacementCancelsDelete() async throws {
+        let catalog = SurfaceCatalog()
+        let old = CloudWorkspaceDeleteTestProvider()
+        let replacement = CloudWorkspaceDeleteTestProvider()
+        catalog.register(old)
+        catalog.replaceResources([old.terminal], on: old.machine)
+        old.onRefresh = { catalog.register(replacement) }
+        let task = catalog.deleteCloudWorkspace(machine: old.machine, workspaceID: old.workspace.id)
+        do { _ = try await task.value; Issue.record("Retired provider must not delete") }
+        catch { #expect(error is CancellationError) }
+        #expect(old.closedTerminals.isEmpty && old.closedWorkspaces.isEmpty)
+        #expect(replacement.closedTerminals.isEmpty && replacement.closedWorkspaces.isEmpty)
+        #expect(!catalog.isCloudWorkspaceDeletionHidden(machine: old.machine, workspaceID: old.workspace.id))
+    }
+
+    @Test("Concurrent workspaces sharing a terminal close its process once")
+    func sharedTerminalClosesOnce() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = CloudWorkspaceDeleteTestProvider()
+        catalog.register(provider)
+        let other = SurfaceRemoteWorkspace(id: "other", name: "Other", index: 1, focused: false)
+        var terminal = provider.terminal
+        terminal.remoteViews = [SurfaceRemoteView(tabID: "first", workspace: provider.workspace),
+                                SurfaceRemoteView(tabID: "second", workspace: other)]
+        catalog.replaceResources([terminal], on: provider.machine)
+        let first = catalog.deleteCloudWorkspace(machine: provider.machine, workspaceID: provider.workspace.id)
+        let second = catalog.deleteCloudWorkspace(machine: provider.machine, workspaceID: other.id)
+        #expect(try await first.value == 1)
+        #expect(try await second.value == 1)
+        #expect(provider.closedTerminals == [terminal.id])
+        #expect(Set(provider.closedWorkspaces) == [provider.workspace.id, other.id])
+        let repeated = catalog.deleteCloudWorkspace(machine: provider.machine, workspaceID: other.id)
+        #expect(try await repeated.value == 1)
+        #expect(provider.closedWorkspaces.count == 2)
+    }
+
 }

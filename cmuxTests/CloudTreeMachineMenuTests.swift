@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCloudMachines
 import Testing
+import Observation
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -289,6 +290,10 @@ struct CloudTreeMachineMenuTests {
         #expect(coordinator.nodes.first?.isPinned == true)
         let pinnedMenu = try #require(coordinator.contextMenu(forRow: 0))
         #expect(pinnedMenu.items.contains { $0.title == Self.title("machines.row.unpin", "Unpin Machine") })
+        try Self.choose(Self.title("machines.row.unpin", "Unpin Machine"), in: pinnedMenu)
+        render()
+        #expect(coordinator.nodes.first?.isPinned == false)
+        try Self.choose(Self.title("machines.row.pin", "Pin Machine"), in: try #require(coordinator.contextMenu(forRow: 0)))
 
         catalog = Self.catalog(["new", "older", "pin-me"])
         model.readCatalog()
@@ -308,6 +313,55 @@ struct CloudTreeMachineMenuTests {
         #expect(restored.orderedMachineIDs(["older", "new", "pin-me"]) == ["new", "pin-me", "older"])
     }
 
+    @Test("Both sidebar projections observe the one pin store")
+    func sharedPinsInvalidateBothPanels() async throws {
+        let suite = "observed-machine-pins-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = CloudMachinePinStore(defaults: defaults, scopeProvider: { "scope" })
+        let catalog = Self.catalog(["one", "two"])
+        let creates = MachineCreateCoordinator(notifier: { _ in })
+        let first = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        let second = MachinesPanelViewModel(createCoordinator: creates, machinePinStore: store, catalogProvider: { catalog })
+        first.localWorkspacesProvider = { [] }; second.localWorkspacesProvider = { [] }
+        first.readCatalog(); second.readCatalog()
+        await confirmation("Both readers invalidate", expectedCount: 2) { changed in
+            withObservationTracking { _ = first.sidebarMachines } onChange: { changed() }
+            withObservationTracking { _ = second.sidebarMachines } onChange: { changed() }
+            first.setMachinePinned(true, id: "two")
+        }
+        #expect(first.sidebarMachines.map(\.id) == ["two", "one"])
+        #expect(second.sidebarMachines.first?.isPinned == true)
+    }
+
+    @Test("An account switch hides retired catalog rows until refreshed")
+    func scopeRefreshDoesNotRememberPreviousAccountsMachines() async throws {
+        let suite = "scoped-machine-pins-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var scope = "old"
+        let store = CloudMachinePinStore(defaults: defaults, scopeProvider: { scope })
+        var catalog = Self.catalog(["old-machine"])
+        let model = MachinesPanelViewModel(createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            machinePinStore: store, catalogProvider: { catalog })
+        model.localWorkspacesProvider = { [] }
+        model.readCatalog()
+        model.setMachinePinned(true, id: "old-machine")
+        scope = "new"
+        let refresh = model.refreshAccountScope(refreshCatalog: {
+            catalog = Self.catalog(["new-machine"])
+            return true
+        })
+        model.readCatalog()
+        #expect(model.sidebarMachines.isEmpty, "A late catalog notification must not expose the prior scope")
+        await refresh.value
+        #expect(model.sidebarMachines.map(\.id) == ["new-machine"])
+        #expect(store.pinnedMachineIDs.isEmpty)
+        scope = "old"
+        store.refreshScope()
+        #expect(store.isPinned("old-machine"))
+    }
+
     private static func catalog(_ ids: [String]) -> SurfaceCatalogSnapshot {
         SurfaceCatalogSnapshot(machines: ids.map { id in
             SurfaceMachineInfo(
@@ -320,11 +374,14 @@ struct CloudTreeMachineMenuTests {
 
     @Test("expired machines still allow local pinning")
     func expiredMachineCanBePinned() throws {
+        let suite = "expired-pin-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
         let recorder = CloudTreeMenuVerbRecorder()
         let coordinator = CloudTreeOutlineView.Coordinator(
             machineActions: Self.machineActions(recording: recorder),
             nodeActions: Self.nodeActions(recording: recorder),
-            expansionStore: CloudTreeExpansionStore(defaults: UserDefaults(suiteName: "expired-pin-\(UUID().uuidString)")!),
+            expansionStore: CloudTreeExpansionStore(defaults: defaults),
             tabDragTransferRegistry: { nil }
         )
         let container = CloudTreeContainerView(coordinator: coordinator)
