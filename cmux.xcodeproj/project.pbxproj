@@ -821,6 +821,7 @@
 		595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */; };
 		B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438020000000000000002 /* CloudRenameCoordinator.swift */; };
 		C12575000000000000000050 /* CloudRenameOptimismTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000051 /* CloudRenameOptimismTests.swift */; };
+		46383D21CF46427F36EBEB7B /* CloudSidebarAcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */; };
 		5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */; };
 		D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */; };
 		1B2372910F434AD5B1AF5F62 /* CloudSidebarDraggingInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F416621204C404E82980AEA /* CloudSidebarDraggingInfo.swift */; };
@@ -4806,6 +4807,7 @@
 		64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRemoteOperationStep.swift"; sourceTree = "<group>"; };
 		B12438020000000000000002 /* CloudRenameCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudRenameCoordinator.swift; sourceTree = "<group>"; };
 		C12575000000000000000051 /* CloudRenameOptimismTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRenameOptimismTests.swift; sourceTree = "<group>"; };
+		8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAcceptanceTests.swift"; sourceTree = "<group>"; };
 		5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAttentionLayoutTests.swift"; sourceTree = "<group>"; };
 		B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarConsistencyTests.swift; sourceTree = "<group>"; };
 		0F416621204C404E82980AEA /* CloudSidebarDraggingInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarDraggingInfo.swift"; sourceTree = "<group>"; };
@@ -11320,6 +11322,7 @@
 				6C2630FE0F0747A68FBAD58F /* CloudSidebarDraggingSession.swift */,
 				F0A17868063D4FF7939B0525 /* CloudSidebarPinGeometryTests.swift */,
 				722810E7A6B61367EB82C783 /* CloudTreeCompactLayoutTests.swift */,
+				8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */,
 				EB88F9DE494D4AF99C2E09BF /* CloudSidebarInteractionTests.swift */,
 				890B21137A724FE8A2861566 /* CloudSidebarNativeDropTests.swift */,
 				0F416621204C404E82980AEA /* CloudSidebarDraggingInfo.swift */,
@@ -15466,6 +15469,7 @@
 				AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */,
 				C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */,
 				C12575000000000000000050 /* CloudRenameOptimismTests.swift in Sources */,
+				46383D21CF46427F36EBEB7B /* CloudSidebarAcceptanceTests.swift in Sources */,
 				5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */,
 				D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */,
 				1B2372910F434AD5B1AF5F62 /* CloudSidebarDraggingInfo.swift in Sources */,
