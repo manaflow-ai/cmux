@@ -80,7 +80,8 @@ extension SettingsWindowRoot {
                 defaultsStore: defaultsStore,
                 jsonStore: jsonStore,
                 catalog: catalog,
-                errorLog: runtime.errorLog
+                errorLog: runtime.errorLog,
+                hostActions: hostActions
             )
         }
 
