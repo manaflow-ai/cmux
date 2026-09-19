@@ -9,4 +9,23 @@ struct BrowserSplitRequest: Sendable {
     let chromeVisibility: BrowserChromeVisibility
     let transparentBackground: Bool
     let bypassRemoteProxy: Bool
+    let preloadInBackground: Bool
+
+    init(
+        url: URL?,
+        focus: Bool,
+        preferredProfileID: UUID? = nil,
+        chromeVisibility: BrowserChromeVisibility = BrowserChromeVisibility(omnibarVisible: true),
+        transparentBackground: Bool = false,
+        bypassRemoteProxy: Bool = false,
+        preloadInBackground: Bool = true
+    ) {
+        self.url = url
+        self.focus = focus
+        self.preferredProfileID = preferredProfileID
+        self.chromeVisibility = chromeVisibility
+        self.transparentBackground = transparentBackground
+        self.bypassRemoteProxy = bypassRemoteProxy
+        self.preloadInBackground = preloadInBackground
+    }
 }

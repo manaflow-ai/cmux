@@ -2465,6 +2465,7 @@
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
           "defaultZoomLevel": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page.",
+          "terminalLinkBrowserPlacement": "Placement for clicked terminal links and intercepted open commands: split reuses a pane to the right or creates a split; samePane creates a browser tab in the source terminal pane. Manual browser splits are unchanged.",
           "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads.",
           "urlAllowlist": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },

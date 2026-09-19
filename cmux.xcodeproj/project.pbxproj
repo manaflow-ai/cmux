@@ -466,6 +466,7 @@
 		27DA3BE42CBF4AAFB6DE69C5 /* BrowserOmnibarSubmitSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */; };
 		B7380002B7380002B7380002 /* BrowserOmnibarSuggestionClickRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7380001B7380001B7380001 /* BrowserOmnibarSuggestionClickRoutingTests.swift */; };
 		D0E0F0B2A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */; };
+		127980000000000000000005 /* BrowserOpenEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 127980000000000000000006 /* BrowserOpenEnvironment.swift */; };
 		9869000B0000000000000001 /* BrowserOpenTabSuggestionHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9869000B0000000000000002 /* BrowserOpenTabSuggestionHostTests.swift */; };
 		D0B1002EA1B2C3D4E5F60001 /* BrowserPaneDropRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1002FA1B2C3D4E5F60001 /* BrowserPaneDropRouting.swift */; };
 		D0B1000EA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */; };
@@ -1326,6 +1327,7 @@
 		CD0CFE5300000000CD0CFE53 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
 		CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */ = {isa = PBXBuildFile; productRef = CD0CFE5200000000CD0CFE52 /* CmuxSettings */; };
 		0025785C0AAC45F3A9C5A8C5 /* CmuxSettingsFileStore+AppSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95EC0379B5EE4AA18652FF31 /* CmuxSettingsFileStore+AppSection.swift */; };
+		127980000000000000000003 /* CmuxSettingsFileStore+Browser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 127980000000000000000004 /* CmuxSettingsFileStore+Browser.swift */; };
 		A7984AC10000000000000001 /* CmuxSettingsFileStore+Live.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7984AC10000000000000002 /* CmuxSettingsFileStore+Live.swift */; };
 		4A12A7AFA23E42DE80018D2E /* CmuxSettingsFileStore+SupportedPaths.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E82BCF86114ACFBCB1B225 /* CmuxSettingsFileStore+SupportedPaths.swift */; };
 		D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */; };
@@ -1565,6 +1567,7 @@
 		BE979B868F4D42199E5400E2 /* ControlSidebarPanelOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8746A8206B6142D7B963CDFA /* ControlSidebarPanelOwner.swift */; };
 		C51A73B30000000000000002 /* ControlSimulatorPendingTextInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
+		127980000000000000000009 /* ControlSocketUITestClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12798000000000000000000A /* ControlSocketUITestClient.swift */; };
 		11295000000000000000000E /* ControlSurfaceResumeTarget+ContinuationRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11295000000000000000000D /* ControlSurfaceResumeTarget+ContinuationRecord.swift */; };
 		D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */; };
 		93300005A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */; };
@@ -3360,6 +3363,8 @@
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
 		124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000008 /* TerminalImageTransferTarget.swift */; };
 		D12797000000000000000002 /* TerminalLightAppearanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12797000000000000000001 /* TerminalLightAppearanceUITests.swift */; };
+		127980000000000000000001 /* TerminalLinkBrowserPlacementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 127980000000000000000002 /* TerminalLinkBrowserPlacementTests.swift */; };
+		127980000000000000000007 /* TerminalLinkBrowserPlacementUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 127980000000000000000008 /* TerminalLinkBrowserPlacementUITests.swift */; };
 		C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
 		859110000000000000000007 /* TerminalLinkOpenCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */; };
@@ -3885,6 +3890,7 @@
 		8672E0088672E0088672E008 /* WorkstreamEvent+FeedIngress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0078672E0078672E007 /* WorkstreamEvent+FeedIngress.swift */; };
 		A78C42010000000000000001 /* XCUIApplication+CmuxTestApplication.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78C42010000000000000002 /* XCUIApplication+CmuxTestApplication.swift */; };
 		84E00D47E4584162AE53BC8D /* xterm-ghostty in Resources */ = {isa = PBXBuildFile; fileRef = B2E7294509CC42FE9191870E /* xterm-ghostty */; };
+
 
 /* End PBXBuildFile section */
 
@@ -4432,6 +4438,7 @@
 		C76D07ED88D244B1B02FAF3C /* BrowserOmnibarSubmitSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserOmnibarSubmitSupport.swift; sourceTree = "<group>"; };
 		B7380001B7380001B7380001 /* BrowserOmnibarSuggestionClickRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionClickRoutingTests.swift; sourceTree = "<group>"; };
 		D0E0F0B3A1B2C3D4E5F60718 /* BrowserOmnibarSuggestionsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOmnibarSuggestionsUITests.swift; sourceTree = "<group>"; };
+		127980000000000000000006 /* BrowserOpenEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BrowserOpenEnvironment.swift"; sourceTree = "<group>"; };
 		9869000B0000000000000002 /* BrowserOpenTabSuggestionHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserOpenTabSuggestionHostTests.swift; sourceTree = "<group>"; };
 		D0B1002FA1B2C3D4E5F60001 /* BrowserPaneDropRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneDropRouting.swift; sourceTree = "<group>"; };
 		D0B1000FA1B2C3D4E5F60001 /* BrowserPaneDropRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneDropRoutingTests.swift; sourceTree = "<group>"; };
@@ -5218,6 +5225,7 @@
 		A9F10000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureSender.swift; sourceTree = "<group>"; };
 		A9F100000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxRuntimeDebugCaptureSequence.swift; sourceTree = "<group>"; };
 		95EC0379B5EE4AA18652FF31 /* CmuxSettingsFileStore+AppSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+AppSection.swift"; sourceTree = "<group>"; };
+		127980000000000000000004 /* CmuxSettingsFileStore+Browser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+Browser.swift"; sourceTree = "<group>"; };
 		A7984AC10000000000000002 /* CmuxSettingsFileStore+Live.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+Live.swift"; sourceTree = "<group>"; };
 		33E82BCF86114ACFBCB1B225 /* CmuxSettingsFileStore+SupportedPaths.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxSettingsFileStore+SupportedPaths.swift"; sourceTree = "<group>"; };
 		D3610C010000000000000002 /* CmuxSettingsJSONPathSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxSettingsJSONPathSupport.swift; sourceTree = "<group>"; };
@@ -5425,6 +5433,7 @@
 		8746A8206B6142D7B963CDFA /* ControlSidebarPanelOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSidebarPanelOwner.swift; sourceTree = "<group>"; };
 		C51A73B30000000000000001 /* ControlSimulatorPendingTextInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSimulatorPendingTextInput.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
+		12798000000000000000000A /* ControlSocketUITestClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketUITestClient.swift; sourceTree = "<group>"; };
 		11295000000000000000000D /* ControlSurfaceResumeTarget+ContinuationRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ControlSurfaceResumeTarget+ContinuationRecord.swift"; sourceTree = "<group>"; };
 		D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceResumeTarget.swift; sourceTree = "<group>"; };
 		93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlTerminalSocketBindingState.swift; sourceTree = "<group>"; };
@@ -7197,6 +7206,8 @@
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
 		124770000000000000000008 /* TerminalImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
 		D12797000000000000000001 /* TerminalLightAppearanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLightAppearanceUITests.swift; sourceTree = "<group>"; };
+		127980000000000000000002 /* TerminalLinkBrowserPlacementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkBrowserPlacementTests.swift; sourceTree = "<group>"; };
+		127980000000000000000008 /* TerminalLinkBrowserPlacementUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkBrowserPlacementUITests.swift; sourceTree = "<group>"; };
 		C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkLocationAndDockTests.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
 		859110000000000000000008 /* TerminalLinkOpenCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenCoordinator.swift; sourceTree = "<group>"; };
@@ -7719,6 +7730,7 @@
 		A78C42010000000000000002 /* XCUIApplication+CmuxTestApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "XCUIApplication+CmuxTestApplication.swift"; sourceTree = "<group>"; };
 		B2E7294509CC42FE9191870E /* xterm-ghostty */ = {isa = PBXFileReference; lastKnownFileType = file; path = "ghostty/terminfo/78/xterm-ghostty"; sourceTree = "<group>"; };
 
+
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -7973,6 +7985,8 @@
 				F0F0A002A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift */,
 				A1122302A1B2C3D4E5F60718 /* NewWorkspaceButtonHitAreaUITests.swift */,
 				C2577001A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift */,
+				127980000000000000000008 /* TerminalLinkBrowserPlacementUITests.swift */,
+				12798000000000000000000A /* ControlSocketUITestClient.swift */,
 				B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */,
 				B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */,
 				E6FA9085A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift */,
@@ -9666,6 +9680,7 @@
 				BBC516CC8FB0418AA9D72AB4 /* TerminalController+ShortcutConfiguration.swift */,
 				95EC0379B5EE4AA18652FF31 /* CmuxSettingsFileStore+AppSection.swift */,
 				33E82BCF86114ACFBCB1B225 /* CmuxSettingsFileStore+SupportedPaths.swift */,
+				127980000000000000000004 /* CmuxSettingsFileStore+Browser.swift */,
 				6DD89A398F134C93ACED1A9A /* SettingsSearchIndex.swift */,
 				52CED71E561F42DBB0D65021 /* KeyboardShortcutSettings+Compatibility.swift */,
 				642F4FF3D6A746F79289C11C /* TabManager+PaneResize.swift */,
@@ -10550,6 +10565,7 @@
 				74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */,
 				7B615265460F412888EB0F73 /* CMUXCLI+CloudSidebar.swift */,
 				CC0033E15A1B2C3D4E5F0021 /* CMUXCLI+VMTui.swift */,
+				127980000000000000000006 /* BrowserOpenEnvironment.swift */,
 				CC0033E15A1B2C3D4E5F0033 /* CMUXCLI+VMTuiWorkspaceNaming.swift */,
 				F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */,
 				25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */,
@@ -10822,6 +10838,7 @@
 				DCDC0000000000000000B002 /* DockControlDefinitionDecodingTests.swift */,
 				859100000000000000000002 /* TerminalLinkOpenCoordinatorTests.swift */,
 				C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */,
+				127980000000000000000002 /* TerminalLinkBrowserPlacementTests.swift */,
 				D7529002A1B2C3D4E5F60718 /* DockPaneDropUnfocusedRoutingTests.swift */,
 				D77800010000000000000002 /* DockPortalReconcileTests.swift */,
 				8777D0028777D0028777D002 /* DockRuntimeParityTests.swift */,
@@ -13060,6 +13077,7 @@
 				A9F20000000000000000001A /* CmuxRuntimeDebugCaptureSender.swift in Sources */,
 				A9F200000000000000000007 /* CmuxRuntimeDebugCaptureSequence.swift in Sources */,
 				0025785C0AAC45F3A9C5A8C5 /* CmuxSettingsFileStore+AppSection.swift in Sources */,
+				127980000000000000000003 /* CmuxSettingsFileStore+Browser.swift in Sources */,
 				A7984AC10000000000000001 /* CmuxSettingsFileStore+Live.swift in Sources */,
 				4A12A7AFA23E42DE80018D2E /* CmuxSettingsFileStore+SupportedPaths.swift in Sources */,
 				D3610C010000000000000001 /* CmuxSettingsJSONPathSupport.swift in Sources */,
@@ -14842,6 +14860,7 @@
 				A10649030000000000000001 /* AutomationRule.swift in Sources */,
 				A10649330000000000000001 /* AutomationWebhookPolicy.swift in Sources */,
 				A10649380000000000000001 /* AutomationWebhookRedirectDelegate.swift in Sources */,
+				127980000000000000000005 /* BrowserOpenEnvironment.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
@@ -15055,6 +15074,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+
 				B9000012A1B2C3D4E5F60719 /* AutomationSocketUITests.swift in Sources */,
 				AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */,
 				D93410000000000000000001 /* BrowserDownloadsPopoverContrastUITests.swift in Sources */,
@@ -15072,6 +15092,7 @@
 				B900001BA1B2C3D4E5F60719 /* CloseWorkspacesConfirmDialogUITests.swift in Sources */,
 				C0DE32470000000000000005 /* CommandPaletteIdentifierClipboardUITests.swift in Sources */,
 				D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */,
+				127980000000000000000009 /* ControlSocketUITestClient.swift in Sources */,
 				B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */,
 				FEED0000000000000000F009 /* FeedSidebarUITests.swift in Sources */,
 				D0E0F0B4A1B2C3D4E5F60718 /* FindSelectionShortcutUITests.swift in Sources */,
@@ -15107,6 +15128,7 @@
 				B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */,
 				C2577000A1B2C3D4E5F60718 /* TerminalCmdClickUITests.swift in Sources */,
 				D12797000000000000000002 /* TerminalLightAppearanceUITests.swift in Sources */,
+				127980000000000000000007 /* TerminalLinkBrowserPlacementUITests.swift in Sources */,
 				C0B4D9B0A1B2C3D4E5F60718 /* UpdatePillUITests.swift in Sources */,
 				E6FA9084A1B2C3D4E5F60718 /* WorkspaceDescriptionUITests.swift in Sources */,
 				F0F0A001A1B2C3D4E5F60718 /* WorkspaceSidebarScrollUITests.swift in Sources */,
@@ -15979,6 +16001,7 @@
 				851500000000000000000001 /* TerminalFontZoomSessionPersistenceTests.swift in Sources */,
 				B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */,
 				B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */,
+				127980000000000000000001 /* TerminalLinkBrowserPlacementTests.swift in Sources */,
 				C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */,
 				859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */,
 				C0DE1A6E0000000000000001 /* TerminalLocalImageTransferFileLifetimeTests.swift in Sources */,

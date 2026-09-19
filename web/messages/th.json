@@ -1236,6 +1236,7 @@
           "soundOverride": "การแทนที่เสียงการแจ้งเตือน default ใช้ notifications.sound, none ปิดการเล่น และค่าอื่นจะเลือกเสียงในตัวหรือเสียงกำหนดเอง"
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "ตำแหน่งสำหรับลิงก์ที่คลิกในเทอร์มินัลและคำสั่ง open ที่ถูกดักจับ: split ใช้บานหน้าต่างด้านขวาที่มีอยู่หรือสร้างการแบ่งใหม่ ส่วน samePane สร้างแท็บเบราว์เซอร์ในบานหน้าต่างของเทอร์มินัลต้นทาง การแบ่งเบราว์เซอร์ด้วยตนเองไม่เปลี่ยนแปลง",
           "defaultSearchEngine": "เครื่องมือค้นหาเริ่มต้นสำหรับคำค้นในแถบที่อยู่ของเบราว์เซอร์ที่ไม่ใช่ URL ใช้ custom กับ customSearchEngineURLTemplate สำหรับผู้ให้บริการอื่น",
           "customSearchEngineName": "ชื่อที่แสดงเมื่อ defaultSearchEngine เป็น custom",
           "customSearchEngineURLTemplate": "URL ค้นหาที่ใช้เมื่อ defaultSearchEngine เป็น custom ใส่ตัวแทนคำค้นหรือ %s สำหรับคำค้นที่เข้ารหัส หากไม่มีตัวแทน cmux จะเพิ่ม q= ให้กับ URL",

@@ -1479,6 +1479,16 @@
           "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
           "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
+        "terminalLinkBrowserPlacement": {
+          "type": "string",
+          "enum": [
+            "split",
+            "samePane"
+          ],
+          "default": "split",
+          "descriptionKey": "schemaDescriptions.browser.terminalLinkBrowserPlacement",
+          "description": "Placement for clicked terminal links and intercepted open commands: split reuses a pane to the right or creates a split; samePane creates a browser tab in the source terminal pane. Manual browser splits are unchanged."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,

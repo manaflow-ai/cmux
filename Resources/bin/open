@@ -477,7 +477,7 @@ for url in "${cmux_targets[@]}"; do
         failed_urls+=("$url")
         continue
     fi
-    CMUX_RESPECT_EXTERNAL_OPEN_RULES=1 "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
+    CMUX_TERMINAL_LINK=1 CMUX_RESPECT_EXTERNAL_OPEN_RULES=1 "$CMUX_CLI" browser open "$url" 2>/dev/null || failed_urls+=("$url")
 done
 
 # Fall back to system open for unmatched args and URLs that failed.

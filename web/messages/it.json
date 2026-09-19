@@ -1235,6 +1235,7 @@
           "soundOverride": "Un override del suono di notifica. default usa notifications.sound, none disabilita la riproduzione e gli altri valori selezionano un suono integrato o personalizzato."
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "Posizione dei link aperti dal terminale e dei comandi open intercettati: split riutilizza un riquadro a destra o crea una divisione; samePane crea una scheda del browser nel riquadro del terminale di origine. Le divisioni manuali del browser restano invariate.",
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
           "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",

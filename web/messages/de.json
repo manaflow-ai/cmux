@@ -1235,6 +1235,7 @@
           "soundOverride": "Eine Überschreibung des Benachrichtigungstons. default verwendet notifications.sound, none deaktiviert die Wiedergabe; die übrigen Werte wählen einen integrierten oder benutzerdefinierten Ton."
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "Platzierung angeklickter Terminal-Links und abgefangener open-Befehle: split verwendet einen Bereich rechts erneut oder erstellt eine Teilung; samePane erstellt einen Browser-Tab im Bereich des Quellterminals. Manuelle Browser-Aufteilungen bleiben unverändert.",
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
           "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",

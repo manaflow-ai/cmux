@@ -1219,6 +1219,7 @@
           "soundOverride": "Перевизначення звуку сповіщення. default використовує notifications.sound, none вимикає відтворення, а інші значення вибирають вбудований або власний звук."
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "Розміщення посилань, відкритих із термінала, і перехоплених команд open: split використовує панель праворуч або створює поділ; samePane створює вкладку браузера в панелі вихідного термінала. Ручний поділ браузера не змінюється.",
           "defaultSearchEngine": "Пошукова система за замовчуванням для запитів в адресному рядку браузера, які не є URL. Для інших провайдерів використовуйте custom з customSearchEngineURLTemplate.",
           "customSearchEngineName": "Назва для показу, коли defaultSearchEngine має значення custom.",
           "customSearchEngineURLTemplate": "URL пошуку, який використовується коли defaultSearchEngine має значення custom. Додайте заповнювач запиту або %s для закодованого запиту. Без заповнювача cmux додасть q= до URL.",

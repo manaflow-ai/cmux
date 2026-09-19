@@ -1235,6 +1235,7 @@
           "soundOverride": "ការបដិសេធសំឡេងជូនដំណឹង។ default ប្រើ notifications.sound, none បិទការចាក់សំឡេង ហើយតម្លៃផ្សេងទៀតជ្រើសសំឡេងដែលភ្ជាប់មកជាមួយ ឬសំឡេងផ្ទាល់ខ្លួន។"
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "ទីតាំងសម្រាប់តំណដែលបានចុចក្នុងស្ថានីយ និងពាក្យបញ្ជា open ដែលបានស្ទាក់ចាប់៖ split ប្រើផ្ទាំងនៅខាងស្តាំឡើងវិញ ឬបង្កើតផ្ទាំងបំបែកថ្មី។ samePane បង្កើតផ្ទាំងកម្មវិធីរុករកក្នុងផ្ទាំងស្ថានីយដើម។ ការបំបែកកម្មវិធីរុករកដោយដៃមិនផ្លាស់ប្តូរទេ។",
           "defaultSearchEngine": "ម៉ាស៊ីនស្វែងរកលំនាំដើមសម្រាប់សំណួរនៅក្នុងរបារអាសយដ្ឋានដែលមិនមែនជា URL។ ប្រើ custom ជាមួយ customSearchEngineURLTemplate សម្រាប់អ្នកផ្តល់ផ្សេងៗ។",
           "customSearchEngineName": "ឈ្មោះបង្ហាញដែលប្រើនៅពេល defaultSearchEngine ជា custom។",
           "customSearchEngineURLTemplate": "URL ស្វែងរកដែលប្រើនៅពេល defaultSearchEngine ជា custom។ ដាក់ទីតាំងជំនួសសំណួរ ឬ %s សម្រាប់ពាក្យស្វែងរកដែលបានអ៊ិនកូដ។ ប្រសិនបើគ្មានទីតាំងជំនួស cmux បន្ថែម q= ទៅ URL។",

@@ -1235,6 +1235,7 @@
           "soundOverride": "通知声音覆盖。default 使用 notifications.sound，none 禁用播放，其余值选择内置或自定义声音。"
         },
         "browser": {
+          "terminalLinkBrowserPlacement": "终端中点击的链接及被拦截的 open 命令的打开位置：split 复用右侧窗格或创建分屏；samePane 在来源终端窗格中创建浏览器标签页。手动浏览器分屏行为不变。",
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
           "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。",
