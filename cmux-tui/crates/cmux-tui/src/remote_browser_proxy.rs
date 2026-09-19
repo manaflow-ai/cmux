@@ -370,15 +370,6 @@ async fn serve_connect_connection(
     relay_result
 }
 
-async fn read_exact_until(
-    socket: &mut TcpStream,
-    bytes: &mut [u8],
-    deadline: tokio::time::Instant,
-) -> anyhow::Result<()> {
-    tokio::time::timeout_at(deadline, socket.read_exact(bytes)).await??;
-    Ok(())
-}
-
 async fn serve_websocket_bridge(
     mut socket: TcpStream,
     client: Arc<WorkspaceClient>,
@@ -548,10 +539,6 @@ async fn read_http_headers(
     Ok(String::from_utf8(data).map_err(|_| anyhow!("WebSocket headers were not UTF-8"))?)
 }
 
-async fn send_socks_failure(socket: &mut TcpStream, code: u8) -> anyhow::Result<()> {
-    socket.write_all(&[0x05, code, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
-    Ok(())
-}
 
 pub(super) fn parse_connect_authority(authority: &str) -> anyhow::Result<(String, u16)> {
     let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
