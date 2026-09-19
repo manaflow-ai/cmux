@@ -1721,6 +1721,12 @@
         }
       }
     },
+    "rightSidebar": {
+      "title": "rightSidebar",
+      "description": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+      "type": "object",
+      "additionalProperties": true
+    },
     "shortcuts": {
       "x-cmux-scopes": ["global"],
       "title": "shortcuts",
