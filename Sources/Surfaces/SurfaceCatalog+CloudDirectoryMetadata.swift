@@ -1,10 +1,12 @@
 import Foundation
 
 extension SurfaceCatalog {
-    /// Retain stale graphs for diagnostics without presenting their cwd as current in the tree or CLI.
+    /// Retain stale or not-yet-confirmed graphs for diagnostics without presenting their cwd as
+    /// current in the tree or CLI. A Cloud terminal's directory counts only once the machine's
+    /// accepted state is current; a requested launch directory or a stale graph is withheld.
     func resourceForPresentation(_ resource: SurfaceResource) -> SurfaceResource {
-        guard resource.kind == .terminal,
-              cloudStateObservations[resource.machine]?.freshness == .stale else { return resource }
+        guard resource.kind == .terminal, !resource.machine.isLocal,
+              cloudStateObservations[resource.machine]?.freshness != .current else { return resource }
         var result = resource
         result.detail = nil
         return result
