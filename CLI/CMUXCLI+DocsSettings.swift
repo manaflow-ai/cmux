@@ -22,6 +22,138 @@ extension CMUXCLI {
         let commands: [String]
     }
 
+    private struct WorkflowExample {
+        let id: String
+        let title: String
+        let summary: String
+        let fit: [String]
+        let creates: [String]
+        let configFiles: [String]
+        let primitives: [String]
+        let requires: [String]
+        let instantiate: [String]
+        let adapt: [String]
+        let source: String
+    }
+
+    private static let workflowExamplesURL = "https://github.com/manaflow-ai/cmux/blob/main/skills/cmux-customization/references/examples.md"
+
+    private static let workflowSavedLayoutSteps: [(label: String, command: String)] = [
+        ("Discover saved layouts", "cmux layout list --json"),
+        ("Inspect one layout", "cmux layout get <name>"),
+        ("Open it for this project", "cmux layout open <name> --cwd <project>"),
+        ("Save the workspace you adapted", "cmux layout save <name> --description \"<what this creates>\""),
+        ("Remove an obsolete layout", "cmux layout delete <name>"),
+    ]
+
+    private static var workflowCommands: [String] {
+        ["cmux docs workflows --json"]
+            + workflowSavedLayoutSteps.map { $0.command }
+            + ["cmux reload-config"]
+    }
+
+    private static let workflowAdaptAndSave = [
+        "Choose an example whose fit and requirements match the task and project.",
+        "Open its source recipe, then merge only the relevant top-level keys into .cmux/cmux.json or ~/.config/cmux/cmux.json and .cmux/dock.json when the example uses Dock.",
+        "Adapt cwd values, commands, URLs, tool names, and action placement to the repository instead of copying sample placeholders literally.",
+        "Validate the edited JSON or JSONC, run cmux reload-config, and verify the user-facing entry point.",
+        "After the live workspace is arranged the way you want, persist that result with cmux layout save <name> --description \"<what this creates>\".",
+    ]
+
+    private static let workflowExamples: [WorkflowExample] = [
+        WorkflowExample(
+            id: "worktree-agents",
+            title: "Worktree Agents",
+            summary: "Make a worktree-oriented new-workspace starter with two coding-agent terminals and useful right-click alternatives.",
+            fit: ["parallel agent work", "feature worktrees", "repositories where Codex and Claude should open together"],
+            creates: ["a Worktree Agents new-workspace action", "a workspace rooted at the chosen worktree", "side-by-side Codex and Claude terminal panes", "plus-button context-menu alternatives"],
+            configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
+            primitives: ["actions.workspaceCommand", "ui.newWorkspace.action", "ui.newWorkspace.contextMenu", "commands[].workspace.layout"],
+            requires: ["a worktree path", "codex", "claude"],
+            instantiate: ["Open the Worktree Agents recipe, merge its actions/ui/commands entries into cmux.json, adapt the worktree cwd and agent commands, then run cmux reload-config."],
+            adapt: ["change the worktree path", "swap or add agent commands", "change split direction", "keep only the plus-menu entries the project needs"],
+            source: workflowExamplesURL + "#worktree-agents"
+        ),
+        WorkflowExample(
+            id: "full-stack-dev",
+            title: "Full-Stack Dev",
+            summary: "Open a dev server, watch tests, and browser preview together, with optional Git and Feed Dock controls.",
+            fit: ["web apps", "full-stack repositories", "projects with a local dev server and watch tests"],
+            creates: ["a Web terminal", "a Tests terminal", "a browser preview", "optional lazygit and Feed TUI Dock controls"],
+            configFiles: [".cmux/cmux.json", ".cmux/dock.json"],
+            primitives: ["commands[].workspace.layout", "terminal surfaces", "browser surfaces", "Dock controls"],
+            requires: ["the project's dev command", "the project's watch-test command", "optional lazygit"],
+            instantiate: ["Open the Full-Stack Dev recipe, merge the workspace command and optional Dock controls, replace the sample bun commands and preview URL, then run cmux reload-config."],
+            adapt: ["use the repository's package manager and scripts", "change the preview URL/port", "replace lazygit or Feed with project-specific Dock monitors"],
+            source: workflowExamplesURL + "#full-stack-dev"
+        ),
+        WorkflowExample(
+            id: "ssh-devbox",
+            title: "SSH Devbox",
+            summary: "Pair a remote development shell with a browser preview in one workspace.",
+            fit: ["remote development", "SSH-backed devboxes", "projects developed on another machine"],
+            creates: ["an SSH terminal pane", "a browser preview pane"],
+            configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
+            primitives: ["commands[].workspace.layout", "terminal surfaces", "browser surfaces"],
+            requires: ["a working ssh target or alias"],
+            instantiate: ["Open the SSH Devbox recipe, replace ssh devbox and the preview URL for the project, merge the command into cmux.json, then run cmux reload-config."],
+            adapt: ["change the SSH host/command", "change the preview URL", "add local notes, logs, or another remote pane"],
+            source: workflowExamplesURL + "#ssh-devbox"
+        ),
+        WorkflowExample(
+            id: "review-pr",
+            title: "Review PR",
+            summary: "Keep pull-request terminal context and the browser review page side by side.",
+            fit: ["pull-request review", "GitHub-hosted repositories", "tasks that combine gh output with browser review"],
+            creates: ["a terminal running gh pr status", "a browser pane on the repository pull-request page"],
+            configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
+            primitives: ["commands[].workspace.layout", "terminal surfaces", "browser surfaces"],
+            requires: ["gh for the sample terminal command"],
+            instantiate: ["Open the Review PR recipe, point its command and URL at the repository's review flow, merge it into cmux.json, then run cmux reload-config."],
+            adapt: ["replace gh pr status with the team's review command", "use a specific PR URL", "add a notes or diff pane when useful"],
+            source: workflowExamplesURL + "#review-pr"
+        ),
+        WorkflowExample(
+            id: "docs-workspace",
+            title: "Docs Workspace",
+            summary: "Run documentation tooling beside a Markdown view and browser preview.",
+            fit: ["documentation work", "docs sites", "projects with a local docs preview"],
+            creates: ["a docs-server terminal", "a cmux Markdown viewer terminal", "a browser docs preview"],
+            configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
+            primitives: ["commands[].workspace.layout", "terminal surfaces", "cmux markdown", "browser surfaces"],
+            requires: ["the project's docs-dev command"],
+            instantiate: ["Open the Docs Workspace recipe, replace the docs command, Markdown path, and preview URL, merge it into cmux.json, then run cmux reload-config."],
+            adapt: ["use the repository's docs command", "point at the primary Markdown file", "change the preview path/port", "drop panes the docs workflow does not need"],
+            source: workflowExamplesURL + "#docs-workspace"
+        ),
+        WorkflowExample(
+            id: "quick-agent-buttons",
+            title: "Quick Agent Buttons",
+            summary: "Put Codex and Claude launch actions directly on the surface tab bar and in Command Palette.",
+            fit: ["frequent agent launches", "projects that use multiple coding agents", "personal agent shortcuts"],
+            creates: ["Codex and Claude agent actions", "surface-tab-bar buttons", "Command Palette entries"],
+            configFiles: [".cmux/cmux.json or ~/.config/cmux/cmux.json"],
+            primitives: ["actions.agent", "ui.surfaceTabBar.buttons", "Command Palette action exposure"],
+            requires: ["the agent binaries you keep in the recipe"],
+            instantiate: ["Open the Quick Agent Buttons recipe, keep the agent actions you use, merge actions/ui into cmux.json, then run cmux reload-config."],
+            adapt: ["remove unused agents", "change action targets", "add or remove built-in tab-bar buttons", "rename button labels"],
+            source: workflowExamplesURL + "#quick-agent-buttons"
+        ),
+        WorkflowExample(
+            id: "ci-watch",
+            title: "CI Watch",
+            summary: "Keep long-running CI and Feed monitors in Dock instead of occupying workspace panes.",
+            fit: ["CI-heavy repositories", "GitHub Actions monitoring", "long-running status views that should stay beside the workspace"],
+            creates: ["a GitHub Runs Dock control", "a Feed TUI Dock control"],
+            configFiles: [".cmux/dock.json"],
+            primitives: ["Dock controls", "cmux feed tui --opentui"],
+            requires: ["gh for the sample GitHub Runs control"],
+            instantiate: ["Open the CI Watch recipe, merge the controls into .cmux/dock.json, adapt commands for the repository, validate the JSON, then reload the Dock/config."],
+            adapt: ["change the CI command", "replace or add monitor controls", "adjust control heights", "use the global Dock file only for personal cross-project controls"],
+            source: workflowExamplesURL + "#ci-watch"
+        ),
+    ]
+
     private static let docsReferences: [DocsReference] = [
         DocsReference(
             topic: "settings",
@@ -113,6 +245,17 @@ extension CMUXCLI {
             ]
         ),
         DocsReference(
+            topic: "workflows",
+            aliases: ["workflow", "templates", "template", "presets", "preset", "examples", "layouts", "reusable-layouts"],
+            summary: "Saved layouts plus shipped customization examples for common project workflows.",
+            webURL: "https://cmux.com/docs/skills",
+            rawResources: [
+                DocsResource(label: "workflow examples", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-customization/references/examples.md"),
+                DocsResource(label: "customization skill", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/skills/cmux-customization/SKILL.md"),
+            ],
+            commands: workflowCommands
+        ),
+        DocsReference(
             topic: "dock",
             aliases: ["doc", "controls", "right-sidebar", "dock-json"],
             summary: "Custom right-sidebar terminal controls from .cmux/dock.json or ~/.config/cmux/dock.json.",
@@ -163,7 +306,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies]")
         }
 
         if topic == "list" || topic == "all" {
@@ -188,7 +331,7 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock|managed-policies]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|workflows|dock|managed-policies]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
@@ -223,6 +366,22 @@ extension CMUXCLI {
             },
             "commands": reference.commands,
         ]
+        if reference.topic == "workflows" {
+            payload["catalog_version"] = 1
+            payload["saved_layouts"] = [
+                "description": "Saved layouts capture a live workspace arrangement. Use the shipped examples as starters, adapt the live workspace, then save the result for reuse.",
+                "steps": Self.workflowSavedLayoutSteps.map { step in
+                    ["label": step.label, "command": step.command]
+                },
+                "native_surfaces": [
+                    "Command Palette: Save Layout as Template…",
+                    "Command Palette: New Workspace from Layout: <name>",
+                    "New Workspace menu: New Workspace from Template",
+                ],
+            ] as [String: Any]
+            payload["examples"] = Self.workflowExamples.map { workflowPayload($0) }
+            payload["adapt_and_save"] = Self.workflowAdaptAndSave
+        }
         if reference.topic == "settings" {
             payload["settings_files"] = [
                 "primary": Self.primarySettingsDisplayPath,
@@ -275,6 +434,9 @@ extension CMUXCLI {
                 print("  \(command)")
             }
         }
+        if reference.topic == "workflows" {
+            printWorkflowCatalog()
+        }
         if reference.topic == "settings" {
             print()
             print("Config files:")
@@ -291,6 +453,49 @@ extension CMUXCLI {
             print()
             print("Reload after editing cmux.json or Ghostty config:")
             print("  cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)")
+        }
+    }
+
+    private func workflowPayload(_ example: WorkflowExample) -> [String: Any] {
+        [
+            "id": example.id,
+            "title": example.title,
+            "summary": example.summary,
+            "fit": example.fit,
+            "creates": example.creates,
+            "config_files": example.configFiles,
+            "primitives": example.primitives,
+            "requires": example.requires,
+            "instantiate": example.instantiate,
+            "adapt": example.adapt,
+            "source": example.source,
+        ]
+    }
+
+    private func printWorkflowCatalog() {
+        print()
+        print("Saved layouts:")
+        for step in Self.workflowSavedLayoutSteps {
+            print("  \(step.label): \(step.command)")
+        }
+        print()
+        print("Native saved-layout entry points:")
+        print("  Command Palette: Save Layout as Template…")
+        print("  Command Palette: New Workspace from Layout: <name>")
+        print("  New Workspace menu: New Workspace from Template")
+        print()
+        print("Shipped workflow examples:")
+        for example in Self.workflowExamples {
+            print("  \(example.id) — \(example.title)")
+            print("    \(example.summary)")
+            print("    Fits: \(example.fit.joined(separator: "; "))")
+            print("    Creates: \(example.creates.joined(separator: "; "))")
+            print("    Source: \(example.source)")
+        }
+        print()
+        print("Adapt and save:")
+        for step in Self.workflowAdaptAndSave {
+            print("  - \(step)")
         }
     }
 
