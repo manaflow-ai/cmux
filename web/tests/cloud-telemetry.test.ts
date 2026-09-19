@@ -126,7 +126,7 @@ describe("shared development error destination", () => {
       CMUX_DEV_BUILD_TAG: "errhub",
       CMUX_DEV_BUILD_COMMIT: "a".repeat(40),
       CMUX_DEV_BUILD_SOURCE_SHA256: "b".repeat(64),
-    } as NodeJS.ProcessEnv)!;
+    } as unknown as NodeJS.ProcessEnv)!;
     expect(configuration.tracesDataset).toBe("cmux-dev-otel-traces");
     expect(configuration.errorsDataset).toBe("cmux-dev-otel-traces");
     const parsed = parseCloudTelemetryBatch(batch(), now)!;
@@ -151,7 +151,7 @@ describe("shared development error destination", () => {
     const config = cloudAxiomConfiguration({
       VERCEL_ENV: "production", CMUX_DEV_BUILD_TAG: "errhub",
       CMUX_CLOUD_AXIOM_TOKEN: "test", CMUX_CLOUD_TELEMETRY_ID_KEY: "k".repeat(32),
-    } as NodeJS.ProcessEnv)!;
+    } as unknown as NodeJS.ProcessEnv)!;
     expect(config.errorsDataset).toBe("cmux-cloud-errors-prod");
   });
 });
