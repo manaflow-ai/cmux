@@ -23,6 +23,25 @@ public protocol AccountFlow: AnyObject {
     /// Identifier of the currently selected team, or `nil` if none.
     var selectedTeamID: String? { get set }
 
+    /// Re-reads ``availableTeams`` from the backend.
+    ///
+    /// Membership changes made elsewhere (the web dashboard, another device,
+    /// being added to or removed from a team) do not reach a running app on
+    /// their own, so every surface that presents the team list drives this
+    /// before showing it. Tolerates failure: a flaky read leaves the teams
+    /// already known in place rather than emptying the list.
+    func refreshAvailableTeams() async
+
+    /// Creates a team the signed-in user is a member of, and makes it active.
+    ///
+    /// Throws when the name is blank, when no user is signed in, or when the
+    /// backend rejects the create. On success ``availableTeams`` contains the
+    /// team and ``selectedTeamID`` is its id.
+    /// - Parameter name: The team's human-readable name.
+    /// - Returns: The created team.
+    @discardableResult
+    func createTeam(named name: String) async throws -> AccountTeamSummary
+
     /// Whether the host is currently in the middle of a sign-in or
     /// sign-out network round trip. The UI disables interaction while
     /// this is `true`.

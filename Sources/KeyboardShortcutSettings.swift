@@ -93,6 +93,7 @@ enum KeyboardShortcutSettings {
 
         // Titlebar / primary UI
         case toggleSidebar
+        case toggleAccountTeamMenu
         case newTab
         case newBrowserWorkspace
         case newCloudWorkspace
@@ -248,6 +249,7 @@ enum KeyboardShortcutSettings {
             case .toggleFullScreen: return String(localized: "command.toggleFullScreen.title", defaultValue: "Toggle Full Screen")
             case .quit: return String(localized: "menu.quitCmux", defaultValue: "Quit cmux")
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
+            case .toggleAccountTeamMenu: return String(localized: "shortcut.toggleAccountTeamMenu.label", defaultValue: "Account and Team Menu")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
             case .newCloudWorkspace: return String(localized: "shortcut.newCloudWorkspace.label", defaultValue: "New Cloud Workspace")
@@ -434,6 +436,11 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "q", command: true, shift: false, option: false, control: false)
             case .toggleSidebar:
                 return StoredShortcut(key: "b", command: true, shift: false, option: false, control: false)
+            case .toggleAccountTeamMenu:
+                // Unbound by default (same as .sendFeedback): the picker is a
+                // low-frequency action and every nearby combo is already taken.
+                // Settings and cmux.json can bind it.
+                return .unbound
             case .newTab:
                 return StoredShortcut(key: "n", command: true, shift: false, option: false, control: false)
             case .newBrowserWorkspace:

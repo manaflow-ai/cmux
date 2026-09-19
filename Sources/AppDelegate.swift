@@ -15122,6 +15122,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .toggleAccountTeamMenu) {
+            // The popover's presentation state lives in the sidebar footer
+            // button's own view. One notification keeps the shortcut, the
+            // command palette, and the button itself on a single open path
+            // instead of each surface owning a copy of that state.
+            NotificationCenter.default.post(name: .cmuxToggleAccountTeamMenu, object: nil)
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .newTab) {
 #if DEBUG
             cmuxDebugLog("shortcut.action name=newWorkspace \(debugShortcutRouteSnapshot(event: event))")

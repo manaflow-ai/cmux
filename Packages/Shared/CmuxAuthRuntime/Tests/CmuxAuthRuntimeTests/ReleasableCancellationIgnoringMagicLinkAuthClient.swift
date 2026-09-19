@@ -28,6 +28,10 @@ actor ReleasableCancellationIgnoringMagicLinkAuthClient: AuthClient {
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? { nil }
     func listTeams() async throws -> [CMUXAuthTeam] { [] }
 
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        throw AuthError.unauthorized
+    }
+
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String {
         startCount += 1
         let waiters = startWaiters

@@ -39,8 +39,14 @@ public final class AuthCoordinator {
     public private(set) var isLoading = false
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
-    /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
-    public private(set) var availableTeams: [CMUXAuthTeam] = [] {
+    /// The teams the signed-in user belongs to (refreshed on sign-in/restore,
+    /// and on demand through ``refreshAvailableTeams()``).
+    ///
+    /// `internal(set)`: the team-membership extension owns the create path and
+    /// lives in another file, so the setter cannot stay file-private. It stays
+    /// closed to other modules — a host that could write this could show teams
+    /// the backend never granted.
+    public internal(set) var availableTeams: [CMUXAuthTeam] = [] {
         didSet { publishAuthenticatedTeamScope() }
     }
     /// The user's selected team id. Writes persist through the injected
@@ -690,7 +696,7 @@ public final class AuthCoordinator {
     /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
     /// not get the old account's teams persisted back.
-    private func refreshTeams(generation: UInt64) async {
+    func refreshTeams(generation: UInt64) async {
         do {
             let client = self.client
             let teams = try await runPhase(.listTeams, timeout: timeouts.network) {

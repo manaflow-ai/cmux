@@ -61,6 +61,27 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         set { coordinator.selectedTeamID = newValue }
     }
 
+    /// The active team, resolved the way API calls resolve it: an unknown or
+    /// absent selection falls back to the first team the user belongs to, so
+    /// the UI never labels the account with a team the app is not using.
+    var activeTeam: AccountTeamSummary? {
+        guard let id = coordinator.resolvedTeamID,
+              let team = coordinator.availableTeams.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
+    }
+
+    func refreshAvailableTeams() async {
+        await coordinator.refreshAvailableTeams()
+    }
+
+    @discardableResult
+    func createTeam(named name: String) async throws -> AccountTeamSummary {
+        let team = try await coordinator.createTeam(displayName: name)
+        return AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
+    }
+
     var isWorkingOnAuth: Bool {
         coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
@@ -102,6 +123,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             return .rejected
         case .cancelled:
             return .cancelled
+        case .invalidTeamName:
+            // Not a sign-in outcome: it can only come from creating a team,
+            // which reports in the picker that asked for the name. Rendering
+            // it here would put "Enter a team name." under a sign-in button.
+            return nil
         }
     }
 

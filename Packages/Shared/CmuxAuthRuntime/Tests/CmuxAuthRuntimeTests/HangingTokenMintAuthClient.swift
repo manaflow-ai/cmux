@@ -32,6 +32,10 @@ actor HangingTokenMintAuthClient: AuthClient {
     func forceRefreshAccessToken() async -> String? { access }
     func currentUser(throwOnMissing: Bool) async throws -> CMUXAuthUser? { user }
     func listTeams() async throws -> [CMUXAuthTeam] { [] }
+
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        throw AuthError.unauthorized
+    }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
     func signInWithMagicLink(code: String) async throws {}
 

@@ -321,12 +321,27 @@ struct SidebarAccountMenuButton: View {
         .safeHelp(buttonTitle)
         .accessibilityLabel(buttonTitle)
         .accessibilityIdentifier("SidebarAccountMenuButton")
+        .onReceive(NotificationCenter.default.publisher(for: .cmuxToggleAccountTeamMenu)) { _ in
+            // Signed out there is no picker to show, so route the shortcut to
+            // the same sign-in the button itself starts. Otherwise the key
+            // would look dead to a signed-out user.
+            guard isSignedIn else {
+                _ = AppDelegate.shared?.performAccountSignInWorkspaceAction(
+                    tabManager: tabManager,
+                    debugSource: "shortcut.account"
+                )
+                return
+            }
+            isPopoverPresented.toggle()
+        }
     }
 }
 
-private struct SidebarAccountPopover: View {
+struct SidebarAccountPopover: View {
     let accountFlow: HostAccountFlow?
     let dismiss: () -> Void
+    /// Owns the inline "Create team" form so the popover keeps one presentation.
+    @State var teamCreation = AccountTeamCreationState()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -343,7 +358,30 @@ private struct SidebarAccountPopover: View {
                         Text(identity.displayName.isEmpty ? identity.email : identity.displayName)
                             .cmuxFont(size: 13, weight: .semibold)
                             .lineLimit(1)
-                        if !identity.email.isEmpty && identity.email != identity.displayName {
+                        // The active team, not the email: it is the scope every
+                        // cloud workspace and machine in this window belongs to,
+                        // so it has to be visible wherever the account is.
+                        if let teamName = presentation.activeTeamName {
+                            HStack(spacing: 4) {
+                                Text(teamName)
+                                    .cmuxFont(size: 11)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .accessibilityIdentifier("SidebarAccountActiveTeamName")
+                                if accountFlow?.isProActive == true {
+                                    Text(String(localized: "sidebar.account.plan.pro", defaultValue: "Pro"))
+                                        .cmuxFont(size: 10, weight: .semibold)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 4)
+                                        .padding(.vertical, 1)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                                .fill(Color.secondary.opacity(0.15))
+                                        )
+                                        .accessibilityIdentifier("SidebarAccountPlanBadge")
+                                }
+                            }
+                        } else if !identity.email.isEmpty && identity.email != identity.displayName {
                             Text(identity.email)
                                 .cmuxFont(size: 11)
                                 .foregroundStyle(.secondary)
@@ -352,6 +390,7 @@ private struct SidebarAccountPopover: View {
                     }
                 }
                 Divider()
+                teamSection
             } else {
                 Text(String(localized: "settings.account.signedOut.title", defaultValue: "Not signed in"))
                     .cmuxFont(size: 13, weight: .semibold)
@@ -384,6 +423,30 @@ private struct SidebarAccountPopover: View {
                 .accessibilityIdentifier("SidebarAccountUpgradeButton")
             }
             if accountFlow?.currentIdentity != nil {
+                Divider()
+                Button {
+                    dismiss()
+                    SettingsWindowPresenter.show(navigationTarget: .account)
+                } label: {
+                    HStack(spacing: 0) {
+                        Label(
+                            String(localized: "settings.title", defaultValue: "Settings"),
+                            systemImage: "gearshape"
+                        )
+                        Spacer(minLength: 8)
+                        // The user's own binding, not a hardcoded ⌘,: the
+                        // action is rebindable, and a hint that disagrees with
+                        // the keyboard is worse than no hint.
+                        let settingsShortcut = KeyboardShortcutSettings.shortcut(for: .openSettings)
+                        if !settingsShortcut.isUnbound {
+                            Text(settingsShortcut.displayString)
+                                .cmuxFont(size: 11)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityIdentifier("SidebarAccountSettingsButton")
                 Button {
                     dismiss()
                     Task { await accountFlow?.signOut() }
@@ -400,7 +463,21 @@ private struct SidebarAccountPopover: View {
         .buttonStyle(.plain)
         .disabled(accountFlow?.isWorkingOnAuth == true)
         .padding(12)
-        .frame(width: 220, alignment: .leading)
+        .frame(width: 240, alignment: .leading)
+        .task {
+            // Teams the user gained or lost elsewhere (web dashboard, another
+            // device) only reach a running app through an explicit read, and
+            // opening the picker is the moment the list has to be right.
+            await accountFlow?.refreshAvailableTeams()
+        }
+    }
+
+    var presentation: AccountTeamMenuPresentation {
+        AccountTeamMenuPresentationResolver.resolve(
+            teams: accountFlow?.availableTeams ?? [],
+            activeTeamID: accountFlow?.activeTeam?.id,
+            isSignedIn: accountFlow?.currentIdentity != nil
+        )
     }
 }
 

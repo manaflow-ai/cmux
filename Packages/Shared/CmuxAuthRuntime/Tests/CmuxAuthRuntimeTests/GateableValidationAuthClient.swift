@@ -157,6 +157,10 @@ actor GateableValidationAuthClient: AuthClient {
         return teams
     }
 
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        throw AuthError.unauthorized
+    }
+
     func signInWithCredential(email: String, password: String) async throws {
         credentialStartCount += 1
         await parkIfArmed(credentialGate)

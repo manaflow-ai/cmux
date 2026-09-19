@@ -98,6 +98,25 @@ actor FakeAuthClient: AuthClient {
         return teams
     }
 
+    private(set) var createdTeamNames: [String] = []
+    private var throwOnCreateTeam: (any Error)?
+    private var nextCreatedTeamID = 1
+    /// When false the created team is NOT added to ``teams``, so a test can
+    /// exercise a create whose subsequent list read has not caught up.
+    private var createTeamAppendsToList = true
+
+    func setThrowOnCreateTeam(_ error: (any Error)?) { throwOnCreateTeam = error }
+    func setCreateTeamAppendsToList(_ appends: Bool) { createTeamAppendsToList = appends }
+
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        if let throwOnCreateTeam { throw throwOnCreateTeam }
+        createdTeamNames.append(displayName)
+        let team = CMUXAuthTeam(id: "team-created-\(nextCreatedTeamID)", displayName: displayName)
+        nextCreatedTeamID += 1
+        if createTeamAppendsToList { teams.append(team) }
+        return team
+    }
+
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { nonce }
 
     func signInWithMagicLink(code: String) async throws {
