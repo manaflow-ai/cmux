@@ -1146,7 +1146,7 @@ struct cmuxApp: App {
                     _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
                 }
             }
-
+            FilePreviewWordWrapMenu(shortcut: menuShortcut(for: .toggleFileEditorWordWrap), target: { appDelegate.shortcutFocusedSavingTextView(in: NSApp.keyWindow ?? NSApp.mainWindow) })
             Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
                 BrowserHistoryStore.shared.clearHistory()
             }
