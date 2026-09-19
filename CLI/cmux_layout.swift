@@ -14,6 +14,10 @@ extension CMUXCLI {
           open <name> [--cwd <dir>] [--focus <true|false>]
           delete <name>
 
+        Discover workflow starters:
+          cmux docs workflows
+          cmux docs workflows --json
+
         Examples:
           cmux layout save dev --overwrite
           cmux layout list
