@@ -177,9 +177,8 @@
     "benefits": "Seguro médico, dental y de la vista",
     "locationLabel": "Ubicación",
     "location": "San Francisco",
-    "applyAriaLabel": "Solicitar por correo el puesto de Founding Engineer",
-    "applyEmailSubject": "Solicitud para Founding Engineer en cmux",
-    "applyCta": "Enviar correo",
+    "applyAriaLabel": "Solicitar el puesto de Founding Engineer",
+    "applyCta": "Aplicar",
     "foundingChromiumEngineer": {
       "metaTitle": "Founding Chromium Engineer en cmux",
       "metaDescription": "Únete a cmux como ingeniero fundador de Chromium para hacerte cargo de nuestro fork de Chromium y llevar cmux a Windows y Linux con C++ y Rust.",
@@ -212,9 +211,8 @@
       "benefits": "Seguro médico, dental y de la vista",
       "locationLabel": "Ubicación",
       "location": "San Francisco",
-      "applyAriaLabel": "Solicitar por correo el puesto de Founding Chromium Engineer",
-      "applyEmailSubject": "Solicitud para Founding Chromium Engineer en cmux",
-      "applyCta": "Enviar correo"
+      "applyAriaLabel": "Solicitar el puesto de Founding Chromium Engineer",
+      "applyCta": "Aplicar"
     },
     "foundingDesigner": {
       "metaTitle": "Founding Designer en cmux",
@@ -248,9 +246,8 @@
       "benefits": "Seguro médico, dental y de la vista",
       "locationLabel": "Ubicación",
       "location": "San Francisco",
-      "applyAriaLabel": "Solicitar por correo el puesto de Founding Designer",
-      "applyEmailSubject": "Solicitud para Founding Designer en cmux",
-      "applyCta": "Enviar correo"
+      "applyAriaLabel": "Solicitar el puesto de Founding Designer",
+      "applyCta": "Aplicar"
     }
   },
   "home": {

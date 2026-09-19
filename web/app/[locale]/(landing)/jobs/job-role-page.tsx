@@ -20,7 +20,6 @@ export type JobRoleNamespace =
 
 const focusRingClass =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground";
-const applicationEmail = "founders@cmux.com";
 const ycJobUrls = {
   foundingEngineer:
     "https://www.ycombinator.com/companies/cmux/jobs/RcX3bDA-founding-engineer",
@@ -165,9 +164,6 @@ function JobRoleSection({
   const t = useTranslations(namespace);
   const whatYoullDo = t.raw("whatYoullDoItems") as string[];
   const excitedItems = t.raw("excitedItems") as string[];
-  const applyHref = `mailto:${applicationEmail}?subject=${encodeURIComponent(
-    t("applyEmailSubject"),
-  )}`;
 
   return (
     <section
@@ -235,23 +231,14 @@ function JobRoleSection({
             </dl>
 
             <a
-              href={applyHref}
+              href={ycUrl}
+              target="_blank"
+              rel="noopener noreferrer"
               aria-label={t("applyAriaLabel")}
               className={`mt-7 inline-flex min-h-11 w-full items-center justify-center gap-2 bg-foreground px-4 py-3 text-sm font-medium transition-colors hover:bg-foreground/85 ${focusRingClass}`}
               style={{ color: "var(--background)", textDecoration: "none" }}
             >
               {t("applyCta")}
-              <ArrowIcon />
-            </a>
-
-            <a
-              href={ycUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 border border-foreground/15 px-4 py-3 text-sm font-medium transition-colors hover:bg-foreground/5 ${focusRingClass}`}
-              style={{ textDecoration: "none" }}
-            >
-              YC Work at a Startup
               <ArrowIcon />
             </a>
           </div>
