@@ -38,13 +38,13 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault are always present; Machines follows the Cloud
+            // Files/Find/Vault/Beads are always present; Machines follows the Cloud
             // Machines beta toggle, which is off by default on every build
             // (cleared above) unless a managed profile forces Cloud off, and
             // feed/dock stay off.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
             XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 3)
+            XCTAssertEqual(contributions.count, 4)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
