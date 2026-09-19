@@ -1476,7 +1476,8 @@ XCODEBUILD_ARGS+=(build)
 
 if [[ -n "$BUILD_PRODUCTS_DEBUG_DIR" ]]; then
   mkdir -p "$BUILD_PRODUCTS_DEBUG_DIR"
-  cleanup_incomplete_xcodebuild_outputs
+  # Keep completed outputs for Xcode dependency analysis. A failed or
+  # interrupted invocation still removes partial outputs in reload_finalize.
   XCODEBUILD_CLEANED_OUTPUTS=0
 fi
 

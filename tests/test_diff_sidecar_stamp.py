@@ -33,9 +33,9 @@ chmod +x "$CARGO_TARGET_DIR/$target/release/cmux-diff-sidecar"
             destination=build/'Resources/bin/cmux-diff-sidecar'
             for arch,target in [('arm64','aarch64-apple-darwin'),('x86_64','x86_64-apple-darwin'),('arm64','aarch64-apple-darwin')]:
                 stamp=work/f'cmux-diff-sidecar.arch-{arch}.min-14.0.stamp'
-                env=dict(os.environ, CARGO_HOME=str(cargo.parent), TARGET_BUILD_DIR=str(build),
+                env={k:v for k,v in os.environ.items() if not k.startswith(('CMUX_DIFF_SIDECAR_','CARGO_'))}; env.update(CARGO_HOME=str(cargo.parent), TARGET_BUILD_DIR=str(build),
                          TARGET_TEMP_DIR=str(work), UNLOCALIZED_RESOURCES_FOLDER_PATH='Resources',
-                         CODE_SIGNING_ALLOWED='NO', CMUX_DIFF_SIDECAR_ARCHS=arch,
+                         CODE_SIGNING_ALLOWED='NO', CMUX_DIFF_SIDECAR_ARCHS=arch, CMUX_DIFF_SIDECAR_MIN_MACOS='14.0',
                          CMUX_DIFF_SIDECAR_STAMP=str(stamp))
                 subprocess.run(['/bin/bash',str(scripts/SCRIPT.name)],env=env,check=True,capture_output=True,timeout=20)
                 self.assertEqual(list(work.glob('cmux-diff-sidecar.arch-*.stamp')),[stamp])

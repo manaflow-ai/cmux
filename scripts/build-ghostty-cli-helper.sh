@@ -115,12 +115,13 @@ ghostty_cache_publish() {
   local tmp_binary="$cache_dir/.ghostty.tmp.$$"
   local tmp_manifest="$cache_dir/.manifest.tmp.$$"
   local binary_sha
-  mkdir -p "$cache_dir"
-  install -m 755 "$binary" "$tmp_binary"
-  mv -f "$tmp_binary" "$cache_bin"
-  binary_sha="$(shasum -a 256 "$cache_bin" | awk '{print $1}')"
-  printf '%s\nbinary_sha256=%s' "$metadata" "$binary_sha" > "$tmp_manifest"
-  mv -f "$tmp_manifest" "$cache_manifest"
+  mkdir -p "$cache_dir" || return 1
+  install -m 755 "$binary" "$tmp_binary" || { rm -f "$tmp_binary" "$tmp_manifest"; return 1; }
+  binary_sha="$(shasum -a 256 "$tmp_binary" | awk '{print $1}')" || { rm -f "$tmp_binary" "$tmp_manifest"; return 1; }
+  [[ -n "$binary_sha" ]] || { rm -f "$tmp_binary" "$tmp_manifest"; return 1; }
+  printf '%s\nbinary_sha256=%s' "$metadata" "$binary_sha" > "$tmp_manifest" || { rm -f "$tmp_binary" "$tmp_manifest"; return 1; }
+  mv -f "$tmp_binary" "$cache_bin" || { rm -f "$tmp_binary" "$tmp_manifest"; return 1; }
+  mv -f "$tmp_manifest" "$cache_manifest" || { rm -f "$tmp_manifest"; return 1; }
 }
 
 # Real host arch, accounting for Rosetta where `uname -m` reports x86_64 on

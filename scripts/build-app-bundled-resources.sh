@@ -51,12 +51,13 @@ hash_git_worktree() {
 
 output_fingerprint() {
   {
-    hash_tree "$GHOSTTY_DEST" | sed "s#${DEST}#DEST#g"
-    hash_tree "$TERMINFO_DEST" | sed "s#${DEST}#DEST#g"
-    hash_tree "$CMUX_SHELL_DEST" | sed "s#${DEST}#DEST#g"
-    hash_tree "$GHOSTTY_HELPER_DEST" | sed "s#${DEST}#DEST#g"
-    hash_tree "$CMUX_CUA_DEST" | sed "s#${DEST}#DEST#g"
-    hash_tree "$CMUX_CUA_LICENSE_DEST" | sed "s#${DEST}#DEST#g"
+    hash_tree "$GHOSTTY_DEST"
+    hash_tree "$TERMINFO_DEST"
+    hash_tree "$CMUX_SHELL_DEST"
+    hash_tree "$GHOSTTY_HELPER_DEST"
+    hash_tree "$CMUX_CUA_DEST"
+    hash_tree "$CMUX_CUA_LICENSE_DEST"
+    hash_tree "${DEST}/../Library/cmux Computer Use.app"
   } | shasum | awk '{print $1}'
 }
 
@@ -101,8 +102,12 @@ if [[ "${CMUX_BUILD_CACHE_DIAGNOSTICS:-0}" == 1 ]]; then
   done
 fi
 
+helper_output_ok=true
+if [[ "$DEST" == *.app/Contents/Resources ]] && [ ! -x "$CMUX_CUA_HELPER_EXEC" ]; then
+  helper_output_ok=false
+fi
 if [ -f "$STAMP" ] && [ -s "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
-  && [ -f "$CMUX_CUA_LICENSE_DEST" ] \
+  && [ "$helper_output_ok" = true ] && [ -f "$CMUX_CUA_LICENSE_DEST" ] \
   && [ -d "$GHOSTTY_DEST" ] && [ -d "$TERMINFO_DEST" ] \
   && [ -d "$CMUX_SHELL_DEST" ] && [ -f "$INFO_PLIST" ] \
   && [ -f "$OUTPUT_MANIFEST" ] \
