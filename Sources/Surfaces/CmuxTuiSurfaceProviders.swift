@@ -553,7 +553,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    /// Publishes the authoritative graph and every derived row in one catalog
+    /// Publishes the current graph and every derived row in one catalog
     /// transaction. Display and forwarded-port rows are machine capabilities, so
     /// they join the daemon graph here without becoming a second session state.
     func publish(
