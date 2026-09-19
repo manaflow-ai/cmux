@@ -1,6 +1,183 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "connection.relay.nativeFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشل اتصال الترحيل إلى %1$@: %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay-Verbindung zu %1$@ fehlgeschlagen: %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay connection to %1$@ failed: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error en la conexión al relé %1$@: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion au relais %1$@ a échoué : %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ へのリレー接続に失敗しました: %2$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 릴레이 연결 실패: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接到中继服务器 %1$@ 失败：%2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線至轉送伺服器 %1$@ 失敗：%2$@。"
+          }
+        }
+      }
+    },
+    "connection.relay.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهت مهلة اتصال الترحيل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeitüberschreitung bei der Relay-Verbindung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The relay connection timed out."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se agotó el tiempo de espera de la conexión al relé."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le délai de connexion au relais a expiré."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー接続がタイムアウトしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴레이 연결 시간이 초과되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中继连接超时。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "轉送連線逾時。"
+          }
+        }
+      }
+    },
+    "connection.relay.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر الاتصال. تحقق من شبكتك وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung nicht möglich. Prüfe dein Netzwerk und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to connect. Check your network and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede conectar. Comprueba tu red e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion impossible. Vérifiez votre réseau et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続できません。ネットワークを確認して、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결할 수 없습니다. 네트워크를 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接。请检查网络后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法連線。請檢查網路後再試一次。"
+          }
+        }
+      }
+    },
     "cli.sshPtyAttach.incompatibleDaemon": {
       "extractionState": "manual",
       "localizations": {
@@ -123340,6 +123517,56 @@
             "value": "포트"
           }
         }
+      }
+    },
+    "cloudTree.group.resources": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resources" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ressourcen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ressources" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الموارد" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Recursos" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "資源" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "资源" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "리소스" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リソース" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Resursi" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ressourcer" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Risorse" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ធនធាន" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ressurser" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zasoby" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Recursos" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ресурсы" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ทรัพยากร" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kaynaklar" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ресурси" } }
+      }
+    },
+    "cloudTree.resources.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Nutzung" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用量" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용량" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用状況" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Utilizzo" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання" } }
       }
     },
     "cloudTree.group.terminals": {
@@ -260185,6 +260412,18 @@
             "value": "تعذّر إكمال الاقتران. تحقق من الاتصال وحاول مرة أخرى."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uparivanje nije dovršeno. Provjerite vezu i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parringen kunne ikke fuldføres. Kontrollér din forbindelse, og prøv igen."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
@@ -260209,16 +260448,70 @@
             "value": "Le jumelage n’a pas pu être terminé. Vérifiez votre connexion et réessayez."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile completare l’abbinamento. Controlla la connessione e riprova."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្គូផ្គងមិនអាចបញ្ចប់បានទេ។ សូមពិនិត្យការតភ្ជាប់របស់អ្នក ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "페어링을 완료하지 못했습니다. 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke fullføre sammenkoblingen. Kontroller tilkoblingen, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się ukończyć parowania. Sprawdź połączenie i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível concluir o emparelhamento. Verifique sua conexão e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось завершить сопряжение. Проверьте подключение и попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถจับคู่ให้เสร็จสมบูรณ์ได้ ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eşleştirme tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося завершити спарювання. Перевірте з’єднання та спробуйте ще раз."
           }
         },
         "zh-Hans": {
@@ -528007,6 +528300,478 @@
           "stringUnit": {
             "state": "translated",
             "value": "24 GB メモリ"
+          }
+        }
+      }
+    },
+    "socket.cloudDiagnostics.invalidFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expected a structured file transfer failure."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein strukturierter Dateiübertragungsfehler wurde erwartet."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une erreur de transfert de fichier structurée est attendue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُتوقع خطأ نقل ملف منظّم."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se esperaba un error de transferencia de archivos estructurado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預期收到結構化的檔案傳輸錯誤。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预期收到结构化的文件传输错误。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "구조화된 파일 전송 오류가 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "構造化されたファイル転送エラーが必要です。"
+          }
+        }
+      }
+    },
+    "socket.cloudDiagnostics.invalidErrorNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid file transfer error number."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungültige Fehlernummer für die Dateiübertragung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Numéro d’erreur de transfert de fichier non valide."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رقم خطأ نقل الملف غير صالح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Número de error de transferencia de archivos no válido."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案傳輸錯誤代碼無效。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件传输错误代码无效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 전송 오류 번호가 올바르지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル転送エラー番号が無効です。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.invalidResult": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine did not return the new terminal. Refresh the machine before trying again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine hat das neue Terminal nicht zurückgegeben. Aktualisiere die Maschine, bevor du es erneut versuchst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine n’a pas renvoyé le nouveau terminal. Actualisez la machine avant de réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرجع الجهاز الطرفية الجديدة. حدّث الجهاز قبل المحاولة مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina no devolvió la nueva terminal. Actualiza la máquina antes de volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器未傳回新的終端機。請先重新整理機器再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器未返回新的终端。请先刷新机器再重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 새 터미널을 반환하지 않았습니다. 다시 시도하기 전에 머신을 새로 고치세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンから新しいターミナルが返されませんでした。マシンを更新してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.noWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine has no available workspace. Refresh the machine and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dieser Maschine ist kein Arbeitsbereich verfügbar. Aktualisiere die Maschine und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun espace de travail n’est disponible sur cette machine. Actualisez la machine et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة عمل متاحة على هذا الجهاز. حدّث الجهاز وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta máquina no tiene un espacio de trabajo disponible. Actualiza la máquina e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此機器沒有可用的工作區。請重新整理機器後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器没有可用的工作区。请刷新机器后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신에 사용 가능한 작업 공간이 없습니다. 머신을 새로 고친 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンには利用可能なワークスペースがありません。マシンを更新して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.stateUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine’s current state could not be loaded. Reconnect and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der aktuelle Zustand der Maschine konnte nicht geladen werden. Stelle die Verbindung erneut her und versuche es noch einmal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger l’état actuel de la machine. Reconnectez-vous et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل الحالة الحالية للجهاز. أعد الاتصال وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el estado actual de la máquina. Vuelve a conectarte e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入機器的目前狀態。請重新連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载机器的当前状态。请重新连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 현재 상태를 불러올 수 없습니다. 다시 연결한 후 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの現在の状態を読み込めませんでした。再接続して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.shortTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح الطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir la terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널을 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを開けませんでした"
+          }
+        }
+      }
+    },
+    "cloud.browser.clientUpdateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux to connect to this Cloud page."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiere cmux, um diese Cloud-Seite zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettez cmux à jour pour accéder à cette page Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّث cmux للاتصال بصفحة Cloud هذه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiza cmux para conectarte a esta página de Cloud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新 cmux 以連線至此 Cloud 頁面。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新 cmux 以连接到此 Cloud 页面。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Cloud 페이지에 연결하려면 cmux를 업데이트하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Cloud ページに接続するには cmux を更新してください。"
+          }
+        }
+      }
+    },
+    "cloud.browser.connectionEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Cloud connection ended. Reload to reconnect."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Cloud-Verbindung wurde beendet. Lade die Seite neu, um die Verbindung wiederherzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion Cloud a été interrompue. Rechargez la page pour vous reconnecter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتهى اتصال Cloud. أعد التحميل للاتصال مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La conexión con Cloud terminó. Recarga para volver a conectarte."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 連線已結束。請重新載入以重新連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 连接已结束。请重新加载以重新连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 연결이 종료되었습니다. 다시 연결하려면 새로고침하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 接続が終了しました。再読み込みして接続し直してください。"
           }
         }
       }

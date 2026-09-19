@@ -2996,7 +2996,7 @@ final class SocketClient {
     private static let maxSocketTimeoutSeconds: TimeInterval = 9_007_199_254_740_991
     private static let connectRetryDeadline: TimeInterval = 0.35
     private static let connectRetryIntervalMicros: useconds_t = 25_000
-    private static let responseTimeoutSeconds: TimeInterval = {
+    static let responseTimeoutSeconds: TimeInterval = {
         let env = ProcessInfo.processInfo.environment
         if let raw = env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"],
            let seconds = Double(raw),
@@ -3325,7 +3325,7 @@ final class SocketClient {
     }
 
     /// Builds the automation-origin envelope shared by v1 and v2 requests.
-    private static func automationOriginPayload(ruleID: String) -> [String: Any] {
+    static func automationOriginPayload(ruleID: String) -> [String: Any] {
         let rawChain = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_CHAIN"] ?? ruleID
         let chain: [String]
         if let data = rawChain.data(using: .utf8),
@@ -4017,171 +4017,6 @@ final class SocketClient {
             candidate = parent
         }
         return nil
-    }
-
-    func sendV2(
-        method: String,
-        params: [String: Any] = [:],
-        responseTimeout: TimeInterval? = nil,
-        deadline: Date? = nil
-    ) throws -> [String: Any] {
-        var tracedParams = params
-        if method.hasPrefix("vm.") {
-            for (key, env) in [("cloud_operation_id", "CMUX_CLOUD_OPERATION_ID"),
-                               ("cloud_trace_id", "CMUX_CLOUD_TRACE_ID"),
-                               ("cloud_parent_span_id", "CMUX_CLOUD_PARENT_SPAN_ID")] {
-                if let value = ProcessInfo.processInfo.environment[env] { tracedParams[key] = value }
-            }
-        }
-        var request: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": method,
-            "params": tracedParams
-        ]
-        if let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
-           !ruleID.isEmpty {
-            request["automation_origin"] = Self.automationOriginPayload(ruleID: ruleID)
-        }
-        guard JSONSerialization.isValidJSONObject(request) else {
-            throw CLIError(message: "Failed to encode v2 request")
-        }
-
-        let requestData = try JSONSerialization.data(withJSONObject: request, options: [])
-        guard let requestLine = String(data: requestData, encoding: .utf8) else {
-            throw CLIError(message: "Failed to encode v2 request")
-        }
-
-        let raw = try send(command: requestLine, responseTimeout: responseTimeout, deadline: deadline)
-
-        // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
-        // before the JSON protocol starts. Surface these directly instead of letting
-        // JSONSerialization throw a confusing parse error.
-        if raw.hasPrefix("ERROR:") {
-            throw CLIError(message: raw)
-        }
-
-        guard let responseData = raw.data(using: .utf8) else {
-            throw CLIError(message: "Invalid UTF-8 v2 response")
-        }
-        guard let response = try JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] else {
-            throw CLIError(message: "Invalid v2 response: \(raw)")
-        }
-
-        if let ok = response["ok"] as? Bool, ok {
-            return (response["result"] as? [String: Any]) ?? [:]
-        }
-
-        if let error = response["error"] as? [String: Any] {
-            let code = (error["code"] as? String) ?? "error"
-            let message = (error["message"] as? String) ?? "Unknown v2 error"
-            let action = error["action"] as? String
-            let data = error["data"] as? [String: Any]
-            throw CLIError(
-                message: formatV2Error(
-                    code: code,
-                    message: message,
-                    action: action,
-                    reason: error["reason"] as? String,
-                    details: safeV2Details(error["details"])
-                ),
-                v2Code: error["code"] as? String,
-                isStructuredProtocolResponse: true,
-                v2Retryable: data?["retryable"] as? Bool == true,
-                vmBackendCode: data?["backend_code"] as? String,
-                vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
-            )
-        }
-
-        throw CLIError(message: "v2 request failed")
-    }
-
-    private func formatV2Error(
-        code: String,
-        message: String,
-        action: String? = nil,
-        reason: String? = nil,
-        details: String? = nil
-    ) -> String {
-        let header: String
-        if code == "vm_error" {
-            header = message
-        } else if message.contains("\n") {
-            header = "\(code):\n\(message)"
-        } else {
-            header = "\(code): \(message)"
-        }
-        var sections = [header]
-        if let reason = trimmedNonEmptyV2Text(reason) {
-            sections.append("Reason:\n\(indentV2ErrorLines(reason))")
-        }
-        if let action = trimmedNonEmptyV2Text(action) {
-            sections.append("What to do:\n\(indentV2ErrorLines(action))")
-        }
-        if let details = trimmedNonEmptyV2Text(details) {
-            sections.append("Details:\n\(indentV2ErrorLines(details))")
-        }
-        return sections.joined(separator: "\n\n")
-    }
-
-    private func safeV2Details(_ value: Any?) -> String? {
-        guard let value else { return nil }
-        if let string = value as? String {
-            return trimmedNonEmptyV2Text(string)
-        }
-        if let dictionary = value as? [String: Any] {
-            let allowedKeys = Set([
-                "amount",
-                "code",
-                "duration",
-                "durationMs",
-                "field",
-                "idempotencyKeySet",
-                "imageRequested",
-                "limit",
-                "operation",
-                "retryable",
-                "status",
-                "type",
-                "vmId",
-            ])
-            let lines = dictionary.keys.sorted().compactMap { key -> String? in
-                guard allowedKeys.contains(key), let value = dictionary[key], !(value is NSNull) else { return nil }
-                return "\(key): \(safeV2DetailValue(value))"
-            }
-            return lines.isEmpty ? nil : lines.joined(separator: "\n")
-        }
-        return nil
-    }
-
-    private func safeV2DetailValue(_ value: Any) -> String {
-        if let string = value as? String {
-            return string.replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\r", with: "\\r")
-        }
-        if let number = value as? NSNumber {
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
-                return number.boolValue ? "true" : "false"
-            }
-            return "\(number)"
-        }
-        if value is [String: Any] || value is [Any] {
-            return "available"
-        }
-        return String(describing: value)
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-    }
-
-    private func trimmedNonEmptyV2Text(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private func indentV2ErrorLines(_ value: String) -> String {
-        value
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { "  \($0)" }
-            .joined(separator: "\n")
     }
 
     func streamV2(
@@ -15236,7 +15071,7 @@ struct CMUXCLI {
         let attachmentID = explicitAttachmentID ?? environmentSurfaceID ?? UUID().uuidString.lowercased()
         let command: String? = try commandB64Opt.flatMap { encoded in
             guard let data = Data(base64Encoded: encoded),
-                  var decoded = String(data: data, encoding: .utf8) else {
+                  let decoded = String(data: data, encoding: .utf8) else {
                 throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
             }
             return Self.applyingSSHPTYAttachBootstrapSubstitutions(to: decoded, workspaceID: workspaceId)
@@ -18399,9 +18234,9 @@ struct CMUXCLI {
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports. Terminal
-            and metadata access starts a user-space WireGuard tunnel automatically.
-            Opening a private Cloud URL starts the signed Network Extension tunnel
-            and can require one macOS approval. Missing tunnel support fails closed.
+            and embedded browser access uses user-space WireGuard automatically.
+            Private Cloud URLs keep their machine's address and original port.
+            The optional system VPN is only needed for access from other apps.
 
             Subcommands:
               guide | --skill           \(Self.guideDescription)
@@ -18555,7 +18390,7 @@ struct CMUXCLI {
                                         browser tab on its port, opened here.
               push <id> <local> [remote] [--exclude <pattern>]... [--no-default-excludes]
                                         Copy a local file or directory onto the VM over the
-                                        exec channel (no SSH needed). Alias: `upload`.
+                                        private Cloud link using SCP. Alias: `upload`.
               push <id> <local> [remote] --watch [--interval <s>]
                                         Keep pushing: re-sync whenever a local file changes,
                                         until Ctrl-C.

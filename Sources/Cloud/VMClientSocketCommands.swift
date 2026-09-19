@@ -23,10 +23,8 @@ extension TerminalController {
         if let tunnelResponse = socketWorkerCloudTunnelResponse(method: method, id: id, params: params) {
             return tunnelResponse
         }
-        // `DisableCloud`: every remaining `vm.*` verb fails closed here, before
-        // any control-plane call, with a stable error code. `VMClient` refuses
-        // as well, so this gate is the CLI's error surface, not the only line
-        // of defense.
+        // Refuse disabled Cloud before any control-plane call. VMClient also
+        // enforces this policy for non-socket callers.
         if ManagedDevicePolicy().isEnforced(.disableCloud) || !CloudMachinesFeature.offMainIsEnabled() {
             return v2Error(
                 id: id,
@@ -35,6 +33,8 @@ extension TerminalController {
             )
         }
         switch method {
+        case "vm.file_transfer_failure":
+            return socketWorkerFileTransferFailureResponse(id: id, params: params)
         case "vm.billing_checkout":
             guard let plan = params["plan"] as? String, plan == "go" || plan == "max" || plan == "pro" else {
                 return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.cloudVM.billingCheckout.invalidPlan", defaultValue: "Choose Go, Pro, or Max: cmux billing checkout --plan <go|pro|max>"))

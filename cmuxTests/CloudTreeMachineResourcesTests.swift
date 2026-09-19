@@ -46,6 +46,72 @@ struct CloudTreeMachineResourcesTests {
         #expect(resources.disk.detail.contains("3/4"))
     }
 
+    @Test func resourceRowValuesDoNotRepeatTheirLabels() {
+        let rows = CloudTreeMachineResourceSection(machine: machine(), now: Self.sampleTime).rows
+        #expect(rows[0].detail == (0.094).formatted(.percent.precision(.fractionLength(0))))
+        #expect(rows[1].detail == "2/4 GB (50%)")
+        #expect(rows[2].detail == "3/4 GB (75%)")
+        let asleep = CloudTreeMachineResourceSection(machine: machine(state: .asleep), now: Self.sampleTime).rows
+        #expect(asleep[0].detail == "Asleep")
+    }
+
+    @Test("Resource readings cannot be selected and keyboard navigation skips them")
+    @MainActor func resourceReadingsAreDisplayOnly() throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let resources = CloudTreeMachineResourceNodeBuilder().groupNode(
+            machine: fixture.machine, snapshot: machine(), now: Self.sampleTime
+        )
+        let next = CloudTreeNode(id: "after-resources", kind: .portsGroup(machine: fixture.machine))
+        fixture.coordinator.apply(nodes: [resources, next])
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(resources)
+        let headerRow = outline.row(forItem: resources)
+        let nextRow = outline.row(forItem: next)
+        outline.selectRowIndexes(IndexSet(integer: headerRow), byExtendingSelection: false)
+
+        for reading in resources.children {
+            #expect(!fixture.coordinator.outlineView(outline, shouldSelectItem: reading))
+            outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: reading)), byExtendingSelection: false)
+            #expect(outline.selectedRow == headerRow)
+            fixture.coordinator.selectQuickSearchMatch(query: reading.searchableTitle)
+            #expect(outline.selectedRow == headerRow)
+        }
+
+        fixture.coordinator.moveSelection(by: 1)
+        #expect(outline.selectedRow == nextRow)
+        fixture.coordinator.moveSelection(by: -1)
+        #expect(outline.selectedRow == headerRow)
+        fixture.coordinator.open(resources)
+        #expect(!outline.isItemExpanded(resources), "The Resources header still toggles expansion")
+    }
+
+    @Test("Cloud sections and resource values fit narrow and wide sidebars", arguments: [280.0, 420.0])
+    @MainActor func resourceTreeLayout(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        let snapshot = machine()
+        let template = try #require(fixture.nodes().first)
+        let resources = CloudTreeMachineResourceNodeBuilder().groupNode(
+            machine: fixture.machine, snapshot: snapshot, now: Self.sampleTime
+        )
+        let root = CloudTreeNode(
+            id: template.id, kind: .machine(snapshot, nil),
+            children: template.children.filter { $0.structureTag != "resourcesPool" } + [resources]
+        )
+        fixture.window.setContentSize(NSSize(width: width, height: 520))
+        fixture.container.appearance = NSAppearance(named: .darkAqua)
+        fixture.coordinator.apply(nodes: [root])
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(nil, expandChildren: true)
+        fixture.container.layoutSubtreeIfNeeded()
+        for row in 0..<outline.numberOfRows {
+            #expect(outline.frameOfCell(atColumn: 0, row: row).width > 0)
+            #expect(outline.frameOfCell(atColumn: 0, row: row).maxX <= outline.bounds.maxX + 1)
+        }
+        try fixture.attachScreenshot(named: "cloud-resources-spacing-\(Int(width))")
+    }
+
     @Test(arguments: [VMStats.State.asleep, .unknown])
     func inactiveSamplesNeverPresentOldValuesAsLive(state: VMStats.State) {
         let resources = CloudMachineResourcePresentation(machine: machine(state: state), now: Self.sampleTime)
@@ -189,30 +255,28 @@ struct CloudTreeMachineResourcesTests {
         #expect(line.contains("30d"))
     }
 
-    @Test @MainActor func compactPresetsKeepResourcesAndUsageOnTheHeaderBaseline() throws {
+    @Test @MainActor func machineHeaderLeavesResourceAndUsageDetailsToTheResourcesSection() throws {
         var snapshot = machine()
         snapshot.usage = MachineUsageSnapshot(
             vmID: snapshot.id, providerVmID: nil, displayName: nil, periodDays: 30, asOf: Self.sampleTime,
             totals: MachineUsageTotals(inputTokens: 31000, cachedInputTokens: 0, outputTokens: 10000,
                                        totalTokens: 41000, apiEquivalentUsd: 1.23)
         )
-        for style in CloudTreeStyle.presets where style.machineRowLayout == .singleLine {
+        for style in CloudTreeStyle.presets {
             let row = CloudTreeMachineRowContent(machine: snapshot, style: style, now: Self.sampleTime)
-            let fact = try #require(row.inlineFact)
-            #expect(fact.contains("CPU"))
-            #expect(fact.contains("50%"))
-            #expect(fact.contains("75%"))
-            #expect(fact.contains("41K"))
-            #expect(fact.contains("30d"))
-            #expect(style.machineRowHeight(hasStats: true, hasUsage: true)
-                == style.machineRowHeight(hasStats: false, hasUsage: false))
+            let section = CloudTreeMachineResourceSection(machine: snapshot, now: Self.sampleTime)
+            #expect(section.rows.map(\.metric) == [.cpu, .memory, .disk, .usage])
+            #expect(section.rows[0].detail.contains("9%"))
+            #expect(section.rows[1].detail.contains("2/4"))
+            #expect(section.rows[2].detail.contains("3/4"))
+            #expect(section.rows[3].detail.contains("41K"))
             for width in [CGFloat(240), 800] {
                 for scale in [100, 150] {
                     let host = NSHostingView(rootView: row
                         .environment(\.cmuxGlobalFontMagnificationPercent, scale).frame(width: width))
                     #expect(host.fittingSize.width <= width + 1)
                     #expect(host.fittingSize.height <= GlobalFontMagnification.scaledSize(
-                        style.machineRowHeight(hasStats: true, hasUsage: true), percent: scale
+                        style.machineRowHeight(hasStats: false, hasUsage: false), percent: scale
                     ) + 1)
                 }
             }
@@ -254,5 +318,122 @@ struct CloudTreeMachineResourcesTests {
                 #expect(style.machineRowHeight(hasStats: true) == style.machineRowHeight(hasStats: false))
             }
         }
+    }
+
+    @Test @MainActor func everyCloudMachineGetsResourcesAfterSurfaceSections() throws {
+        let first = machine()
+        var second = machine()
+        second = MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: "empty-machine", provider: "freestyle", status: "running", image: "test", createdAt: 0, base: nil
+        ))
+        let info = SurfaceMachineInfo(
+            id: .cloud(first.id), name: first.displayName, status: "running", image: first.image,
+            hasDesktop: first.isDesktop, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        let emptyInfo = SurfaceMachineInfo(
+            id: .cloud(second.id), name: second.displayName, status: "running", image: second.image,
+            hasDesktop: second.isDesktop, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        let snapshot = SurfaceCatalogSnapshot(machines: [info, emptyInfo], resources: [], projections: [])
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [first, second], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        #expect(nodes.count == 2)
+        for node in nodes {
+            let children = node.children
+            #expect(children.last?.structureTag == "resourcesPool")
+            #expect(children.dropLast().map(\.structureTag) == ["workspacesGroup", "portsGroup", "displaysPool", "terminalsPool"])
+            #expect(children.last?.children.count == 4)
+        }
+    }
+
+    @Test @MainActor func resourcesRemainVisibleWhenCatalogEntryIsMissing() throws {
+        let snapshot = machine()
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [snapshot], snapshot: .empty, localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        let children = try #require(nodes.first?.children)
+        #expect(children.map(\.structureTag) == ["placeholder", "resourcesPool"])
+    }
+
+    @Test("Fresh VM telemetry survives missing or disconnected terminal links",
+          arguments: [nil, .connecting, .error, .unavailable, .asleep, .connected] as [SurfaceLinkState?])
+    @MainActor func freshReadingsDoNotDependOnTerminalLink(linkState: SurfaceLinkState?) throws {
+        let snapshot = machine()
+        let info = linkState.map { state in
+            SurfaceMachineInfo(
+                id: .cloud(snapshot.id), name: snapshot.displayName, status: "running", image: snapshot.image,
+                hasDesktop: snapshot.isDesktop, memoryMb: nil, diskMb: nil, linkState: state,
+                linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+            )
+        }
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [snapshot],
+            snapshot: SurfaceCatalogSnapshot(machines: info.map { [$0] } ?? [], resources: [], projections: []),
+            localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        let resources = try #require(nodes.first?.children.last)
+        let expected = CloudTreeMachineResourceSection(machine: snapshot, now: Self.sampleTime).rows
+        #expect(resources.children.count == expected.count)
+        for (node, reading) in zip(resources.children, expected) {
+            guard case .resource(_, let actual) = node.kind else {
+                Issue.record("Expected a resource reading")
+                continue
+            }
+            #expect(actual == reading)
+        }
+    }
+
+    @Test @MainActor func terminalAndResourceDefaultsAreCollapsedButExplicitChoicesWin() throws {
+        let snapshot = machine()
+        let info = SurfaceMachineInfo(
+            id: .cloud(snapshot.id), name: snapshot.displayName, status: "running", image: snapshot.image,
+            hasDesktop: snapshot.isDesktop, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [snapshot], snapshot: SurfaceCatalogSnapshot(machines: [info], resources: [], projections: []),
+            localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
+        )
+        let machineNode = try #require(nodes.first)
+        let workspaces = try #require(machineNode.children.first)
+        let terminals = try #require(machineNode.children.dropFirst(3).first)
+        let resources = try #require(machineNode.children.last)
+        let defaults = UserDefaults(suiteName: "CloudTreeResources-\(UUID().uuidString)")!
+        let store = CloudTreeExpansionStore(defaults: defaults)
+        #expect(store.isExpanded(workspaces))
+        #expect(store.isExpanded(machineNode.children[1]))
+        #expect(!store.isExpanded(terminals))
+        #expect(!store.isExpanded(resources))
+        store.setExpanded(true, node: resources)
+        store.setExpanded(false, node: workspaces)
+        #expect(store.isExpanded(resources))
+        #expect(!store.isExpanded(workspaces))
+        for _ in 0..<3 { store.reconcile(nodes: []) }
+        let reloaded = CloudTreeExpansionStore(defaults: defaults)
+        #expect(reloaded.isExpanded(workspaces), "removed dynamic rows do not leave stale collapsed state")
+    }
+
+    @Test func resourceRowsKeepTelemetryStatesDistinctAndPreserveZero() {
+        var loading = machine()
+        loading.stats = nil
+        let loadingRows = CloudTreeMachineResourceSection(machine: loading, now: Self.sampleTime).rows
+        #expect(loadingRows[0].detail.contains("Loading"))
+
+        let stale = CloudTreeMachineResourceSection(
+            machine: machine(resourceSampledAt: Self.sampleTime),
+            now: Self.sampleTime.addingTimeInterval(CloudMachineResourcePresentation.staleSampleAge + 1)
+        )
+        #expect(stale.rows[0].detail.contains("Stale"))
+
+        let zero = CloudTreeMachineResourceSection(
+            machine: machine(cpu: 0, memoryUsed: 0, memoryTotal: 4096, diskUsed: 0, diskTotal: 4096),
+            now: Self.sampleTime
+        )
+        #expect(zero.rows[0].detail.contains("0%"))
+        #expect(zero.rows[1].detail.contains("0/4"))
+        #expect(zero.rows[2].detail.contains("0/4"))
     }
 }
