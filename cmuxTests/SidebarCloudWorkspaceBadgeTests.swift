@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxSettings
 import Observation
 import Testing
 @testable import cmux_DEV
@@ -36,34 +37,44 @@ struct SidebarCloudWorkspaceBadgeTests {
         #expect(decision.workspaceSnapshotStorage?.cloudWorkspaceLabel != nil)
     }
 
-    @Test(arguments: [
-        ("sidebarHideAllDetails", true),
-        ("sidebarShowBranchDirectory", false)
-    ])
-    func sidebarDetailSettingsHideCloudMachineInfo(defaultsKey: String, value: Bool) throws {
-        let defaults = Self.makeDefaults()
-        if defaultsKey == "sidebarHideAllDetails" {
-            defaults.set(value, forKey: SettingCatalog().sidebar.hideAllDetails.userDefaultsKey)
-        } else {
-            defaults.set(value, forKey: SettingCatalog().sidebar.showBranchDirectory.userDefaultsKey)
-        }
-        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+    @Test(arguments: [false, true], [false, true])
+    func sidebarDetailSettingsHideCloudMachineInfo(hideAll: Bool, verticalLayout: Bool) throws {
+        let suite = "CloudSidebarVisibility.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let sidebar = SidebarCatalogSection()
+        defaults.set(verticalLayout, forKey: sidebar.branchVerticalLayout.userDefaultsKey)
         let workspace = Workspace(initialSurface: .cloudVMLoading)
+        defer { for panel in workspace.panels.values { panel.close() } }
         workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         workspace.updateCloudPanelDirectory(panelId: try #require(workspace.focusedPanelId), directory: "/home/cmux")
-        let snapshot = SidebarWorkspaceSnapshotFactory(
-            workspace: workspace, settings: settings, showsAgentActivity: false
-        ).makeSnapshot()
-        #expect(snapshot.cloudWorkspaceLabel?.contains("vivid-newt") == true)
-        #expect(snapshot.compactDirectoryCandidates.isEmpty)
-        let cell = SidebarAppKitRowCellTests.configuredCell(
-            model: Self.makeModel(settings: settings, workspaceSnapshot: snapshot), tab: workspace
-        )
-        let badge = try #require(SidebarAppKitRowCellTests.descendants(of: cell).first {
-            ($0 as? NSImageView)?.accessibilityIdentifier() == "sidebarCloudBadge"
-        } as? NSImageView)
-        #expect(badge.isHidden)
-        #expect(cell.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
+        let binding = workspace.cloudVMBinding
+        var cell: SidebarWorkspaceRowTableCellView?
+        for hidden in [false, true, false] {
+            defaults.set(hideAll && hidden, forKey: sidebar.hideAllDetails.userDefaultsKey)
+            defaults.set(hideAll || !hidden, forKey: sidebar.showBranchDirectory.userDefaultsKey)
+            let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+            let snapshot = SidebarWorkspaceSnapshotFactory(
+                workspace: workspace, settings: settings, showsAgentActivity: false
+            ).makeSnapshot()
+            let directories = snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)
+            #expect(directories.isEmpty == hidden)
+            #expect(snapshot.compactBranchDirectoryCandidates.isEmpty == (hidden || verticalLayout))
+            #expect(snapshot.cloudWorkspaceLabel?.contains("vivid-newt") == true)
+            let model = Self.makeModel(settings: settings, workspaceSnapshot: snapshot)
+            if let cell {
+                cell.applyRebuiltModel(model)
+            } else {
+                cell = SidebarAppKitRowCellTests.configuredCell(model: model, tab: workspace)
+            }
+            let rendered = try #require(cell)
+            let badge = try #require(SidebarAppKitRowCellTests.descendants(of: rendered).compactMap { $0 as? NSImageView }.first {
+                $0.accessibilityIdentifier() == "sidebarCloudBadge"
+            })
+            #expect(badge.isHidden == hidden)
+            #expect(rendered.accessibilityLabel()?.contains("Cloud workspace on vivid-newt") == true)
+            #expect(workspace.cloudVMBinding == binding)
+        }
     }
 
     /// Ensures restored Cloud identity survives every connection presentation state.

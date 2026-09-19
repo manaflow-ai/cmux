@@ -293,14 +293,13 @@ struct CloudDirectoryLifecycleTests {
         #expect(singleMachine.directoryCandidates == ["Build server · /home/cmux/a, /home/cmux/b"])
 
         let other = SurfaceMachineID.cloud("other-machine")
-        let otherPanel = try #require(fixture.workspace.newTerminalSurface(
-            inPane: try #require(fixture.workspace.bonsplitController.allPaneIds.first), focus: false
-        )).id
-        let otherResource = SurfaceResource(
-            id: SurfaceResourceID(machine: other, kind: .terminal, key: "other-terminal"),
-            title: "bash", detail: "/srv/other", lifecycle: .running,
-            agent: nil, remoteWorkspace: nil, port: nil, url: nil
-        )
+        let otherPanel = fixture.panels[1]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+            "cursor": ["generation": "other", "revision": "1"],
+            "workspaces": [], "screens": [], "panes": [], "tabs": [],
+            "terminals": [["id": "other-terminal", "title": "bash", "cwd": "/srv/other", "lifecycle": "running"]],
+            "browsers": [], "agents": []
+        ], machine: other))
         let otherProvider = CmuxTuiSurfaceProvider(
             summary: VMSummary(id: other.rawValue, provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil),
             links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: fixture.catalog
@@ -309,18 +308,25 @@ struct CloudDirectoryLifecycleTests {
         defer {
             fixture.catalog.endProjections(panelID: otherPanel)
             fixture.catalog.unregister(machine: other)
-            fixture.workspace.panels[otherPanel]?.close()
         }
         var otherInfo = otherProvider.info
         otherInfo.name = "Build server"
-        fixture.catalog.updateMachine(otherInfo, from: otherProvider)
-        fixture.catalog.upsert(otherResource, from: otherProvider)
-        fixture.catalog.record(SurfaceProjection(resource: otherResource.id, workspaceID: fixture.workspace.id, panelID: otherPanel))
-        let collision = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.workspace.sidebarOrderedPanelIds(), usesLastSegmentPath: false
+        fixture.catalog.replaceCloudState(state, resources: CmuxTuiSnapshotParser.resources(from: state), info: otherInfo)
+        fixture.catalog.endProjections(panelID: otherPanel, reason: .replaced)
+        fixture.catalog.record(SurfaceProjection(
+            resource: SurfaceResourceID(machine: other, kind: .terminal, key: "other-terminal"),
+            workspaceID: fixture.workspace.id, panelID: otherPanel
         ))
-        #expect(collision.directoryCandidates.first?.contains("Build server (cwd-machine) · /home/cmux/a, /home/cmux/b") == true)
-        #expect(collision.directoryCandidates.first?.contains("Build server (other-machine) · /srv/other") == true)
+        let collision = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+        ))
+        #expect(collision.directoryCandidates == [
+            "Build server (cwd-machine) · /home/cmux/a | Build server (other-machine) · /srv/other"
+        ])
+        let hiddenOtherMachine = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: [fixture.panels[0]], usesLastSegmentPath: false
+        ))
+        #expect(hiddenOtherMachine.directoryCandidates == ["Build server · /home/cmux/a"])
     }
 
     @Test("Local renderer OSC reports cannot overwrite the accepted Cloud graph")
