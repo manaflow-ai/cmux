@@ -327,15 +327,47 @@ public struct LocalTmuxSessionSummary: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Shared localized copy for local-tmux host failures.
+public enum LocalTmuxSettingsText {
+    public static var unavailable: String {
+        String(
+            localized: "settings.terminal.localTmux.unavailable",
+            defaultValue: "Local session persistence is unavailable in this settings host.",
+            bundle: .module
+        )
+    }
+
+    public static var invalidResponse: String {
+        String(
+            localized: "settings.terminal.localTmux.invalidResponse",
+            defaultValue: "cmux local-tmux returned an invalid session list.",
+            bundle: .module
+        )
+    }
+
+    public static var cliMissing: String {
+        String(
+            localized: "settings.terminal.localTmux.cliMissing",
+            defaultValue: "The bundled cmux command-line tool could not be found.",
+            bundle: .module
+        )
+    }
+
+    public static var commandFailed: String {
+        String(
+            localized: "settings.terminal.localTmux.commandFailed",
+            defaultValue: "cmux local-tmux could not complete the requested action.",
+            bundle: .module
+        )
+    }
+}
+
 /// Error returned by package-only hosts that cannot perform local tmux actions.
 public enum LocalTmuxSettingsActionError: LocalizedError, Sendable {
     case unavailable
 
     public var errorDescription: String? {
-        String(
-            localized: "settings.terminal.localTmux.unavailable",
-            defaultValue: "Local session persistence is unavailable in this settings host."
-        )
+        LocalTmuxSettingsText.unavailable
     }
 }
 
