@@ -103,27 +103,52 @@ extension AuthCoordinator {
     /// finishes could otherwise observe an empty token store on a
     /// refresh-token-only start and report "Not signed in" even though a valid
     /// session becomes available moments later.
+    /// Retries a transient access-token miss up to three times with 300ms and
+    /// 800ms backoff, all within one cancellable network deadline.
     /// - Returns: The access and refresh tokens.
     /// - Throws: ``AuthError/networkError`` when the access token is missing
     ///   but a refresh token survives, meaning the refresh failed transiently,
     ///   or when token storage was unavailable because the device was locked;
     ///   ``AuthError/unauthorized`` when available storage is missing either an
     ///   access token with no refresh token to recover from, or the refresh
-    ///   token required by backend requests.
+    ///   token required by backend requests; ``AuthError/timedOut`` if the
+    ///   network deadline expires, or `CancellationError` if the request is cancelled.
     public func currentTokens() async throws -> (accessToken: String, refreshToken: String) {
         await awaitBootstrapped()
-        let storageWasAvailable = await isTokenStorageAvailable()
-        guard let access = await client.accessToken(), !access.isEmpty else {
-            if let refresh = await client.refreshToken(), !refresh.isEmpty {
-                throw AuthError.networkError
-            }
-            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+        try Task.checkCancellation()
+        return try await runTokenTouchingPhase(.accessToken, timeout: timeouts.network) {
+            try await self.currentTokensWithoutStateClear()
         }
-        guard let refresh = await client.refreshToken(), !refresh.isEmpty else {
-            throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
-        }
-        return (access, refresh)
     }
+
+    private func currentTokensWithoutStateClear() async throws -> (accessToken: String, refreshToken: String) {
+        let storageWasAvailable = await isTokenStorageAvailable()
+        for backoff in Self.currentTokensRetryBackoff {
+            try Task.checkCancellation()
+            let access = await client.accessToken()
+            try Task.checkCancellation()
+            let refresh = await client.refreshToken()
+            try Task.checkCancellation()
+            guard let refresh, !refresh.isEmpty else {
+                throw emptyTokenReadError(storageWasAvailable: storageWasAvailable)
+            }
+            if let access, !access.isEmpty {
+                return (access, refresh)
+            }
+            // The SDK preserves the refresh token after a transient mint failure.
+            // Retry inside the owned phase so every attempt shares its deadline
+            // and sign-out or caller cancellation stops the backoff and next mint.
+            guard let backoff else { break }
+            try await clock.sleep(for: backoff)
+        }
+        throw AuthError.networkError
+    }
+
+    private static let currentTokensRetryBackoff: [Duration?] = [
+        .milliseconds(300),
+        .milliseconds(800),
+        nil,
+    ]
 
     /// Both tokens for the current session as ONE coherent pair, for callers that
     /// must never send a torn (old-access, new-refresh) credential set.

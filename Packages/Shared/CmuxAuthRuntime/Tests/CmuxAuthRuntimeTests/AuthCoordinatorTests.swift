@@ -9,6 +9,7 @@ import Testing
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
         clock: any Clock<Duration> = ContinuousClock(),
+        timeouts: AuthTimeouts = .default,
         isOnline: @escaping @Sendable () async -> Bool = { true },
         onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
         onSignedIn: @escaping @Sendable () async -> Void = {}
@@ -22,6 +23,7 @@ import Testing
             anchor: FakeAnchor(),
             config: .test,
             launch: launch,
+            timeouts: timeouts,
             clock: clock,
             isOnline: isOnline,
             onSessionWillTransition: onSessionWillTransition,
@@ -663,6 +665,69 @@ import Testing
         await #expect(throws: AuthError.networkError) {
             _ = try await coordinator.currentTokens()
         }
+    }
+
+    // A single transient refresh blip (access nil while the refresh token
+    // survives) must not dead-end the Cloud VM panel: currentTokens retries the
+    // mint and recovers when the next attempt yields an access token. Regression
+    // guard for the "Cloud VM unavailable / could not refresh (Waited 0s)" report.
+    @Test(arguments: [2, 3])
+    func currentTokensRetriesTransientRefreshThenSucceeds(attempts: Int) async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(access: "access-initial", refresh: "refresh-1", user: user)
+        let (coordinator, _) = makeCoordinator(client: client)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+
+        // After bootstrap, the next currentTokens sees a transient refresh (nil)
+        // that recovers on retry.
+        await client.setAccessTokenSequence(Array(repeating: nil, count: attempts - 1) + ["access-recovered"])
+        let callsBefore = await client.accessTokenCallCount
+
+        let tokens = try await coordinator.currentTokens()
+
+        #expect(tokens.accessToken == "access-recovered")
+        #expect(tokens.refreshToken == "refresh-1")
+        let callsAfter = await client.accessTokenCallCount
+        #expect(callsAfter - callsBefore == attempts)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func currentTokensCancellationStopsBackoffWithoutAnotherRefresh() async {
+        let client = FakeAuthClient(refresh: "refresh-1")
+        let clock = ManualTestClock()
+        let (coordinator, _) = makeCoordinator(client: client, clock: clock)
+        let request = Task { try await coordinator.currentTokens() }
+        // The phase deadline and first retry delay are both waiting.
+        await clock.waitUntilSleepers(count: 2)
+        let completions = coordinator.activeTokenTouchingPhases.values.map(\.completion)
+        request.cancel()
+        await #expect(throws: CancellationError.self) { try await request.value }
+        for completion in completions { await completion.value }
+        #expect(await client.accessTokenCallCount == 1)
+        #expect(coordinator.activeTokenTouchingPhases.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func currentTokensRetriesShareOneDeadline() async {
+        let client = FakeAuthClient(refresh: "refresh-1")
+        let clock = ManualTestClock()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            clock: clock,
+            timeouts: AuthTimeouts(interactiveFlow: .seconds(5), network: .milliseconds(500))
+        )
+        let request = Task { try await coordinator.currentTokens() }
+        await clock.waitUntilSleepers(count: 2)
+        clock.advance(by: .milliseconds(300))
+        await clock.waitUntilSleepers(count: 2)
+        #expect(await client.accessTokenCallCount == 2)
+        let completions = coordinator.activeTokenTouchingPhases.values.map(\.completion)
+        clock.advance(by: .milliseconds(200))
+        await #expect(throws: AuthError.timedOut) { try await request.value }
+        for completion in completions { await completion.value }
+        #expect(await client.accessTokenCallCount == 2)
+        #expect(coordinator.activeTokenTouchingPhases.isEmpty)
     }
 
     @Test func authenticatedRefreshTokenSnapshotPinsIdentityAndGeneration() async throws {
