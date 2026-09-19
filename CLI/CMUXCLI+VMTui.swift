@@ -1929,7 +1929,6 @@ extension CMUXCLI {
         let reused = (response["reused"] as? Bool) == true
         print("OK surface=\(surfaceId) workspace=\(workspaceId) terminal=\(terminalId)\(reused ? " reused=true" : "")")
     }
-
     /// The one port path: `vm open <id> <port>`, `vm open <id>:port/<n>`, and the tree all
     /// land here. `--print` only mints the URL (vm.open_port); otherwise the app opens the
     /// browser pane and reports the surface (vm.port_open).
@@ -1959,12 +1958,14 @@ extension CMUXCLI {
             return
         }
         print("\(vmId):\(port)")
-        print("  \((payload["url"] as? String) ?? (payload["open_url"] as? String) ?? "")")
+        let remotePort = (payload["remote_port"] as? Int) ?? port
+        print("  \(CloudPortRoutePlan.cliRemotePortLine(remotePort: remotePort))")
+        let linkURL = (payload["url"] as? String) ?? (payload["open_url"] as? String) ?? ""
+        print("  \(CloudPortRoutePlan.cliLinkLine(url: linkURL, remotePort: remotePort, isLocalForward: payload["local_port"] is Int && payload["local_url"] is String))")
         if let surfaceId = payload["surface_id"] as? String, !surfaceId.isEmpty {
             print("OK surface=\(surfaceId)")
         }
     }
-
     // MARK: - cmux surface ls|open|new-terminal
 
     func runSurfaceCatalogCommand(subcommand: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
@@ -1975,7 +1976,6 @@ extension CMUXCLI {
         switch subcommand {
         case "ls", "list", "tree", "catalog":
             try runVMTreeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
-
         case "open", "project":
             let (workspaceOpt, rest1) = parseOption(rest, name: "--workspace")
             let (paneOpt, rest2) = parseOption(rest1, name: "--pane")
