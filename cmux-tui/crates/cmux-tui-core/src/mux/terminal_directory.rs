@@ -34,7 +34,7 @@ impl Mux {
         let mut value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
         value["cwd"] = serde_json::json!(directory);
         let deltas = serde_json::json!([{
-            "kind": "upsert", "resource": "terminal", "id": id, "value": value,
+            "kind": "upsert", "sequence": 0, "resource": "terminal", "id": id, "value": value,
         }]);
         let mutation = WorkspaceMutation::local("terminal.cwd");
         let commit = registry.commit_resource_patch(
