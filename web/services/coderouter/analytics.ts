@@ -21,6 +21,9 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_account_removed"
   | "coderouter_account_status_viewed"
   | "coderouter_auth_rejected"
+  | "coderouter_handoff_lease_issued"
+  | "coderouter_handoff_lease_exchanged"
+  | "coderouter_handoff_rejected"
   | "coderouter_route_session_issued"
   | "coderouter_route_session_revoked"
   | "coderouter_api_key_created"
@@ -277,6 +280,8 @@ async function deliver(
 function eventNeedsUser(event: CoderouterAnalyticsEvent): boolean {
   return event === "coderouter_account_added" ||
     event === "coderouter_account_removed" ||
+    event === "coderouter_handoff_lease_issued" ||
+    event === "coderouter_handoff_lease_exchanged" ||
     event === "coderouter_route_session_issued" ||
     event === "coderouter_route_session_revoked" ||
     event === "coderouter_api_key_created" ||
@@ -290,6 +295,7 @@ function eventProperties(
   event: CoderouterAnalyticsEvent,
   input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
 ): Record<string, AnalyticsScalar> | null {
+  if (event.startsWith("coderouter_handoff_")) return handoffEventProperties(event, input);
   switch (event) {
     case "coderouter_model_request_completed":
       // Deprecated compatibility input. Usage is recorded only by
@@ -337,6 +343,35 @@ function eventProperties(
   // Keep this closed-schema builder fail-closed if a new event is added before
   // its telemetry properties are defined.
   return null;
+}
+
+function handoffEventProperties(
+  event: CoderouterAnalyticsEvent,
+  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
+): Record<string, AnalyticsScalar> | null {
+  switch (event) {
+    case "coderouter_handoff_lease_issued":
+      return { authorization_mode: "native_stack" };
+    case "coderouter_handoff_lease_exchanged": {
+      const mode = enumValue(input.authorization_mode, [
+        "lease",
+        "native_confirmation",
+      ]);
+      return mode ? { authorization_mode: mode } : null;
+    }
+    case "coderouter_handoff_rejected": {
+      const surface = enumValue(input.surface, ["mint", "exchange"]);
+      const reason = enumValue(input.reason, [
+        "missing_native_auth",
+        "invalid_native_auth",
+        "invalid_lease",
+        "expired_or_consumed",
+      ]);
+      return surface && reason ? { surface, reason } : null;
+    }
+    default:
+      return null;
+  }
 }
 
 function accountAddedProperties(
