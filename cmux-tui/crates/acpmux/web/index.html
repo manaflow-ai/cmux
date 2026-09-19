@@ -11,15 +11,15 @@
     --bg: #171717; --rail: #1c1c1c; --panel: #212121; --raised: #2a2a2a; --ink: #ececec; --muted: #9b9b9b; --dim: #6f6f6f;
     --rule: #2c2c2c; --hover: #262626; --sel: #2e2e2e; --bubble: #2a2a2a; --code: #1c1c1c; --link: #7ab4ff;
     --warm: #f0a24a; --bad: #f28b82; --ok: #8bd48b; --attn: #d29bf1; --card: #1f1f1f;
-    --add: #7fd07f; --del: #f08080;
+    --add: #7fd07f; --del: #f08080; --shadow: 0 8px 24px rgba(0,0,0,.35);
   }
   @media (prefers-color-scheme: light) {
     :root { --bg: #ffffff; --rail: #f5f5f5; --panel: #ffffff; --raised: #f0f0f0; --ink: #1a1a1a; --muted: #6b6b6b; --dim: #9a9a9a;
       --rule: #e6e6e6; --hover: #f2f2f2; --sel: #ebebeb; --bubble: #f0f0f0; --code: #f6f6f6; --link: #1a63d6;
-      --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; }
+      --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; --shadow: 0 8px 24px rgba(0,0,0,.12); }
   }
-  :root[data-theme="dark"] { --bg: #171717; --rail: #1c1c1c; --panel: #212121; --raised: #2a2a2a; --ink: #ececec; --muted: #9b9b9b; --dim: #6f6f6f; --rule: #2c2c2c; --hover: #262626; --sel: #2e2e2e; --bubble: #2a2a2a; --code: #1c1c1c; --link: #7ab4ff; --warm: #f0a24a; --bad: #f28b82; --ok: #8bd48b; --attn: #d29bf1; --card: #1f1f1f; --add: #7fd07f; --del: #f08080; }
-  :root[data-theme="light"] { --bg: #ffffff; --rail: #f5f5f5; --panel: #ffffff; --raised: #f0f0f0; --ink: #1a1a1a; --muted: #6b6b6b; --dim: #9a9a9a; --rule: #e6e6e6; --hover: #f2f2f2; --sel: #ebebeb; --bubble: #f0f0f0; --code: #f6f6f6; --link: #1a63d6; --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; }
+  :root[data-theme="dark"] { --bg: #171717; --rail: #1c1c1c; --panel: #212121; --raised: #2a2a2a; --ink: #ececec; --muted: #9b9b9b; --dim: #6f6f6f; --rule: #2c2c2c; --hover: #262626; --sel: #2e2e2e; --bubble: #2a2a2a; --code: #1c1c1c; --link: #7ab4ff; --warm: #f0a24a; --bad: #f28b82; --ok: #8bd48b; --attn: #d29bf1; --card: #1f1f1f; --add: #7fd07f; --del: #f08080; --shadow: 0 8px 24px rgba(0,0,0,.35); }
+  :root[data-theme="light"] { --bg: #ffffff; --rail: #f5f5f5; --panel: #ffffff; --raised: #f0f0f0; --ink: #1a1a1a; --muted: #6b6b6b; --dim: #9a9a9a; --rule: #e6e6e6; --hover: #f2f2f2; --sel: #ebebeb; --bubble: #f0f0f0; --code: #f6f6f6; --link: #1a63d6; --warm: #c77417; --bad: #c62828; --ok: #2e8b3d; --attn: #8a3fc0; --card: #fafafa; --add: #2e8b3d; --del: #c62828; --shadow: 0 8px 24px rgba(0,0,0,.12); }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { height: 100%; margin: 0; }
@@ -60,10 +60,10 @@
   .sess .dots { display: none; color: var(--muted); padding: 0 4px; border-radius: 6px; font-weight: 700; line-height: 1; }
   .sess:hover .dots, .sess.sel .dots { display: inline-block; }
   .sess .dots:hover { background: var(--raised); color: var(--ink); }
-  .hovercard { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 10px 14px; max-width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 13px; pointer-events: none; }
+  .hovercard { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 10px 14px; max-width: 420px; box-shadow: var(--shadow); font-size: 13px; pointer-events: none; }
   .hovercard .t { font-weight: 600; color: var(--ink); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hovercard .s { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .menu { position: fixed; z-index: 30; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 6px; min-width: 190px; box-shadow: 0 8px 24px rgba(0,0,0,.35); display: grid; }
+  .menu { position: fixed; z-index: 30; background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 6px; min-width: 190px; box-shadow: var(--shadow); display: grid; }
   .menu button { text-align: left; padding: 7px 10px; border-radius: 8px; font-size: 13.5px; }
   .menu button.bad { color: var(--bad); }
   .menu hr { border: 0; border-top: 1px solid var(--rule); margin: 4px 0; }

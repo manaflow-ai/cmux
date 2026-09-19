@@ -140,6 +140,12 @@ impl App {
     /// pane snaps to the nearest row and column, so a press on the gutter,
     /// past the end of a line, or below the last line still starts a
     /// selection there.
+    /// The rows' rect: the conversation column, one cell in from its left
+    /// edge and clear of the header row and the scrollbar.
+    pub(super) fn transcript_inner(&self) -> Rect {
+        let col = self.areas.column;
+        Rect { x: col.x + 1, y: col.y + 1, width: col.width.saturating_sub(3), height: col.height.saturating_sub(1) }
+    }
     pub(super) fn transcript_cell_lenient(&self, x: u16, y: u16) -> Option<(usize, usize)> {
         let a = self.areas.transcript;
         if a.width < 4 || a.height < 2 || x < a.x || x >= a.x + a.width || y < a.y || y >= a.y + a.height {
@@ -148,7 +154,7 @@ impl App {
         if self.rows_cache.is_empty() {
             return None;
         }
-        let inner = Rect { x: a.x + 1, y: a.y + 1, width: a.width.saturating_sub(3), height: a.height.saturating_sub(1) };
+        let inner = self.transcript_inner();
         let id = self.selected_id()?;
         let vp = self.viewport.get(&id)?;
         let yy = y.clamp(inner.y, inner.y + inner.height.saturating_sub(1));

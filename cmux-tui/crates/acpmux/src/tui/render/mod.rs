@@ -32,6 +32,9 @@ pub const SIDEBAR_WIDTH: u16 = 32;
 pub const COMPOSER_INDENT: u16 = 2;
 /// Columns always left for the transcript, as cmux leaves for panes.
 pub const MIN_MAIN_WIDTH: u16 = 40;
+/// Widest conversation column, in cells; a wider pane centers it, as the
+/// Codex app does with its 860px column.
+pub const COLUMN_WIDTH: u16 = 124;
 
 /// One rendered transcript row with the absolute index it belongs to, so
 /// selection and scrolling stay stable while text streams in.
@@ -742,13 +745,15 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
     let sidebar_w = if app.sidebar_hidden { 0 } else { app.sidebar_width.unwrap_or(SIDEBAR_WIDTH).min(body.width.saturating_sub(MIN_MAIN_WIDTH)).max(16) };
     let sidebar = Rect { x: body.x, y: body.y, width: sidebar_w, height: body.height };
     let main = Rect { x: body.x + sidebar_w, y: body.y, width: body.width - sidebar_w, height: body.height };
+    let col_w = main.width.min(COLUMN_WIDTH);
+    let col_x = main.x + (main.width - col_w) / 2;
     // The composer box: one column of margin, a border and a space each side.
-    let editor_w = main.width.saturating_sub(6) as usize;
+    let editor_w = col_w.saturating_sub(6) as usize;
     // Top rule, the text (1-6 rows), bottom rule, controls row.
     let max_rows = app.composer_max_rows.min(main.height / 2).max(1);
     // Top rule, the text, bottom rule, controls row.
     let input_h = (app.editor().rows_at(editor_w).max(1) as u16).min(max_rows) + 3;
-    let composer = Rect { x: main.x, y: main.y + main.height - input_h, width: main.width, height: input_h };
+    let composer = Rect { x: col_x, y: main.y + main.height - input_h, width: col_w, height: input_h };
     // A pending permission docks as a card above the composer, Codex-app
     // style, instead of covering the conversation.
     let pending = app
@@ -759,8 +764,9 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
             _ => None,
         });
     let card_h: u16 = if pending.is_some() && main.height > input_h + 8 { 4 } else { 0 };
-    let card = Rect { x: main.x + 1, y: composer.y.saturating_sub(card_h), width: main.width.saturating_sub(2), height: card_h };
+    let card = Rect { x: col_x + 1, y: composer.y.saturating_sub(card_h), width: col_w.saturating_sub(2), height: card_h };
     let transcript = Rect { x: main.x, y: main.y, width: main.width, height: main.height - input_h - card_h };
+    app.areas.column = Rect { x: col_x, y: transcript.y, width: col_w, height: transcript.height };
     app.areas.sidebar = sidebar;
     app.areas.sidebar_rule = if sidebar_w == 0 { Rect::default() } else { Rect { x: sidebar.x + sidebar.width - 1, y: sidebar.y, width: 1, height: sidebar.height } };
     app.areas.transcript = transcript;

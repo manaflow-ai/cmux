@@ -72,7 +72,7 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     }
     let hover = app.hover;
     let buf = f.buffer_mut();
-    let inner = Rect { x: area.x + 1, y: area.y + 1, width: area.width.saturating_sub(3), height: area.height.saturating_sub(1) };
+    let inner = app.transcript_inner();
     if let Some(d) = app.draft() {
         // Codex app: a centered headline naming the project, the settings
         // as one muted line under it. The composer below is where to type.

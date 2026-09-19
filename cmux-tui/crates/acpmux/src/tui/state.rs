@@ -8,6 +8,10 @@ pub struct Areas {
     /// The sidebar's right rule; dragging it resizes the sidebar.
     pub sidebar_rule: Rect,
     pub transcript: Rect,
+    /// The conversation column inside the transcript: rows, the composer
+    /// and a permission card share it. Narrower than the pane on wide
+    /// terminals, as the Codex app centers its conversation.
+    pub column: Rect,
     pub composer: Rect,
     pub status: Rect,
 }
