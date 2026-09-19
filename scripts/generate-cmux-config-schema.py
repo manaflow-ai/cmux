@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "web" / "data" / "cmux.schema.json"
-OUTPUT = ROOT / "CLI" / "CMUXConfigSchema.generated.swift"
+OUTPUT = ROOT / "Packages" / "macOS" / "CmuxFoundation" / "Sources" / "CmuxFoundation" / "ConfigValidation" / "CmuxConfigSchema.generated.swift"
 
 
 def generated_source() -> str:
@@ -21,7 +21,7 @@ def generated_source() -> str:
 
 import Foundation
 
-enum CMUXEmbeddedConfigSchema {{
+enum CmuxEmbeddedConfigSchema {{
     static let data: Data = {{
         let base64 = [
 {body}
