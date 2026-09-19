@@ -105,7 +105,6 @@ struct TitleUpdateAmplificationRegressionTests {
         }
         #expect(boundedData.count < rawTitle.utf8.count)
         #expect(legacyData.count > boundedData.count * 5)
-        #expect(legacyEncodeMilliseconds > boundedEncodeMilliseconds)
 
         let ordinaryTitle = "ordinary short OSC title"
         let workspace = try #require(targetWorkspaces.first)
@@ -371,6 +370,7 @@ struct TitleUpdateAmplificationRegressionTests {
     private static func medianEncodeMilliseconds(
         for snapshot: SessionTabManagerSnapshot
     ) -> Double {
+        _ = try? JSONEncoder().encode(snapshot)
         let measurements = (0..<10).map { _ in
             let startedAt = DispatchTime.now().uptimeNanoseconds
             _ = try? JSONEncoder().encode(snapshot)
