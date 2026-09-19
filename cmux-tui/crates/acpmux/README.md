@@ -290,6 +290,25 @@ reason, so a typo never starts a session on the wrong model. `_acpmux/harnesses`
 profile's family and resolved defaults, and `session/new` takes a family name as `harness` plus
 `model` and `effort` in `_meta.acpmux`.
 
+## Forks and plugins that were dogfooded
+
+Every harness below was run through acpmux end to end (create, prompt, effort, permission flow,
+`ls`/`info`/`tail`). Findings as of 2026-09-18:
+
+| Harness | How acpmux runs it | Works | Notes |
+| --- | --- | --- | --- |
+| [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`) | discovered as `omp acp`, family `pi` | yes | 60+ providers from `~/.omp/agent/models.yml`; `-e` drives its `thinking` option; delegates file writes to acpmux, so `--policy ask` gates edits. omp 17.3.2 repeats the final text of a first turn (`pearpear`); 18.1.18 does not: upgrade. |
+| [prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) | discovered as `prime-agent --mode acp`, profile `prime`, family `pi` | yes | One session per process (acpmux does that anyway). No model list over ACP: pick the model in `~/.prime/agent/settings.json` (`defaultModel`) or `models.json`; `-m` is refused. Writes files itself, so `ask` gates only its shell. |
+| [oh-my-opencode](https://github.com/opensoft/oh-my-opencode) | OpenCode plugin: `"plugin": ["oh-my-opencode@4.19.4"]` in the project's `.opencode/opencode.json` | yes | Its agents (Sisyphus, Oracle, …) arrive as the `mode` config option, so `session set NAME mode=…` and the TUI `/set` pick them. A user-level `"permission": "allow"` in `opencode.json` means OpenCode never asks; acpmux policies then apply only to what it delegates. |
+| [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) (`omx`) | no ACP; Codex is the engine. `omx setup --scope project` writes `<project>/.codex`; run Codex with `CODEX_HOME` there | yes, with two steps | `acpmux defaults omx prefer=codex 'env.CODEX_HOME=${cwd}/.codex'` then `run -u omx --cwd PROJECT`. The project home needs the user's provider lines (`openai_base_url`, …) and an `auth.json` (a symlink to `~/.codex/auth.json` works; a copy breaks on token rotation). `omx setup --scope user` avoids both. |
+
+Two acpmux changes came out of this. Every ACP harness is told acpmux implements the client
+file system (`fs/read_text_file`, `fs/write_text_file`): a harness that delegates writes (omp,
+Zed-style agents) has every edit pass through the permission policy and rules, and reads are
+refused under `deny-all` or a deny rule. Harnesses that write files themselves (pi, OpenCode,
+prime) still gate only what they choose to ask about. And profile or family `env` values expand
+`${cwd}`, `${home}` and a leading `~/`, so one alias can point a harness at a per-project home.
+
 ## Peers: every session on every machine, from one Mac
 
 A daemon can mirror other daemons. Add a peer and its sessions appear locally as

@@ -71,6 +71,24 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "fswrite: PATH" and "fsread: PATH" delegate the file operation to the
+    # client (ACP fs/write_text_file, fs/read_text_file) and report the result.
+    if text.startswith("fswrite:") or text.startswith("fsread:"):
+        write = text.startswith("fswrite:")
+        path = os.path.abspath(text.split(":", 1)[1].strip())
+        params = {"sessionId": sid, "path": path}
+        if write:
+            params["content"] = "ok\n"
+        res = request("fs/write_text_file" if write else "fs/read_text_file", params)
+        if isinstance(res, dict) and "error" in res:
+            reply = "rejected: " + res["error"].get("message", "")
+        elif write:
+            reply = "wrote"
+        else:
+            reply = "read: " + (res or {}).get("content", "").strip()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "die: X" prints X on stderr and exits without answering, like a
     # launcher that fails before the harness starts.
     if text.startswith("die:"):
@@ -109,7 +127,7 @@ def main():
         if "method" not in msg:
             p = pending.get(msg.get("id"))
             if p:
-                p[1] = msg.get("result")
+                p[1] = msg.get("result") if "error" not in msg else {"error": msg["error"]}
                 p[0].set()
             continue
         m = msg["method"]

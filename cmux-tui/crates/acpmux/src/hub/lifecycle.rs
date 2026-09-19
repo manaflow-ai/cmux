@@ -95,7 +95,8 @@ impl Hub {
             .unwrap()
             .insert(id.clone(), session.clone());
         self.append(&session, "mux", "created", json!({"harness": agent}));
-        self.ensure_child(&session, &self.with_default_env(&profile, &defaults.env)).await?;
+        let cwd_for_env = session.meta().cwd;
+        self.ensure_child(&session, &self.with_default_env(&profile, &defaults.env, &cwd_for_env)).await?;
         // Family or profile defaults, applied once the harness is up. A bad
         // default fails creation loudly rather than starting a session that
         // silently runs another model.
@@ -245,7 +246,10 @@ impl Hub {
                 json!({
                     "protocolVersion": 1,
                     "clientCapabilities": {
-                        "fs": {"readTextFile": false, "writeTextFile": false},
+                        // File reads and writes come through acpmux, so the
+                        // permission policy and rules gate every harness's
+                        // edits, not only the ones it chooses to ask about.
+                        "fs": {"readTextFile": true, "writeTextFile": true},
                         "terminal": false
                     },
                     "clientInfo": {"name": "acpmux", "version": VERSION}
@@ -543,7 +547,8 @@ impl Hub {
             let profile = cfg.profile(&agent).cloned().ok_or_else(|| RpcError::invalid_params(format!("unknown harness {agent:?}")))?;
             (profile, cfg.defaults_for(&agent))
         };
-        self.ensure_child(session, &self.with_default_env(&profile, &defaults.env)).await
+        let cwd = session.meta().cwd;
+        self.ensure_child(session, &self.with_default_env(&profile, &defaults.env, &cwd)).await
     }
 
     /// Whether a profile can run a model, judged by the model list it
@@ -601,13 +606,42 @@ impl Hub {
         candidates.into_iter().next()
     }
 
-    /// The profile with the family's default env underneath its own.
-    fn with_default_env(&self, profile: &HarnessProfile, env: &std::collections::BTreeMap<String, String>) -> HarnessProfile {
+    /// The profile with the family's default env underneath its own, and
+    /// `${cwd}`, `${home}` and a leading `~/` expanded in every value, so an
+    /// alias can point a harness at a per-project home
+    /// (`CODEX_HOME=${cwd}/.codex`).
+    fn with_default_env(&self, profile: &HarnessProfile, env: &std::collections::BTreeMap<String, String>, cwd: &std::path::Path) -> HarnessProfile {
         let mut p = profile.clone();
         for (k, v) in env {
             p.env.entry(k.clone()).or_insert_with(|| v.clone());
         }
+        let home = dirs::home_dir().unwrap_or_default();
+        for v in p.env.values_mut() {
+            *v = expand_env_value(v, cwd, &home);
+        }
         p
     }
 
+}
+
+/// `${cwd}`, `${home}` and a leading `~/` in a profile env value.
+pub fn expand_env_value(value: &str, cwd: &std::path::Path, home: &std::path::Path) -> String {
+    let mut out = value.replace("${cwd}", &cwd.to_string_lossy()).replace("${home}", &home.to_string_lossy());
+    if let Some(rest) = out.strip_prefix("~/") {
+        out = format!("{}/{rest}", home.to_string_lossy());
+    }
+    out
+}
+
+#[cfg(test)]
+mod env_tests {
+    #[test]
+    fn expands_cwd_and_home() {
+        let cwd = std::path::Path::new("/work/proj");
+        let home = std::path::Path::new("/Users/me");
+        assert_eq!(super::expand_env_value("${cwd}/.codex", cwd, home), "/work/proj/.codex");
+        assert_eq!(super::expand_env_value("~/.omp", cwd, home), "/Users/me/.omp");
+        assert_eq!(super::expand_env_value("${home}/x:${cwd}", cwd, home), "/Users/me/x:/work/proj");
+        assert_eq!(super::expand_env_value("plain", cwd, home), "plain");
+    }
 }

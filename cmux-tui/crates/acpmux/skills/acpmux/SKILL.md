@@ -97,7 +97,8 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and
-name, case-insensitively.
+name, case-insensitively. File writes a harness delegates to acpmux (ACP
+`fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 
 ## 6. Other machines
 

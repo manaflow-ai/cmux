@@ -97,7 +97,83 @@ impl Hub {
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
+        // ACP file-system methods: the harness delegates reads and writes to
+        // the client. Writes go through the permission policy like any edit
+        // tool; reads are refused only by deny-all or a deny rule.
+        if m == "fs/write_text_file" {
+            let result = self.handle_fs_write(&session, params.unwrap_or(Value::Null)).await;
+            let _ = child.respond(id, result).await;
+            return;
+        }
+        if m == "fs/read_text_file" {
+            let result = self.handle_fs_read(&session, params.unwrap_or(Value::Null)).await;
+            let _ = child.respond(id, result).await;
+            return;
+        }
         let _ = child.respond(id, Err(RpcError::method_not_found(&m))).await;
+    }
+
+    fn fs_path(session: &Session, params: &Value) -> Result<std::path::PathBuf, RpcError> {
+        let raw = params.get("path").and_then(Value::as_str).ok_or_else(|| RpcError::invalid_params("path is required"))?;
+        let p = std::path::PathBuf::from(raw);
+        Ok(if p.is_absolute() { p } else { session.meta().cwd.join(p) })
+    }
+
+    async fn handle_fs_write(&self, session: &Arc<Session>, params: Value) -> Result<Value, RpcError> {
+        let path = Self::fs_path(session, &params)?;
+        let content = params.get("content").and_then(Value::as_str).unwrap_or("").to_owned();
+        // Show the path relative to the session directory; the harness may
+        // hand back the canonical form (/private/var vs /var on macOS).
+        let cwd = session.meta().cwd;
+        let cwd_canon = cwd.canonicalize().unwrap_or_else(|_| cwd.clone());
+        let shown = path
+            .strip_prefix(&cwd)
+            .or_else(|_| path.strip_prefix(&cwd_canon))
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+        let request = json!({
+            "sessionId": session.meta().agent_session_id.clone().unwrap_or_else(|| session.id.clone()),
+            "toolCall": {"toolCallId": format!("fs-{}", uuid::Uuid::now_v7()), "title": format!("Write {shown}"), "kind": "edit", "status": "pending", "rawInput": {"path": path, "bytes": content.len()}, "locations": [{"path": path}]},
+            "options": [
+                {"optionId": "allow_once", "name": "Allow", "kind": "allow_once"},
+                {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
+            ]
+        });
+        let outcome = self.handle_permission(session, request).await;
+        let allowed = outcome.pointer("/outcome/optionId").and_then(Value::as_str).map(|o| o.starts_with("allow")).unwrap_or(false);
+        if !allowed {
+            return Err(RpcError::new(-32000, format!("write to {shown} rejected by the acpmux permission policy")));
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| RpcError::internal(format!("create {}: {e}", parent.display())))?;
+        }
+        std::fs::write(&path, content.as_bytes()).map_err(|e| RpcError::internal(format!("write {}: {e}", path.display())))?;
+        Ok(Value::Null)
+    }
+
+    async fn handle_fs_read(&self, session: &Arc<Session>, params: Value) -> Result<Value, RpcError> {
+        let path = Self::fs_path(session, &params)?;
+        let config_policy = self.config.read().await.permission_policy;
+        let policy = self.policy_for(session, config_policy);
+        let probe = json!({"toolCall": {"title": format!("Read {}", path.display()), "kind": "read", "rawInput": {"path": path}}});
+        let rule = session.meta().permission_rules.as_ref().and_then(|r| super::rules::decide(r, &probe));
+        let denied = matches!(rule, Some(super::rules::RuleDecision::Deny)) || (rule.is_none() && policy == PermissionPolicy::DenyAll);
+        if denied {
+            return Err(RpcError::new(-32000, format!("read of {} rejected by the acpmux permission policy", path.display())));
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| RpcError::new(-32000, format!("read {}: {e}", path.display())))?;
+        let line = params.get("line").and_then(Value::as_u64).map(|l| l.max(1) as usize);
+        let limit = params.get("limit").and_then(Value::as_u64).map(|l| l as usize);
+        let content = match (line, limit) {
+            (None, None) => text,
+            (l, n) => {
+                let start = l.unwrap_or(1) - 1;
+                let lines: Vec<&str> = text.lines().collect();
+                let end = n.map(|n| (start + n).min(lines.len())).unwrap_or(lines.len());
+                if start >= lines.len() { String::new() } else { lines[start..end].join("\n") }
+            }
+        };
+        Ok(json!({"content": content}))
     }
 
     pub(super) fn policy_for(&self, session: &Session, config_policy: PermissionPolicy) -> PermissionPolicy {

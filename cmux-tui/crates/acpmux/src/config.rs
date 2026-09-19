@@ -141,7 +141,9 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
         .iter()
         .map(|a| Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase()).unwrap_or_default())
         .collect();
-    for (needle, family) in [("codex", "codex"), ("opencode", "opencode"), ("gemini", "gemini"), ("pi-acp", "pi"), ("claude", "claude")] {
+    // pi forks (oh-my-pi, prime-agent) join the pi family: an orchestrator
+    // asking for "a pi" gets whichever is preferred or installed.
+    for (needle, family) in [("codex", "codex"), ("opencode", "opencode"), ("gemini", "gemini"), ("pi-acp", "pi"), ("omp", "pi"), ("prime-agent", "pi"), ("claude", "claude")] {
         if words.iter().any(|w| w.contains(needle)) {
             return family.into();
         }
@@ -486,6 +488,10 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
         // Claude through the subrouter account pool: `sr claude proxy`
         // picks the account with the most quota and fails over on limits.
         ("claude-sr", "sr"),
+        // oh-my-pi (can1357/oh-my-pi), a pi fork with a native ACP server.
+        ("omp", "omp"),
+        // Prime Agent (PrimeIntellect-ai/prime-agent), a pi fork: `--mode acp`.
+        ("prime", "prime-agent"),
     ] {
         if agents.contains_key(name) {
             continue;
@@ -494,6 +500,8 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
             let (kind, argv) = match bin {
                 "claude" => (HarnessKind::ClaudeStdio, vec![path]),
                 "sr" => (HarnessKind::ClaudeStdio, vec![path, "claude".into(), "proxy".into()]),
+                "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
                 "opencode" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 _ => (HarnessKind::Acp, vec![path]),

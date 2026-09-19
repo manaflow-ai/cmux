@@ -481,3 +481,42 @@ async fn a_model_alone_picks_the_harness_that_reports_it() {
     assert_eq!(hub.resolve_by_model(&cfg, "m1").as_deref(), Some("fake"));
     assert_eq!(hub.resolve_by_model(&cfg, "nope"), None);
 }
+
+#[tokio::test]
+async fn client_fs_writes_go_through_the_permission_policy() {
+    let dir = std::env::temp_dir().join(format!("acpmux-fs-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir_s = dir.to_string_lossy().into_owned();
+    // approve-edits: the write happens without a prompt.
+    let (hub, mut c) = setup(PermissionPolicy::ApproveEdits).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": dir_s, "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "fswrite: a.txt"}]})).await.unwrap();
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "wrote");
+    assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "ok\n");
+    let kinds: Vec<String> = hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
+    assert!(kinds.iter().any(|k| k == "permission_auto"), "{kinds:?}");
+    // Reads pass, with line/limit windows.
+    std::fs::write(dir.join("r.txt"), "one\ntwo\nthree\n").unwrap();
+    c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "fsread: r.txt"}]})).await.unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "read: one two three");
+    // ask: the write shows up as a pending permission with kind edit; a rejection reaches the harness.
+    c.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "ask"})).await.unwrap();
+    c.next += 1;
+    let prompt_id = c.next;
+    c.tx.send(Message::request(prompt_id, method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "fswrite: b.txt"}]})).to_line()).await.unwrap();
+    let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
+    assert_eq!(pending["request"]["toolCall"]["kind"], "edit");
+    assert_eq!(pending["request"]["toolCall"]["title"], "Write b.txt");
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    c.request(method::MUX_PERMISSION_RESPOND, json!({"sessionId": id, "permissionId": pid, "optionId": "reject_once"})).await.unwrap();
+    c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_end").await;
+    assert!(hub.session_summary(&session)["preview"].as_str().unwrap().starts_with("rejected:"), "{}", hub.session_summary(&session)["preview"]);
+    assert!(!dir.join("b.txt").exists());
+    // deny-all refuses reads too.
+    c.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "deny-all"})).await.unwrap();
+    c.request(method::SESSION_PROMPT, json!({"sessionId": id, "prompt": [{"type": "text", "text": "fsread: r.txt"}]})).await.unwrap();
+    assert!(hub.session_summary(&session)["preview"].as_str().unwrap().starts_with("rejected:"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
