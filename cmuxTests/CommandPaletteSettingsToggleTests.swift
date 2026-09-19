@@ -297,6 +297,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    /// Verifies palette metadata and writes are projected from the same catalog descriptors.
     func testCanonicalUserFacingAppTogglesDrivePaletteMetadataAndStorage() throws {
         try withTemporaryDefaults { defaults in
             let catalog = SettingCatalog()
