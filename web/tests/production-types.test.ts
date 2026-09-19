@@ -31,16 +31,16 @@ test("production hook accepts valid types on a fresh clone", async () => {
   const dir = project("export default function Page() { return <p>Valid</p>; }");
   expect(nextConfig.compiler?.runAfterProductionCompile).toBeDefined();
   await checkProductionTypes(dir);
-}, 30_000);
+});
 
 test("production hook rejects an application type error", async () => {
   const dir = project("const value: string = 42; export default function Page() { return <p>{value}</p>; }");
   await expect(checkProductionTypes(dir)).rejects.toThrow();
-}, 30_000);
+});
 
 test("production hook checks Next-generated route parameter contracts", async () => {
   const dir = project("export default function Page() { return <p>Valid</p>; }");
   mkdirSync(join(dir, "app", "api", "[id]"), { recursive: true });
   writeFileSync(join(dir, "app", "api", "[id]", "route.ts"), "export async function GET(request: Request, { params }: { params: string }) { return Response.json({ params }); }");
   await expect(checkProductionTypes(dir)).rejects.toThrow();
-}, 30_000);
+});
