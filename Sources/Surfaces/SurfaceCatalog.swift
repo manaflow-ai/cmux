@@ -42,7 +42,8 @@ final class SurfaceCatalog {
     private struct CloudProjectionKey: Hashable { let panelID: UUID; let workspaceID: UUID }
     private var cloudProjectionIndex = Set<CloudProjectionKey>()
     private var cloudProjectionIndexDirty = true
-    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true } }
+    private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true; noteProjectionChanges(from: oldValue) } }
+    var projectionVersions: [SurfaceMachineID: UInt64] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
     private(set) var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
@@ -198,6 +199,7 @@ final class SurfaceCatalog {
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
         projections = projections.filter { $0.resource.machine != machine }
+        projectionVersions[machine] = nil
         notifyChange()
     }
 
@@ -1213,9 +1215,6 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
-    func projections(of id: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == id }.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
-    }
 
     /// Resolves an agent-provided remote placement against the latest accepted
     /// graph. A workspace id alone is valid only when it identifies one view;
