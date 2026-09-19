@@ -79,8 +79,8 @@ extension ContentView {
                 commandId: commandPaletteLaunchClaudeTeamsCommandID,
                 title: { _ in
                     String(
-                        localized: "agentSession.provider.claude",
-                        defaultValue: "Claude Code"
+                        localized: "menu.help.claudeCodeTeams",
+                        defaultValue: "Claude Code Teams"
                     )
                 },
                 subtitle: { _ in "cmux claude-teams" },
@@ -103,72 +103,6 @@ extension ContentView {
             ))
         }
         return contributions
-    }
-
-    /// Resolves all palette launcher providers with one shared search-directory scan.
-    nonisolated static func commandPaletteAvailableAgentLauncherProviders(
-        environment: [String: String],
-        bundleResourceURL: URL?,
-        configuredExecutablePaths: [AgentSessionProviderID: String],
-        fileManager: FileManager = .default,
-        includeStandardSearchDirectories: Bool = true
-    ) -> Set<AgentSessionProviderID> {
-        guard let bundleResourceURL else { return [] }
-        let cliURL = bundleResourceURL
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: false)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: cliURL.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue,
-              fileManager.isExecutableFile(atPath: cliURL.path) else {
-            return []
-        }
-
-        let resolver = AgentExecutableResolver(
-            environment: environment,
-            fileManager: fileManager,
-            bundleResourceURL: bundleResourceURL,
-            includeStandardSearchDirectories: includeStandardSearchDirectories,
-            configuredExecutablePaths: configuredExecutablePaths
-        )
-        let searchDirectories = resolver.resolvedSearchDirectories()
-        var available: Set<AgentSessionProviderID> = []
-        for provider in [AgentSessionProviderID.claude, .codex] {
-            if (try? resolver.resolve(provider, searchDirectories: searchDirectories)) != nil {
-                available.insert(provider)
-            }
-        }
-        return available
-    }
-
-    /// Rechecks one provider immediately before launching its bundled CLI command.
-    nonisolated static func commandPaletteAgentLauncherIsAvailable(
-        provider: AgentSessionProviderID,
-        environment: [String: String],
-        bundleResourceURL: URL?,
-        configuredExecutablePaths: [AgentSessionProviderID: String],
-        fileManager: FileManager = .default,
-        includeStandardSearchDirectories: Bool = true
-    ) -> Bool {
-        guard let bundleResourceURL else { return false }
-        let cliURL = bundleResourceURL
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: false)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: cliURL.path, isDirectory: &isDirectory),
-              !isDirectory.boolValue,
-              fileManager.isExecutableFile(atPath: cliURL.path) else {
-            return false
-        }
-
-        let resolver = AgentExecutableResolver(
-            environment: environment,
-            fileManager: fileManager,
-            bundleResourceURL: bundleResourceURL,
-            includeStandardSearchDirectories: includeStandardSearchDirectories,
-            configuredExecutablePaths: configuredExecutablePaths
-        )
-        return (try? resolver.resolve(provider)) != nil
     }
 
     /// Formats the exact bundled-CLI command injected into the new terminal tab.
