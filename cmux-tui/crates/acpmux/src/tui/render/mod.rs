@@ -676,6 +676,15 @@ pub fn age_label(ms: u64) -> String {
 }
 
 /// "1m 7s", "12s", "1h 2m".
+/// A model id as the chip shows it: a trailing date stamp (`-20251001`)
+/// is dropped, as the Codex app shows "6 Astra", not the full id.
+pub fn model_label(model: &str) -> String {
+    match model.rsplit_once('-') {
+        Some((head, tail)) if tail.len() == 8 && tail.chars().all(|c| c.is_ascii_digit()) && !head.is_empty() => head.to_owned(),
+        _ => model.to_owned(),
+    }
+}
+
 pub fn duration_label(ms: u64) -> String {
     let s = ms / 1000;
     if s < 60 {
@@ -1131,6 +1140,14 @@ mod selection_tests {
         let i = rows.iter().position(|r| std::ptr::eq(r, row)).unwrap();
         let sel = Selection { session: "s".into(), anchor: (i, lo + 5), head: (i, lo + 10), mode: SelectMode::Cell };
         assert_eq!(sel.text(&rows.iter().map(|r| r.text.clone()).collect::<Vec<_>>()), "these");
+    }
+
+    #[test]
+    fn model_label_drops_date_stamps() {
+        assert_eq!(model_label("claude-haiku-4-5-20251001"), "claude-haiku-4-5");
+        assert_eq!(model_label("gpt-6-astra"), "gpt-6-astra");
+        assert_eq!(model_label("subrouter/gpt-6-astra"), "subrouter/gpt-6-astra");
+        assert_eq!(model_label("20251001"), "20251001");
     }
 
     #[test]

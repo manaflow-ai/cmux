@@ -180,11 +180,11 @@ fn draw_controls(f: &mut ratatui::Frame, area: Rect, app: &mut App, hover: Optio
         chips.push((r, ButtonAction::Send));
     }
     let model_text = if on_draft {
-        format!("{agent}{}", if model_shown.is_empty() { String::new() } else { format!(" · {model_shown}") })
+        format!("{agent}{}", if model_shown.is_empty() { String::new() } else { format!(" · {}", model_label(&model_shown)) })
     } else if model_shown.is_empty() || model_shown == "default" {
         format!("{agent} · default")
     } else {
-        model_shown.clone()
+        model_label(&model_shown)
     };
     let effort_text = if thinking.is_empty() || thinking == "default" { String::new() } else { thinking.clone() };
     let mut pieces: Vec<(String, ButtonAction)> = vec![(model_text, ButtonAction::PickModel)];

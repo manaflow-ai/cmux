@@ -582,7 +582,7 @@
     for (const o of models) modelSel.add(new Option(o.name || o.value, o.value));
     const curModel = (t && t.model) || (modelOpt && modelOpt.currentValue) || (s && s.model) || '';
     if (curModel) modelSel.value = curModel;
-    $('#model-label').textContent = curModel && curModel !== 'default' ? curModel : ((s && s.harness) || 'model') + (curModel === 'default' ? ' · default' : '');
+    $('#model-label').textContent = curModel && curModel !== 'default' ? modelLabel(curModel) : ((s && s.harness) || 'model') + (curModel === 'default' ? ' · default' : '');
     $('#chip-model').style.pointerEvents = models.length ? '' : 'none';
     // Effort chip.
     const eff = opts.find((o) => ['effort', 'reasoning_effort', 'thought_level', 'thinking', 'reasoning'].includes(o.id) && o.options);
@@ -624,6 +624,8 @@
     b.onclick = (e) => { e.stopPropagation(); navigator.clipboard.writeText(text).then(() => toast('Copied'), () => toast('Copy failed')); };
     row.appendChild(b); return row;
   }
+  // A model id as the chip shows it: no trailing date stamp (-20251001).
+  const modelLabel = (m) => m.replace(/-\d{8}$/, '') || m;
   function hero(text, sub) { return '<div class="hero"><div><h2>' + esc(text) + '</h2>' + esc(sub) + '</div></div>'; }
   function renderLog() {
     const log = $('#log');
