@@ -530,13 +530,18 @@ pub fn transcript_rows(t: &Transcript, width: usize, show_thoughts: bool, show_s
         let streaming = matches!(t.items.last(), Some(Item::Assistant { .. }) | Some(Item::Tool { .. }) | Some(Item::Thought { .. }));
         if !streaming {
             plain("", Style::default(), usize::MAX, &mut rows);
+            // Codex app: "Working for 4s" that keeps counting.
+            let label = match t.turn_times.last() {
+                Some((_, start, None)) => format!("Working for {}", duration_label(now_ms().saturating_sub(*start))),
+                _ => "Working…".to_owned(),
+            };
             let mut spans = vec![Span::raw(GUTTER)];
-            spans.extend(super::shimmer::spans("Working…", c.shimmer_base, c.shimmer_bright));
+            spans.extend(super::shimmer::spans(&label, c.shimmer_base, c.shimmer_bright));
             let note = t.note.as_deref().map(|n| format!("  {n}")).unwrap_or_default();
             if !note.is_empty() {
                 spans.push(Span::styled(note.clone(), c.dim()));
             }
-            rows.push(Row { line: Line::from(spans), text: format!("{GUTTER}Working…{note}"), item: usize::MAX, toggle: None });
+            rows.push(Row { line: Line::from(spans), text: format!("{GUTTER}{label}{note}"), item: usize::MAX, toggle: None });
         }
     }
     rows

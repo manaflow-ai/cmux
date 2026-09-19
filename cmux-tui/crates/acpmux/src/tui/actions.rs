@@ -122,9 +122,10 @@ pub const EDITING_KEYS: &[(&str, &str)] = &[
     ("Alt-b / Alt-f", "word left / right"),
     ("Ctrl-w  Alt-d", "delete word back / forward"),
     ("Ctrl-k / Ctrl-u", "kill to end / start of line"),
-    ("1-9", "answer a permission request by number"),
+    ("y / n / 1-9", "answer the permission card above the composer"),
+    ("click", "a chip in the composer changes permissions, model or effort; a handle, thought or tool line opens or closes it"),
     ("wheel", "scroll the transcript; drag selects and copies; double / triple click selects a word / line"),
-    ("drag the sidebar rule", "resize the sidebar"),
+    ("drag the sidebar edge", "resize the sidebar; hover a session for its details"),
 ];
 
 pub fn find(name: &str) -> Option<&'static ActionDef> {
