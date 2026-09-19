@@ -156,20 +156,45 @@ enum UnixSocketFixture {
 }
 
 extension AsyncStream where Element == ControlConnection {
-    /// Returns the next accepted connection or nil after the bounded test timeout.
-    func nextControlConnection(timeout: TimeInterval = 5.0) async -> ControlConnection? {
-        await withTaskGroup(of: ControlConnection?.self) { group in
-            group.addTask {
+    private enum WaitTimeoutError: Error {
+        case timedOut
+    }
+
+    /// Returns the next accepted connection, or throws after the test timeout.
+    func nextControlConnection(timeout: TimeInterval = 5.0) async throws -> ControlConnection {
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+        return try await withCheckedThrowingContinuation { continuation in
+            Task {
                 var iterator = self.makeAsyncIterator()
-                return await iterator.next()
+                guard let connection = await iterator.next() else {
+                    let shouldResume = resumed.withLock { state in
+                        guard !state else { return false }
+                        state = true
+                        return true
+                    }
+                    if shouldResume { continuation.resume(throwing: WaitTimeoutError.timedOut) }
+                    return
+                }
+                let shouldResume = resumed.withLock { state in
+                    guard !state else { return false }
+                    state = true
+                    return true
+                }
+                if shouldResume { continuation.resume(returning: connection) }
             }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                return nil
+            Task {
+                do {
+                    try await Task.sleep(for: .seconds(timeout))
+                } catch {
+                    return
+                }
+                let shouldResume = resumed.withLock { state in
+                    guard !state else { return false }
+                    state = true
+                    return true
+                }
+                if shouldResume { continuation.resume(throwing: WaitTimeoutError.timedOut) }
             }
-            let connection = await group.next() ?? nil
-            group.cancelAll()
-            return connection
         }
     }
 }

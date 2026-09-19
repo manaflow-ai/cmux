@@ -34,7 +34,7 @@ struct SocketControlServerManagedPolicyTests {
 
         let fd = try UnixSocketFixture.connectClient(to: path)
         defer { close(fd) }
-        let connection = try #require(await server.connections.nextControlConnection(), "server did not yield the accepted connection")
+        let connection = try await server.connections.nextControlConnection()
         let generation = connection.authorizationGeneration
         let signal = connection.authorizationRevocationSignal
         #expect(server.isConnectionAuthorizationCurrent(generation))
