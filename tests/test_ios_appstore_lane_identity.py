@@ -450,6 +450,7 @@ sys.exit(0)
 import copy
 import plistlib
 import sys
+from datetime import datetime
 from pathlib import Path
 {common}
 LEGACY_PROFILE = copy.deepcopy(APPSTORE_PROFILE)
@@ -471,6 +472,15 @@ if len(args) >= 2 and args[0] == "cms" and args[1] == "-D":
                 profile = LEGACY_PROFILE
             elif b"beta profile" in body:
                 profile = profile_for_bundle(BETA_BUNDLE_ID)
+            elif b"extension profile" in body:
+                profile = copy.deepcopy(APPSTORE_PROFILE)
+                profile["Name"] = "cmux Notification Service Distribution Test"
+                profile["UUID"] = "00000000-0000-0000-0000-000000000002"
+                profile["ExpirationDate"] = datetime(2099, 1, 1)
+                profile["DeveloperCertificates"] = [b"fixture certificate"]
+                extension_id = f"{{TEAM_ID}}.{{APPSTORE_BUNDLE_ID}}.NotificationService"
+                profile["Entitlements"]["application-identifier"] = extension_id
+                profile["Entitlements"]["keychain-access-groups"] = [extension_id]
     sys.stdout.buffer.write(plist_bytes(profile))
     sys.exit(0)
 if args and args[0] == "find-certificate":
@@ -478,6 +488,22 @@ if args and args[0] == "find-certificate":
     print("-----END CERTIFICATE-----")
     sys.exit(0)
 sys.exit(0)
+""",
+    )
+
+    _write_executable(
+        fakebin / "openssl",
+        """#!/usr/bin/env python3
+import hashlib
+import sys
+
+args = sys.argv[1:]
+if args[:1] == ["x509"] and "-outform" in args:
+    sys.stdout.buffer.write(b"fixture certificate")
+elif args[:1] == ["dgst"] and "-sha256" in args:
+    print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())
+else:
+    raise SystemExit(1)
 """,
     )
 
@@ -531,6 +557,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     env["CMUX_FAKE_ASC_LOG"] = str(tmp / "asc.jsonl")
     env["IOS_DISTRIBUTION_IDENTITY"] = IDENTITY
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Notification Service Distribution Test"
+    env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
     env["PLISTBUDDY"] = str(fakebin / "PlistBuddy")
     return env
 
