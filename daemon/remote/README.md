@@ -171,6 +171,55 @@ Environment fallbacks:
 
 ### Migration notes
 
+**Core discovery over SSH/Mosh**:
+
+```sh
+cmux --json rpc system.ping '{}'
+cmux --json rpc system.capabilities '{}'
+cmux --json list-workspaces
+```
+
+`cmuxd-remote` also supports the command forms `cmux --json ping` and
+`cmux --json capabilities`. The `rpc` subcommand sends the method name exactly:
+`rpc ping` and `rpc capabilities` are not aliases for the `system.*` methods.
+A `method_not_found` response is a failure, even if an older client printed it
+without a failing exit status. The remote daemon exits 1 for server denials and
+unknown-method responses.
+
+Through the authenticated relay, `workspace.list` returns
+`{"scope":"remote_workspace","workspaces":[{"id":"<owner UUID>","title":"<owner title>"}]}`.
+It lists only the originating workspace, regardless of which local workspace is
+selected. An optional `workspace_id` must resolve to that same owner;
+`--window`, other workspace IDs, short handles, and additional selectors are
+rejected. Local window IDs, selection/order, daemon/connection state, paths,
+credentials, and conversation metadata are omitted. Unrestricted local callers
+retain the full response.
+
+`system.capabilities` returns `protocol`, `version`, `scope: "remote_workspace"`,
+and only method names with reviewed relay parameter contracts. These names are
+not grants: each call must still satisfy its parameter schema, authenticated
+connection generation, and live workspace/surface ownership checks. No local
+socket path, access mode, or unrelated mobile capabilities are returned.
+
+**SSH/Mosh 経由の基本情報の取得**:
+上記の `system.ping`、`system.capabilities`、`list-workspaces` を使用してください。
+`cmuxd-remote` では `cmux --json ping` と `cmux --json capabilities` も使用できます。
+`rpc` はメソッド名をそのまま送信するため、`rpc ping` と `rpc capabilities` は別名として
+扱われません。`method_not_found` は成功ではなく、リモートデーモンはサーバー側の拒否や
+不明なメソッドに対して終了コード 1 を返します。
+
+リレー経由の `workspace.list` は、認証された接続元ワークスペースの UUID とタイトルのみを
+返します。Mac で選択中のワークスペースには依存しません。任意の `workspace_id` は同じ所有者を
+指す必要があり、`--window`、他のワークスペース、短縮ハンドル、追加のセレクターは拒否されます。
+ウィンドウ ID、選択状態や順序、デーモンや接続の状態、パス、認証情報、会話の内容は含まれません。
+通常のローカル接続の応答は変わりません。
+
+`system.capabilities` は `protocol`、`version`、`scope: "remote_workspace"` と、
+リレーで審査済みのパラメーター定義を持つメソッド名だけを返します。メソッド名の一覧は権限の
+付与ではありません。呼び出しごとにパラメーター、認証済み接続の世代、現在のワークスペースと
+サーフェスの所有権を検証します。ローカルソケットのパス、アクセスモード、無関係なモバイル機能は
+返しません。
+
 **`new-workspace`**: The flag `--working-directory` was removed. It was accepted by the old relay but sent the wrong param name (`working_directory` instead of `cwd`), so the server silently ignored it. Use `--cwd` for the working directory. The flag `--command` is now supported: it sends the command text to the new workspace's default surface after creation.
 
 **Relay authorization (GHSA-9vmv-3hjw-j28c)**: the remote CLI exposes only the authorization allowlist, even if a command appears in its command table. `new-workspace`, `new-window`, `new-surface`, `new-pane`, `send-key`, global workspace/window listing, and focus/navigation commands are denied. Allowed surface operations require the explicit live remote target consumed by that handler; adding an unrelated owned selector does not authorize a request. Use `new-split` with the owning workspace and terminal surface IDs for a remote terminal split.

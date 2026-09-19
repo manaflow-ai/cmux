@@ -86,7 +86,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
     }
 
     @Test
-    func capabilitiesDescribeRelayScopeWithoutLocalDiscoveryMetadata() throws {
+    func capabilitiesDescribeRelayScopeWithoutLocalDiscoveryMetadata() async throws {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
         let request = try fixture.signedRequest(method: "system.capabilities", params: [:])
@@ -94,18 +94,37 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             "id": request.id?.foundationObject ?? NSNull(), "method": request.method,
             "params": request.params.mapValues(\.foundationObject)
         ])
-        let response = TerminalController.shared.processCommand(String(decoding: signedLine, as: UTF8.self))
-        let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
-        let result = try #require(object["result"] as? [String: Any])
-        #expect(Set(result.keys) == ["protocol", "version", "methods", "scope"])
-        #expect(result["scope"] as? String == "remote_workspace")
-        let methods = try #require(result["methods"] as? [String])
-        #expect(methods.contains("system.ping"))
-        #expect(methods.contains("system.capabilities"))
-        #expect(methods.contains("workspace.list"))
-        for method in ["workspace.create", "surface.respawn", "system.tree", "system.command_spec", "browser.open"] {
-            #expect(!methods.contains(method))
+        let command = String(decoding: signedLine, as: UTF8.self)
+        let syncResponse = TerminalController.shared.handleSocketLine(command)
+        let asyncResponse = try #require(await TerminalController.shared.processCommandUsingSocketExecutionPolicyAsync(command))
+        for response in [syncResponse, asyncResponse] {
+            let object = try #require(JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+            let result = try #require(object["result"] as? [String: Any])
+            #expect(Set(result.keys) == ["protocol", "version", "methods", "scope"])
+            #expect(result["scope"] as? String == "remote_workspace")
+            let methods = try #require(result["methods"] as? [String])
+            #expect(methods.contains("system.ping"))
+            #expect(methods.contains("system.capabilities"))
+            #expect(methods.contains("workspace.list"))
+            for method in ["workspace.create", "surface.respawn", "system.tree", "system.command_spec", "browser.open"] {
+                #expect(!methods.contains(method))
+            }
         }
+    }
+
+    @Test
+    func workspaceAliasesAreRewrittenButCannotGrantAnotherOwner() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let alias = UUID()
+        for target in [fixture.workspace.id, UUID()] {
+            let request = try fixture.signedRequest(method: "workspace.list",
+                params: ["workspace_id": alias.uuidString], workspaceAliases: [alias: target])
+            let authorization = TerminalController.shared.authorizeRemoteRelayRequest(request)
+            #expect((authorization.errorResponse == nil) == (target == fixture.workspace.id))
+        }
+        let unknown = try fixture.authorize(method: "workspace.list", params: ["workspace_id": alias.uuidString])
+        #expect(unknown.errorResponse != nil)
     }
 
     @Test
@@ -365,7 +384,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
             TerminalController.shared.authorizeRemoteRelayRequest(try signedRequest(method: method, params: params))
         }
 
-        func signedRequest(method: String, params: [String: Any]) throws -> ControlRequest {
+        func signedRequest(method: String, params: [String: Any], workspaceAliases: [UUID: UUID] = [:]) throws -> ControlRequest {
             let request: [String: Any] = [
                 "id": "relay-\(method)",
                 "method": method,
@@ -377,7 +396,7 @@ struct RemoteRelayTmuxCompatAuthorizationTests {
                 remoteWorkspaceID: workspace.id,
                 remoteRelayTokenHex: RemoteRelayTmuxCompatAuthorizationTests.relayToken,
                 remoteSessionControllerID: workspace.activeRemoteSessionControllerID
-            ).rewriteRemoteRelayCommandLine(data, workspaceAliases: [:], surfaceAliases: [:])
+            ).rewriteRemoteRelayCommandLine(data, workspaceAliases: workspaceAliases, surfaceAliases: [:])
             let line = try #require(String(data: rewritten, encoding: .utf8))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard case .success(let parsed) = ControlRequestParser().request(fromLine: line) else {
