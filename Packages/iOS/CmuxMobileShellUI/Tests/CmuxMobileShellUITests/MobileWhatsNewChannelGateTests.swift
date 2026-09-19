@@ -114,8 +114,8 @@ import Testing
             iosVersion: "1.0.4",
             buildType: .prod
         )
-        #expect(official.stableVersion == "0.64.23")
-        #expect(official.nightlyVersion == "0.64.22-nightly.3345650013202")
+        #expect(official.stableVersion == "0.64.25")
+        #expect(official.nightlyVersion == "0.64.25-nightly.3522337919701")
     }
 
     @Test func neverFetchedTeamBuildsKeepTheFullCatalog() {
