@@ -14,14 +14,20 @@ public struct MobileRemoteSecretScope: Equatable, Hashable, Sendable {
     /// Opaque credential identity, independent of a host or label.
     public let itemID: UUID
 
-    /// Creates a validated account/vault/item scope.
+    /// Creates a validated scope for the authenticated cmux account.
     ///
     /// - Parameters:
-    ///   - accountID: Verified account identifier, at most 256 UTF-8 bytes.
+    ///   - account: Authenticated account identity from the app auth coordinator.
     ///   - vaultID: Stable vault UUID.
     ///   - itemID: Stable credential UUID.
     /// - Throws: ``MobileRemoteSecretStoreError/invalidScope`` for malformed account IDs.
-    public init(accountID: String, vaultID: UUID, itemID: UUID) throws {
+    public init(account: MobileRemoteAuthenticatedAccount, vaultID: UUID, itemID: UUID) throws {
+        try self.init(accountID: account.accountID, vaultID: vaultID, itemID: itemID)
+    }
+
+    /// Internal fixture initializer. Product callers must use the authenticated
+    /// account overload so signed-out code cannot read or create local secrets.
+    init(accountID: String, vaultID: UUID, itemID: UUID) throws {
         guard !accountID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               accountID.utf8.count <= 256,
               !accountID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })

@@ -39,7 +39,23 @@ public actor MobileRemoteProfileStore {
     ///   - keyEpoch: Positive encryption-key generation.
     ///   - key: A 256-bit vault key obtained by the caller after unlocking.
     /// - Throws: Context-validation, key-size, or database errors.
+    /// Opens storage for the currently authenticated cmux account.
     public init(
+        databaseURL: URL,
+        account: MobileRemoteAuthenticatedAccount,
+        vaultID: UUID,
+        keyEpoch: Int64 = 1,
+        key: SymmetricKey
+    ) throws {
+        try self.init(
+            databaseURL: databaseURL, accountID: account.accountID,
+            vaultID: vaultID, keyEpoch: keyEpoch, key: key
+        )
+    }
+
+    /// Internal fixture initializer. Product callers must use the authenticated
+    /// account overload so signed-out code cannot open local remote storage.
+    init(
         databaseURL: URL,
         accountID: String,
         vaultID: UUID,
