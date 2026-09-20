@@ -210,6 +210,23 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
         }
     }
 
+    /// Returns the same profile linked to an opaque credential reference.
+    /// - Parameter credential: Metadata for a separately stored Keychain/vault item.
+    /// - Returns: A validated copy whose secret bytes remain outside profile data.
+    public func withCredential(_ credential: MobileRemoteCredentialReference) throws -> Self {
+        try Self(
+            id: id, name: name, host: host, port: port, username: username,
+            carrier: carrier, authentication: authentication,
+            sessionBackend: sessionBackend, sessionName: sessionName,
+            workingDirectory: workingDirectory, jumpHostProfileID: jumpHostProfileID,
+            hostKeyPolicy: hostKeyPolicy, credentialID: credential.id,
+            agentForwarding: agentForwarding, moshServerPath: moshServerPath,
+            moshUDPPortRange: moshUDPPortRange, eternalTerminalPort: eternalTerminalPort,
+            environment: environment, sendClientEnvironmentFlag: sendClientEnvironmentFlag,
+            createdAt: createdAt, updatedAt: Date()
+        )
+    }
+
     private func isValidEnvironmentKey(_ key: String) -> Bool {
         guard let first = key.utf8.first, first == 95 || (65...90).contains(first) || (97...122).contains(first) else { return false }
         return key.utf8.allSatisfy { byte in

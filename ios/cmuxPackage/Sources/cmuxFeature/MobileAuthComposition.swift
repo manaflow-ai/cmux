@@ -47,6 +47,8 @@ public struct MobileAuthComposition {
     public let remoteSSHConnector: MobileRemoteNativeSSHConnector
     /// Account-gated remote session service used by the remote connection UI.
     public let remoteConnectionController: MobileRemoteConnectionController
+    /// Lazy encrypted saved-profile vault, unavailable without an exact Keychain group.
+    public let remoteSavedProfileController: MobileRemoteSavedProfileController?
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
@@ -247,6 +249,20 @@ public struct MobileAuthComposition {
                 )
             }
         )
+        if let keychainAccessGroup,
+           let namespace = try? MobileRemoteKeychainNamespace(accessGroup: keychainAccessGroup) {
+            let remoteProfileDirectory = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            )[0].appendingPathComponent("cmux/remote-profiles", isDirectory: true)
+            self.remoteSavedProfileController = MobileRemoteSavedProfileController(
+                accountGate: remoteAccountGate,
+                namespace: namespace,
+                storageDirectory: remoteProfileDirectory,
+                vaultID: Self.remoteVaultID(defaults: defaults)
+            )
+        } else {
+            self.remoteSavedProfileController = nil
+        }
         self.pushRegistration = push
         self.protectedDataAvailability = availability
         self.taskOwner = MobileAuthTaskOwner(
@@ -482,6 +498,17 @@ public struct MobileAuthComposition {
         MobileKeychainAccessGroupPolicy.resolve(
             bundle.object(forInfoDictionaryKey: "CMUXKeychainAccessGroup") as? String
         )
+    }
+
+    /// Returns the stable per-install remote vault identity used for profile keys.
+    private static func remoteVaultID(defaults: UserDefaults) -> UUID {
+        let key = "cmux.remote.profile.vault-id.v1"
+        if let value = defaults.string(forKey: key), let id = UUID(uuidString: value) {
+            return id
+        }
+        let id = UUID()
+        defaults.set(id.uuidString, forKey: key)
+        return id
     }
 
     /// Parse optional string overrides from a bundled `LocalConfig.plist`.

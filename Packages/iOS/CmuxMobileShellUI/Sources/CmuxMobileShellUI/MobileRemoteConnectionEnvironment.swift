@@ -8,8 +8,18 @@ public extension EnvironmentValues {
         get { self[MobileRemoteConnectionEnvironmentKey.self] }
         set { self[MobileRemoteConnectionEnvironmentKey.self] = newValue }
     }
+
+    /// The encrypted saved-profile service, when the signed app has a Keychain group.
+    var mobileRemoteSavedProfileController: (any MobileRemoteSavedProfileServing)? {
+        get { self[MobileRemoteSavedProfileEnvironmentKey.self] }
+        set { self[MobileRemoteSavedProfileEnvironmentKey.self] = newValue }
+    }
 }
 
 private struct MobileRemoteConnectionEnvironmentKey: EnvironmentKey {
     static let defaultValue: (any MobileRemoteConnectionServing)? = nil
+}
+
+private struct MobileRemoteSavedProfileEnvironmentKey: EnvironmentKey {
+    static let defaultValue: (any MobileRemoteSavedProfileServing)? = nil
 }

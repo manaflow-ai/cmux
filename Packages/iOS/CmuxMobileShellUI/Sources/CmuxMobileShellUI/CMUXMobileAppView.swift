@@ -27,6 +27,7 @@ public struct CMUXMobileAppView: View {
     @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
     private let signOutHook: MobileSignOutHook
     private let remoteConnectionController: (any MobileRemoteConnectionServing)?
+    private let remoteSavedProfileController: (any MobileRemoteSavedProfileServing)?
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
     #endif
@@ -49,7 +50,8 @@ public struct CMUXMobileAppView: View {
         simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceComplete: true),
         signOutHook: MobileSignOutHook = MobileSignOutHook(),
-        remoteConnectionController: (any MobileRemoteConnectionServing)? = nil
+        remoteConnectionController: (any MobileRemoteConnectionServing)? = nil,
+        remoteSavedProfileController: (any MobileRemoteSavedProfileServing)? = nil
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
@@ -58,6 +60,7 @@ public struct CMUXMobileAppView: View {
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
         self.remoteConnectionController = remoteConnectionController
+        self.remoteSavedProfileController = remoteSavedProfileController
     }
     #else
     /// Creates the app view on non-iOS platforms.
@@ -72,7 +75,8 @@ public struct CMUXMobileAppView: View {
         browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         signOutHook: MobileSignOutHook = MobileSignOutHook(),
-        remoteConnectionController: (any MobileRemoteConnectionServing)? = nil
+        remoteConnectionController: (any MobileRemoteConnectionServing)? = nil,
+        remoteSavedProfileController: (any MobileRemoteSavedProfileServing)? = nil
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
@@ -80,6 +84,7 @@ public struct CMUXMobileAppView: View {
         _simulatorStreamStore = State(initialValue: simulatorStreamStore)
         self.signOutHook = signOutHook
         self.remoteConnectionController = remoteConnectionController
+        self.remoteSavedProfileController = remoteSavedProfileController
     }
     #endif
 
@@ -96,6 +101,7 @@ public struct CMUXMobileAppView: View {
             .environment(browserStreamStore)
             .environment(simulatorStreamStore)
             .environment(\.mobileRemoteConnectionController, remoteConnectionController)
+            .environment(\.mobileRemoteSavedProfileController, remoteSavedProfileController)
         #else
         CMUXMobileRootView(
             store: store,
@@ -106,6 +112,7 @@ public struct CMUXMobileAppView: View {
             .environment(browserStreamStore)
             .environment(simulatorStreamStore)
             .environment(\.mobileRemoteConnectionController, remoteConnectionController)
+            .environment(\.mobileRemoteSavedProfileController, remoteSavedProfileController)
         #endif
     }
 }

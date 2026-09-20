@@ -9,6 +9,10 @@ import SwiftUI
 /// host rather than introducing a second terminal renderer.
 struct MobileRemoteConnectionView: View {
     let controller: any MobileRemoteConnectionServing
+    @Environment(\.mobileRemoteSavedProfileController) private var savedProfiles
+    @State private var savedProfileRows: [MobileRemoteProfile] = []
+    @State private var selectedSavedProfileID: UUID?
+    @State private var profileName = ""
     @State private var host = ""
     @State private var port = "22"
     @State private var username = ""
@@ -21,7 +25,35 @@ struct MobileRemoteConnectionView: View {
 
     var body: some View {
         Form {
+            if let savedProfiles, !savedProfileRows.isEmpty {
+                Section(L10n.string("mobile.remote.saved", defaultValue: "Saved connections")) {
+                    ForEach(savedProfileRows) { profile in
+                        Button {
+                            selectedSavedProfileID = profile.id
+                            profileName = profile.name ?? ""
+                            host = profile.host
+                            port = String(profile.port)
+                            username = profile.username
+                            backend = profile.sessionBackend
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(profile.name ?? "\(profile.username)@\(profile.host)")
+                                Text("\(profile.host):\(profile.port)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .tint(selectedSavedProfileID == profile.id ? .accentColor : .primary)
+                    }
+                }
+                .task {
+                    savedProfileRows = (try? await savedProfiles.profiles()) ?? []
+                }
+            }
+
             Section {
+                TextField(L10n.string("mobile.remote.name", defaultValue: "Name (optional)"), text: $profileName)
+                    .textInputAutocapitalization(.words)
                 TextField(L10n.string("mobile.remote.host", defaultValue: "Host"), text: $host)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -42,6 +74,13 @@ struct MobileRemoteConnectionView: View {
             }
 
             Section {
+                if let savedProfiles {
+                    Button(L10n.string("mobile.remote.save", defaultValue: "Save connection")) {
+                        Task { await saveProfile(using: savedProfiles) }
+                    }
+                    .disabled(isConnecting || host.isEmpty || username.isEmpty || password.isEmpty)
+                    .accessibilityIdentifier("MobileRemoteSaveProfileButton")
+                }
                 Button(isConnecting ? L10n.string("mobile.remote.connecting", defaultValue: "Connecting…") : L10n.string("mobile.remote.connect", defaultValue: "Connect")) {
                     Task { await connect() }
                 }
@@ -68,6 +107,11 @@ struct MobileRemoteConnectionView: View {
                     Text(errorMessage)
                         .foregroundStyle(.red)
                 }
+            }
+        }
+        .task {
+            if let savedProfiles {
+                savedProfileRows = (try? await savedProfiles.profiles()) ?? []
             }
         }
         .navigationTitle("Remote")
@@ -100,13 +144,30 @@ struct MobileRemoteConnectionView: View {
         isConnecting = true
         errorMessage = nil
         do {
-            let profile = try MobileRemoteProfile(
-                id: UUID(), host: host, port: port, username: username,
+            let draft = try MobileRemoteProfile(
+                id: selectedSavedProfileID ?? UUID(), name: profileName.isEmpty ? nil : profileName,
+                host: host, port: port, username: username,
                 authentication: .password, sessionBackend: backend
             )
+            let profile: MobileRemoteProfile
+            let credential: MobileRemoteCredentialMaterial
+            if let selectedSavedProfileID, let savedProfiles,
+               let loaded = try await savedProfiles.loadPasswordProfile(
+                   profileID: selectedSavedProfileID,
+                   interaction: .userInitiated(localizedReason: L10n.string(
+                       "mobile.remote.keychainReason",
+                       defaultValue: "Authenticate to use this SSH password."
+                   ))
+               ) {
+                profile = loaded.profile
+                credential = loaded.credential
+            } else {
+                profile = draft
+                credential = .password(password)
+            }
             let connected = try await controller.connect(
                 profile: profile,
-                credential: MobileRemoteSSHCredentialSource { .password(password) },
+                credential: MobileRemoteSSHCredentialSource { credential },
                 approveUnknownHost: { challenge in await approval.request(challenge) }
             )
             session = connected
@@ -114,6 +175,30 @@ struct MobileRemoteConnectionView: View {
             errorMessage = String(describing: error)
         }
         isConnecting = false
+    }
+
+    private func saveProfile(using savedProfiles: any MobileRemoteSavedProfileServing) async {
+        guard let port = Int(port), !host.isEmpty, !username.isEmpty, !password.isEmpty else { return }
+        do {
+            let profile = try MobileRemoteProfile(
+                id: selectedSavedProfileID ?? UUID(), name: profileName.isEmpty ? nil : profileName,
+                host: host, port: port, username: username,
+                authentication: .password, sessionBackend: backend
+            )
+            let saved = try await savedProfiles.savePasswordProfile(
+                profile,
+                password: password,
+                interaction: .userInitiated(localizedReason: L10n.string(
+                    "mobile.remote.saveKeychainReason",
+                    defaultValue: "Authenticate to save this SSH password."
+                ))
+            )
+            selectedSavedProfileID = saved.id
+            savedProfileRows = (try? await savedProfiles.profiles()) ?? savedProfileRows
+            password = ""
+        } catch {
+            errorMessage = String(describing: error)
+        }
     }
 
     private func disconnect() async {

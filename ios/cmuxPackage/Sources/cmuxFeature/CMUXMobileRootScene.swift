@@ -418,7 +418,8 @@ public struct CMUXMobileRootScene: View {
             simulatorStreamStore: simulatorStreamStore,
             onboardingStore: onboardingStore,
             signOutHook: signOutHook,
-            remoteConnectionController: auth.remoteConnectionController
+            remoteConnectionController: auth.remoteConnectionController,
+            remoteSavedProfileController: auth.remoteSavedProfileController
         )
         #else
         return CMUXMobileAppView(
@@ -429,7 +430,8 @@ public struct CMUXMobileRootScene: View {
             browserStreamStore: browserStreamStore,
             simulatorStreamStore: simulatorStreamStore,
             signOutHook: signOutHook,
-            remoteConnectionController: auth.remoteConnectionController
+            remoteConnectionController: auth.remoteConnectionController,
+            remoteSavedProfileController: auth.remoteSavedProfileController
         )
         #endif
     }
