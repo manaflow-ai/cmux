@@ -10,18 +10,25 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Cloud sidebar has no VPN setup controls", .serialized)
+@Suite("Cloud sidebar Ports status controls", .serialized)
 struct CloudPortsVPNAffordanceTests {
-    @Test("Empty Ports rows preserve discovery status without setup controls",
+    @Test("Empty Ports rows expose contextual status and actions",
           arguments: [SurfaceLinkState.connected, .notApplicable, .connecting, .error, .asleep, .unavailable])
     func discoveryRowsStayUnchanged(link: SurfaceLinkState) {
         let node = emptyPorts(link: link)
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         cell.configure(node: node, machineActions: machineActions(), nodeActions: nodeActions())
         cell.layoutSubtreeIfNeeded()
-        #expect(cell.accessibilityLabel() == node.searchableTitle)
-        #expect(descendants(of: cell).allSatisfy { !($0 is NSButton) })
-        #expect(CloudTreeRowHeight(style: .defaultStyle).height(of: node, in: NSOutlineView()) == CloudTreeRowHeight(style: .defaultStyle).height(of: emptyPorts(link: .connecting), in: NSOutlineView()))
+        guard case .placeholder(_, let placeholder) = node.kind,
+              let status = placeholder.portStatus else {
+            Issue.record("Ports status must carry contextual presentation")
+            return
+        }
+        #expect(cell.accessibilityLabel()?.contains(status.title) == true)
+        let buttons = descendants(of: cell).compactMap { $0 as? NSButton }
+        #expect(buttons.count == 1)
+        #expect(buttons.allSatisfy { $0.isHidden == (status.action == .none) })
+        #expect(CloudTreeRowHeight(style: .defaultStyle).height(of: node, in: NSOutlineView()) >= CloudTreeStyle.defaultStyle.rowHeight)
     }
 
     @Test("Ports headers contain no setup or help buttons", arguments: [140.0, 260.0])

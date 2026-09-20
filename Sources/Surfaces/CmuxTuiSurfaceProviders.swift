@@ -134,7 +134,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState: summary.status == "running" ? .connecting : .asleep,
             linkError: nil,
             stats: nil,
-            portDiscoveryState: initialSupportsPortPreviews ? .notRequested : .unsupported
+            // Ports are expanded by default in the Cloud tree, so the initial
+            // visible machine row is itself the discovery demand.
+            portDiscoveryState: initialSupportsPortPreviews ? .loading : .unsupported
         )
         installNotificationSync()
     }
