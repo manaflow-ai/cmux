@@ -137,6 +137,14 @@ final class RemoteTmuxBrowserProxyRegistry {
     }
 
     private func start(host: RemoteTmuxHost, connectionHash hash: String, startupID: UUID) async throws -> BrowserProxyEndpoint {
+        // Checked before `transportProvider(host)` runs, not after: a
+        // `releaseHost` landing between `acquire()` returning and this task
+        // body starting cancels this task and removes its registry entry,
+        // and `transportProvider` unconditionally creates-and-registers a
+        // transport if none exists. Without this check first, that race
+        // would resurrect and re-register — and can spawn a ControlMaster
+        // for — a host whose transport was just torn down.
+        try Task.checkCancellation()
         let transport = transportProvider(host)
         guard try await transport.ensureMasterReady() else {
             throw RemoteTmuxError.unreachable("ssh-tmux ControlMaster is not ready for the browser proxy")
@@ -154,6 +162,16 @@ final class RemoteTmuxBrowserProxyRegistry {
             }
 
             let listener = RemoteTmuxBrowserProxyListener(localPort: listenerPort, dynamicForwardPort: forwardPort)
+            listener.onUnexpectedFailure = { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    // Only this attempt's own listener triggers a teardown —
+                    // a later reacquire may have already replaced or removed
+                    // this host's entry.
+                    guard self.entriesByConnectionHash[hash]?.startupID == startupID else { return }
+                    self.releaseHost(connectionHash: hash)
+                }
+            }
             do {
                 try await listener.start()
             } catch {
@@ -168,7 +186,16 @@ final class RemoteTmuxBrowserProxyRegistry {
                 lastError = error
                 continue
             } catch {
+                // `openDynamicForward` can throw a plain cancellation even
+                // after `ssh -O forward` already exited successfully — its
+                // underlying `runProcess` only checks `Task.checkCancellation()`
+                // once the process has already terminated, so a cancellation
+                // landing in that window discards a forward that is actually
+                // now live on the ControlMaster. Best-effort-cancel it
+                // regardless of which failure this was: a forward that never
+                // actually got installed leaves `-O cancel` nothing to act on.
                 listener.stop()
+                Task { await transport.cancelDynamicForward(localPort: forwardPort) }
                 throw error
             }
 
