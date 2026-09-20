@@ -331,6 +331,8 @@ def initial_bucket_weights(
     Logical shard n runs on physical worker ((n - 1) % physical_total) + 1, and a
     worker's reservation is spread over its logical shards.
     """
+    if shard_total < 1 or physical_total < 1:
+        raise SystemExit("--shard-total and --physical-shard-total must be >= 1")
     if shard_total % physical_total != 0:
         raise SystemExit("--shard-total must be a multiple of --physical-shard-total")
     batches_per_worker = shard_total // physical_total
@@ -452,7 +454,9 @@ def main() -> int:
     if args.shard_index is None or args.shard_total is None or args.output is None:
         parser.error("--shard-index, --shard-total, and --output are required unless --list or --validate is used")
 
-    physical_total = args.physical_shard_total or args.shard_total
+    physical_total = (
+        args.shard_total if args.physical_shard_total is None else args.physical_shard_total
+    )
     initial_weights = initial_bucket_weights(
         args.shard_total, physical_total, parse_reservations(args.reserve, physical_total)
     )

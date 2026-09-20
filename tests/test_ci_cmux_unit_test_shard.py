@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
-CI_PHYSICAL_SHARD_TOTAL = 4
+CI_PHYSICAL_SHARD_TOTAL = 6
 CI_LOGICAL_BATCHES_PER_WORKER = 2
 CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
@@ -318,6 +318,11 @@ def check_reserved_workers_get_less_of_the_batch() -> int:
         if run_reserved_shard(tmp_root, 1, 3, 2, [], manifest).returncode == 0:
             print("FAIL: a logical total that is not a multiple of the worker total should be rejected")
             return 1
+        for total, physical in ((0, 0), (4, 0), (4, -2), (-4, 2)):
+            result = run_reserved_shard(tmp_root, 1, total, physical, [], manifest)
+            if result.returncode == 0 or "Traceback" in result.stderr:
+                print(f"FAIL: shard totals {total}/{physical} should be rejected with a message")
+                return 1
 
     everything = sorted(selector for lines in assigned.values() for selector in lines)
     if everything != sorted(f"-only-testing:cmuxTests/{name}" for name in suites):
