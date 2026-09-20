@@ -1915,7 +1915,10 @@ jobs:
         with:
           submodules: recursive
 
+      # Only release-build consumes this artifact. Package/app-host tests use
+      # the prebuilt GhosttyKit framework and do not need the universal CLI.
       - name: Select helper Xcode
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         run: |
           set -euo pipefail
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
@@ -1923,9 +1926,11 @@ jobs:
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -1933,6 +1938,7 @@ jobs:
           restore-keys: zig-packages-
 
       - name: Build universal Ghostty CLI helper
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         run: |
           set -euo pipefail
           mkdir -p ghostty-cli-helper
@@ -1947,6 +1953,7 @@ jobs:
           done
 
       - name: Upload universal Ghostty CLI helper
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         id: upload-ghostty-cli-helper
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1957,7 +1964,7 @@ jobs:
           retention-days: 1
 
       - name: Retry universal Ghostty CLI helper upload
-        if: steps.upload-ghostty-cli-helper.outcome == 'failure'
+        if: ${{ needs.changes.outputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-ghostty-cli-helper
