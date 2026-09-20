@@ -88,7 +88,8 @@ pub(super) fn animated_line(t: &Transcript, row: &Row, c: &Chrome) -> Option<Lin
         if let Some((start, None)) = t.turn_span(i) {
             let label = format!("Working for {}", duration_label(now_ms().saturating_sub(start)));
             let mut line = row.line.clone();
-            line.spans[0] = Span::styled(label, c.muted());
+            let suffix = line.spans[0].content.split_once(" · ").map(|(_, rest)| format!(" · {rest}")).unwrap_or_default();
+            line.spans[0] = Span::styled(format!("{label}{suffix}"), c.muted());
             return Some(line);
         }
     }

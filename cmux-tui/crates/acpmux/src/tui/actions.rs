@@ -34,6 +34,7 @@ pub enum Action {
     Goto,
     Fork,
     Model,
+    ReloadCatalog,
     Mode,
     Policy,
     Effort,
@@ -93,6 +94,7 @@ pub const ACTIONS: &[ActionDef] = &[
     ActionDef { action: Action::Cancel, name: "cancel", aliases: &["interrupt", "pause"], label: "interrupt the running turn", keys: "Esc  Ctrl-g", group: "talking", args: "" },
     ActionDef { action: Action::Allow, name: "allow", aliases: &["yes"], label: "allow the pending permission", keys: "y", group: "talking", args: "" },
     ActionDef { action: Action::Deny, name: "deny", aliases: &["no"], label: "reject the pending permission", keys: "n", group: "talking", args: "" },
+    ActionDef { action: Action::ReloadCatalog, name: "reload", aliases: &["refresh"], label: "reload harness catalog without stopping sessions", keys: "", group: "settings", args: "" },
     ActionDef { action: Action::Model, name: "model", aliases: &["models"], label: "pick harness and model", keys: "Ctrl-l  Alt-m", group: "settings", args: "[MODEL]" },
     ActionDef { action: Action::Mode, name: "mode", aliases: &[], label: "pick the agent mode", keys: "Ctrl-o", group: "settings", args: "[MODE]" },
     ActionDef { action: Action::Effort, name: "effort", aliases: &["reasoning"], label: "pick the thinking effort", keys: "Alt-e", group: "settings", args: "[LEVEL]" },
@@ -156,6 +158,13 @@ pub fn draft_effort_levels(agent: &str) -> Vec<(&'static str, &'static str)> {
 }
 
 impl App {
+    // Used by the draft permission picker already present on main.
+    pub(super) fn persist_default_policy(&self, policy: &str) {
+        let client = self.client.clone();
+        let policy = policy.to_owned();
+        tokio::spawn(async move { let _ = client.request("_acpmux/set_default_policy", json!({"policy":policy})).await; });
+    }
+
     /// `/name args` from the command line or the palette.
     pub(super) fn run_command(&mut self, line: &str) {
         let mut line = line.trim();
@@ -356,6 +365,22 @@ impl App {
                 Some(_) => self.apply_directory(args.join(" ")),
                 None => self.open_directory_dialog(),
             },
+            Action::ReloadCatalog => {
+                let client = self.client.clone();
+                let tx = self.tx.clone();
+                tokio::spawn(async move {
+                    match client.request(method::MUX_RELOAD_CONFIG, json!({})).await {
+                        Ok(v) => {
+                            let names = v.get("harnesses").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+                            let default = v.get("defaultHarness").and_then(Value::as_str).map(str::to_owned);
+                            let _ = tx.send(AppMsg::Agents(names,default));
+                            let _ = tx.send(AppMsg::Info("catalog reloaded; sessions kept running".into()));
+                        }
+                        Err(e) => { let _ = tx.send(AppMsg::Error(format!("catalog reload: {e}"))); }
+                    }
+                });
+                self.status = "reloading catalog…".into();
+            }
             Action::Agent => {
                 let known = self.harnesses.clone();
                 match (self.draft_mut(), args.first()) {

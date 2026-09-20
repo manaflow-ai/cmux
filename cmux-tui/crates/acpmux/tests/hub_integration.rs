@@ -539,3 +539,64 @@ async fn directory_browser_resolves_relative_paths_and_lists_folders_only() {
     assert!(c.request("_acpmux/directories", json!({"cwd":root,"path":"file.txt"})).await.is_err());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[tokio::test]
+async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let dir = std::env::temp_dir().join(format!("acpmux-reload-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.json");
+    hub.config.write().await.path = Some(path.clone());
+    let original = hub.config.read().await.clone();
+    let profile = original.harnesses["fake"].clone();
+    let s = c.request(method::SESSION_NEW, json!({"cwd":cwd(),"mcpServers":[]})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    let agent_sid = session.meta().agent_session_id;
+    c.next += 1;
+    c.tx.send(Message::request(c.next, method::SESSION_PROMPT, json!({"sessionId":id,"prompt":[{"type":"text","text":"ask: keep this pending across reload"}]})).to_line()).await.unwrap();
+    let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
+
+    let mut next = original.clone();
+    // Override all ambient discovery with test fixtures: no real provider is launched.
+    for name in acpmux::config::discover_harnesses().keys() {
+        next.harnesses.insert(name.clone(), profile.clone());
+    }
+    next.harnesses.remove("fake");
+    next.harnesses.insert("deepseek".into(), profile.clone());
+    next.default_harness = Some("deepseek".into());
+    next.permission_policy = PermissionPolicy::ApproveAll;
+    next.websocket = Some(acpmux::config::WebSocketConfig {listen:"127.0.0.1:1".into(),token:None});
+    next.defaults.insert("deepseek".into(), acpmux::config::SessionDefaults { model:Some("m2".into()), ..Default::default() });
+    next.presets.insert("flash".into(), acpmux::config::Preset { harness:"deepseek".into(), model:None, effort:None, policy:None, env:BTreeMap::new(), description:None });
+    std::fs::write(&path, serde_json::to_vec(&next).unwrap()).unwrap();
+    let reload = c.request(method::MUX_RELOAD_CONFIG, json!({})).await.unwrap();
+    assert_eq!(reload["reloaded"], true);
+    assert_eq!(reload["retainedProfiles"], json!(["fake"]));
+    assert_eq!(session.meta().agent_session_id, agent_sid);
+    assert_eq!(hub.session_summary(&session)["status"], "waiting");
+    assert_eq!(session.pending_permissions()[0].0, pending["permissionId"]);
+    {
+        let cfg = hub.config.read().await;
+        assert!(cfg.harnesses.contains_key("deepseek"));
+        assert_eq!(cfg.permission_policy, PermissionPolicy::Ask);
+        assert_eq!(cfg.websocket, original.websocket);
+        assert_eq!(cfg.defaults["deepseek"].model.as_deref(), Some("m2"));
+        assert_eq!(cfg.presets["flash"].harness, "deepseek");
+    }
+    c.request(method::MUX_PERMISSION_RESPOND,json!({"sessionId":id,"permissionId":pending["permissionId"],"optionId":"yes"})).await.unwrap();
+    c.wait_for(method::MUX_EVENT, |p| p["kind"]=="turn_end").await;
+    assert_eq!(hub.session_summary(&session)["preview"], "chose yes");
+    let events = hub.events(&id,0,1000).unwrap();
+    assert_eq!(events.iter().filter(|e| e.dir=="out" && e.kind=="initialize").count(),1);
+    let new = c.request(method::SESSION_NEW,json!({"cwd":cwd(),"mcpServers":[],"_meta":{"acpmux":{"preset":"flash"}}})).await.unwrap();
+    assert_eq!(new["configOptions"][0]["currentValue"], "m2");
+
+    std::fs::write(&path, "{invalid").unwrap();
+    assert!(c.request(method::MUX_RELOAD_CONFIG,json!({})).await.unwrap_err().contains("reload config"));
+    assert!(hub.config.read().await.harnesses.contains_key("deepseek"));
+    c.request(method::SESSION_PROMPT,json!({"sessionId":id,"prompt":[{"type":"text","text":"still here"}]})).await.unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "echo: still here");
+    hub.shutdown_all().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}

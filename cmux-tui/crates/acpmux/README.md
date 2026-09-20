@@ -81,7 +81,7 @@ Five everyday commands, three groups for the rest:
 | `web [--no-open]` | Print the dashboard URL and open it. |
 | `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
-| `daemon run\|status\|shutdown\|config\|harnesses\|models\|schema` | The daemon itself. |
+| `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 
 The older flat spellings (`acpmux kill NAME`, `acpmux peer add …`, `acpmux status`) still
 work but are hidden from help.
@@ -385,11 +385,24 @@ acpmux run "…"                                    # no flag: the default harne
 | Model id style | Harnesses | Examples |
 | --- | --- | --- |
 | bare id or alias | Claude Code, Codex, Gemini | `claude/opus`, `claude/claude-fable-5-1[1m]`, `codex/gpt-6-astra`, `gemini/gemini-2.5-pro` |
-| `provider/model` | OpenCode, pi, oh-my-pi | `opencode/opencode-go/deepseek-v4-pro`, `pi/anthropic/claude-opus-5`, `omp/openai-codex/gpt-5.6-sol` |
+| `provider/model` | OpenCode, pi, oh-my-pi | `opencode/opencode-go/deepseek-v4.1-flash`, `pi/anthropic/claude-opus-5`, `omp/openai-codex/gpt-5.6-sol` |
 | none over ACP | prime-agent | `-m prime`; the model comes from its own settings, or from a `${model}` argv entry (below) |
 
 `acpmux daemon models` prints every id each harness declares or reports; `--refresh` probes
 again after you change a harness's provider config.
+
+If acpmux was already open when you edited `~/.acpmux/config.json`, reload the catalog without
+stopping any existing agent:
+
+```sh
+acpmux daemon reload
+# or /reload in the TUI
+```
+
+This rereads harnesses, defaults, and presets, starts background model probes, and leaves every
+current session and child process attached to its existing harness. A profile removed from the
+file remains available for existing sessions. The daemon must be running a
+build that includes this command; installing a newer binary does not restart the current daemon.
 
 **A family resolves to exactly one profile, or fails.** Its `prefer` list, else its only
 profile, else the profile named like it. Two profiles and no preference is an error naming
@@ -412,7 +425,8 @@ names one harness, so it does the same thing every time; want a different harnes
 machine, define the preset differently there.
 
 ```sh
-acpmux preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low
+acpmux preset deepseek harness=deepseek model=deepseek-v4.1-flash effort=high
+acpmux preset opencode-v2-deepseek harness=opencode-v2 model=opencode-go/deepseek-v4.1-flash
 acpmux preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'      # oh-my-codex project homes
 acpmux run -p deepseek "…"
 acpmux run -p omx --cwd ~/proj -m codex/gpt-5.5 "…"                 # -m and -e still win over the preset
@@ -450,7 +464,10 @@ configured entry always wins over a discovered one. A complete entry:
     }
   },
   "defaults": {"claude": {"prefer": ["claude-sr", "claude"], "effort": "high"}},
-  "presets": {"deepseek": {"harness": "opencode", "model": "opencode-go/deepseek-v4-pro", "effort": "low"}}
+  "presets": {
+    "deepseek": {"harness": "deepseek", "model": "deepseek-v4.1-flash", "effort": "high"},
+    "opencode-v2-deepseek": {"harness": "opencode-v2", "model": "opencode-go/deepseek-v4.1-flash"}
+  }
 }
 ```
 
@@ -460,6 +477,104 @@ new one. That is how a harness with no model API (prime-agent, or any wrapper sc
 takes `-m NAME/MODEL`. Declared `models` feed the pickers and `daemon models`; the reported
 catalog is merged after them. `kind: "claude-stdio"` selects the Claude Code stream-json backend
 instead of ACP.
+
+### DeepSeek Harness and OpenCode v2
+
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/acp/acp/README.md)
+runs as `dsh --profile acp`; [OpenCode v2](https://github.com/anomalyco/opencode)
+runs as `opencode2 acp`. Both are discovered on PATH. They appear as `deepseek` and
+`opencode-v2`. Use `acpmux daemon reload` (or `/reload` in the TUI) after installing
+one. The harness picker fetches the current local and peer catalogs whenever it opens.
+
+Install the tested DSH version:
+
+```sh
+npm install --global @deepseek-ai/dsh@0.1.5-rc.2
+```
+
+For the [OpenCode Go subscription](https://opencode.ai/docs/go/), use Chat Completions at
+`https://opencode.ai/zen/go/v1` and the exact model id `deepseek-v4.1-flash`.
+The Go key belongs in `~/.dsh/.credentials.yaml` (mode `0600`):
+
+```yaml
+version: 1
+refs:
+  OPENCODE_GO_API_KEY: YOUR_OPENCODE_GO_KEY
+records: {}
+```
+
+Add this route to `~/.dsh/profiles/acp/cordis.patch.yml`. The profile patch supports
+`!!js`; `settings.yaml` does not. acpmux supplies a stable session id, so the Go routing
+header stays the same across turns and differs between acpmux sessions. Direct launches
+use a process-specific fallback; run one conversation per process with this fallback.
+
+```yaml
+- id: acp
+  config:
+    provider: opencode-go-v41
+    model: deepseek-v4.1-flash
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go-v41:
+        displayName: OpenCode Go - DeepSeek V4.1 Flash
+        apiKeyEnv: OPENCODE_GO_API_KEY
+        api: openai-completions
+        baseURL: https://opencode.ai/zen/go/v1
+        headers:
+          x-opencode-session: !!js process.env.ACPMUX_SESSION_ID || ('dsh-' + process.pid + '-' + Date.now())
+          x-opencode-client: dsh
+        models:
+          - id: deepseek-v4.1-flash
+            name: DeepSeek V4.1 Flash
+            contextWindow: 1000000
+            maxTokens: 384000
+            reasoningEfforts: {low: low, high: high, max: max}
+            compat:
+              supportsStore: false
+              supportsDeveloperRole: false
+              maxTokensField: max_tokens
+              requiresReasoningContentOnAssistantMessages: true
+              thinkingFormat: deepseek
+```
+
+An existing `llm-pi-ai.providers.opencode-go-v41` section in `~/.dsh/settings.yaml`
+overrides the profile patch; remove a static `x-opencode-session` there before using
+this configuration. DSH 0.1.5-rc.2 needs this explicit model entry and header.
+
+Optionally merge profiles into `~/.acpmux/config.json` to set defaults or absolute
+executable paths (use your actual `dsh` / `opencode2` path if absent from the daemon's PATH):
+
+```json
+{
+  "harnesses": {
+    "deepseek": {
+      "argv": ["dsh", "--profile", "acp"],
+      "family": "deepseek",
+      "model": "opencode-go-v41/deepseek-v4.1-flash",
+      "models": [{"id": "opencode-go-v41/deepseek-v4.1-flash", "name": "DeepSeek Harness · V4.1 Flash (OpenCode Go)"}],
+      "effort": "high"
+    },
+    "opencode-v2": {
+      "argv": ["opencode2", "acp"],
+      "family": "opencode-v2",
+      "model": "opencode-go/deepseek-v4.1-flash"
+    }
+  }
+}
+```
+
+```sh
+acpmux daemon reload
+acpmux run -m deepseek "your task"
+acpmux run -m opencode-v2 "your task"
+```
+
+OpenCode v2 uses the existing OpenCode provider credentials. DSH's ACP model option
+values are opaque JSON strings; acpmux flattens their groups and accepts the exact
+advertised value, an unambiguous model id, or `provider/model`. DSH exposes reasoning
+effort but no modes or native ACP fork/load; acpmux's transcript rehydration handles
+reopening sessions when the agent cannot load them.
 
 ## Forks and plugins that were dogfooded
 

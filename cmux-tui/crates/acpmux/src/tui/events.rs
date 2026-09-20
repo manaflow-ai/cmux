@@ -135,6 +135,13 @@ impl App {
                     .unwrap_or_default();
             }
             AppMsg::Models(v) => self.show_model_picker(v),
+            AppMsg::HarnessCatalog(id, v) => {
+                if self.draft().map(|d| d.id) == Some(id) && matches!(self.overlay, Overlay::Picker(ref p) if matches!(p.on_pick, PickTarget::DraftHarness)) {
+                    let filter = if let Overlay::Picker(ref p) = self.overlay { p.filter.text().to_owned() } else { String::new() };
+                    self.show_harness_picker(v);
+                    if let Overlay::Picker(ref mut p) = self.overlay { p.filter.insert_str(&filter); p.refilter(); }
+                }
+            }
             AppMsg::DraftFailed => {
                 for d in self.drafts.iter_mut() {
                     d.creating = false;

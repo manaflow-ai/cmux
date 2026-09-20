@@ -544,6 +544,22 @@ mod interaction_tests {
         app.open_draft(); (app, requests)
     }
     #[tokio::test]
+    async fn refreshed_peer_harness_is_searchable_and_selectable() {
+        let (mut app, _) = app().await;
+        app.show_harness_picker(json!({"harnesses":[{"harness":"providers/deepseek"},{"harness":"providers/opencode-v2"}]}));
+        if let Overlay::Picker(ref mut picker) = app.overlay {
+            picker.filter.insert_str("deepseek harness");
+            picker.refilter();
+            assert_eq!(picker.visible.len(),1);
+            assert_eq!(picker.selected().unwrap().value,"providers/deepseek");
+        } else { panic!("harness picker missing"); }
+        app.on_key(KeyEvent::new(KeyCode::Enter,KeyModifiers::NONE));
+        let draft = app.draft().unwrap();
+        assert_eq!(draft.peer.as_deref(),Some("providers"));
+        assert_eq!(draft.harness,"deepseek");
+    }
+
+    #[tokio::test]
     async fn rendered_clicks_cd_and_chords_preserve_user_input() {
         let (mut app, mut requests) = app().await;
         let root = std::env::temp_dir().join(format!("acpmux-ui-dirs-{}", uuid::Uuid::now_v7()));

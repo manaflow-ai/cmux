@@ -314,7 +314,11 @@ impl Hub {
             .map(|opts| opts.iter().any(|o| o.get("id").and_then(Value::as_str) == Some("model")))
             .unwrap_or(false);
         if has_model_option {
-            return self.set_config(session, "model", Value::String(model_id.to_owned())).await;
+            let meta = session.meta();
+            let option = meta.config_options.as_ref().and_then(Value::as_array)
+                .and_then(|opts| opts.iter().find(|o| o["id"] == "model")).unwrap();
+            let value = Value::String(crate::model_catalog::resolve(option, model_id).map_err(RpcError::invalid_params)?);
+            return self.set_config(session, "model", value).await;
         }
         let r = self
             .forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id}))

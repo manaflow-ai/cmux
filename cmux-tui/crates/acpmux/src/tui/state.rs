@@ -126,6 +126,7 @@ pub enum PickTarget {
 pub enum AppMsg {
     DraftFailed,
     Models(Value),
+    HarnessCatalog(u64, Value),
     Sessions(Vec<Value>),
     Attached { id: String, detail: Value, events: Vec<Value> },
     Agents(Vec<String>, Option<String>),

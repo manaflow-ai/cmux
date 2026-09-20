@@ -19,3 +19,5 @@ pub mod session_name;
 pub mod store;
 pub mod transcript;
 pub mod tui;
+
+pub mod model_catalog;

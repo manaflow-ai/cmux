@@ -5,6 +5,56 @@ use super::*;
 impl Hub {
     // --------------------------------------------------------- lifecycle
 
+    /// Refresh the configured catalog while keeping all session processes alive.
+    pub async fn reload_catalog(self: &Arc<Self>) -> Result<Value, RpcError> {
+        let path = self.config.read().await.path.clone()
+            .ok_or_else(|| RpcError::invalid_params("this daemon has no config file to reload"))?;
+        // Disk reads and PATH discovery run outside the async executor. An
+        // invalid/missing file never replaces the last accepted configuration.
+        let mut next = tokio::task::spawn_blocking(move || {
+            std::fs::metadata(&path)?;
+            crate::config::Config::load_from(&path)
+        }).await.map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| RpcError::invalid_params(format!("reload config: {e}")))?;
+        let (harnesses, default_harness, retained) = {
+            let mut current = self.config.write().await;
+            let mut retained = Vec::new();
+            for session in self.sessions.lock().unwrap().values() {
+                let name = session.meta().harness;
+                if !next.harnesses.contains_key(&name) {
+                    if let Some(old) = current.harnesses.get(&name) {
+                        next.harnesses.insert(name.clone(), old.clone());
+                        // Do not resurrect a deleted profile in config.json on
+                        // the next preset/default save.
+                        next.discovered.insert(name.clone());
+                        retained.push(name);
+                    }
+                }
+            }
+            // Only unchanged launchers inherit a startup validation failure.
+            next.unavailable = current.unavailable.iter()
+                .filter(|(n, _)| current.harnesses.get(*n) == next.harnesses.get(*n))
+                .map(|(n, reason)| (n.clone(), reason.clone())).collect();
+            // Keep cached models until fresh probes finish, invalidating only
+            // changed/removed profiles. Listeners, peers, store and policy stay put.
+            self.known_models.lock().unwrap().retain(|name, _|
+                current.harnesses.get(name) == next.harnesses.get(name));
+            current.harnesses = next.harnesses;
+            current.default_harness = next.default_harness;
+            current.defaults = next.defaults;
+            current.presets = next.presets;
+            current.discovered = next.discovered;
+            current.auto_fallback = next.auto_fallback;
+            current.auto_default = next.auto_default;
+            current.auto_prefer = next.auto_prefer;
+            current.unavailable = next.unavailable;
+            (current.harnesses.keys().cloned().collect::<Vec<_>>(), current.default_harness.clone(), retained)
+        };
+        self.probe_models_with(true, false).await;
+        Ok(json!({"reloaded": true, "harnesses": harnesses, "defaultHarness": default_harness,
+            "retainedProfiles": retained, "modelProbePending": true}))
+    }
+
     pub async fn new_session(self: &Arc<Self>, req: NewRequest) -> Result<Arc<Session>, RpcError> {
         let NewRequest { harness, preset, name, cwd, policy, model, effort } = req;
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -478,11 +528,7 @@ impl Hub {
         let mut list: Vec<(String, String)> = Vec::new();
         if let Some(opts) = config_options.and_then(Value::as_array) {
             if let Some(o) = opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")) {
-                for c in o.get("options").and_then(Value::as_array).cloned().unwrap_or_default() {
-                    let v = c.get("value").and_then(Value::as_str).unwrap_or("").to_owned();
-                    let n = c.get("name").and_then(Value::as_str).unwrap_or(&v).to_owned();
-                    list.push((v, n));
-                }
+                list.extend(crate::model_catalog::choices(o));
             }
         }
         if list.is_empty() {
@@ -551,7 +597,7 @@ impl Hub {
         let child = crate::agent::ChildAgent::spawn(name, profile, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        let result: anyhow::Result<usize> = async {
+        let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {
             child
                 .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux", "version": env!("CARGO_PKG_VERSION")}}))
                 .await
@@ -560,13 +606,15 @@ impl Hub {
                 .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": []}))
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            self.remember_models_from(name, res.get("configOptions").filter(|v| !v.is_null()), res.get("models").filter(|v| !v.is_null()));
+            let cfg = self.config.read().await;
+            if cfg.harnesses.get(name) == Some(profile) {
+                self.remember_models_from(name, res.get("configOptions").filter(|v| !v.is_null()), res.get("models").filter(|v| !v.is_null()));
+            }
             Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
-        }
-        .await;
+        }).await;
         child.kill().await;
         drain.abort();
-        result
+        result.map_err(|_| anyhow::anyhow!("model probe timed out"))?
     }
 
     /// Every configured harness with the models known for it.
@@ -613,6 +661,9 @@ impl Hub {
     }
 
     pub(super) async fn child_for(self: &Arc<Self>, session: &Arc<Session>) -> Result<Arc<ChildAgent>, RpcError> {
+        if let Some(child) = session.child.lock().await.as_ref() {
+            if child.is_alive().await { return Ok(child.clone()); }
+        }
         let agent = session.meta().harness;
         let (profile, defaults) = {
             let cfg = self.config.read().await;

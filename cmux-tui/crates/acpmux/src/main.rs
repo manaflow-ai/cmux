@@ -182,12 +182,12 @@ enum Command {
         no_open: bool,
     },
     /// Remote daemons: add, ls, rm.
-    #[command(subcommand, alias = "peer", alias = "hosts")]
+    #[command(subcommand, alias = "hosts")]
     Host(PeerCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
-    /// The daemon: run, status, shutdown, config, harnesses, models, schema.
+    /// The daemon: run, status, shutdown, config, harnesses, reload, models, schema.
     #[command(subcommand, alias = "d")]
     Daemon(DaemonCmd),
     // Old spellings, kept working but hidden from help.
@@ -226,6 +226,8 @@ enum Command {
     Import { path: PathBuf, #[arg(long, short)] name: Option<String> },
     #[command(hide = true)]
     Harnesses,
+    #[command(hide = true)]
+    Reload,
     #[command(hide = true)]
     Status,
     #[command(hide = true, alias = "kill-server")]
@@ -336,6 +338,8 @@ enum DaemonCmd {
     Config,
     /// Show configured harnesses with their family and defaults.
     Harnesses,
+    /// Reload catalog configuration without stopping sessions.
+    Reload,
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -509,6 +513,7 @@ fn flatten(c: Command) -> Command {
             DaemonCmd::Shutdown => Command::Shutdown,
             DaemonCmd::Config => Command::Config,
             DaemonCmd::Harnesses => Command::Harnesses,
+            DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },

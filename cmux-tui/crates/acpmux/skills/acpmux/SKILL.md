@@ -43,7 +43,13 @@ acpmux defaults               # per family: profile chosen, model, effort, polic
 acpmux preset                 # named bundles for -p
 acpmux harnesses              # profiles with family and argv
 acpmux --json daemon models   # every model id each harness declares or reports; --refresh re-probes
+acpmux daemon reload         # reread harnesses/defaults/presets without stopping sessions
 ```
+
+`daemon reload` is safe while sessions are running: it replaces only catalog-facing
+configuration and refreshes short-lived model probes. Existing child processes and turns are
+not restarted. If the daemon predates this command, install the new binary and restart it once
+when you can safely do so; after that, use reload for configuration changes.
 
 Explicit flags always win: `-m`, `-e low|medium|high|xhigh|max`,
 `--policy ask|approve-reads|approve-edits|approve-all|deny-all`, `--cwd DIR`,

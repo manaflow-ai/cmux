@@ -211,6 +211,8 @@ pub mod method {
     pub const MUX_STATUS: &str = "_acpmux/status";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
+    /// Reload catalog configuration without touching existing sessions.
+    pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";
     pub const MUX_DEFAULTS: &str = "_acpmux/defaults";
     /// Client-side only: the reader puts this on the notification stream
     /// when the daemon closes the socket, so stream consumers notice.

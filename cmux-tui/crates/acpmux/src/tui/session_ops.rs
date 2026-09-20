@@ -199,9 +199,29 @@ impl App {
     /// every harness as a header, its models underneath, filter as you type.
     pub(super) fn open_draft_harness_picker(&mut self) {
         let Some(d) = self.draft() else { return };
-        let current = d.harness.clone();
-        let rows = self.harnesses.iter().map(|h| PickRow { value: h.clone(), label: h.clone(), header: false, group: String::new(), note: String::new() }).collect();
-        self.overlay = Overlay::Picker(Picker::new("Harness", rows, Some(&current), PickTarget::DraftHarness, "Enter selects · Esc"));
+        let id = d.id;
+        self.show_harness_picker(json!({"harnesses":self.harnesses.iter().map(|h| json!({"harness":h})).collect::<Vec<_>>()}));
+        let client = self.client.clone();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            match client.request("_acpmux/models", json!({})).await {
+                Ok(v) => { let _ = tx.send(AppMsg::HarnessCatalog(id, v)); }
+                Err(e) => { let _ = tx.send(AppMsg::Error(e.to_string())); }
+            }
+        });
+        self.status = "loading harnesses…".into();
+    }
+
+    pub(super) fn show_harness_picker(&mut self, catalog: Value) {
+        let Some(d) = self.draft() else { return };
+        let current = d.peer.as_ref().map(|p| format!("{p}/{}", d.harness)).unwrap_or_else(|| d.harness.clone());
+        let rows = catalog.get("harnesses").and_then(Value::as_array).into_iter().flatten().filter_map(|h| {
+            let id = h.get("harness")?.as_str()?.to_owned();
+            let label = if id.split('/').last() == Some("deepseek") { format!("{id} · DeepSeek Harness") } else { id.clone() };
+            Some(PickRow { value:id, label, header:false, group:String::new(), note:String::new() })
+        }).collect();
+        self.overlay = Overlay::Picker(Picker::new("Harness", rows, Some(&current), PickTarget::DraftHarness, "type to filter · Enter selects · Esc"));
+        self.status = DEFAULT_STATUS.into();
     }
 
     pub(super) fn open_draft_model_picker(&mut self) {
@@ -242,8 +262,7 @@ impl App {
             .and_then(|id| self.details.get(id))
             .and_then(|d| d.get("configOptions").and_then(Value::as_array))
             .and_then(|opts| opts.iter().find(|o| o.get("id").and_then(Value::as_str) == Some("model")))
-            .and_then(|o| o.get("options").and_then(Value::as_array))
-            .map(|a| a.iter().map(|c| (c.get("value").and_then(Value::as_str).unwrap_or("").to_owned(), c.get("name").and_then(Value::as_str).unwrap_or("").to_owned())).collect())
+            .map(crate::model_catalog::choices)
             .unwrap_or_default();
         let mut harnesses: Vec<Value> = catalog.get("harnesses").and_then(Value::as_array).cloned().unwrap_or_default();
         // Current harness first.
@@ -527,7 +546,10 @@ impl App {
             }
             PickTarget::DraftEffort => self.set_effort(value),
             PickTarget::DraftHarness => {
-                if let Some(d) = self.draft_mut() { d.harness = value; d.model = None; d.effort = None; }
+                if let Some(d) = self.draft_mut() {
+                    let (peer, harness) = value.split_once('/').map(|(p,h)| (Some(p.to_owned()),h.to_owned())).unwrap_or((None,value));
+                    d.peer = peer; d.harness = harness; d.model = None; d.effort = None;
+                }
             }
             PickTarget::Skill { replace_prefix } => {
                 if replace_prefix { self.editor_mut().backspace(); }

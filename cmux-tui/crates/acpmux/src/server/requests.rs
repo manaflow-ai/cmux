@@ -38,6 +38,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STATUS,
     method::MUX_SESSIONS,
     method::MUX_HARNESSES,
+    method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
@@ -104,7 +105,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
                 },
                 "authMethods": [],
                 "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
-                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_ATTACH,
+                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
@@ -253,6 +254,13 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
         // ------------------------------------------------ acpmux extensions
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
+        "_acpmux/set_default_policy" => {
+            let policy: PermissionPolicy = str_param(&params, "policy").ok_or_else(|| RpcError::invalid_params("policy is required"))?.parse().map_err(RpcError::invalid_params)?;
+            let mut cfg = hub.config.write().await;
+            cfg.permission_policy = policy;
+            cfg.save().map_err(|e| RpcError::internal(format!("save permission policy: {e}")))?;
+            Ok(json!({"policy":policy.to_string()}))
+        }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
@@ -322,6 +330,7 @@ pub(super) async fn handle_request(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, pa
             }
             Ok(json!({"harnesses": agents, "defaultHarness": cfg.default_harness, "families": cfg.families(), "defaults": cfg.defaults, "presets": cfg.presets}))
         }
+        method::MUX_RELOAD_CONFIG => hub.reload_catalog().await,
         // Read or change family defaults: {family?, set?: {...}, clear?: bool}.
         method::MUX_DEFAULTS => {
             let family = str_param(&params, "family").map(str::to_owned);

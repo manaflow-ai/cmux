@@ -45,6 +45,17 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
             }
             Ok(())
         }
+        Command::Reload => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_RELOAD_CONFIG, json!({})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let count = v.get("harnesses").and_then(Value::as_array).map(Vec::len).unwrap_or(0);
+                println!("reloaded catalog ({count} harnesses; existing sessions kept running)");
+            }
+            Ok(())
+        }
         Command::Schema => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(acpmux::schema::SCHEMA.as_bytes());
@@ -588,4 +599,3 @@ pub(crate) async fn answer_permission(session: &str, option: Option<String>, all
     println!("{}", if allow { "allowed" } else { "denied" });
     Ok(())
 }
-

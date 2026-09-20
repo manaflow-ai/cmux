@@ -468,7 +468,11 @@ impl Config {
     /// Load config. When no file exists, build defaults and try to import
     /// agent profiles from `~/.acpx/config.json` so existing setups keep working.
     pub fn load() -> Result<Self> {
-        let path = Self::path();
+        Self::load_from(&Self::path())
+    }
+
+    pub fn load_from(path: &Path) -> Result<Self> {
+        let path = path.to_owned();
         let mut cfg = if path.exists() {
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("read {}", path.display()))?;
@@ -590,6 +594,8 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
         ("claude", "claude"),
         ("gemini", "gemini"),
         ("opencode", "opencode"),
+        ("opencode-v2", "opencode2"),
+        ("deepseek", "dsh"),
         // pi (earendil-works/pi) speaks ACP through the pi-acp adapter,
         // which spawns `pi --mode rpc`: `bun add -g pi-acp`.
         ("pi", "pi-acp"),
@@ -611,7 +617,8 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
                 "omp" => (HarnessKind::Acp, vec![path, "acp".into()]),
                 "prime-agent" => (HarnessKind::Acp, vec![path, "--mode".into(), "acp".into()]),
                 "gemini" => (HarnessKind::Acp, vec![path, "--experimental-acp".into()]),
-                "opencode" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "opencode" | "opencode2" => (HarnessKind::Acp, vec![path, "acp".into()]),
+                "dsh" => (HarnessKind::Acp, vec![path, "--profile".into(), "acp".into()]),
                 _ => (HarnessKind::Acp, vec![path]),
             };
             agents.insert(
@@ -621,7 +628,7 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
                     argv,
                     env: BTreeMap::new(),
                     description: Some(if bin == "sr" { "Claude through the subrouter account pool".into() } else { "found on PATH".into() }),
-                    fallback: None, family: None, models: vec![], model: None, effort: None, policy: None,
+                    fallback: None, family: if matches!(bin, "dsh" | "opencode2") { Some(name.into()) } else { None }, models: vec![], model: None, effort: None, policy: None,
                 },
             );
         }
