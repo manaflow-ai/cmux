@@ -18,9 +18,9 @@ struct TokenRefreshClock: Sendable {
                 try await clock.sleep(until: origin.advanced(by: .nanoseconds(Int64(nanoseconds))))
             })
         }
-        // The SDK still supports macOS 12/iOS 15, before Clock. This is the
-        // injected absolute deadline, owned and cancelled by TokenRefreshCoordinator;
-        // it never polls for state or delays a synchronization boundary.
+        // macOS 12/iOS 15 do not provide ContinuousClock. This is the
+        // cancellation-aware, one-shot deadline fallback for those targets;
+        // it is a real timeout, not a polling or state-synchronization sleep.
         return Self(now: { DispatchTime.now().uptimeNanoseconds }, sleepUntil: { deadline in
             let now = DispatchTime.now().uptimeNanoseconds
             if deadline > now { try await Task.sleep(nanoseconds: deadline - now) }

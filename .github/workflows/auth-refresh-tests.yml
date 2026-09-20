@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - Packages/Shared/CmuxAuthRuntime/**
+      - Packages/Shared/CmuxIrxTransport/**
       - vendor/stack-auth-swift-sdk-prerelease/**
       - .github/workflows/auth-refresh-tests.yml
   workflow_dispatch:
@@ -29,3 +30,5 @@ jobs:
         run: swift test --package-path vendor/stack-auth-swift-sdk-prerelease --filter 'RefreshLifecycleTests|RefreshDeadlineTests|RefreshTransportTimingTests|RateLimitRetryTests'
       - name: Exercise coordinator cancellation, sessions, and recovery
         run: swift test --package-path Packages/Shared/CmuxAuthRuntime --filter 'AuthCoordinator|AuthError'
+      - name: Verify retired session watcher completion over loopback
+        run: swift test --package-path Packages/Shared/CmuxIrxTransport --filter 'IrxLiveQUICTests.keepaliveAndAutoRedial'

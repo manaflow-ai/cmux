@@ -69,11 +69,11 @@ echo "PASS: admission and the seeder share one cache key prefix"
 # scoped to it, so it helps nobody else and spends the budget that keeps the
 # main seed from being evicted.
 if ! awk '
-  /uses: actions\/cache/ { uses=$0 }
-  /key: xcode-compilation-test-/ { saw=1; if (uses !~ /actions\/cache\/restore@/) bad=1 }
+  /uses: / { uses=$0 }
+  /key: xcode-compilation-test-/ { saw=1; if (uses !~ /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/) bad=1 }
   END { exit !(saw && !bad) }
 ' <<<"$ADMISSION"; then
-  echo "FAIL: macos-compile-admission must restore the test compilation cache with actions/cache/restore and never save it"
+  echo "FAIL: macos-compile-admission must restore the test compilation cache read-only and never save it"
   exit 1
 fi
 echo "PASS: pull requests restore the test compilation cache read-only"
@@ -85,7 +85,7 @@ if ! awk '
   step == "restore" && /id: compilation-cache-restore/ { saw_restore_id=1 }
   step == "restore" && /needs\.decide\.outputs\.head_sha/ { saw_revision_key=1 }
   step == "bound" && /prune-xcode-compilation-cache\.py/ { saw_prune=1 }
-  step == "save" && /uses: actions\/cache\/save@/ { saw_save=1 }
+  step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { saw_save=1 }
   step == "save" && /cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''/ { saw_gate=1 }
   END { exit !(saw_restore_id && saw_revision_key && saw_prune && saw_save && saw_gate) }
 ' <<<"$SEEDER"; then

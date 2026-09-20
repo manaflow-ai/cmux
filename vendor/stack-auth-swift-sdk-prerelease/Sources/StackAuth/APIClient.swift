@@ -416,6 +416,13 @@ actor APIClient {
         let refresh = await ts.getStoredRefreshToken()
         let access = await ts.getStoredAccessToken()
         guard let refresh else {
+            // Token-only sessions are valid, but the store may be shared with a
+            // concurrent sign-out or account replacement. Re-read both values
+            // before returning so a late reader cannot publish the old session.
+            guard await ts.getStoredRefreshToken() == nil,
+                  await ts.getStoredAccessToken() == access else {
+                return TokenPair(refreshToken: nil, accessToken: nil, refreshFailure: .sessionChanged)
+            }
             return TokenPair(refreshToken: nil, accessToken: isTokenExpired(access) ? nil : access)
         }
         guard await ts.getStoredRefreshToken() == refresh else {
