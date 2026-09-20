@@ -135,9 +135,14 @@ public final class MobileReleaseGateUIProbe {
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         changes = continuation
         defer {
+            phase = .disabled
             continuation.finish()
             changes = nil
             rows.removeAll()
+            targetWorkspace = nil
+            targetSurface = nil
+            tap = nil
+            detail = nil
             closeWorkspace = nil
             revealWorkspace = nil
             captureTerminalEvidence = nil

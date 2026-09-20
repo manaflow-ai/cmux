@@ -212,6 +212,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         #if DEBUG
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
         var releaseGateSawNonblankFrame = false
+        var releaseGateFullFrameInspections = 0
         #endif
         let workspaceID: String
         let surfaceID: String
@@ -417,6 +418,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             guard let store else { return }
             #if DEBUG
             releaseGateSawNonblankFrame = false
+            releaseGateFullFrameInspections = 0
             #endif
             // An explicit remount may race a delayed restart. The remount owns
             // the new consumer, so retire the pending replacement first.
@@ -634,7 +636,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             let containsText: Bool
                             if self.releaseGateSawNonblankFrame {
                                 containsText = true
+                            } else if !frame.full || self.releaseGateFullFrameInspections >= 2 {
+                                // Verified deltas are not independently
+                                // observable evidence. Bound inspection to the
+                                // first two full replay frames instead of
+                                // rescanning a large row buffer on every draw.
+                                containsText = false
                             } else {
+                                self.releaseGateFullFrameInspections += 1
                                 containsText = frame.rowSpans.contains { span in
                                     span.text.contains { !$0.isWhitespace }
                                 }
