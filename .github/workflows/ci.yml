@@ -368,6 +368,9 @@ jobs:
       - name: Validate shallow complexity comparison fetching
         run: python3 tests/test_ci_fetch_complexity_base.py
 
+      - name: Validate stale run cleanup eligibility
+        run: python3 tests/test_cleanup_stale_runs.py
+
       - name: Validate the trusted web complexity workflow
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
