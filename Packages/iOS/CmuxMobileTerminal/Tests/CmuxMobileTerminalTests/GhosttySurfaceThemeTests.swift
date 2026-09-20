@@ -65,7 +65,25 @@ import UIKit
 
 @MainActor
 @Test func activeAccessoryButtonRecolorsAndClearsStickyBorder() throws {
+    func expectMonochrome(_ color: UIColor, white: CGFloat) {
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        #expect(color.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+        #expect(abs(red - white) < 0.001)
+        #expect(abs(green - white) < 0.001)
+        #expect(abs(blue - white) < 0.001)
+        #expect(alpha == 1)
+    }
+
     let input = TerminalInputTextView()
+    let controller = UIViewController()
+    let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 100))
+    controller.view.addSubview(input.toolbarView)
+    window.rootViewController = controller
+    window.makeKeyAndVisible()
+    defer { window.isHidden = true }
     let button = try #require(input.toolbarView.descendant(
         withAccessibilityIdentifier: "terminal.inputAccessory.control"
     ) as? AccessoryActionButton)
@@ -76,29 +94,31 @@ import UIKit
     input.modifierState.tap(.control, now: 0)
     input.refreshThemeColors()
     let armedForeground = try #require(button.configuration?.baseForegroundColor)
-    #expect(armedForeground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)).isEqual(UIColor.white))
-    #expect(armedForeground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)).isEqual(UIColor.black))
+    expectMonochrome(armedForeground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark)), white: 1)
+    expectMonochrome(armedForeground.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)), white: 0)
     #expect(button.layer.borderWidth == 0)
 
     input.modifierState.tap(.control, now: 0.1)
     input.refreshThemeColors()
     for appearance in [UIUserInterfaceStyle.dark, .light, .dark] {
-        button.overrideUserInterfaceStyle = appearance
+        window.overrideUserInterfaceStyle = appearance
+        window.layoutIfNeeded()
         button.setNeedsLayout()
         button.layoutIfNeeded()
-        let expected: UIColor = appearance == .dark ? .white : .black
+        try #require(button.traitCollection.userInterfaceStyle == appearance)
+        let expected: CGFloat = appearance == .dark ? 1 : 0
         let foreground = try #require(button.configuration?.baseForegroundColor)
-        #expect(foreground.resolvedColor(with: button.traitCollection).isEqual(expected))
+        expectMonochrome(foreground.resolvedColor(with: button.traitCollection), white: expected)
         if #available(iOS 26.0, *) {
             #expect(button.isStickyLocked)
             #expect(button.layer.borderWidth == 2)
             let border = try #require(button.layer.borderColor)
-            #expect(UIColor(cgColor: border).isEqual(expected))
+            expectMonochrome(UIColor(cgColor: border), white: expected)
         } else {
             let background = try #require(button.configuration?.background)
             #expect(background.strokeWidth == 2)
             let border = try #require(background.strokeColor)
-            #expect(border.resolvedColor(with: button.traitCollection).isEqual(expected))
+            expectMonochrome(border.resolvedColor(with: button.traitCollection), white: expected)
         }
     }
 

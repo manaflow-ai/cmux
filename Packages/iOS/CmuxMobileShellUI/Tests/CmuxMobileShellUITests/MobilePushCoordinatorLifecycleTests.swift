@@ -275,6 +275,7 @@ private final class LifecyclePushURLProtocol: URLProtocol,
             forwardingEnabled: true,
             mode: .always,
             admission: .allowed,
+            queuePersistence: .healthy,
             apiOrigin: "https://cmux.com",
             accountScope: .verifiedSameAccount
         )
