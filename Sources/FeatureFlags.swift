@@ -408,7 +408,7 @@ final class CmuxFeatureFlags {
         // restore on a fresh Mac. Seed both gates before publishing any flag
         // snapshot; a remote false remains authoritative for release builds.
         if overrideCapability.enablesCloudDogfood {
-            defaults.set(overrideCapability.enablesCloudDogfoodBeta, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
+            defaults.set(true, forKey: BetaFeaturesCatalogSection().cloudMachines.userDefaultsKey)
             defaults.set(true, forKey: Self.overrideDefaultsKey(for: Self.cloudMachinesFlag.key))
         } else if overrideCapability.isTaggedDebugArtifact {
             // A later tagged artifact can explicitly disable Cloud. Clear the
