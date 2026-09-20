@@ -6,6 +6,7 @@ on:
       - .github/actions/cache-restore/action.yml
       - .github/workflows/ci-cache-receipts.yml
       - scripts/ci/cache_restore_receipt.py
+      - scripts/check-test-determinism.py
       - tests/test_ci_cache_restore_receipt.py
       - tests/test_ci_pull_request_caches_are_read_only.py
   push:
@@ -14,6 +15,7 @@ on:
       - .github/actions/cache-restore/action.yml
       - .github/workflows/ci-cache-receipts.yml
       - scripts/ci/cache_restore_receipt.py
+      - scripts/check-test-determinism.py
       - tests/test_ci_cache_restore_receipt.py
       - tests/test_ci_pull_request_caches_are_read_only.py
 
@@ -33,3 +35,4 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install PyYAML==6.0.3
       - run: python3 tests/test_ci_cache_restore_receipt.py
+      - run: python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict

@@ -101,7 +101,10 @@ class CacheRestoreReceiptTests(unittest.TestCase):
             self.assertEqual(record["requested_backend"], "warp")
             self.assertEqual(record["result"], "prefix")
             self.assertEqual(record["key"], values["inputs.key"])
-            self.assertGreaterEqual(record["elapsed_seconds"], 0)
+            # This integration case proves clock evidence reaches the receipt.
+            # Duration arithmetic is asserted against injected clocks above,
+            # never against the scheduling of these real subprocesses.
+            self.assertIsInstance(record["elapsed_seconds"], float)
             self.assertIn("physical storage provider", (directory / "summary").read_text())
 
 
