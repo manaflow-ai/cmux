@@ -1,5 +1,9 @@
 # cmux agent notes
 
+## Database provider
+
+cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.
+
 ## Setup
 
 `./scripts/setup.sh` initializes submodules, builds GhosttyKit, and installs the pbxproj normalization pre-commit hook.
@@ -21,11 +25,13 @@ Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux 
 
 Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS archives, tests, profiling, simulator and UI verification, and any other resource-intensive workload may use any available slot. Do not wait for an AWS-only builder or infer capacity from a workload label. Use the shared lease state and slot-isolated paths supplied by the fleet tooling.
 
-Compile-only check, no launch:
+Compile-only check, no launch. Point it at the derived data `reload.sh` uses for the tag, so the check reuses that build instead of starting a second cold one:
 
 ```bash
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<tag> build
+xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>" build
 ```
+
+`<tag>` here is the slug `reload.sh` makes from your tag: lowercased, with every run of other characters turned into `-` (`Fix/ABC-1` becomes `fix-abc-1`). A raw tag that differs from its slug points at a different, empty directory.
 
 Rebuild GhosttyKit.xcframework with Release optimizations:
 
@@ -33,7 +39,7 @@ Rebuild GhosttyKit.xcframework with Release optimizations:
 cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
 ```
 
-Clean up older tags you started this session (quit the app, remove its `/tmp` socket and derived data) before launching a new one.
+Clean up older tags you started this session (quit the app, remove its `/tmp` socket) before launching a new one. Remove a tag's derived data only when no active task needs it; the next build of that tag is a full cold build without it.
 
 ### Intel Macs, Xcode 16.2, Swift 6.0
 

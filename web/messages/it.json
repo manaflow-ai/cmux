@@ -23,6 +23,11 @@
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
     },
+    "displayName": {
+      "title": "Nome macchina non valido",
+      "message": "Il nome della macchina deve essere testo stampabile di al massimo {maxLength} caratteri.",
+      "action": "Usa un nome più corto senza caratteri di controllo, oppure lascialo vuoto per cancellarlo."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
@@ -380,6 +385,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "Condividi con il team",
+      "makePrivate": "Rendi privato",
+      "privateImportHint": "I nuovi account sono privati. Condividi un account per renderlo disponibile alle VM Cloud di questo team.",
+      "description": "Gli account condivisi sono disponibili per le VM Cloud di questo team. Gli account privati restano accessibili solo alla persona che li ha aggiunti.",
+      "cancelAction": "Annulla"
     }
   },
   "community": {
@@ -1003,10 +1015,10 @@
       "targetTitle": "Finestra errata o clic bloccato",
       "targetBody": "Esamina nuovamente l’app e scegli un elemento aggiornato. Se un’altra finestra copre il bersaglio, rendilo visibile ed esaminalo prima di riprovare. Non riutilizzare coordinate o indici obsoleti.",
       "productLink": "Panoramica di cmux Computer Use",
-    "copyTitle": "Copia un prompt Computer Use",
-    "copyPrompt": "Copia prompt",
-    "copiedPrompt": "Copiato",
-    "installPrompt": "Usa la competenza $cmux-cua. Se manca, installala con il normale installatore. Se mancano permessi, chiedimi di aprire Impostazioni cmux → Computer Use. Esamina prima di agire e verifica ogni modifica.\n\nAttività: [descrivi qui l’attività]"
+      "copyTitle": "Copia un prompt Computer Use",
+      "copyPrompt": "Copia prompt",
+      "copiedPrompt": "Copiato",
+      "installPrompt": "Usa la competenza $cmux-cua. Se manca, installala con il normale installatore. Se mancano permessi, chiedimi di aprire Impostazioni cmux → Computer Use. Esamina prima di agire e verifica ogni modifica.\n\nAttività: [descrivi qui l’attività]"
     },
     "remoteTmux": {
       "moshContrast": "Per passare da una rete all’altra usa cmux mosh-tmux. Apre un terminale Mosh pienamente integrato collegato a una sessione tmux denominata; non sostituisce il mirror nativo di workspace, schede e suddivisioni offerto dalla modalità di controllo tmux via SSH."
@@ -1213,6 +1225,7 @@
           "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "Se true (predefinito), cmux fornisce una tavolozza predefinita che segue l’aspetto, a meno che non siano configurati un tema Ghostty o colori del terminale. Il carattere e le altre impostazioni vengono mantenuti. Se false, Ghostty usa la propria tavolozza integrata fissa. I temi e i colori espliciti hanno sempre la precedenza, incluso theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Larghezza massima facoltativa, in punti, per il contenuto del terminale e della chat agente integrata. Imposta false per usare l’intera larghezza del riquadro.",
           "sessionContentAlignment": "Posizionamento orizzontale del contenuto del terminale e della chat agente integrata quando sessionContentMaxWidth è abilitato.",
           "copyOnSelect": "Quando è true, il testo selezionato nel terminale viene copiato negli appunti di sistema quando la selezione viene confermata. Quando è false, cmux non emette un override Ghostty copy-on-select; configurazione e valori predefiniti di Ghostty controllano il comportamento degli appunti di selezione.",
@@ -1327,7 +1340,7 @@
       "plusButtonScreenshotAlt": "Menu del clic destro del pulsante più di cmux con Worktree Agents, New Terminal e New Browser",
       "plusButtonScreenshotCaption": "Il menu del clic destro segue l’ordine di ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Azioni personalizzate del pulsante più",
-      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
+      "newWorkspaceButtonDesc": "Usa <action>ui.newWorkspace.action</action> per sovrascrivere ciò che fa il pulsante più. Usa <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (o l’alias <rightClick>rightClick</rightClick>) per definire il menu ordinato del clic destro. Le voci di menu possono essere ID di azione, oggetti azione o <separator>{ \"type\": \"separator\" }</separator>. Se non impostato, il menu elenca cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), ciascuno con la scorciatoia corrente. Le voci cloud appaiono solo quando Cloud Machines è abilitato.",
       "newWorkspaceWorktreeNote": "Questo esempio fa sì che il normale clic sul più esegua l’azione <action>worktree-agents</action>. Il comando dello spazio di lavoro da <commands>commands</commands> usa un terminale di configurazione visibile per creare prima il <worktree>worktree</worktree> Git. Codex e Claude partono contemporaneamente, attendono il file di stato specifico dello spazio di lavoro, quindi entrano nella directory creata prima di exec.",
       "simpleCommands": "Comandi semplici",
       "simpleCommandsDesc": "Un comando semplice esegue un comando shell nel terminale attualmente attivo:",

@@ -23,6 +23,11 @@
       "message": "Cloud VM을 사용하려면 cmux Pro 플랜이 필요합니다.",
       "action": "{upgradeUrl}에서 cmux Pro로 업그레이드하면 Cloud VM을 만들 수 있습니다."
     },
+    "displayName": {
+      "title": "잘못된 머신 이름",
+      "message": "머신 이름은 {maxLength}자 이하의 표시 가능한 텍스트여야 합니다.",
+      "action": "제어 문자가 없는 더 짧은 이름을 사용하거나, 비워 두어 이름을 지우세요."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 머신에는 cmux {plan}이 필요합니다. 현재 요금제는 최대 {max} GiB를 지원합니다.",
@@ -380,6 +385,13 @@
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
       "saveRelaySettings": "Save relay settings"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "팀과 공유",
+      "makePrivate": "비공개로 전환",
+      "privateImportHint": "새 계정은 비공개입니다. 이 팀의 Cloud VM에서 사용하려면 계정을 공유하세요.",
+      "description": "공유 계정은 이 팀의 Cloud VM에서 사용할 수 있습니다. 비공개 계정은 계정을 추가한 사람만 사용할 수 있습니다.",
+      "cancelAction": "취소"
     }
   },
   "community": {
@@ -1003,10 +1015,10 @@
       "targetTitle": "잘못된 창이 선택되거나 클릭이 차단됨",
       "targetBody": "앱을 다시 확인하고 현재 상태에서 새 요소를 선택하세요. 다른 창이 대상을 가리면 원하는 창을 드러낸 뒤 다시 확인하세요. 오래된 좌표나 요소 인덱스를 재사용하지 마세요.",
       "productLink": "cmux Computer Use 개요",
-    "copyTitle": "Computer Use 프롬프트 복사",
-    "copyPrompt": "프롬프트 복사",
-    "copiedPrompt": "복사됨",
-    "installPrompt": "이 작업에는 $cmux-cua 스킬을 사용하세요. 없으면 평소 스킬 설치 도구로 설치하세요. 권한이 없으면 cmux 설정 → Computer Use를 열라고 알려 주세요. 먼저 확인하고 변경 후마다 검증하세요.\n\n작업: [여기에 작업 설명]"
+      "copyTitle": "Computer Use 프롬프트 복사",
+      "copyPrompt": "프롬프트 복사",
+      "copiedPrompt": "복사됨",
+      "installPrompt": "이 작업에는 $cmux-cua 스킬을 사용하세요. 없으면 평소 스킬 설치 도구로 설치하세요. 권한이 없으면 cmux 설정 → Computer Use를 열라고 알려 주세요. 먼저 확인하고 변경 후마다 검증하세요.\n\n작업: [여기에 작업 설명]"
     },
     "remoteTmux": {
       "moshContrast": "네트워크 간 로밍에는 cmux mosh-tmux를 사용하세요. 이름 있는 tmux 세션에 연결된 완전한 Mosh 터미널을 열며, SSH tmux 제어 모드가 제공하는 네이티브 워크스페이스·탭·분할 미러를 대체하지는 않습니다."
@@ -1213,6 +1225,7 @@
           "globalFontMagnification": "cmux가 소유한 터미널, 탭 제목, 사이드바, 설정, 오버레이, 앱 chrome을 이 비율로 확대/축소합니다. 렌더링된 브라우저 페이지 콘텐츠는 제외됩니다."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "true(기본값)이면 Ghostty 테마나 터미널 색상이 설정되지 않은 경우 cmux가 모양에 따라 바뀌는 기본 팔레트를 제공합니다. 글꼴 및 기타 설정은 유지됩니다. false이면 Ghostty가 고정된 내장 팔레트를 사용합니다. theme = light:X,dark:Y를 포함한 명시적 테마 및 색상 설정이 항상 우선합니다.",
           "sessionContentMaxWidth": "터미널 및 내장 에이전트 채팅 콘텐츠의 선택적 최대 너비(포인트)입니다. 전체 패널 너비를 사용하려면 false로 설정하세요.",
           "sessionContentAlignment": "sessionContentMaxWidth가 활성화된 경우 터미널 및 내장 에이전트 채팅 콘텐츠의 가로 배치입니다.",
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
@@ -1327,7 +1340,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents, New Terminal, New Browser를 보여 주는 cmux 플러스 버튼 오른쪽 클릭 메뉴",
       "plusButtonScreenshotCaption": "오른쪽 클릭 메뉴는 ui.newWorkspace.contextMenu의 순서를 따릅니다.",
       "newWorkspaceButton": "플러스 버튼 사용자 지정 액션",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다. 설정하지 않으면 메뉴에 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)가 현재 단축키와 함께 표시됩니다. 클라우드 항목은 Cloud Machines가 활성화된 경우에만 표시됩니다.",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action>으로 플러스 버튼의 동작을 재정의합니다. <contextMenu>ui.newWorkspace.contextMenu</contextMenu>(또는 <rightClick>rightClick</rightClick> alias)로 정렬된 right-click 메뉴를 정의합니다. 메뉴 항목은 액션 ID, 액션 객체 또는 <separator>{ \"type\": \"separator\" }</separator>일 수 있습니다. 설정하지 않으면 메뉴에 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)가 현재 단축키와 함께 표시됩니다. 클라우드 항목은 Cloud Machines가 활성화된 경우에만 표시됩니다.",
       "newWorkspaceWorktreeNote": "이 예시는 일반 플러스 클릭이 <action>worktree-agents</action> 액션을 실행하게 합니다. <commands>commands</commands>의 워크스페이스 명령은 보이는 설정 터미널을 사용해 먼저 Git <worktree>worktree</worktree>를 만듭니다. Codex와 Claude는 동시에 시작해 워크스페이스별 상태 파일을 기다린 다음, exec 전에 생성된 디렉터리로 이동합니다.",
       "simpleCommands": "단순 명령어",
       "simpleCommandsDesc": "단순 명령어는 현재 포커스된 터미널에서 셸 명령어를 실행합니다:",

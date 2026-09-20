@@ -211,7 +211,8 @@ final class PaneDropTargetView: NSView {
                 urls,
                 context: dropContext,
                 hostedView: hostedView,
-                window: window
+                window: window,
+                pasteboard: sender.draggingPasteboard
             )
 #if DEBUG
             cmuxDebugLog(
@@ -222,7 +223,6 @@ final class PaneDropTargetView: NSView {
 #endif
             return handled
         }
-
         let transferResolution = transferDropRouter.resolve(
             pasteboard: sender.draggingPasteboard,
             context: dropContext,
