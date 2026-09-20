@@ -28,7 +28,9 @@ extension TerminalController {
 
     func controlWorkspaceList(routing: ControlRoutingSelectors) -> ControlWorkspaceListResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
+            return routing.remoteRelayOwnerWorkspaceID == nil
+                ? .tabManagerUnavailable
+                : .relayOwnerUnavailable
         }
         if let owner = routing.remoteRelayOwnerWorkspaceID {
             // Resolve only the authenticated owner. Never materialize another
