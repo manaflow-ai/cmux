@@ -7,7 +7,7 @@ struct ForegroundRefreshIsolationTests {
         let paired = DelayedTeamPairedMacStore(recordsByTeam: [:], blockedTeams: [""])
         let store = try await makeRoutingConnectedStore(router: RoutingHostRouter(), pairedMacStore: paired)
         let completedWhileSecondaryWasBlocked = await withTaskGroup(of: Bool.self) { group in
-            group.addTask { @MainActor in
+            group.addTask { @Sendable [store] in
                 await store.refreshWorkspaces()
                 return true
             }
