@@ -111,6 +111,11 @@ struct cmuxApp: App {
     }()
 
     init() {
+        #if DEBUG
+        MobileReleaseGateUIProbe.beginLaunch(
+            enabled: ProcessInfo.processInfo.environment["CMUX_IROH_SOAK_PROFILE"] != nil
+        )
+        #endif
         Self.root.pushCoordinator.configure(delegate: appDelegate)
         appDelegate.pushCoordinator = Self.root.pushCoordinator
         appDelegate.analytics = Self.root.analytics.emitter

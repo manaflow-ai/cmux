@@ -195,7 +195,6 @@ final class MobileIrohReleaseGateRunner {
     ) {
         self.configuration = configuration
         self.fileManager = fileManager
-        MobileReleaseGateUIProbe.reset()
         let soakRunner = configuration.soakProfile.map {
             MobileIrohSoakRunner(profile: $0, requiresRelay: configuration.mode == .relayOnly)
         }
@@ -204,6 +203,12 @@ final class MobileIrohReleaseGateRunner {
             readinessUpdates: nil,
             runProbe: { store, marker in
                 if let soakRunner {
+                    guard let identity = store.irohSoakUIIdentity() else {
+                        throw MobileReleaseGateUIProbe.Failure.unavailable
+                    }
+                    try await MobileReleaseGateUIProbe.exercise(
+                        workspaceID: identity.workspace, surfaceID: identity.surface
+                    )
                     return try await soakRunner.run(
                         marker: marker,
                         connection: { await store.irohSoakConnection() },
@@ -249,7 +254,6 @@ final class MobileIrohReleaseGateRunner {
         self.fileManager = fileManager
         self.dependencies = dependencies
         self.soakRunner = nil
-        MobileReleaseGateUIProbe.reset()
     }
 
     func run(store: CMUXMobileShellStore) async {
@@ -455,6 +459,11 @@ final class MobileIrohReleaseGateRunner {
         let probe: MobileIrohReleaseGateProbeResult
         do {
             probe = try await dependencies.runProbe(store, marker)
+        } catch let failure as MobileReleaseGateUIProbe.Failure {
+            var report = Self.failureReport(mode: configuration.mode, scenario: configuration.scenario,
+                                            failure: .unknownProbeFailure)
+            report.failure = failure.rawValue
+            return report
         } catch let failure as MobileIrohSoakRunner.Failure {
             var report = Self.failureReport(
                 mode: configuration.mode,

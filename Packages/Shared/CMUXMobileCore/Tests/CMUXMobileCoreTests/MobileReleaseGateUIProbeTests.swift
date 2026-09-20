@@ -9,7 +9,7 @@ struct MobileReleaseGateUIProbeTests {
         MobileReleaseGateUIProbe.reset()
         var selections = 0
         MobileReleaseGateUIProbe.closeWorkspace = {
-            MobileReleaseGateUIProbe.record(.workspaceDetailHidden)
+            MobileReleaseGateUIProbe.terminalDidUnmount(surfaceID: "terminal")
         }
         MobileReleaseGateUIProbe.registerVisibleWorkspace("workspace") {
             selections += 1

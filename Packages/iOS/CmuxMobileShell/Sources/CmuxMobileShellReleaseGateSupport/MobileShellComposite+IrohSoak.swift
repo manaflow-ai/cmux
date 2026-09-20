@@ -5,6 +5,11 @@ public import CmuxMobileShell
 import Foundation
 
 extension MobileShellComposite {
+    public func irohSoakUIIdentity() -> (workspace: String, surface: String)? {
+        guard let target = irohReleaseGateForegroundTarget() else { return nil }
+        return (target.workspace.id.rawValue, target.terminalID.rawValue)
+    }
+
     public func irohSoakConnection() async -> CmxTransportConnectionObservation? {
         guard hasActiveMacConnection, activeRoute?.kind == .iroh else { return nil }
         return await remoteClient?.transportConnectionObservation()

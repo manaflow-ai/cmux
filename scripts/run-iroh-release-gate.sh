@@ -730,6 +730,12 @@ REPORT_WAITER_PID=""
 if [[ -n "$REPORT_OUTPUT" ]]; then
   mkdir -p "$(dirname "$REPORT_OUTPUT")"
   cp "$REPORT_PATH" "$REPORT_OUTPUT"
+  for ui_step in workspaces terminal; do
+    ui_snapshot="$DATA_CONTAINER/Library/Caches/cmux-iroh-ui-$ui_step.png"
+    if [[ -f "$ui_snapshot" ]]; then
+      cp "$ui_snapshot" "${REPORT_OUTPUT%.json}-ui-$ui_step.png"
+    fi
+  done
   xcrun simctl io "$SIMULATOR_ID" screenshot "${REPORT_OUTPUT%.json}-ios.png" >/dev/null 2>&1 || true
 
   # Preserve the Mac's privacy-safe transport ring beside the iOS verdict.

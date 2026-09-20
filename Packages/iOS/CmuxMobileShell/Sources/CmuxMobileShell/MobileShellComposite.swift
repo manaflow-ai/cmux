@@ -15578,9 +15578,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // read-only secondary list is a snapshot, not a live subscription).
             if self?.connectionState == .connected,
                self?.remoteClient != nil {
-                await self?.refreshSecondaryMacWorkspaces(
-                    discoverLivePeers: true
-                )
+                // Reconnection/discovery has its own coalesced, cancellable
+                // owner. An offline saved Mac must not hold the foreground
+                // refresh spinner (or terminal navigation) until a dial timeout.
+                self?.scheduleSecondaryAggregation(discoverLivePeers: true)
             }
         }
         pullToRefreshTask = task

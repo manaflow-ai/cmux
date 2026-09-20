@@ -196,6 +196,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
+        #if DEBUG
+        MobileReleaseGateUIProbe.terminalDidUnmount(surfaceID: coordinator.surfaceID)
+        #endif
     }
 
     final class Coordinator: NSObject, GhosttySurfaceViewDelegate {
@@ -614,7 +617,12 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                                 "rd.present",
                                 "s=\(surfaceID.prefix(8).lowercased()) seq=\(frame.stateSeq)"
                             )
-                            MobileReleaseGateUIProbe.record(.terminalFramePresented)
+                            if MobileReleaseGateUIProbe.recordTerminalFrame(
+                                surfaceID: surfaceID,
+                                containsText: frame.plainRows().contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                            ) {
+                                MobileReleaseGateUISnapshot.capture(surfaceView.window, name: "terminal")
+                            }
                             #endif
                             store.terminalOutputDidProcess(
                                 surfaceID: surfaceID,
