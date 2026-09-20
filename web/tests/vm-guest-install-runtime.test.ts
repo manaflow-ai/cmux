@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, sy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
+import { GUEST_BROWSER_FILES } from "../services/vms/guestBrowser";
 import { freestyleGuestFixture, guestCreateOptions } from "./fixtures/freestyleGuest";
 
 const roots: string[] = [];
@@ -17,10 +18,12 @@ function guest(options: { corruptUpload?: boolean } = {}) {
   mkdirSync(join(root, "fixture-bin"));
   writeFileSync(join(root, "fixture-bin/getent"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   writeFileSync(join(root, "fixture-bin/xdg-mime"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-  const rebase = (value: string) => value.replaceAll("/usr/local/bin", join(root, "bin"))
-    .replaceAll("/usr/local/share", join(root, "share"))
-    .replaceAll("/etc/cmux", join(root, "etc"))
-    .replaceAll("/etc/", join(root, "system-etc") + "/");
+  const prefixes: Record<string, string> = {
+    "/usr/local/bin": join(root, "bin"), "/usr/local/share": join(root, "share"),
+    "/etc/cmux": join(root, "etc"), "/etc": join(root, "system-etc"),
+  };
+  const rebase = (value: string) => value.replace(/\/usr\/local\/bin|\/usr\/local\/share|\/etc\/cmux|\/etc(?=\/)/g,
+    (prefix) => prefixes[prefix]!);
   const target = join(root, "bin/cmux");
   const fixture = freestyleGuestFixture({
     write: (path, bytes) => writeFileSync(rebase(path), options.corruptUpload ? "#!/bin/sh\nexit 0\n" : bytes),
@@ -42,6 +45,9 @@ describe("guest CLI publication in an isolated filesystem", () => {
     const handle = await fixture.provider.create(guestCreateOptions);
     expect(handle.status).toBe("running");
     expect(readFileSync(target, "utf8")).toBe(GUEST_CMUX_SHIM);
+    for (const file of GUEST_BROWSER_FILES.filter((file) => file.path.startsWith("/usr/local/bin/"))) {
+      expect(readFileSync(join(root, "bin", file.path.split("/").at(-1)!), "utf8")).toBe(file.content);
+    }
     expect(statSync(target).mode & 0o777).toBe(0o755);
     const result = spawnSync(target, ["--help"], { encoding: "utf8", timeout: 5_000 });
     expect(result.status).toBe(0);
@@ -56,7 +62,7 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(JSON.parse(tree.stdout)).toEqual({ session: "cloud", workspaces: [] });
     expect(readFileSync(join(root, "daemon-args"), "utf8").trim().split("\n"))
       .toEqual(["--session", "cloud", "--json", "session", "current", "snapshot"]);
-    expect(readdirSync(join(root, "bin"))).toEqual(["cmux", "cmux-open-url", "sensible-browser", "x-www-browser", "xdg-open"]);
+    expect(readdirSync(join(root, "bin")).sort()).toEqual(["cmux", "cmux-open-url", "sensible-browser", "x-www-browser", "xdg-open"]);
   });
 
   test("replaces a target symlink without modifying its referent", async () => {
@@ -89,12 +95,13 @@ describe("guest CLI publication in an isolated filesystem", () => {
   test("prompt failure does not publish a new shim generation", async () => {
     const { fixture, target, root } = guest();
     writeFileSync(target, "previous generation");
-    writeFileSync(join(root, "etc"), "not a directory");
-    const result = await fixture.provider.create({
+    mkdirSync(join(root, "etc"));
+    mkdirSync(join(root, "etc/.prompt-lock"));
+    const failure = await fixture.provider.create({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "synthetic", revision: 1 },
-    }).then(() => "ready", () => "failed");
-    expect(result).toBe("failed");
+    }).then(() => undefined, (error) => error);
+    expect(failure?.cause?.stage).toBe("prompt");
     expect(readFileSync(target, "utf8")).toBe("previous generation");
     expect(fixture.liveVms.size).toBe(0);
   });

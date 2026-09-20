@@ -55,7 +55,7 @@ import {
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../guestCli";
-import { guestBrowserInstallCommand, guestBrowserReadyCommand } from "../guestBrowser";
+import { guestBrowserReadyCommand } from "../guestBrowser";
 import { guestPromptInstallCommand, type GuestPromptIdentity } from "../guestPrompt";
 import {
   approveCmuxTuiEnrollment,
