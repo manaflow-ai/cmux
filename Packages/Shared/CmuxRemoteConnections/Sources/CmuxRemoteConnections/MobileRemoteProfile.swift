@@ -18,7 +18,7 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
     public let carrier: MobileRemoteCarrier
     /// Requested authentication policy; challenge responses are never saved here.
     public let authentication: MobileRemoteAuthentication
-    /// Remote session type; cmux uses its native protocol.
+    /// Remote session type; cmux uses its protocol over an SSH exec carrier.
     public let sessionBackend: MobileRemoteSessionBackend
     /// Optional multiplexer session selector.
     public let sessionName: String?
@@ -57,7 +57,7 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
     ///   - username: Remote account name.
     ///   - carrier: Selected connection protocol; automatic selection must honor required capabilities.
     ///   - authentication: Requested authentication policy; challenge responses are never saved here.
-    ///   - sessionBackend: Remote session type; cmux uses its native protocol.
+    ///   - sessionBackend: Remote session type; cmux uses its protocol over SSH.
     ///   - sessionName: Optional multiplexer session selector.
     ///   - workingDirectory: Optional starting directory on the remote host.
     ///   - jumpHostProfileID: Separate SSH profile for a jump host; graph cycles are checked by the resolver.
