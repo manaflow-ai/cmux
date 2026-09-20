@@ -96,13 +96,41 @@ export async function addAccount(
   return { accountId, alreadyExists: false };
 }
 
-async function upgradeLegacyForImport(teamId: string, accountId: string, keys: CredentialKeyService | undefined, verifyStored: typeof verifyStoredCodexCredential, access?: CoderouterAccountAccess): Promise<void> {
-  if (access?.kind !== "vm") await upgradeLegacyCodexIdentity(teamId, accountId, keys, verifyStored);
+async function upgradeLegacyForImport(
+  teamId: string,
+  accountId: string,
+  keys: CredentialKeyService | undefined,
+  verifyStored: typeof verifyStoredCodexCredential,
+  access?: CoderouterAccountAccess,
+): Promise<void> {
+  if (access?.kind !== "vm") {
+    await upgradeLegacyCodexIdentity(teamId, accountId, keys, verifyStored);
+    return;
+  }
+
+  // A VM may only migrate a legacy row that is already in its pool. If the
+  // row exists outside the pool, reject the import rather than inserting a
+  // second account for the same provider workspace.
+  const visibleLegacy = await findAccountByProviderIdentity(teamId, "codex", accountId, access);
+  if (visibleLegacy) {
+    await upgradeLegacyCodexIdentity(teamId, accountId, keys, verifyStored, access);
+    return;
+  }
+  const hiddenLegacy = await findAccountByProviderIdentity(teamId, "codex", accountId);
+  if (hiddenLegacy) {
+    throw new Error("legacy Codex account is outside this VM's account pool");
+  }
 }
 
 /** Legacy workspace-only rows are adopted from their own encrypted credentials. */
-export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: string, keys?: CredentialKeyService, verify: typeof verifyStoredCodexCredential = verifyStoredCodexCredential): Promise<void> {
-  const legacy = await findAccountByProviderIdentity(teamId, "codex", workspaceId);
+export async function upgradeLegacyCodexIdentity(
+  teamId: string,
+  workspaceId: string,
+  keys?: CredentialKeyService,
+  verify: typeof verifyStoredCodexCredential = verifyStoredCodexCredential,
+  access?: CoderouterAccountAccess,
+): Promise<void> {
+  const legacy = await findAccountByProviderIdentity(teamId, "codex", workspaceId, access);
   if (!legacy) return;
   const encrypted = await encryptedCredentialForAccount(teamId, legacy.id);
   if (!encrypted) throw new Error("legacy Codex credential is unavailable");
@@ -113,7 +141,7 @@ export async function upgradeLegacyCodexIdentity(teamId: string, workspaceId: st
     teamId, accountId: legacy.id, expectedKey: workspaceId,
     expectedRevision: encrypted.credentialRevision, credential: withCodexOwner(credential),
   });
-  if (!migrated && await findAccountByProviderIdentity(teamId, "codex", workspaceId)) {
+  if (!migrated && await findAccountByProviderIdentity(teamId, "codex", workspaceId, access)) {
     throw new Error("legacy Codex credential changed during identity upgrade; retry");
   }
 }
