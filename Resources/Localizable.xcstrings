@@ -527586,55 +527586,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB and 64 GB machines need cmux Max."
+            "value": "Max includes 64 GB RAM and 16 vCPUs shared across up to 50 Cloud VMs."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maschinen mit 32 GB und 64 GB benötigen cmux Max."
+            "value": "Max bietet 64 GB RAM und 16 vCPUs, die sich bis zu 50 Cloud-VMs teilen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les machines de 32 Go et 64 Go nécessitent cmux Max."
+            "value": "Max inclut 64 Go de RAM et 16 vCPU partagés entre un maximum de 50 VM Cloud."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الأجهزة ذات 32 و64 غيغابايت تتطلب cmux Max."
+            "value": "يتضمن Max ذاكرة RAM بسعة 64 GB و16 وحدة vCPU تتشاركها حتى 50 جهاز Cloud VM."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las máquinas de 32 GB y 64 GB requieren cmux Max."
+            "value": "Max incluye 64 GB de RAM y 16 vCPU compartidos entre hasta 50 VM de Cloud."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 和 64 GB 機器需要 cmux Max。"
+            "value": "Max 提供 64 GB RAM 和 16 個 vCPU，由最多 50 台 Cloud VM 共用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 和 64 GB 机器需要 cmux Max。"
+            "value": "Max 提供 64 GB RAM 和 16 个 vCPU，由最多 50 台 Cloud VM 共享。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB 및 64 GB 머신에는 cmux Max가 필요합니다."
+            "value": "Max에는 최대 50개의 Cloud VM이 공유하는 64 GB RAM과 16 vCPU가 포함됩니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "32 GB と 64 GB のマシンには cmux Max が必要です。"
+            "value": "Max では、最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有します。"
           }
         }
       }
@@ -528294,55 +528294,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+            "value": "Unlimited workspaces and the iOS app"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alles aus Pro: 50 Cloud-VMs, unbegrenzte Arbeitsbereiche, die iOS-App"
+            "value": "Unbegrenzte Workspaces und die iOS-App"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tout Pro : 50 VM Cloud, espaces de travail illimités, application iOS"
+            "value": "Espaces de travail illimités et application iOS"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "كل ما في Pro: 50 جهازاً سحابياً، ومساحات عمل غير محدودة، وتطبيق iOS"
+            "value": "مساحات عمل غير محدودة وتطبيق iOS"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Todo Pro: 50 máquinas virtuales Cloud, espacios de trabajo ilimitados y la app iOS"
+            "value": "Espacios de trabajo ilimitados y la app de iOS"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 Pro 所有功能：50 台雲端 VM、無限工作區、iOS 應用程式"
+            "value": "無限工作區與 iOS App"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "包含 Pro 所有功能：50 台云端 VM、无限工作区、iOS 应用"
+            "value": "无限工作区与 iOS App"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro의 모든 기능: Cloud VM 50대, 무제한 작업 공간, iOS 앱"
+            "value": "무제한 워크스페이스와 iOS 앱"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro の全機能：50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+            "value": "無制限のワークスペースと iOS アプリ"
           }
         }
       }
@@ -528412,55 +528412,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 64 GB RAM per machine"
+            "value": "Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 64 GB RAM pro Maschine"
+            "value": "Bis zu 50 Cloud-VMs teilen sich 64 GB RAM und 16 vCPUs"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 64 Go de RAM par machine"
+            "value": "Jusqu’à 50 VM Cloud se partagent 64 Go de RAM et 16 vCPU"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حتى 64 غيغابايت من الذاكرة لكل جهاز"
+            "value": "ما يصل إلى 50 جهاز Cloud VM تتشارك 64 GB من RAM و16 وحدة vCPU"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 64 GB de RAM por máquina"
+            "value": "Hasta 50 VM de Cloud comparten 64 GB de RAM y 16 vCPU"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每台機器最高 64 GB RAM"
+            "value": "最多 50 台 Cloud VM 共用 64 GB RAM 和 16 個 vCPU"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每台机器最高 64 GB RAM"
+            "value": "最多 50 台 Cloud VM 共享 64 GB RAM 和 16 个 vCPU"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "머신당 최대 64 GB RAM"
+            "value": "최대 50개의 Cloud VM이 64 GB RAM과 16 vCPU를 공유"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンごとに最大 64 GB RAM"
+            "value": "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有"
           }
         }
       }
@@ -528589,55 +528589,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB RAM"
+            "value": "64 GB RAM from the shared pool"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB Arbeitsspeicher"
+            "value": "64 GB RAM aus dem gemeinsamen Pool"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 Go de RAM"
+            "value": "64 Go de RAM du pool partagé"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 غيغابايت من الذاكرة"
+            "value": "64 GB من RAM من المجموعة المشتركة"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB de RAM"
+            "value": "64 GB de RAM del conjunto compartido"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 記憶體"
+            "value": "共用資源池中的 64 GB RAM"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 内存"
+            "value": "共享资源池中的 64 GB RAM"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB 메모리"
+            "value": "공유 풀의 64 GB RAM"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "64 GB メモリ"
+            "value": "共有プールの 64 GB RAM"
           }
         }
       }
