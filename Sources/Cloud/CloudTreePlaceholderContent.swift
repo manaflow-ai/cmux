@@ -28,6 +28,6 @@ struct CloudTreePlaceholderContent: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+        .padding(.trailing, style.rowGrid.trailingPadding)
     }
 }

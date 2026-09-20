@@ -846,7 +846,9 @@
 		5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */; };
 		D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */; };
 		B12357000000000000000004 /* CloudSidebarDebugLabWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12357000000000000000003 /* CloudSidebarDebugLabWindow.swift */; };
+		51B4FF9048D7FC13A294FEC2 /* CloudSidebarDebugMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13BB4F817FBB3B1ABCEB41D /* CloudSidebarDebugMetrics.swift */; };
 		6EAF84C73F1793C18F24DEE8 /* CloudSidebarDebugResetButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD38DEF9DE5C7714C5CF1780 /* CloudSidebarDebugResetButton.swift */; };
+		27B02E17770C95243452E7EE /* CloudSidebarDebugSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C6D2DF02CD9F9A7E5475FEF /* CloudSidebarDebugSettings.swift */; };
 		1B2372910F434AD5B1AF5F62 /* CloudSidebarDraggingInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F416621204C404E82980AEA /* CloudSidebarDraggingInfo.swift */; };
 		4C8528C316114F9A9999DFA8 /* CloudSidebarDraggingSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C2630FE0F0747A68FBAD58F /* CloudSidebarDraggingSession.swift */; };
 		A13086000000000000000012 /* CloudSidebarDropOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13086000000000000000011 /* CloudSidebarDropOperation.swift */; };
@@ -960,6 +962,7 @@
 		2D0B1C79D1974046B705D579 /* CloudTreeReorderPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D350E4739814C97A50E5B01 /* CloudTreeReorderPresentation.swift */; };
 		D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12406000000000000000001 /* CloudTreeResizeMenu.swift */; };
 		CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */; };
+		2D377C843E0FA139C01FEFE1 /* CloudTreeRowGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4479FB1CCB5F267B09E3365E /* CloudTreeRowGrid.swift */; };
 		46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */ = {isa = PBXBuildFile; fileRef = 333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */; };
 		FA1253800000000000000005 /* CloudTreeRowIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1253800000000000000006 /* CloudTreeRowIcon.swift */; };
 		A12481200000000000000001 /* CloudTreeRowUpdate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481200000000000000002 /* CloudTreeRowUpdate.swift */; };
@@ -4896,7 +4899,9 @@
 		5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAttentionLayoutTests.swift"; sourceTree = "<group>"; };
 		B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarConsistencyTests.swift; sourceTree = "<group>"; };
 		B12357000000000000000003 /* CloudSidebarDebugLabWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarDebugLabWindow.swift; sourceTree = "<group>"; };
+		B13BB4F817FBB3B1ABCEB41D /* CloudSidebarDebugMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarDebugMetrics.swift; sourceTree = "<group>"; };
 		AD38DEF9DE5C7714C5CF1780 /* CloudSidebarDebugResetButton.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudSidebarDebugResetButton.swift; sourceTree = "<group>"; };
+		4C6D2DF02CD9F9A7E5475FEF /* CloudSidebarDebugSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarDebugSettings.swift; sourceTree = "<group>"; };
 		0F416621204C404E82980AEA /* CloudSidebarDraggingInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarDraggingInfo.swift"; sourceTree = "<group>"; };
 		6C2630FE0F0747A68FBAD58F /* CloudSidebarDraggingSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarDraggingSession.swift"; sourceTree = "<group>"; };
 		A13086000000000000000011 /* CloudSidebarDropOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudSidebarDropOperation.swift"; sourceTree = "<group>"; };
@@ -5010,6 +5015,7 @@
 		9D350E4739814C97A50E5B01 /* CloudTreeReorderPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sidebar/CloudTreeReorderPresentation.swift"; sourceTree = "<group>"; };
 		D12406000000000000000001 /* CloudTreeResizeMenu.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeResizeMenu.swift; sourceTree = "<group>"; };
 		53075CD5172053B8F994DA2B /* CloudTreeRowContentView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRowContentView.swift; sourceTree = "<group>"; };
+		4479FB1CCB5F267B09E3365E /* CloudTreeRowGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeRowGrid.swift; sourceTree = "<group>"; };
 		333CFD2BE68E128395477836 /* CloudTreeRowHeight.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeRowHeight.swift"; sourceTree = "<group>"; };
 		FA1253800000000000000006 /* CloudTreeRowIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeRowIcon.swift; sourceTree = "<group>"; };
 		A12481200000000000000002 /* CloudTreeRowUpdate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeRowUpdate.swift; sourceTree = "<group>"; };
@@ -8650,6 +8656,9 @@
 				4D50DCB9771484FE2B966B07 /* CloudAgentSkillLauncher+CodingAgent.swift */,
 				0110525EA7A8A51561759317 /* CloudAgentSkillLauncher+LauncherError.swift */,
 				D690BCAE82EB05A6790086AE /* CloudTreeStyle.swift */,
+				4479FB1CCB5F267B09E3365E /* CloudTreeRowGrid.swift */,
+				4C6D2DF02CD9F9A7E5475FEF /* CloudSidebarDebugSettings.swift */,
+				B13BB4F817FBB3B1ABCEB41D /* CloudSidebarDebugMetrics.swift */,
 				AD38DEF9DE5C7714C5CF1780 /* CloudSidebarDebugResetButton.swift */,
 				B12357000000000000000003 /* CloudSidebarDebugLabWindow.swift */,
 				46E4DB2770E4B0CBF4C388E5 /* CloudTreeStyleGalleryWindow.swift */,
@@ -13144,6 +13153,10 @@
 				D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */,
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
+				B12357000000000000000004 /* CloudSidebarDebugLabWindow.swift in Sources */,
+				51B4FF9048D7FC13A294FEC2 /* CloudSidebarDebugMetrics.swift in Sources */,
+				6EAF84C73F1793C18F24DEE8 /* CloudSidebarDebugResetButton.swift in Sources */,
+				27B02E17770C95243452E7EE /* CloudSidebarDebugSettings.swift in Sources */,
 				A13086000000000000000012 /* CloudSidebarDropOperation.swift in Sources */,
 				1771C5B445A64CB486D8B7D7 /* CloudSidebarNotificationCoordinator.swift in Sources */,
 				E37E404F1D6B458C8C79318A /* CloudSidebarOrganizationAction.swift in Sources */,
@@ -13223,6 +13236,7 @@
 				2D0B1C79D1974046B705D579 /* CloudTreeReorderPresentation.swift in Sources */,
 				D12406000000000000000002 /* CloudTreeResizeMenu.swift in Sources */,
 				CF30E2713423E3919EAE5C73 /* CloudTreeRowContentView.swift in Sources */,
+				2D377C843E0FA139C01FEFE1 /* CloudTreeRowGrid.swift in Sources */,
 				46B69D1B0F705975988FFF7F /* CloudTreeRowHeight.swift in Sources */,
 				FA1253800000000000000005 /* CloudTreeRowIcon.swift in Sources */,
 				A12481200000000000000001 /* CloudTreeRowUpdate.swift in Sources */,

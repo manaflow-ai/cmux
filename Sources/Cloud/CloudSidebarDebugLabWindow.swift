@@ -10,7 +10,17 @@ import SwiftUI
 /// adversarial names. The preview uses the production outline and row views, so
 /// a spacing change is visible both here and in an open Cloud sidebar.
 final class CloudSidebarDebugLabWindowController: ReleasingWindowController {
-    static let shared = CloudSidebarDebugLabWindowController()
+    private let settings: CloudSidebarDebugSettings
+
+    init(settings: CloudSidebarDebugSettings) {
+        self.settings = settings
+        super.init()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    deinit {}
 
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
@@ -25,7 +35,7 @@ final class CloudSidebarDebugLabWindowController: ReleasingWindowController {
         window.isMovableByWindowBackground = true
         window.level = .floating
         window.center()
-        window.contentView = NSHostingView(rootView: CloudSidebarDebugLabView())
+        window.contentView = NSHostingView(rootView: CloudSidebarDebugLabView(settings: settings))
         AppDelegate.shared?.applyWindowDecorations(to: window)
         return window
     }
@@ -40,7 +50,7 @@ private struct CloudSidebarDebugLabView: View {
     static let defaultPreviewWidth = 360.0
 
     @State private var selectedStyleID = CloudTreeStyleStore.current.id
-    @State private var metrics = CloudSidebarDebugSettings.metrics
+    @Bindable var settings: CloudSidebarDebugSettings
     @State private var previewWidth = Self.defaultPreviewWidth
     @State private var expansionStore = CloudSidebarDebugFixture.makeExpansionStore()
 
@@ -52,23 +62,17 @@ private struct CloudSidebarDebugLabView: View {
         HStack(spacing: 0) {
             CloudSidebarDebugControls(
                 selectedStyleID: $selectedStyleID,
-                metrics: $metrics,
+                metrics: $settings.metrics,
                 previewWidth: $previewWidth,
                 selectedStyle: selectedStyle
             )
             .frame(width: 328)
             Divider()
             CloudSidebarDebugPreview(
-                style: CloudSidebarDebugSettings.resolvedStyle(selectedStyle, metrics: metrics),
+                style: settings.metrics.resolvedStyle(selectedStyle),
                 previewWidth: previewWidth,
                 expansionStore: expansionStore
             )
-        }
-        .onAppear {
-            CloudSidebarDebugSettings.update(metrics)
-        }
-        .onChange(of: metrics) { _, value in
-            CloudSidebarDebugSettings.update(value)
         }
         .onChange(of: selectedStyleID) { _, value in
             guard let style = CloudTreeStyle.preset(id: value) else { return }
@@ -133,8 +137,7 @@ private struct CloudSidebarDebugControls: View {
                     VStack(alignment: .leading, spacing: 8) {
                         CloudSidebarDebugSliderRow(title: "Icon slot", value: $metrics.iconSlot, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.iconSlot)
                         CloudSidebarDebugSliderRow(title: "Icon gap", value: $metrics.iconGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.iconGap)
-                        CloudSidebarDebugSliderRow(title: "Status slot", value: $metrics.dotSlot, range: 0...18, defaultValue: CloudSidebarDebugMetrics.default.dotSlot)
-                        CloudSidebarDebugSliderRow(title: "Status gap", value: $metrics.dotGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.dotGap)
+                        CloudSidebarDebugSliderRow(title: "Machine badge gap", value: $metrics.dotGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.dotGap)
                         CloudSidebarDebugSliderRow(title: "Detail gap", value: $metrics.detailGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.detailGap)
                         CloudSidebarDebugSliderRow(title: "Trailing gap", value: $metrics.trailingGap, range: 0...24, defaultValue: CloudSidebarDebugMetrics.default.trailingGap)
                         CloudSidebarDebugSliderRow(title: "Machine line gap", value: $metrics.machineLineSpacing, range: 0...8, defaultValue: CloudSidebarDebugMetrics.default.machineLineSpacing)
@@ -149,7 +152,7 @@ private struct CloudSidebarDebugControls: View {
                     }
                     Button("Copy config") {
                         GhosttyApp.terminalPasteboard.writeString(
-                            CloudSidebarDebugSettings.copyPayload(metrics),
+                            metrics.copyPayload(styleID: selectedStyleID),
                             to: .general
                         )
                     }

@@ -1,22 +1,5 @@
 import CmuxFoundation
 import SwiftUI
-enum CloudTreeRowGrid {
-    /// Width of the outline's native disclosure control; content starts
-    /// disclosureGap after it. The native caret keeps its own artwork.
-    static var disclosureSlot: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.disclosureSlot) }
-    /// Keep carets and content together on the shared outline grid.
-    static var disclosureGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.disclosureGap) }
-    /// Gap between a machine name and its inline badge or status text.
-    static var dotGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.dotGap) }
-    /// Space between a title and its dim detail text.
-    static var detailGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.detailGap) }
-    /// Trailing accessories (open marker): gap after the text, a fixed slot, then padding.
-    static var trailingGap: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.trailingGap) }
-    static let trailingSlot: CGFloat = 16
-    static var trailingPadding: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.referenceInset) }
-    static var machineLineSpacing: CGFloat { CGFloat(CloudSidebarDebugSettings.metrics.machineLineSpacing) }
-}
-
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
     static let terminal = Color.indigo
@@ -40,7 +23,7 @@ struct CloudTreeRowContentView: View {
                     Rectangle()
                         .fill(Color.primary.opacity(0.07))
                         .frame(height: 0.5)
-                        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+                        .padding(.trailing, style.rowGrid.trailingPadding)
                 }
             }
     }
@@ -96,6 +79,8 @@ struct CloudTreeRowContentView: View {
                 title: title
             )
             .help([title, Self.text(for: resource)].joined(separator: "\n"))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel([title, Self.text(for: resource)].joined(separator: ", "))
         case .browsersGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style)
         case .browser(let row):
@@ -219,20 +204,20 @@ struct CloudTreeLeafRow<Accessories: View>: View {
                         detailText(detail)
                     }
                 }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                Spacer(minLength: style.rowGrid.trailingGap)
             case .singleLine:
                 switch style.metaPlacement {
                 case .inline:
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.detailGap) {
                         titleText
                         if let detail, !detail.isEmpty {
                             detailText(detail)
                         }
                     }
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                    Spacer(minLength: style.rowGrid.trailingGap)
                 case .trailing:
                     titleText
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                    Spacer(minLength: style.rowGrid.trailingGap)
                     if let detail, !detail.isEmpty {
                         detailText(detail)
                     }
@@ -240,7 +225,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
             }
             accessories()
         }
-        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+        .padding(.trailing, style.rowGrid.trailingPadding)
     }
 
     private var titleText: some View {
@@ -324,10 +309,12 @@ struct CloudTreeTerminalRowContent: View {
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState
         )
         .help(toolTip)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(toolTip)
     }
 
     /// Keep secondary information on hover so the narrow row gives its width to the title.
-    private var toolTip: String {
+    var toolTip: String {
         var details = [row.displayTitle, row.directoryHelp, agentLabel].compactMap { $0 }
         if showsDetachedState {
             details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))

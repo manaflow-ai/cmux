@@ -20,7 +20,7 @@ struct CloudTreeLocalMachineRowContent: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                    Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -29,7 +29,7 @@ struct CloudTreeLocalMachineRowContent: View {
             HStack(alignment: .top, spacing: style.iconGap) {
                 CloudTreeRowIcon(style: style, systemName: "laptopcomputer", tint: CloudTreeIconPalette.machine)
                     .frame(height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     Text(row.name)
                         .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
@@ -43,10 +43,10 @@ struct CloudTreeLocalMachineRowContent: View {
                         .truncationMode(.tail)
                         .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                Spacer(minLength: style.rowGrid.trailingGap)
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            .padding(.trailing, style.rowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(row.name)
         }

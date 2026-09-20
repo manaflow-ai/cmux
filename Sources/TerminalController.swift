@@ -1789,9 +1789,6 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
-        case "debug.cloudtree.spacing":
-            v2MainSync { CloudSidebarDebugLabWindowController.shared.show() }
-            return v2Ok(id: request.id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.cloudtree.gallery":
             // `{style?: id, show?: bool}`: optionally select a Cloud tree style
             // preset, then (by default) present the side-by-side gallery window.
@@ -1949,8 +1946,7 @@ class TerminalController {
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
-                || request.method == "debug.cloudtree.gallery"
-                || request.method == "debug.cloudtree.spacing" {
+                || request.method == "debug.cloudtree.gallery" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -2961,6 +2957,10 @@ class TerminalController {
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
         case "agent.hibernation.session_end": return v2Result(id: id, self.v2AgentHibernationSessionEnd(params: params))
         #if DEBUG
+        case "debug.cloudtree.spacing":
+            // Explicit window presentation needs AppKit; the socket awaits the main-actor lane.
+            AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+            return v2Ok(id: id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.notification.status":
             return v2Ok(id: id, result: notificationDebugStatus())
         case "debug.notification.mode":

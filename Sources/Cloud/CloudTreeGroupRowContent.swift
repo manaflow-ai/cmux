@@ -8,7 +8,7 @@ struct CloudTreeGroupRowContent: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: style.iconGap) {
-            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
+            HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.detailGap) {
                 Text(style.groupLabelStyle == .uppercased ? title.uppercased() : title)
                     .tracking(style.groupLabelStyle == .uppercased ? 0.8 : 0)
                     .cmuxFont(size: style.groupLabelSize, weight: .medium, design: style.fontDesign)
@@ -22,6 +22,6 @@ struct CloudTreeGroupRowContent: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+        .padding(.trailing, style.rowGrid.trailingPadding)
     }
 }

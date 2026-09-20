@@ -19,11 +19,11 @@ struct CloudTreePendingMachineRowContent: View {
                 HStack(alignment: .center, spacing: style.iconGap) {
                     leadingGlyph
                         .frame(width: scaled(style.iconSlot), alignment: .center)
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
                         name
                         status
                     }
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                    Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -32,16 +32,16 @@ struct CloudTreePendingMachineRowContent: View {
             HStack(alignment: .top, spacing: style.iconGap) {
                 leadingGlyph
                     .frame(width: scaled(style.iconSlot), height: scaled(style.machineNameLineHeight), alignment: .center)
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     name
                         .frame(height: scaled(style.machineNameLineHeight))
                     status
                         .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                Spacer(minLength: style.rowGrid.trailingGap)
             }
             .padding(.vertical, scaled(style.machineVerticalPadding))
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            .padding(.trailing, style.rowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         }
