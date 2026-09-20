@@ -3,7 +3,6 @@ import CmuxFoundation
 import CmuxSettings
 import Foundation
 import os
-
 nonisolated private let cmuxSettingsFileStoreLogger = Logger(subsystem: "com.cmuxterm.app", category: "SettingsStore")
 
 final class CmuxSettingsFileStore {
@@ -81,6 +80,7 @@ final class CmuxSettingsFileStore {
         startWatching: Bool = true,
         isUserDefaultsKeyForcedByProfile: @escaping (String) -> Bool = { key in
             let policy = ManagedDevicePolicy()
+            if key == SocketControlSettings.appStorageKey && policy.isForced(.socketControlMode) { return true }
             if key == BrowserURLAllowlistPolicy.userDefaultsKey {
                 return policy.isBrowserURLAllowlistLocked(
                     userDefaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey
