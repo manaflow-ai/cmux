@@ -189,4 +189,45 @@ struct ManagedPolicyBrowserGateTests {
             )
         }
     }
+
+    /// Regression coverage for the surface tab bar's globe button (#10866).
+    ///
+    /// The tab bar filters built-in buttons whose feature is off. The browser
+    /// button was missing from that filter, so disabling the browser left the
+    /// globe in the tab bar while its action refused. It has to follow the
+    /// same gate under the user setting and under managed policy, and it must
+    /// not take the other built-in buttons down with it.
+    @Test
+    func surfaceTabBarGlobeButtonFollowsTheAvailabilityGate() {
+        withBrowserPolicy(managed: nil, userDisabled: true) {
+            #expect(
+                !Workspace.surfaceTabBarBuiltInActionIsAvailable(.newBrowser),
+                "a user-disabled browser must not leave the globe button drawn"
+            )
+        }
+
+        withBrowserPolicy(managed: true, userDisabled: false) {
+            #expect(
+                !Workspace.surfaceTabBarBuiltInActionIsAvailable(.newBrowser),
+                "a policy-disabled browser must not leave the globe button drawn"
+            )
+        }
+
+        withBrowserPolicy(managed: nil, userDisabled: false) {
+            #expect(
+                Workspace.surfaceTabBarBuiltInActionIsAvailable(.newBrowser),
+                "an enabled browser must still offer its tab bar button"
+            )
+            // Buttons with no feature gate of their own stay available, so the
+            // browser gate cannot be read as a blanket filter.
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.newTerminal))
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.newWorkspace))
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.splitRight))
+        }
+
+        // The gate must not follow the browser either way while it is off.
+        withBrowserPolicy(managed: true, userDisabled: true) {
+            #expect(Workspace.surfaceTabBarBuiltInActionIsAvailable(.newTerminal))
+        }
+    }
 }

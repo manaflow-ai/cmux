@@ -4369,6 +4369,21 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         bonsplitController.configuration = configuration
     }
 
+    /// Whether a built-in tab bar button should be drawn at all.
+    ///
+    /// Named and static so the gate is testable without standing up a
+    /// workspace.
+    static func surfaceTabBarBuiltInActionIsAvailable(
+        _ action: CmuxSurfaceTabBarBuiltInAction
+    ) -> Bool {
+        switch action {
+        case .mobileConnect: return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled
+        case .newAgentChat: return CmuxFeatureFlags.shared.isAgentChatUIEnabled
+        case .newSimulator: return CmuxFeatureFlags.shared.isSimulatorEnabled
+        default: return true
+        }
+    }
+
     func applySurfaceTabBarButtons(
         _ buttons: [CmuxSurfaceTabBarButton],
         sourcePath: String?,
@@ -4385,10 +4400,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
         let buttons = buttons.filter { button in
             guard case .builtIn(let builtInAction) = button.action else { return true }
-            if builtInAction == .mobileConnect { return CmuxFeatureFlags.shared.isMobileConnectButtonEnabled }
-            if builtInAction == .newAgentChat { return CmuxFeatureFlags.shared.isAgentChatUIEnabled }
-            if builtInAction == .newSimulator { return CmuxFeatureFlags.shared.isSimulatorEnabled }
-            return true
+            return Self.surfaceTabBarBuiltInActionIsAvailable(builtInAction)
         }
         let executableButtons = Dictionary(
             uniqueKeysWithValues: buttons.compactMap { button in
