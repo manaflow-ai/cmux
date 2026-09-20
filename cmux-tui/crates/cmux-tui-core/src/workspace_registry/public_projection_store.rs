@@ -67,7 +67,7 @@ impl RegistryAgentProjection {
             "updated_at_ms": self.updated_at_ms.to_string(),
             "source_session": self.source_session,
         });
-        if let Some(agent) = self.agent { value["agent"] = json!(agent); }
+        if let Some(agent) = self.agent { value["extra"] = json!({"agent": agent}); }
         value
     }
 }
@@ -125,8 +125,6 @@ impl StoredNotificationLevel {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredAgent {
-    #[serde(default)]
-    agent: Option<String>,
     id: AgentPublicId,
     session_id: SessionPublicId,
     terminal_id: TerminalPublicId,
@@ -324,7 +322,6 @@ impl WorkspaceRegistry {
                 stored.session_id,
                 self.session_id
             );
-            let _ = stored.extra;
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             notifications.push(RegistryNotificationProjection {
@@ -423,9 +420,8 @@ impl WorkspaceRegistry {
                 stored.id,
                 stored.terminal_id
             );
-            let _ = stored.extra;
             agents.push(RegistryAgentProjection {
-                agent: stored.agent,
+                agent: stored.extra.as_ref().and_then(|extra| extra.get("agent")).and_then(Value::as_str).map(str::to_string),
                 id: stored.id,
                 terminal_id: stored.terminal_id,
                 state: stored.state.as_str().to_string(),

@@ -2554,11 +2554,6 @@
     "AgentSnapshot": {
       "kind": "object",
       "fields": {
-        "agent": {
-          "required": false,
-          "type": { "kind": "primitive", "name": "string" },
-          "description": "Detected coding-agent provider identity, independent of report provenance."
-        },
         "id": {
           "required": true,
           "type": {

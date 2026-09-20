@@ -706,8 +706,6 @@ pub enum AgentSnapshotSource {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentSnapshot {
-    #[serde(default)]
-    pub agent: Option<String>,
     pub id: AgentId,
     pub session_id: SessionId,
     pub terminal_id: TerminalId,
