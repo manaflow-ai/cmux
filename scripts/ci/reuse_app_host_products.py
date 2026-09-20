@@ -8,16 +8,17 @@ cache misses. The original CMUXCommit embedded in the app is retained.
 from __future__ import annotations
 
 import hashlib
-import gzip
+import io
 import json
 import os
 import platform
 import re
 import shutil
+import signal
 import subprocess
 import sys
-import tarfile
 import tempfile
+import threading
 import zipfile
 from pathlib import Path
 
@@ -25,13 +26,18 @@ import app_host_test_products as products
 
 RECEIPT = "cmux-product-reuse.json"
 PREFIX = "app-host-products-v1-"
-# Current product archives are ~0.8 GiB compressed. Bound every expansion layer
-# independently, including hardlink copies, with room for the UI product set.
+ARCHIVE = "app-host-products.aar"
+ARCHIVER = Path(__file__).resolve().parent / "app-host-products-archive.sh"
+# Current product archives are well under 1 GiB compressed. Bound the download,
+# the entry listing and the extracted size independently, with room for the UI
+# product set.
 MAX_ARCHIVE_BYTES = 2 * 1024**3
 MAX_MEMBER_BYTES = 4 * 1024**3
 MAX_EXPANDED_BYTES = 16 * 1024**3
-MAX_TAR_BYTES = 20 * 1024**3
+MAX_METADATA_BYTES = 1024**2
+MAX_LISTING_BYTES = 256 * 1024**2
 MAX_MEMBERS = 200_000
+ARCHIVE_TOOL_TIMEOUT = 600
 
 
 def read(*args):
@@ -140,29 +146,74 @@ def bounded_copy(source, output, limit):
         output.write(chunk)
 
 
-class BoundedReader:
-    def __init__(self, source, limit):
-        self.source, self.remaining = source, limit
+def list_archive(archive):
+    """Read the entry listing without extracting; bound its size and duration."""
+    with subprocess.Popen([str(ARCHIVER), "list", str(archive)], stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL, start_new_session=True) as process:
+        def stop():
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        timer = threading.Timer(ARCHIVE_TOOL_TIMEOUT, stop)
+        timer.start()
+        try:
+            listing = io.BytesIO()
+            bounded_copy(process.stdout, listing, MAX_LISTING_BYTES)
+            status = process.wait()
+        finally:
+            timer.cancel()
+            stop()
+    if status != 0:
+        raise ValueError("unreadable product archive")
+    return json.loads(listing.getvalue())
 
-    def read(self, size=-1):
-        size = self.remaining + 1 if size < 0 else min(size, self.remaining + 1)
-        chunk = self.source.read(size)
-        self.remaining -= len(chunk)
-        if self.remaining < 0:
-            raise ValueError("tar stream expansion limit exceeded")
-        return chunk
 
+def validate_entries(entries):
+    """Accept only scoped directories, files and links that cannot leave the products.
 
-class BoundedTarInfo(tarfile.TarInfo):
-    @classmethod
-    def frombuf(cls, buf, encoding, errors):
-        info = super().frombuf(buf, encoding, errors)
-        # PAX/GNU extension bodies are read into memory by tarfile before it
-        # yields a member, so their limits must be checked at header parsing.
-        if info.size > MAX_MEMBER_BYTES or (info.type in {tarfile.XHDTYPE, tarfile.XGLTYPE,
-                tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK} and info.size > 1024 * 1024):
-            raise ValueError("tar header size limit exceeded")
-        return info
+    A link target that is relative and has no `..` component resolves below the
+    link's own directory, so it stays inside Build/Products whatever else the
+    archive contains. scripts/ci/app-host-products-archive.sh packs only such links.
+    """
+    if not isinstance(entries, list):
+        raise ValueError("unexpected archive listing")
+    if len(entries) > MAX_MEMBERS:
+        raise ValueError("archive member count limit exceeded")
+    expanded = 0
+    paths, links = set(), set()
+    for entry in entries:
+        kind, path = entry["TYP"], entry["PAT"]
+        if kind not in {"D", "F", "L"}:
+            raise ValueError("unsupported product entry")
+        parts = path.split("/") if isinstance(path, str) else []
+        if parts[:2] != ["Build", "Products"] or any(part in {"", ".", ".."} for part in parts):
+            raise ValueError("unscoped product path")
+        if path in paths:
+            raise ValueError("duplicate product path")
+        paths.add(path)
+        if entry.get("MOD", 0) & ~0o777:
+            raise ValueError("unsupported product mode")
+        if kind == "L":
+            target = entry["LNK"]
+            if not isinstance(target, str) or any(part in {"", ".."} for part in target.split("/")):
+                raise ValueError("unscoped product link")
+            links.add(path)
+        elif "LNK" in entry:
+            raise ValueError("unexpected link target")
+        size = entry.get("DAT", 0)
+        if kind != "F" and size:
+            raise ValueError("unexpected entry contents")
+        metadata = entry.get("XAT", 0) + entry.get("ACL", 0)
+        if metadata > MAX_METADATA_BYTES:
+            raise ValueError("archive metadata size limit exceeded")
+        if size > MAX_MEMBER_BYTES or expanded + size + metadata > MAX_EXPANDED_BYTES:
+            raise ValueError("archive member size limit exceeded")
+        expanded += size + metadata
+    for path in paths:
+        parts = path.split("/")
+        if any("/".join(parts[:depth]) in links for depth in range(1, len(parts))):
+            raise ValueError("product entry below a link")
 
 
 def unpack(archive, staging, digest):
@@ -174,60 +225,21 @@ def unpack(archive, staging, digest):
             h.update(chunk)
     if "sha256:" + h.hexdigest() != digest:
         raise ValueError("artifact digest mismatch")
-    compressed = staging / "app-host-products.tar.gz"
+    compressed = staging / ARCHIVE
     with zipfile.ZipFile(archive) as z:
-        if z.namelist() != ["app-host-products.tar.gz"]:
+        # An artifact in any other format, such as the earlier tar.gz, is a miss.
+        if z.namelist() != [ARCHIVE]:
             raise ValueError("unexpected artifact contents")
         info = z.infolist()[0]
         if info.file_size > MAX_ARCHIVE_BYTES:
             raise ValueError("zip expansion limit exceeded")
         with z.open(info) as source, compressed.open("wb") as output:
             bounded_copy(source, output, MAX_ARCHIVE_BYTES)
-    expanded = 0
-    hardlinks = []
-    # Limit the decompressed stream too: tar metadata/PAX headers must not
-    # bypass the per-file limits or force getmembers() to allocate unboundedly.
-    with gzip.open(compressed, "rb") as gz:
-        try:
-            with tarfile.open(fileobj=BoundedReader(gz, MAX_TAR_BYTES), mode="r|", tarinfo=BoundedTarInfo) as tar:
-                for count, member in enumerate(tar, 1):
-                    if count > MAX_MEMBERS:
-                        raise ValueError("archive member count limit exceeded")
-                    parts = Path(member.name).parts
-                    if parts[:2] != ("Build", "Products") or ".." in parts:
-                        raise tarfile.ExtractError("unscoped product path")
-                    if not (member.isdir() or member.isfile() or member.islnk()):
-                        raise tarfile.ExtractError("unsupported product entry")
-                    if member.size > MAX_MEMBER_BYTES or expanded + member.size > MAX_EXPANDED_BYTES:
-                        raise ValueError("archive member size limit exceeded")
-                    target = staging / member.name
-                    if member.isdir():
-                        target.mkdir(parents=True, exist_ok=True)
-                    elif member.isfile():
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        with tar.extractfile(member) as source, target.open("wb") as output:
-                            copied = bounded_copy(source, output, min(MAX_MEMBER_BYTES, MAX_EXPANDED_BYTES - expanded))
-                        if copied != member.size:
-                            raise ValueError("truncated archive member")
-                        expanded += copied
-                        target.chmod(member.mode & 0o777)
-                    else:
-                        target_parts = Path(member.linkname).parts
-                        if target_parts[:2] != ("Build", "Products") or ".." in target_parts:
-                            raise tarfile.ExtractError("unscoped product hardlink")
-                        hardlinks.append(member)
-        except (gzip.BadGzipFile, EOFError) as error:
-            raise tarfile.ReadError("invalid compressed product archive") from error
-    for member in hardlinks:
-        source_path = staging / member.linkname
-        target = staging / member.name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if target.exists():
-            raise tarfile.ExtractError("duplicate product hardlink")
-        with source_path.open("rb") as source, target.open("wb") as output:
-            expanded += bounded_copy(source, output, min(MAX_MEMBER_BYTES, MAX_EXPANDED_BYTES - expanded))
-        target.chmod(source_path.stat().st_mode & 0o777)
-
+    # Extraction follows the archive's own entry headers, so every limit is
+    # checked against the listing before anything is written.
+    validate_entries(list_archive(compressed))
+    subprocess.run([str(ARCHIVER), "unpack", str(compressed), str(staging)], check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=ARCHIVE_TOOL_TIMEOUT)
 
 
 def restore(api, value, derived, current_run, current_identity):
@@ -257,8 +269,8 @@ def restore(api, value, derived, current_run, current_identity):
                 products.restore(staging, {**current_identity, "revision": original["revision"]})
                 # Relocate once more from staging into the actual consumer location.
                 products.stamp(staging, current_identity)
-            except (ValueError, KeyError, OSError, subprocess.SubprocessError,
-                    tarfile.TarError, zipfile.BadZipFile) as error:
+            except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError,
+                    zipfile.BadZipFile) as error:
                 print(f"Skipping build artifact {artifact['id']} ({type(error).__name__}).")
                 continue
             # After relocation starts, any failure must abort to main's cleanup.
@@ -305,7 +317,7 @@ def main():
             if value is not None and os.environ.get("GITHUB_EVENT_NAME") == "merge_group":
                 hit = restore(GitHub(os.environ["GITHUB_REPOSITORY"]), value, derived,
                               os.environ["GITHUB_RUN_ID"], products.identity())
-        except (ValueError, KeyError, OSError, subprocess.SubprocessError, tarfile.TarError, zipfile.BadZipFile) as error:
+        except (ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
             print(f"Build product reuse unavailable ({type(error).__name__}); compiling normally.")
             shutil.rmtree(derived, ignore_errors=True)
         with open(os.environ["GITHUB_OUTPUT"], "a") as out:

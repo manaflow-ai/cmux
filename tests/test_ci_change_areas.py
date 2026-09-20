@@ -1272,8 +1272,17 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "app_host_test_products.py stamp" in admission
     assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission
     assert "rsync -aL \"$framework_root/\" \"$products/PackageFrameworks/\"" in admission
+    # Both sides of the handoff share one archive script, and the macOS-only
+    # archive tests run here because the Linux guard job has to skip them.
+    assert "scripts/ci/app-host-products-archive.sh pack" in admission
+    validate = admission.index("      - name: Validate app-host product archive handoff")
+    assert validate < admission.index("      - name: Reuse compatible compiled products in merge queue")
+    validation = workflow_job_step_script("macos-compile-admission", "Validate app-host product archive handoff")
+    assert "tests/test_app_host_products_archive.sh" in validation
+    assert "tests/test_reuse_app_host_products.py" in validation
 
     app_host = workflow_job_block("app-host-unit-tests")
+    assert "scripts/ci/app-host-products-archive.sh unpack" in app_host
     assert "      - macos-compile-admission" in app_host
     assert "test-without-building" in app_host
     assert "needs.macos-compile-admission.outputs.artifact_id" in app_host

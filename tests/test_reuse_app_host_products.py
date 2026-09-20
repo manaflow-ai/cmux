@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Exercise cross-run artifact reuse through real archives and product relocation."""
 import hashlib
-import io
 import json
 import os
 from unittest import mock
 import shutil
+import subprocess
 import sys
 import tarfile
 import unittest
@@ -17,6 +17,9 @@ import reuse_app_host_products as reuse
 from test_app_host_test_products import TestProductHandoff
 
 
+# Real archives need /usr/bin/aa. The Linux guard job still runs ArchiveListingRules
+# below, and the macOS compile admission job runs this whole file.
+@unittest.skipUnless(shutil.which("aa"), "Apple Archive (aa) ships only with macOS")
 class ReuseProducts(TestProductHandoff):
     def setUp(self):
         super().setUp()
@@ -30,12 +33,21 @@ class ReuseProducts(TestProductHandoff):
         root = self.producer / "Build/Products"
         (root / reuse.RECEIPT).write_text(json.dumps({"contract": self.contract,
             "revision": self.identity["revision"], "run_id": "12", "run_attempt": str(self.api.run["run_attempt"])}))
-        archive = self.producer.parent / "app-host-products.tar.gz"
-        with tarfile.open(archive, "w:gz", dereference=True) as tar:
-            tar.add(root, arcname="Build/Products")
+        archive = self.producer.parent / reuse.ARCHIVE
+        subprocess.run([str(reuse.ARCHIVER), "pack", str(self.producer), str(archive)], check=True)
+        self.publish(archive)
+
+    def publish(self, archive, name=reuse.ARCHIVE):
         with zipfile.ZipFile(self.api.archive, "w") as z:
-            z.write(archive, "app-host-products.tar.gz")
+            z.write(archive, name)
         self.api.artifact["digest"] = "sha256:" + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
+
+    def archive_directly(self, subdir="Build/Products"):
+        """Archive without the packing script, as a producer that skips its rules would."""
+        archive = self.producer.parent / "direct.aar"
+        subprocess.run(["aa", "archive", "-d", str(self.producer), "-subdir", subdir,
+                        "-o", str(archive), "-a", "lzfse"], check=True)
+        self.publish(archive)
 
     def restore_reuse(self):
         current = {**self.identity, "revision": "def456", "checkout": "/queue/work/cmux"}
@@ -147,16 +159,51 @@ class ReuseProducts(TestProductHandoff):
             self.assertFalse(self.restore_reuse())
             download.assert_not_called()
 
-    def test_valid_digest_with_corrupt_tar_is_rejected(self):
+    def test_valid_digest_with_corrupt_archive_is_rejected(self):
         with zipfile.ZipFile(self.api.archive, 'w') as z:
-            z.writestr('app-host-products.tar.gz', b'corrupt')
+            z.writestr(reuse.ARCHIVE, b'corrupt')
         self.api.artifact['digest'] = 'sha256:' + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
         self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
     def test_archive_expansion_is_bounded(self):
-        for limit in ('MAX_MEMBER_BYTES', 'MAX_EXPANDED_BYTES', 'MAX_MEMBERS', 'MAX_TAR_BYTES'):
-            with self.subTest(limit=limit), mock.patch.object(reuse, limit, 1, create=True):
+        for limit in ('MAX_MEMBER_BYTES', 'MAX_EXPANDED_BYTES', 'MAX_MEMBERS', 'MAX_LISTING_BYTES'):
+            with self.subTest(limit=limit), mock.patch.object(reuse, limit, 1):
+                self.assertFalse(self.restore_reuse())
+                self.assertFalse(self.consumer.exists())
+
+    def test_stalled_archive_tool_is_a_miss(self):
+        stalled = self.producer.parent / 'stalled.sh'
+        stalled.write_text('#!/bin/sh\nexec sleep 30\n')
+        stalled.chmod(0o755)
+        with mock.patch.object(reuse, 'ARCHIVER', stalled), mock.patch.object(reuse, 'ARCHIVE_TOOL_TIMEOUT', 0.2):
+            self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_framework_links_survive_reuse(self):
+        framework = self.producer / 'Build/Products/Debug/Sample.framework'
+        (framework / 'Versions/A').mkdir(parents=True)
+        (framework / 'Versions/A/Sample').write_text('binary')
+        (framework / 'Versions/A/Sample').chmod(0o755)
+        (framework / 'Versions/Current').symlink_to('A')
+        (framework / 'Sample').symlink_to('Versions/Current/Sample')
+        (framework / 'Headers').symlink_to('Versions/Current/Headers')
+        self.seal()
+        self.assertTrue(self.restore_reuse())
+        restored = self.consumer / 'Build/Products/Debug/Sample.framework'
+        self.assertEqual(os.readlink(restored / 'Versions/Current'), 'A')
+        self.assertEqual(os.readlink(restored / 'Sample'), 'Versions/Current/Sample')
+        self.assertEqual(os.readlink(restored / 'Headers'), 'Versions/Current/Headers')
+        self.assertEqual((restored / 'Sample').read_text(), 'binary')
+        self.assertEqual((restored / 'Versions/A/Sample').stat().st_mode & 0o777, 0o755)
+
+    def test_earlier_tar_format_is_a_miss(self):
+        legacy = self.producer.parent / 'app-host-products.tar.gz'
+        with tarfile.open(legacy, 'w:gz', dereference=True) as tar:
+            tar.add(self.producer / 'Build/Products', arcname='Build/Products')
+        for name in ('app-host-products.tar.gz', reuse.ARCHIVE):
+            with self.subTest(name=name):
+                self.publish(legacy, name)
                 self.assertFalse(self.restore_reuse())
                 self.assertFalse(self.consumer.exists())
 
@@ -187,17 +234,70 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(self.consumer.exists())
 
 
-    def test_tar_cannot_escape_staging(self):
-        tarbytes = io.BytesIO()
-        with tarfile.open(fileobj=tarbytes, mode='w:gz') as tar:
-            member = tarfile.TarInfo('../escape')
-            member.size = 1
-            tar.addfile(member, io.BytesIO(b'x'))
-        with zipfile.ZipFile(self.api.archive, 'w') as z:
-            z.writestr('app-host-products.tar.gz', tarbytes.getvalue())
-        self.api.artifact['digest'] = 'sha256:' + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
+    def test_archive_cannot_escape_staging(self):
+        secret = self.producer.parent / 'secret'
+        secret.write_text('outside')
+        for target in (str(secret), '../../../../secret'):
+            with self.subTest(target=target):
+                link = self.producer / 'Build/Products/Debug/escape'
+                link.symlink_to(target)
+                self.archive_directly()
+                link.unlink()
+                self.assertFalse(self.restore_reuse())
+                self.assertFalse(self.consumer.exists())
+        (self.producer / 'Elsewhere').mkdir()
+        (self.producer / 'Elsewhere/file').write_text('unscoped')
+        self.archive_directly('Elsewhere')
         self.assertFalse(self.restore_reuse())
-        self.assertFalse((self.producer.parent / 'escape').exists())
+        self.assertFalse(self.consumer.exists())
+
+
+class ArchiveListingRules(unittest.TestCase):
+    """The listing checks are plain data rules, so they run on every platform."""
+
+    def entries(self, *extra):
+        return [{'TYP': 'D', 'PAT': 'Build/Products', 'MOD': 0o755},
+                {'TYP': 'D', 'PAT': 'Build/Products/Debug', 'MOD': 0o755},
+                {'TYP': 'F', 'PAT': 'Build/Products/Debug/cmux DEV', 'MOD': 0o755, 'DAT': 10, 'XAT': 36},
+                {'TYP': 'L', 'PAT': 'Build/Products/Debug/Current', 'LNK': 'Versions/A', 'MOD': 0o755},
+                *extra]
+
+    def test_scoped_files_directories_and_portable_links_pass(self):
+        reuse.validate_entries(self.entries())
+
+    def test_unsafe_entries_are_rejected(self):
+        unsafe = {
+            'absolute path': {'TYP': 'F', 'PAT': '/etc/passwd', 'DAT': 1},
+            'parent path': {'TYP': 'F', 'PAT': 'Build/Products/../../escape', 'DAT': 1},
+            'other root': {'TYP': 'F', 'PAT': 'Build/Intermediates/file', 'DAT': 1},
+            'empty component': {'TYP': 'F', 'PAT': 'Build/Products//file', 'DAT': 1},
+            'duplicate': {'TYP': 'D', 'PAT': 'Build/Products/Debug'},
+            'absolute link': {'TYP': 'L', 'PAT': 'Build/Products/link', 'LNK': '/etc'},
+            'climbing link': {'TYP': 'L', 'PAT': 'Build/Products/link', 'LNK': 'Debug/../../..'},
+            'empty link': {'TYP': 'L', 'PAT': 'Build/Products/link', 'LNK': ''},
+            'missing link target': {'TYP': 'L', 'PAT': 'Build/Products/link'},
+            'entry below a link': {'TYP': 'F', 'PAT': 'Build/Products/Debug/Current/file', 'DAT': 1},
+            'device': {'TYP': 'C', 'PAT': 'Build/Products/device'},
+            'fifo': {'TYP': 'P', 'PAT': 'Build/Products/fifo'},
+            'setuid': {'TYP': 'F', 'PAT': 'Build/Products/tool', 'MOD': 0o4755, 'DAT': 1},
+            'link target on a file': {'TYP': 'F', 'PAT': 'Build/Products/file', 'LNK': 'x', 'DAT': 1},
+            'contents on a directory': {'TYP': 'D', 'PAT': 'Build/Products/dir', 'DAT': 1},
+            'oversized metadata': {'TYP': 'F', 'PAT': 'Build/Products/file', 'XAT': reuse.MAX_METADATA_BYTES + 1},
+            'oversized file': {'TYP': 'F', 'PAT': 'Build/Products/file', 'DAT': reuse.MAX_MEMBER_BYTES + 1},
+            'missing path': {'TYP': 'F'},
+            'not an entry': 'Build/Products/file',
+        }
+        for label, entry in unsafe.items():
+            with self.subTest(label=label), self.assertRaises((ValueError, KeyError, TypeError)):
+                reuse.validate_entries(self.entries(entry))
+        with self.assertRaises(ValueError):
+            reuse.validate_entries({'PAT': 'Build/Products'})
+
+    def test_total_size_and_member_count_are_bounded(self):
+        with mock.patch.object(reuse, 'MAX_EXPANDED_BYTES', 40), self.assertRaises(ValueError):
+            reuse.validate_entries(self.entries({'TYP': 'F', 'PAT': 'Build/Products/more', 'DAT': 10}))
+        with mock.patch.object(reuse, 'MAX_MEMBERS', 3), self.assertRaises(ValueError):
+            reuse.validate_entries(self.entries())
 
 
 class FakeGitHub:
