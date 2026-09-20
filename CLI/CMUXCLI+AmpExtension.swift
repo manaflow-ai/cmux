@@ -44,22 +44,22 @@ extension CMUXCLI {
             .appendingPathComponent(Self.ampExtensionFilename, isDirectory: false)
     }
 
-    /// Only an absent file is installable. Read failures and dangling links must
+    /// Only an absent file is installable. Read failures and symbolic links must
     /// never become empty content that the installer can replace.
     private static func ampExtensionContents(at url: URL) throws -> String? {
+        let attributes: [FileAttributeKey: Any]
         do {
-            return try String(contentsOf: url, encoding: .utf8)
-        } catch let readError as CocoaError where readError.code == .fileReadNoSuchFile {
-            do {
-                _ = try FileManager.default.attributesOfItem(atPath: url.path)
-            } catch let attributesError as CocoaError
-                where attributesError.code == .fileReadNoSuchFile || attributesError.code == .fileNoSuchFile {
-                return nil
-            }
-            // lstat-style attributes can still find a dangling symlink even
-            // when reading its target reported that the file does not exist.
-            throw readError
+            // attributesOfItem uses lstat semantics: inspect the path itself,
+            // without following a link to a possibly managed plugin elsewhere.
+            attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        } catch let error as CocoaError
+            where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return nil
         }
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw CLIError(message: "\(url.path) is not a regular file; leaving it alone")
+        }
+        return try String(contentsOf: url, encoding: .utf8)
     }
 
     static func ampExtensionInstallState(existing: String?) -> String {
