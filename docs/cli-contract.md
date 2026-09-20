@@ -69,6 +69,7 @@ Environment:
 | `disable-browser` | Disable cmux browser creation and link interception until re-enabled. |
 | `enable-browser` | Re-enable cmux browser creation and link interception. |
 | `browser-status` | Print whether cmux browser creation and link interception are enabled. |
+| `socket-status` | Print effective automation socket mode and managed source without connecting to the socket; `--json` also reports configured mode, forced-value status, and socket-path observation (`live_enforcement` is intentionally `not_observed`). Works when the listener is off or cmux is not running. |
 | `agent-hibernation` | Enable or disable routine Agent Hibernation. |
 | `restore` | Replace the CLI with a process restored from structured surface state. |
 | `fork` | Replace the CLI with a provider fork process restored from structured surface state. |
@@ -743,10 +744,10 @@ the expected text without connecting to a cmux socket.
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
 - `cmux vm domains --help` -> `cmux cloud domains [list]`
-- `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
-- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
-- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
-- `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]`
+- `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
+- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <8g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <8g>] [--json]`
 - `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--remote-workspace <ws>] [--wait [--output] [--timeout <seconds>]] [--new] [--size <s>] [--json] -- <prompt or args...>`
 - `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
 - `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`

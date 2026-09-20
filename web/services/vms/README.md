@@ -39,7 +39,11 @@ There is no raw actor or provider protocol endpoint. The old `/api/rivet/*` gate
 
 Public callers only use `/api/vm/*`. Each route calls Stack Auth first and returns `401` before any Postgres or provider operation when the caller is unauthenticated.
 
-Ownership checks happen inside the Effect workflow by loading the VM row with both `user_id` and `provider_vm_id`. A user cannot destroy, exec, attach, or mint SSH credentials for a VM owned by another Stack Auth user.
+Ownership checks load the VM under its immutable `owner_team_id`, validated
+against the caller's current Stack team membership. The creator's user id and
+billing attribution do not independently grant access. Personal machines use
+the user's personal scope. Model credentials are further constrained by the
+machine's coderouter pool; see `services/coderouter/README.md`.
 
 Cookie-authenticated browser mutations also require a same-origin browser request. Native macOS
 calls use `Authorization: Bearer` plus `X-Stack-Refresh-Token` and are not subject to browser CSRF.
@@ -248,19 +252,14 @@ Provider SDKs remain Promise-based adapters under `drivers/`, but all route-visi
 
 Vercel runs the Next.js application and all VM REST routes. Postgres is the persistent control plane. There is no Rivet deployment for this feature.
 
-Production and staging use Vercel Marketplace AWS Aurora PostgreSQL with OIDC federation and RDS IAM auth. The runtime does not need a long-lived database password.
+Production and staging use PlanetScale PostgreSQL. The Vercel runtime and explicit migration jobs use the PlanetScale connection URL.
 
 Set these Vercel environment variables per production/staging environment:
 
-- `CMUX_DB_DRIVER=aws-rds-iam`.
-- `AWS_ROLE_ARN`, IAM role Vercel assumes.
-- `AWS_REGION`, Aurora region.
-- `PGHOST`, Aurora cluster endpoint.
-- `PGPORT`, usually `5432`.
-- `PGUSER`, IAM-enabled Postgres role.
-- `PGDATABASE`, app database name.
+- `CMUX_DB_DRIVER=url`.
+- `DATABASE_URL`, a PlanetScale PostgreSQL connection URL. Keep it in the Vercel project secret store.
 - `CMUX_DB_POOL_MAX`, small pool size for Vercel Functions. Start with `5`.
-- `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, optional. Leave unset for the current Vercel Marketplace Aurora databases so Node uses its default trust store.
+- Preserve `sslmode=verify-full` on the PlanetScale URL.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
 - `CMUX_VM_ALLOW_FREE_PROVISIONING`, explicit opt-out of the paid-plan Cloud VM gate. Leave unset
@@ -301,7 +300,9 @@ Set these Vercel environment variables per production/staging environment:
 
 Local development keeps using Docker Postgres through `DATABASE_URL`, derived from `CMUX_PORT`.
 
-Run production/staging migrations explicitly, never during Vercel build or route startup. The local operator path pulls deployed Vercel env. The GitHub Actions path uses the minimal DB metadata copied into protected GitHub environments, generates an RDS IAM auth token, and applies Drizzle migrations:
+Use `bun run cloud-vm:migrate -- staging --check` to verify access without changing schema. Operator jobs use the branch's direct port (5432) and verify its TLS certificate. `DIRECT_DATABASE_URL` takes precedence when set. With process-provided credentials, set `CMUX_CLOUD_VM_ENV_SOURCE=process`; otherwise the command pulls the selected Vercel project.
+
+Run production/staging migrations explicitly, never during Vercel build or route startup. The local operator path pulls the selected Vercel project `DATABASE_URL`. The GitHub Actions path reads the protected `DATABASE_URL` secret and applies Drizzle migrations:
 
 ```bash
 bun run cloud-vm:migrate -- staging
@@ -350,6 +351,27 @@ bun run cloud-vm:stress -- staging --count 8 --concurrency 4 --provider default
 bun run cloud-vm:stress -- production --count 12 --concurrency 4 --provider default
 ```
 
+## Startup benchmarks
+
+`docs/cloud-startup-latency.md` records where Cloud machine startup time goes and the
+lower-bound budget (issue #12905). The three benchmarks it is built on live beside the smoke
+scripts and only ever create, measure and delete their own resources:
+
+```bash
+cd web
+bun scripts/cloud-vm/bench-vm-startup.mjs staging --trials 5        # create → attach → exec → pause → resume → destroy, with the create route's Server-Timing stages
+bun scripts/cloud-vm/bench-freestyle-floor.ts --trials 5 --burst 3  # provider floor with the SDK: allocation, daemon listening, exec RTT, guest shell, pause/start
+bun scripts/cloud-vm/bench-private-link.ts --trials 3               # the app's transport path headlessly: driver create, attach bundle, WireGuard hub, link, prompt
+```
+
+The two SDK benchmarks read the provider credential the way the runtime does
+(`FREESTYLE_API_KEY`, or `FREESTYLE_STACK_ACCESS_TOKEN` with `FREESTYLE_TEAM_ID`,
+from `~/.secrets/cmux.env`). The API benchmark pulls the target's Vercel env, fills
+a sensitive (empty) value from the process environment, and sends its throwaway
+session only to the project's own https origin; a deployment that Vercel's API
+attributes to the project also needs `--allow-preview`, and any other https host
+`--allow-any-url`.
+
 ## Telemetry
 
 Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`), which owns one request context (`requestContext.ts`) and one route span. The client mints a W3C `traceparent` and an `X-Cmux-Client-Request-Id` per call and sends `X-Cmux-Client`, `X-Cmux-App-Version`, `X-Cmux-App-Build`, `X-Cmux-Channel`. The server answers every response with `x-cmux-trace-id` and `x-cmux-span-id`, and every error body carries `traceId` (also `ui.traceId`). The Mac app prints it as `Reference: <trace id>` on every Cloud VM error, and the socket `vm_error` payload carries it as `data.trace_id`. That id is the join key across the three sinks:
@@ -392,12 +414,9 @@ They use these GitHub Environments:
 
 Each environment needs:
 
-- variable `AWS_REGION`, usually `us-west-2`
-- variables `PGHOST`, `PGPORT`, `PGUSER`, and `PGDATABASE`
-- variable `CMUX_DB_SSL_REJECT_UNAUTHORIZED`, usually `true`
+- secret `DATABASE_URL` for the target branch
 - variables `NEXT_PUBLIC_STACK_PROJECT_ID` and `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY`
 - secret `STACK_SECRET_SERVER_KEY` for smoke workflows
-- secret `AWS_MIGRATION_ROLE_ARN` for migration workflows
 
 Production migration runs staging migration first on the same commit, then waits on the protected production environment approval.
 

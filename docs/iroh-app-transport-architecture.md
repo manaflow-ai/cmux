@@ -115,6 +115,10 @@ The fork must expose cancellation for an in-progress connect. Closing a QUIC con
 
 ## Relay fleet and preferences
 
+Native macOS relay TLS follows system certificate trust. See the
+[enterprise trust and remediation guide](relay-tls-enterprise.md) for System
+keychain roots, safe failure diagnostics, and the deterministic test harness. The native endpoint owns the current diagnostics; Swift callbacks only log them. Readiness reads that same endpoint generation directly when constructing a timeout error, so delayed logging callbacks cannot supply stale failures.
+
 `config/iroh/managed-relay-catalog.json` is the committed, server-owned source of truth for the managed fleet. `web/tools/generate-managed-iroh-relay-catalog.ts` validates it and writes the generated TypeScript consumed by the web API and presence worker. Build checks reject generated-file drift. Managed relay URLs do not come from deployment environment variables, and signing keys and relay credentials never enter the catalog or generated files.
 
 Every catalog has a strictly increasing sequence and at most sixteen unique credential-free HTTPS origins. The backend rejects sequence rollback and same-sequence content changes. It signs a five-minute policy with an Ed25519 key whose public half is pinned by clients. A cached policy remains usable only until its signed expiry. Invalid, expired, rolled-back, or unverifiable policy fails closed to direct Iroh paths. Fleet rotations are add-before-remove: bump the sequence and add relays, regenerate and deploy both server consumers, wait at least one signed-policy lifetime, then bump the sequence again before regenerating, deploying, and removing the retired relays. A stable relay ID never changes meaning in place.

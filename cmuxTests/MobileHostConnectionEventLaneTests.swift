@@ -37,7 +37,7 @@ extension MobileHostAuthorizationTests {
         let finalRecordedIDs = await recorder.recordedIDs()
         #expect(finalRecordedIDs == [connectionID])
     }
-    @Test func testMobileHostConnectionStaysOpenWhenIdleAfterFirstFrame() async throws {
+    @Test func testMobileHostConnectionKeepsControlUsableAfterFirstFrame() async throws {
         let connectionID = UUID()
         let recorder = MobileHostConnectionCloseRecorder()
         let transport = ScriptedMobileHostByteTransport()

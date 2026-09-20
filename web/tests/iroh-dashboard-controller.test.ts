@@ -36,6 +36,8 @@ class FakeSocket {
     const body = this.sent[index];
     return body === undefined ? new Promise(resolve => { this.sendWaiters.set(index, resolve); }) : Promise.resolve(body);
   }
+  waitForSent(index: number): Promise<string> { return this.waitForSend(index); }
+  waitForSent(index: number): Promise<string> { return this.waitForSend(index); }
   close() { this.readyState = 3; this.onclose?.({ code: 1000 } as CloseEvent); }
   open() { this.readyState = 1; this.onopen?.(); this.message({ schemaId: "dashboard.connected.v1", requestId: "connected", sessionId: "s", teamRevision: 1, expiresAt: 99 }); }
   message(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) } as MessageEvent); }
@@ -83,7 +85,7 @@ describe("IROH Dashboard v2 controller", () => {
     socket.message({ schemaId: "dashboard.directory.v1", requestId: directoryRequest.requestId, directory: { teamId: "t", revision: 1, devices: [], relayURLs: [], issuedAt: 1, nextCursor: null, canManageTeam: true, managedDeviceIds: [] } });
     await pending; expect(directories).toHaveLength(1);
     const revoke = controller.revoke("device");
-    const revokeRequest = JSON.parse(socket.sent[1]!);
+    const revokeRequest = JSON.parse(await socket.waitForSent(1));
     socket.message({ schemaId: "operation.completed.v1", requestId: revokeRequest.requestId, revision: 2 });
     // The post-mutation directory request is sent after the acknowledgement.
     const refresh = JSON.parse(await socket.waitForSend(2));
@@ -108,7 +110,7 @@ describe("IROH Dashboard v2 controller", () => {
     expect(directories[0].devices.map((device: any) => device.deviceRecordId)).toEqual(["d1", "d2"]);
     expect(directories[0].managedDeviceIds).toEqual(["d1", "d2"]);
     const update = controller.updateRelayPreferences(["https://relay.example"]);
-    const updateRequest = JSON.parse(socket.sent[2]!);
+    const updateRequest = JSON.parse(await socket.waitForSent(2));
     expect(updateRequest.expectedRevision).toBe(4);
     socket.message({ schemaId: "operation.completed.v1", requestId: updateRequest.requestId, revision: 5 });
     const refresh = JSON.parse(await socket.waitForSend(3));

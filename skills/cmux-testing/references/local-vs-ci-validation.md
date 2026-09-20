@@ -10,8 +10,10 @@ Proves the app target built. Proves nothing about `cmuxTests`, `cmuxUITests`, pa
 
 ```bash
 xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-  -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<tag> build
+  -destination 'platform=macOS' -derivedDataPath /tmp/cmux-<tag> build-for-testing
 ```
+
+Use `build-for-testing`, not `build`: the scheme builds `cmuxTests` only for testing, so `build` compiles the app, skips every test file, and still reports success. Keep this in its own derived data path rather than the tag's (`~/Library/Developer/Xcode/DerivedData/cmux-<tag>`): a test build that fails leaves an unsigned `cmuxTests.xctest` inside the app bundle, and the next `reload.sh` for that tag then fails at CodeSign until the bundle is removed.
 
 For `cmuxApp` or `AppDelegate` churn, add the repo's GlobalISel workaround flag if current project instructions require it.
 

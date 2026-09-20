@@ -20,6 +20,16 @@ extension CmuxTuiSurfaceProvider {
     }
 
     private func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+        try await terminalMutationQueue.run {
+            try await self.createTerminalInMutationTurn(
+                command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID,
+                onExit: onExit, request: request
+            )
+        }
+    }
+
+    private func createTerminalInMutationTurn(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, onExit: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+        guard !isFeatureSuspended else { throw ProviderError.machineAsleep(machineID) }
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         if let created = try await request.prepare(using: link, socketPath: connected.socketPath) {
@@ -30,13 +40,12 @@ extension CmuxTuiSurfaceProvider {
         // catalog must never bootstrap a second workspace during concurrent creates.
         let requestedWorkspace = remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
         let workspaceID = requestedWorkspace.flatMap { $0.isEmpty ? nil : $0 } ?? "current"
-        let argv = CloudTuiCommandLine.commandStartingIn(
-            cwd: cwd,
-            command: (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
-        )
-        let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(
+        // The protocol has a native cwd field. A shell wrapper would load
+        // another login profile before executing the requested terminal.
+        let argv = (command?.isEmpty == false ? command : nil) ?? CloudTuiCommandLine.defaultTerminalCommand
+        let data = try await link.run(arguments: CloudTuiRequests.runArguments(
             socketPath: connected.socketPath, workspaceID: workspaceID, command: argv,
-            onExit: onExit, idempotencyKey: request.attemptKey, correlationKey: request.correlationArgument
+            onExit: onExit, cwd: cwd, idempotencyKey: request.attemptKey, correlationKey: request.correlationArgument
         ))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {

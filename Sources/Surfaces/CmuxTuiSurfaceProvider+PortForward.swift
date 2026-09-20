@@ -17,7 +17,7 @@ extension CmuxTuiSurfaceProvider {
     }
 
     /// Create the browser with native connection state before attempting access.
-    /// HTTP uses the authenticated userspace hub; HTTPS keeps its private host.
+    /// The authenticated userspace proxy keeps each VM's address and port.
     func materializeBrowserPane(
         _ resource: SurfaceResource,
         at destination: SurfaceDestination,
@@ -25,6 +25,7 @@ extension CmuxTuiSurfaceProvider {
         reusing existingPane: (workspaceID: UUID, panelID: UUID)? = nil
     ) async throws -> (workspaceID: UUID, panelID: UUID) {
         try Task.checkCancellation()
+        try catalog.validateOwnership(of: [resource.id], at: destination)
         guard isRegisteredInCatalog() else { throw CancellationError() }
         let pane = try existingPane ?? SurfacePaneFactory.makeBrowserPane(url: SurfacePaneFactory.blankURL, at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
@@ -40,8 +41,7 @@ extension CmuxTuiSurfaceProvider {
         return pane
     }
 
-    /// Bind HTTP pages to their shared hub forward and HTTPS to the private
-    /// network. Missing transport support fails inline instead of offering setup.
+    /// Bind the page to its machine proxy without activating a system VPN.
     func configureBrowser(_ browser: BrowserPanel, url: URL) {
         guard let address = info.privateAddress,
               let privateURL = CloudPortRoutePlan.privateURL(url.absoluteString, address: address) else {
@@ -58,6 +58,7 @@ extension CmuxTuiSurfaceProvider {
         browser.webView.stopLoading()
         let model = accessModel(port: port, address: address, scheme: privateURL.scheme ?? "http")
         browser.cloudAccess.configure(model: model, url: privateURL)
+        browser.prepareCloudBrowserStore(machineID: machineID)
         browser.showCloudAddress(privateURL)
         model.connect()
     }
@@ -97,7 +98,13 @@ extension CmuxTuiSurfaceProvider {
                 stopForward: { [portForwards, machineID] in
                     await portForwards?.close(machineID: machineID, port: port)
                 },
-                route: scheme.lowercased() == "http" ? .loopback : .privateNetwork
+                startBrowserProxy: { [weak self] in
+                    guard let self, self.isRegisteredInCatalog() else { throw ProviderError.hubUnavailable }
+                    let generation = self.currentLifecycleGeneration
+                    let endpoint = try await self.links.browserProxy(machineID: self.machineID)
+                    guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
+                    return endpoint
+                }
             )
         }
     }

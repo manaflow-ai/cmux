@@ -2931,9 +2931,12 @@ final class WindowBrowserPortal: NSObject {
 
     func updatePaneDropContext(forWebViewId webViewId: ObjectIdentifier, context: BrowserPaneDropContext?) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
-        guard entry.paneDropContext != context else { return }
-        entry.paneDropContext = context
-        entriesByWebViewId[webViewId] = entry
+        // The physical slot may have been reset independently during recovery.
+        // Reapply the authoritative context even when the entry is unchanged.
+        if entry.paneDropContext != context {
+            entry.paneDropContext = context
+            entriesByWebViewId[webViewId] = entry
+        }
         guard let containerView = entry.containerView else { return }
         if let context {
             containerView.setPaneDropContext(context)
