@@ -1018,7 +1018,7 @@ fn process_command_name(cmdline: &[u8]) -> Option<String> {
     if executable.is_empty() {
         return None;
     }
-    let basename = std::path::Path::new(executable).file_name()?.to_str()?;
+    let basename = Path::new(executable).file_name()?.to_str()?;
     if matches!(basename, "node" | "nodejs") {
         let mut skip_option_value = false;
         for raw in args {

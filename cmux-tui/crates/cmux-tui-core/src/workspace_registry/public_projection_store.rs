@@ -39,6 +39,7 @@ pub struct RegistryNotificationProjection {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryAgentProjection {
+    pub agent: Option<String>,
     pub id: AgentPublicId,
     pub terminal_id: TerminalPublicId,
     pub state: String,
@@ -57,7 +58,7 @@ pub(crate) struct RegistryAgentHookState {
 
 impl RegistryAgentProjection {
     pub(crate) fn into_public_snapshot(self, session_id: &SessionPublicId) -> Value {
-        json!({
+        let mut value = json!({
             "id": self.id,
             "session_id": session_id,
             "terminal_id": self.terminal_id,
@@ -65,7 +66,9 @@ impl RegistryAgentProjection {
             "source": self.source,
             "updated_at_ms": self.updated_at_ms.to_string(),
             "source_session": self.source_session,
-        })
+        });
+        if let Some(agent) = self.agent { value["agent"] = json!(agent); }
+        value
     }
 }
 
@@ -122,6 +125,8 @@ impl StoredNotificationLevel {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StoredAgent {
+    #[serde(default)]
+    agent: Option<String>,
     id: AgentPublicId,
     session_id: SessionPublicId,
     terminal_id: TerminalPublicId,
@@ -420,6 +425,7 @@ impl WorkspaceRegistry {
             );
             let _ = stored.extra;
             agents.push(RegistryAgentProjection {
+                agent: stored.agent,
                 id: stored.id,
                 terminal_id: stored.terminal_id,
                 state: stored.state.as_str().to_string(),
