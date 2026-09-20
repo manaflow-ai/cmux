@@ -124,6 +124,37 @@ struct CloudWorkspaceCreationSidebarTests {
         }
     }
 
+    @Test("Closing the early pane cleans a receipt that returns after cancellation")
+    func cancellationWhileReceiptIsSuspendedCleansOwnedRemoteResources() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            let receiptCreated = CloudLinkFirstValue<Bool>()
+            let releaseReceipt = CloudLinkFirstValue<Bool>()
+            fixture.provider.afterCreateWorkspace = { _ in
+                receiptCreated.resolve(true)
+                _ = await releaseReceipt.result
+            }
+            let creation = Task { @MainActor in
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            #expect(await receiptCreated.result == true)
+            let operation = try #require(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.values.first)
+            let reservation = try #require(operation.reservation)
+            reservation.cancel?()
+            releaseReceipt.resolve(true)
+            await #expect(throws: CancellationError.self) { try await creation.value }
+            let workspace = try #require(fixture.provider.createdWorkspaces.first)
+            #expect(fixture.provider.closedWorkspaceIDs == [workspace.id])
+            #expect(fixture.provider.closedTerminalIDs == [fixture.provider.terminal(in: workspace).id])
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+        }
+    }
+
     @Test("A provider error after local admission reaches the caller and remains retryable")
     func providerErrorAfterLocalAdmissionPropagates() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {

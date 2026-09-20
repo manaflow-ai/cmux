@@ -15,6 +15,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var beforeRefresh: (@MainActor () throws -> Void)?
     var beforeMaterialize: (@MainActor (SurfaceResource, CloudTerminalPaneReservation?) async throws -> Void)?
     var beforeCreate: (@MainActor () async throws -> Void)?
+    var afterCreateWorkspace: (@MainActor (SurfaceRemoteWorkspace) async throws -> Void)?
     var usesReceipt = false
     var includesStarter = true
     var terminalError: Error?
@@ -53,6 +54,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
 
     func createRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
         let workspace = try await createRemoteWorkspace(name: name)
+        try await afterCreateWorkspace?(workspace)
         return SurfaceWorkspaceCreationReceipt(workspace: workspace,
             terminal: usesReceipt && includesStarter ? terminal(in: workspace) : nil,
             cursor: usesReceipt ? .init(generation: "creation", revision: 10) : nil)

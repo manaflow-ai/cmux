@@ -104,14 +104,25 @@ final class CloudWorkspaceCreationCoordinator {
             // Admit the local manual pane before the first remote await. It is
             // the request's early-input owner while the daemon allocates the
             // workspace and starter terminal behind it.
+            let provisionalTitle = String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
             let reservation = try host.reserve(
-                title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                title: provisionalTitle,
                 machine: operation.machine,
                 focus: focus
             )
             operation.reservation = reservation
             let operationID = operation.id
             reservation.cancel = { [weak self] in self?.cancel(operationID, discardLocal: false) }
+            // Bind the local workspace to its machine immediately. The remote
+            // workspace ID is filled from the receipt later, but selection and
+            // Cmd+N must already recognize this pane as Cloud-owned while it
+            // waits for the daemon.
+            catalog.bindCloudWorkspace(
+                localWorkspaceID: reservation.workspaceID,
+                machine: operation.machine,
+                remoteWorkspaceID: nil,
+                generatedTitle: provisionalTitle
+            )
             catalog.notifyChange()
             try check(operation, catalog: catalog)
         }
@@ -259,6 +270,11 @@ final class CloudWorkspaceCreationCoordinator {
 
     private func cleanupRemoteResources(_ operation: CloudWorkspaceCreationOperation) async {
         guard !operation.remoteCleanupStarted else { return }
+        // Pane teardown can cancel while the provider is still suspended
+        // before its receipt returns. Do not consume the one-shot cleanup gate
+        // until this operation has actually published an owned remote ID; the
+        // later catch path will retry cleanup after that receipt arrives.
+        guard operation.ownsRemoteWorkspace || operation.ownsRemoteTerminal else { return }
         operation.remoteCleanupStarted = true
         if operation.ownsRemoteTerminal, let terminal = operation.terminal ?? operation.receipt?.terminal {
             try? await operation.provider.closeTerminal(terminal.id)
