@@ -157,14 +157,14 @@ if ! awk '
   in_release && /^  [a-zA-Z0-9_-]+:/ { in_release=0 }
   in_release && /uses: (actions\/cache|\.\/\.github\/actions\/cache-)/ && !/uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/ { saw_save=1 }
   in_release && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
-  in_release && /!build-universal\/CompilationCache\.noindex/ { saw_parent_exclusion=1 }
+  in_release && /key: deriveddata-/ { saw_deriveddata=1 }
   in_release && /key: xcode-compilation-release-/ { saw_key=1 }
   in_release && /restore-keys:/ { saw_restore=1 }
   in_release && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_cache_flag=1 }
   in_release && /COMPILATION_CACHE_LIMIT_SIZE=3221225472/ { saw_runtime_limit=1 }
-  END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && !saw_save) }
+  END { exit !(saw_path && !saw_deriveddata && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && !saw_save) }
 ' "$CI_WORKFLOW_FILE"; then
-  echo "FAIL: PR release builds must restore the cache warmed from main read-only, without archiving it twice"
+  echo "FAIL: PR release builds must restore the cache warmed from main read-only and must not cache DerivedData"
   exit 1
 fi
 
