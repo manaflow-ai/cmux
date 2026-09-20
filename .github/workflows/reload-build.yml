@@ -48,6 +48,14 @@ on:
         required: false
         default: ""
         type: string
+      backend_mode:
+        description: "Backend for macOS: remote requires backend_url; local requires your own local dev server"
+        required: false
+        default: remote
+        type: choice
+        options:
+          - remote
+          - local
 
 # Surface tag/platform/nonce in the run title so the dispatcher can match its run
 # by the nonce it passed (gh workflow run does not return a run id).
@@ -70,6 +78,7 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
       CMUX_DEV_BACKEND_URL: ${{ inputs.backend_url }}
+      CMUX_DEV_BACKEND_MODE: ${{ inputs.backend_mode || 'remote' }}
       # A degraded cache must lose to a cold build instead of stalling this
       # latency-sensitive lane for actions/cache's ten-minute default.
       SEGMENT_DOWNLOAD_TIMEOUT_MINS: "2"
@@ -80,6 +89,22 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
           submodules: recursive
+          persist-credentials: false
+
+      - name: Validate macOS backend selection
+        if: ${{ inputs.platform == 'macos' }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$CMUX_DEV_BACKEND_MODE" = remote && -z "$CMUX_DEV_BACKEND_URL" ]]; then
+            echo "::error::Set backend_url to the registered dev backend, or explicitly select backend_mode=local for a local dev server. Hosted runners cannot provision the HQ backend."
+            exit 1
+          fi
+          if [[ -f scripts/lib/dev-backend-origin.sh ]]; then
+            source scripts/lib/dev-backend-origin.sh
+            cmux_resolve_tagged_backend "$BUILD_TAG" "$GITHUB_WORKSPACE" "http://localhost:3777" >/dev/null
+          fi
 
       # Self-hosted runners reuse their workspaces. The checkout action's
       # cleanup is not sufficient when a previous job leaves generated source

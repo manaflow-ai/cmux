@@ -485521,65 +485521,6 @@
         }
       }
     },
-    "machines.notification.ready.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "It's open in its own workspace. Click to go there."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "専用のワークスペースで開いています。クリックして移動します。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "它已在自己的工作区中打开。点按即可前往。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Es ist in seinem eigenen Arbeitsbereich geöffnet. Klicke, um dorthin zu gelangen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "C’est ouvert dans son propre espace de travail. Cliquez pour y accéder."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إنه مفتوح في مساحة العمل الخاصة به. انقر للانتقال إلى هناك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Está abierto en su propio espacio de trabajo. Haz clic para ir allí."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已在其專屬工作區中開啟。點擊以前往。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "자체 작업 공간에 열려 있습니다. 클릭하여 이동하십시오."
-          }
-        }
-      }
-    },
     "machines.notification.ready.body.list": {
       "extractionState": "manual",
       "localizations": {
