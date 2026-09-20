@@ -952,6 +952,47 @@ def test_web_instant_navigation_retries_native_tsgo_abort() -> None:
     assert "retrying once" in block
 
 
+def test_early_cli_smoke_checks_propagate_failure_and_require_this_build() -> None:
+    block = workflow_job_block("macos-compile-admission")
+    early = block.index("      - name: Run early CLI binary smoke checks")
+    package = block.index("      - name: Package compiled app-host test product")
+    upload = block.index("      - name: Upload compiled app-host test product")
+    assert early < package < upload
+
+    script = workflow_job_step_script("macos-compile-admission", "Run early CLI binary smoke checks")
+    for failed_probe in ("version", "help", None, "missing-binary"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            derived = root / "derived with spaces"
+            cli = derived / "Build/Products/Debug/cmux"
+            cli.parent.mkdir(parents=True)
+            if failed_probe != "missing-binary":
+                cli.write_text("#!/bin/sh\nexit 0\n")
+                cli.chmod(0o755)
+            (root / "tests").mkdir()
+            trace = root / "probes.txt"
+            for probe, filename in (("version", "test_cli_version_memory_guard.py"),
+                                    ("help", "test_cli_contract_help.py")):
+                (root / "tests" / filename).write_text(
+                    "import os,pathlib\n"
+                    + "assert os.environ['CMUX_CLI_BIN'] == " + repr(str(cli)) + "\n"
+                    + "with open(" + repr(str(trace)) + ", 'a') as out: out.write(" + repr(probe + "\n") + ")\n"
+                    + "raise SystemExit(" + ("23" if probe == failed_probe else "0") + ")\n"
+                )
+            result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script], cwd=root,
+                env={**os.environ, "CMUX_COMPILE_ADMISSION_DERIVED_DATA": str(derived)},
+                capture_output=True, text=True)
+            invoked = trace.read_text().splitlines() if trace.exists() else []
+            if failed_probe == "missing-binary":
+                assert result.returncode != 0 and not invoked
+            elif failed_probe == "version":
+                assert result.returncode == 23 and invoked == ["version"]
+            elif failed_probe == "help":
+                assert result.returncode == 23 and invoked == ["version", "help"]
+            else:
+                assert result.returncode == 0 and invoked == ["version", "help"]
+
+
 def test_macos_jobs_wait_for_linux_preflight() -> None:
     # The staged macOS jobs must gate on their direct needs explicitly.
     # A bare `if: needs.changes.outputs.macos == 'true'` keeps the implicit

@@ -1825,8 +1825,6 @@ jobs:
             exit 1
           fi
 
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
-          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_cloud_hostname.py
@@ -2522,8 +2520,7 @@ jobs:
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
 
-      - name: Package compiled app-host test product
-        id: package-products
+      - name: Stage compiled package frameworks
         run: |
           set -euo pipefail
           products="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug"
@@ -2539,6 +2536,24 @@ jobs:
           mkdir -p "$products/PackageFrameworks"
           rsync -aL "$framework_root/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+
+      # These no-socket probes take seconds and need only the compiled CLI.
+      # Fail admission before allocating app-host shards or the runtime job.
+      - name: Run early CLI binary smoke checks
+        run: |
+          set -euo pipefail
+          CLI_BIN="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug/cmux"
+          if [ ! -x "$CLI_BIN" ]; then
+            echo "cmux CLI binary missing from this admission build" >&2
+            exit 1
+          fi
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+
+      - name: Package compiled app-host test product
+        id: package-products
+        run: |
+          set -euo pipefail
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
           tar -chzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products
