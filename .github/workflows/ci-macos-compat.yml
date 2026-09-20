@@ -3,9 +3,6 @@ name: macOS Compatibility
 on:
   workflow_dispatch:
 
-env:
-  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
-
 jobs:
   compat-tests:
     strategy:
