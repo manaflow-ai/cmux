@@ -9,15 +9,19 @@ struct CloudMachineLoadingReservation: Sendable {
     let workspaceID: UUID
     let panelID: UUID
     let machineID: String
+    let expectedRemoteWorkspaceID: String?
+    let expectedRemoteTabID: String?
 
     @MainActor
-    init?(_ resource: SurfaceResourceID, at destination: SurfaceDestination) {
+    init?(_ resource: SurfaceResourceID, at destination: SurfaceDestination, remoteView: SurfaceRemoteView? = nil) {
         guard resource.kind == .terminal, let machineID = resource.machine.cloudMachineID,
               let workspace = Workspace.liveWorkspace(id: destination.workspaceID),
               let loading = workspace.cloudMachineLoadingPanel(at: destination, machineID: machineID) else { return nil }
         workspaceID = workspace.id
         panelID = loading.id
         self.machineID = machineID
+        expectedRemoteWorkspaceID = remoteView?.workspace.id
+        expectedRemoteTabID = remoteView?.tabID
     }
 
     @MainActor
@@ -28,5 +32,12 @@ struct CloudMachineLoadingReservation: Sendable {
               workspace.cloudVMBinding?.vmID == self.machineID,
               let loading = workspace.panels[panelID] as? CloudVMLoadingPanel else { throw CancellationError() }
         return loading
+    }
+
+    func validate(materializedPlacement: SurfaceRemotePlacement?) throws {
+        guard let expectedRemoteTabID else { return }
+        guard let materializedPlacement,
+              materializedPlacement.workspaceID == expectedRemoteWorkspaceID,
+              materializedPlacement.tabID == expectedRemoteTabID else { throw CloudDiagnosticFailure.placement }
     }
 }

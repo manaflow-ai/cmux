@@ -50,4 +50,27 @@ extension Workspace {
             scheduleFocusReconcile()
         }
     }
+
+    /// Restores the creating card in the same native tab after an attachment
+    /// receipt fails final placement validation. The pane remains retryable and
+    /// keeps its durable surface identity.
+    @discardableResult
+    func restoreCloudMachineLoadingPanel(panelID: UUID, machineID: String) -> Bool {
+        guard let terminal = panels[panelID] as? TerminalPanel,
+              terminal.cloudAttachment?.machineID == machineID,
+              let tab = surfaceIdFromPanelId(panelID) else { return false }
+        let loading = CloudVMLoadingPanel(id: panelID, workspaceId: id)
+        loading.adoptStableSurfaceId(terminal.stableSurfaceId)
+        terminal.close()
+        panels[panelID] = loading
+        panelTitles[panelID] = loading.displayTitle
+        bonsplitController.updateTab(
+            tab, title: loading.displayTitle, icon: .some(loading.displayIcon),
+            iconImageData: .some(nil), iconAsset: .some(nil),
+            kind: .some(SurfaceKind.cloudVMLoading.rawValue),
+            hasCustomTitle: false, isDirty: false,
+            showsNotificationBadge: false, isLoading: true, isPinned: false
+        )
+        return true
+    }
 }

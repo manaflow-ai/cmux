@@ -12,7 +12,7 @@ import Observation
 @MainActor
 @Observable
 final class SurfaceCatalog {
-    private typealias MaterializationKey = SurfaceProjectionMaterialization.Key
+    private typealias MaterializationKey = SurfaceMaterializationKey
 
     static let shared = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: .standard))
 
@@ -594,7 +594,6 @@ final class SurfaceCatalog {
     func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         if isDeletingCloudResource(id, remoteWorkspaceID: remoteView?.workspace.id) { throw CancellationError() }
         try validateOwnership(of: [id], at: destination)
-        let loadingReservation = CloudMachineLoadingReservation(id, at: destination)
         let scope = beginProjectionMutation(for: [id])
         defer { endProjectionMutation(scope) }
         guard let resource = resources[id] else { throw SurfaceCatalogError.unknownResource(id) }
@@ -619,6 +618,7 @@ final class SurfaceCatalog {
         } else {
             resolvedRemoteView = nil
         }
+        let loadingReservation = CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
         let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
         if reuseExisting, let existing = projections.first(where: {
             guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
