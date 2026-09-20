@@ -4,6 +4,7 @@ import { join } from "node:path";
 import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
 import { issueDashboardTicket } from "../src/dashboard-auth";
+import { V2DashboardController } from "../../../web/app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
 
 let mf: Miniflare;
 let descriptor: any;
@@ -115,7 +116,75 @@ test("browser dashboard upgrade survives the Worker-to-Durable-Object boundary",
     });
     socket!.accept();
     expect((await connected).schemaId).toBe("dashboard.connected.v1");
+    const directory = new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("No dashboard directory")), 2000);
+      socket!.addEventListener("message", event => { clearTimeout(timer); resolve(JSON.parse(String(event.data))); }, { once: true });
+    });
+    socket!.send(JSON.stringify({ schemaId: "directory.request.v1", requestId: "browser-directory" }));
+    const frame = await directory;
+    expect(frame.schemaId).toBe("dashboard.directory.v1");
+    expect(frame.directory.devices[0].descriptor.metadata.displayName).toBe("Control fixture");
   } finally { socket?.close(); }
+});
+
+test("browser socket admission still rejects foreign origins and expired tickets", async () => {
+  for (const origin of ["https://evil.example", "https://cmux.com"]) {
+    const { token } = await issueDashboardTicket({
+      authority: { environment, projectId, teamId, userId, verifiedAt: 1000 },
+      origin: "https://cmux.com", clientInstanceId: "expired-browser", canManageTeam: false,
+    }, "k1", dashboardTicketKey);
+    const response = await mf.dispatchFetch("https://iroh.test/v2/dashboard/socket", {
+      headers: { origin, upgrade: "websocket", "sec-websocket-protocol": `cmux-v2-dashboard, ticket.${token}` },
+    });
+    expect(response.status).toBe(origin === "https://cmux.com" ? 401 : 403);
+    expect(response.webSocket).toBeNull();
+  }
+});
+
+test("the web controller loads the directory over a real dashboard socket", async () => {
+  const originalFetch = globalThis.fetch, originalSocket = globalThis.WebSocket;
+  const ready = await mf.ready;
+  const fixtureURL = new URL("/v2/dashboard/socket", ready);
+  fixtureURL.protocol = "ws:";
+  let sessionRequests = 0;
+  globalThis.fetch = (async (input, init) => {
+    const request = new Request(input, init);
+    expect(request.url).toBe("https://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/session");
+    expect(request.headers.get("authorization")).toBe("Bearer fixture-access");
+    const setup = await request.json() as any;
+    const ticket = await issueDashboardTicket({
+      authority: { environment, projectId, teamId, userId, verifiedAt: Math.floor(Date.now() / 1000) },
+      origin: "https://cmux.com", clientInstanceId: setup.clientInstanceId, canManageTeam: false,
+    }, "k1", dashboardTicketKey);
+    sessionRequests++;
+    return Response.json({ schemaId: "dashboard.ready.v1", requestId: setup.requestId, ticket });
+  }) as typeof fetch;
+  globalThis.WebSocket = class extends NodeWebSocket {
+    constructor(url: string, protocols: string[]) {
+      expect(url).toBe("wss://cmux-iroh-v2.debussy.workers.dev/v2/dashboard/socket");
+      super(fixtureURL.href, protocols, { headers: { origin: "https://cmux.com" } });
+    }
+  } as unknown as typeof WebSocket;
+  let resolveDirectory!: (value: any) => void;
+  let rejectDirectory!: (reason: Error) => void;
+  const result = new Promise<any>((resolve, reject) => { resolveDirectory = resolve; rejectDirectory = reject; });
+  const controller = new V2DashboardController({
+    origin: "https://cmux-iroh-v2.debussy.workers.dev", environment, projectId, teamId, userId,
+    getStackToken: async () => "fixture-access", onDirectory: resolveDirectory,
+    onError: message => rejectDirectory(new Error(message)),
+  });
+  const timeout = setTimeout(() => rejectDirectory(new Error("Directory never arrived")), 5000);
+  try {
+    void controller.start();
+    const directory = await result;
+    expect(directory.devices[0].descriptor.identity.deviceId).toBe("control-device");
+    expect(directory.teamId).toBe(teamId);
+    expect(sessionRequests).toBe(1);
+  } finally {
+    clearTimeout(timeout);
+    await controller.stop();
+    globalThis.fetch = originalFetch; globalThis.WebSocket = originalSocket;
+  }
 });
 
 test("production HTTP router reaches the fixture TeamControl for directory and metadata", async () => {

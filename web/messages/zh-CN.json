@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概览",
       "team": "团队",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "移动设备"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,13 +369,13 @@
         "loading": "加载中…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "移动设备",
+      "description": "管理已连接的电脑、手机和平板电脑的访问权限。",
       "team": "Team",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
+      "empty": "此团队尚未注册设备。",
+      "unavailable": "无法连接到你的设备。正在重试…",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

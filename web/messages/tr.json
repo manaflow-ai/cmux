@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "genel bakış",
       "team": "ekip",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobil cihazlar"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,13 +369,13 @@
         "loading": "Yükleniyor…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobil cihazlar",
+      "description": "Bağlı bilgisayarlarınıza, telefonlarınıza ve tabletlerinize erişimi yönetin.",
       "team": "Team",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
+      "empty": "Bu ekip için kayıtlı cihaz yok.",
+      "unavailable": "Cihazlarınıza bağlanılamadı. Yeniden deneniyor…",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

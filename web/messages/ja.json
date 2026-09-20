@@ -328,7 +328,7 @@
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH デバイス"
+      "mobileDevices": "モバイルデバイス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -603,13 +603,13 @@
         "leave": "TestFlightから退出"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "モバイルデバイス",
+      "description": "接続されたコンピューター、スマートフォン、タブレットへのアクセスを管理します。",
       "team": "Team",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
+      "empty": "このチームにはデバイスが登録されていません。",
+      "unavailable": "デバイスに接続できませんでした。再試行しています…",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { V2DashboardController } from "../app/[locale]/dashboard/iroh/v2-dashboard-controller";
+import { V2DashboardController } from "../app/[locale]/dashboard/mobile-devices/v2-dashboard-controller";
 
 const originalFetch = globalThis.fetch;
 const originalSocket = globalThis.WebSocket;
@@ -38,7 +38,7 @@ class FakeSocket {
   message(value: unknown) { this.onmessage?.({ data: JSON.stringify(value) } as MessageEvent); }
 }
 
-describe("IROH Dashboard v2 controller", () => {
+describe("Mobile devices controller", () => {
   afterEach(() => { globalThis.fetch = originalFetch; globalThis.WebSocket = originalSocket; FakeSocket.instances = []; FakeSocket.created = undefined; });
 
   test("uses Stack bearer only to open a session and keeps ticket out of the URL", async () => {
@@ -114,6 +114,50 @@ describe("IROH Dashboard v2 controller", () => {
   });
 
   test("rejects an unapproved worker origin before creating a socket", () => {
-    expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved Cloudflare Worker");
+    expect(() => new V2DashboardController({ origin: "https://example.com", environment: "production", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} })).toThrow("approved device service");
   });
+});
+
+test("stopping during session issuance never opens a stale socket", async () => {
+  let finishSession!: (response: Response) => void;
+  const original = globalThis.fetch;
+  const originalWS = globalThis.WebSocket;
+  globalThis.fetch = (() => new Promise<Response>(resolve => { finishSession = resolve; })) as typeof fetch;
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+  FakeSocket.instances = [];
+  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => { throw new Error("stopped controller reported an error"); } });
+  try {
+    const started = controller.start();
+    await Promise.resolve();
+    await controller.stop();
+    finishSession(Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } }));
+    await started;
+    expect(FakeSocket.instances).toHaveLength(0);
+  } finally { await controller.stop(); globalThis.fetch = original; globalThis.WebSocket = originalWS; FakeSocket.instances = []; }
+});
+
+test("a failed initial socket retries and receives a device directory", async () => {
+  const original = globalThis.fetch;
+  const originalWS = globalThis.WebSocket;
+  FakeSocket.instances = [];
+  let opened = 0;
+  globalThis.fetch = (async () => { opened++; return Response.json({ schemaId: "dashboard.ready.v1", ticket: { token: "t.s", expiresAt: 3600, refreshAfter: 3300 } }); }) as typeof fetch;
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+  const directories: unknown[] = [], errors: string[] = [];
+  const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: value => directories.push(value), onError: value => errors.push(value) });
+  try {
+    const started = controller.start();
+    const first = await FakeSocket.waitForInstance();
+    first.onerror?.();
+    await started;
+    expect(errors).toEqual(["Dashboard socket failed"]);
+    const replacement = new Promise<FakeSocket>(resolve => { FakeSocket.created = resolve; });
+    const socket = await replacement;
+    socket.open();
+    const request = JSON.parse(await socket.waitForSent(0));
+    socket.message({ schemaId: "dashboard.directory.v1", requestId: request.requestId, directory: { teamId: "t", revision: 1, devices: [], relayURLs: [], issuedAt: 1, nextCursor: null, canManageTeam: false, managedDeviceIds: [] } });
+    await Promise.resolve();
+    expect(opened).toBe(2);
+    expect(directories).toHaveLength(1);
+  } finally { await controller.stop(); globalThis.fetch = original; globalThis.WebSocket = originalWS; FakeSocket.instances = []; FakeSocket.created = undefined; }
 });

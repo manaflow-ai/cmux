@@ -324,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "panoramica",
       "team": "team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Dispositivi mobili"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -369,13 +369,13 @@
         "loading": "Caricamento…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Dispositivi mobili",
+      "description": "Gestisci l’accesso ai computer, telefoni e tablet connessi.",
       "team": "Team",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
+      "empty": "Nessun dispositivo registrato per questo team.",
+      "unavailable": "Impossibile connettersi ai dispositivi. Nuovo tentativo…",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

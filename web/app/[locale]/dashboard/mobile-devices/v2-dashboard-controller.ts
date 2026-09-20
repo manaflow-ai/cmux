@@ -31,7 +31,6 @@ type DashboardOptions = {
 };
 
 type Ticket = { readonly token: string; readonly expiresAt: number; readonly refreshAfter: number };
-type Connected = { readonly schemaId: "dashboard.connected.v1"; readonly teamRevision: number; readonly expiresAt: number };
 type ErrorResponse = { readonly schemaId: "error.v1"; readonly code: string; readonly retryable: boolean; readonly retryAfterMs?: number };
 type Frame = { readonly schemaId?: string; readonly requestId?: string; readonly response?: unknown; readonly directory?: DashboardDirectory; readonly revision?: number; readonly deliveryReceipt?: { readonly sequence: number; readonly token: string } } & Record<string, unknown>;
 
@@ -54,7 +53,7 @@ export class V2DashboardController {
   private pending = new Map<string, { resolve: (frame: Frame) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(options: DashboardOptions) {
-    if (!ORIGIN_ALLOWED.test(options.origin)) throw new Error("IROH Dashboard origin is not an approved Cloudflare Worker");
+    if (!ORIGIN_ALLOWED.test(options.origin)) throw new Error("Dashboard origin is not an approved device service");
     this.options = options;
     const storageKey = "cmux-iroh-v2.dashboard.client-instance";
     const storage = typeof sessionStorage === "undefined" ? null : sessionStorage;
@@ -68,7 +67,7 @@ export class V2DashboardController {
       this.ticket = await this.openSession();
       await this.connect(this.ticket);
       this.scheduleRefresh();
-    } catch (cause) { this.fail(cause); }
+    } catch (cause) { this.fail(cause); this.scheduleReconnect(); }
   }
 
   async stop(): Promise<void> {
@@ -115,8 +114,11 @@ export class V2DashboardController {
   }
 
   private async connect(ticket: Ticket): Promise<void> {
+    if (this.stopped) return;
     const previous = this.socket;
-    const socket = new WebSocket(`${this.options.origin}/v2/dashboard/socket`, ["cmux-v2-dashboard", `ticket.${ticket.token}`]);
+    const url = new URL("/v2/dashboard/socket", this.options.origin);
+    url.protocol = "wss:";
+    const socket = new WebSocket(url.href, ["cmux-v2-dashboard", `ticket.${ticket.token}`]);
     this.socket = socket;
     try {
       await new Promise<void>((resolve, reject) => {
@@ -145,13 +147,13 @@ export class V2DashboardController {
       socket.onerror = () => { clearTimeout(timeout); reject(new Error("Dashboard socket failed")); };
       socket.onclose = event => {
         clearTimeout(timeout);
-        if (this.stopped || this.socket !== socket) return;
         if (!connected) reject(new Error(`Dashboard socket closed (${event.code})`));
-        else this.scheduleReconnect();
+        else if (!this.stopped && this.socket === socket) this.scheduleReconnect();
       };
       });
     } catch (error) {
       if (this.socket === socket) this.socket = previous;
+      socket.close();
       throw error;
     }
     // Retire the old connection only after the replacement emitted its
@@ -208,6 +210,7 @@ export class V2DashboardController {
   }
 
   private scheduleRefresh() {
+    if (this.stopped) return;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     const delay = Math.max(10_000, ((this.ticket?.refreshAfter ?? 0) * 1000) - Date.now());
     this.refreshTimer = setTimeout(() => {
@@ -247,10 +250,10 @@ export class V2DashboardController {
       this.ticket = replacement;
       this.scheduleRefresh();
     }
-    catch (cause) { this.fail(cause); this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
+    catch (cause) { this.fail(cause); if (!this.stopped) this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
   }
 
-  private fail(cause: unknown) { this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
+  private fail(cause: unknown) { if (!this.stopped) this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
   private nextRequestId() { this.requestCounter += 1; return `${this.clientInstanceId}:${this.requestCounter}`; }
   private expectSuccess(frame: Frame, requestId: string) { if (frame.requestId !== requestId || frame.schemaId === "error.v1") throw this.errorFrom(frame); }
   private errorFrom(body: unknown): Error {
