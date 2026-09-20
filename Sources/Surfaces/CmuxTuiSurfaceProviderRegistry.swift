@@ -282,7 +282,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                     for provider in discovered where activeMachines.contains(provider.machine) {
                         group.addTask { @MainActor in
                             guard access == self.accessEpoch, !Task.isCancelled else { return }
-                            let before = provider.refreshGeneration; await self.refreshProvider(provider, force); if provider.isRegisteredInCatalog(), (provider.refreshGeneration == before || provider.info.linkState != .error) { self.refreshedMachineIDs.insert(provider.machine) }
+                            let before = provider.refreshGeneration; await self.refreshProvider(provider, force); if provider.isRegisteredInCatalog(), (provider.refreshGeneration == before || provider.info.linkState == .connected) { self.refreshedMachineIDs.insert(provider.machine) }
                         }
                     }
                 }
