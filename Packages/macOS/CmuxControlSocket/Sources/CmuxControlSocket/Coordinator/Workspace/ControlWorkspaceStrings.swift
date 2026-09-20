@@ -23,6 +23,8 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     public let reorderManyInvalidWorkspace: String
     /// `socket.workspace.reorderMany.tabManagerUnavailable`.
     public let reorderManyTabManagerUnavailable: String
+    /// The scoped denial returned when an authenticated relay owner is stale.
+    public let relayOwnerUnavailable: String
 
     /// Creates the localized workspace strings.
     ///
@@ -34,6 +36,7 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     ///   - reorderManyWorkspaceNotFound: The workspace-not-found message.
     ///   - reorderManyInvalidWorkspace: The invalid-workspace message.
     ///   - reorderManyTabManagerUnavailable: The TabManager-unavailable message.
+    ///   - relayOwnerUnavailable: The stale relay-owner message.
     public init(
         closeProtected: String,
         closeFailed: String,
@@ -41,7 +44,8 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
         reorderManyDuplicateWorkspace: String,
         reorderManyWorkspaceNotFound: String,
         reorderManyInvalidWorkspace: String,
-        reorderManyTabManagerUnavailable: String
+        reorderManyTabManagerUnavailable: String,
+        relayOwnerUnavailable: String
     ) {
         self.closeProtected = closeProtected
         self.closeFailed = closeFailed
@@ -50,5 +54,6 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
         self.reorderManyWorkspaceNotFound = reorderManyWorkspaceNotFound
         self.reorderManyInvalidWorkspace = reorderManyInvalidWorkspace
         self.reorderManyTabManagerUnavailable = reorderManyTabManagerUnavailable
+        self.relayOwnerUnavailable = relayOwnerUnavailable
     }
 }

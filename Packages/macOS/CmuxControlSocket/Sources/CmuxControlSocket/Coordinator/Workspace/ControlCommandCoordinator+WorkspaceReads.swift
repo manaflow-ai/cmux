@@ -44,7 +44,7 @@ extension ControlCommandCoordinator {
     /// order (per-row workspace refs, then the window ref).
     private enum WorkspaceListHopOutcome: Sendable {
         case tabManagerUnavailable
-        case relayOwnerUnavailable
+        case relayOwnerUnavailable(message: String)
         case relayWorkspace(id: UUID, title: String)
         case resolved(
             windowID: UUID?,
@@ -80,7 +80,7 @@ extension ControlCommandCoordinator {
                 ? .err(code: "unavailable", message: "TabManager not available", data: nil)
                 : .err(
                     code: "remote_relay_workspace_denied",
-                    message: "Relay owner workspace is not active",
+                    message: "",
                     data: nil
                 )
         }
@@ -90,7 +90,7 @@ extension ControlCommandCoordinator {
             case .tabManagerUnavailable:
                 return .tabManagerUnavailable
             case .relayOwnerUnavailable:
-                return .relayOwnerUnavailable
+                return .relayOwnerUnavailable(message: seam.controlWorkspaceStrings().relayOwnerUnavailable)
             case .relayWorkspace(let id, let title):
                 return .relayWorkspace(id: id, title: title)
             case .resolved(let windowID, let workspaces, let selectedIndex):
@@ -106,10 +106,10 @@ extension ControlCommandCoordinator {
         switch outcome {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .relayOwnerUnavailable:
+        case .relayOwnerUnavailable(let message):
             return .err(
                 code: "remote_relay_workspace_denied",
-                message: "Relay owner workspace is not active",
+                message: message,
                 data: nil
             )
         case .relayWorkspace(let id, let title):

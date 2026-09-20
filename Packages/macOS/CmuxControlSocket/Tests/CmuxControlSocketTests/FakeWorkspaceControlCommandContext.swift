@@ -104,7 +104,8 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
             reorderManyDuplicateWorkspace: "duplicate workspace",
             reorderManyWorkspaceNotFound: "workspace not found",
             reorderManyInvalidWorkspace: "invalid workspace",
-            reorderManyTabManagerUnavailable: "tab manager unavailable"
+            reorderManyTabManagerUnavailable: "tab manager unavailable",
+            relayOwnerUnavailable: "relay owner workspace unavailable"
         )
     }
 
