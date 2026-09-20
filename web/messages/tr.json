@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "Bu ekip için kayıtlı cihaz yok.",
-      "unavailable": "Cihazlarınıza bağlanılamadı. Yeniden deneniyor…",
+      "unavailable": "Cihazlarınız yüklenemedi. Yeniden denemek için sayfayı yenileyin.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

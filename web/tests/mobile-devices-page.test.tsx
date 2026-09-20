@@ -22,6 +22,7 @@ mock.module("next-intl/server", () => ({
 }));
 mock.module("@/app/lib/stack", () => ({ isStackConfigured: () => true }));
 mock.module("@/app/lib/dashboard-auth", () => ({ loadDashboardSection: async () => ({ kind: "ready", user: { id: "fixture-user" } }) }));
+mock.module("../app/[locale]/dashboard/dashboard-team-scope", () => ({ useDashboardTeamScope: () => ({ status: "ready", selected: { id: "fixture-team" } }) }));
 mock.module("@hexclave/next", () => ({
   useStackApp: () => ({}),
   useUser: () => ({ selectedTeam: { id: "fixture-team" }, useTeams: () => [{ id: "fixture-team", displayName: "Personal" }] }),

@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "Для цієї команди немає зареєстрованих пристроїв.",
-      "unavailable": "Не вдалося підключитися до пристроїв. Повторна спроба…",
+      "unavailable": "Не вдалося завантажити пристрої. Оновіть сторінку, щоб спробувати знову.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

@@ -609,7 +609,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "No devices are registered for this team.",
-      "unavailable": "Could not connect to your devices. Retrying…",
+      "unavailable": "Could not load your devices. Refresh the page to try again.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

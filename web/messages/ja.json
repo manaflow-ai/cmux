@@ -609,7 +609,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "このチームにはデバイスが登録されていません。",
-      "unavailable": "デバイスに接続できませんでした。再試行しています…",
+      "unavailable": "デバイスを読み込めませんでした。ページを再読み込みしてお試しください。",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

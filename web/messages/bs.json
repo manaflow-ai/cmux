@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "Nema registrovanih uređaja za ovaj tim.",
-      "unavailable": "Povezivanje s uređajima nije uspjelo. Ponovni pokušaj…",
+      "unavailable": "Uređaji se nisu mogli učitati. Osvježite stranicu da pokušate ponovo.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

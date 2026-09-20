@@ -1,10 +1,9 @@
 "use client";
 
-import { useStackApp, useUser } from "@hexclave/next";
+import { useStackApp } from "@hexclave/next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
-import { persistCoderouterOrganizationScope, coderouterOrganizationFromCookieHeader } from "@/services/coderouter/organizationScope";
+import { useDashboardTeamScope } from "../dashboard-team-scope";
 import { V2DashboardController, type DashboardDirectory } from "./v2-dashboard-controller";
 
 const PROJECT_ID = process.env.NEXT_PUBLIC_STACK_PROJECT_ID ?? "";
@@ -13,46 +12,21 @@ const DEFAULT_ENVIRONMENT = process.env.NEXT_PUBLIC_IROH_V2_ENVIRONMENT ??
 const DEFAULT_ORIGIN = process.env.NEXT_PUBLIC_IROH_V2_ORIGIN ??
   `https://cmux-iroh-v2${DEFAULT_ENVIRONMENT === "production" ? "" : `-${DEFAULT_ENVIRONMENT}`}.debussy.workers.dev`;
 
-type Props = { readonly userId: string; readonly userEmail: string };
-type AuthenticatedProps = Props & {
-  readonly user: NonNullable<ReturnType<typeof useUser>>;
-  readonly stack: ReturnType<typeof useStackApp>;
-};
+type Props = { readonly userId: string };
 
-export function MobileDevicesDashboard(props: Props) {
+export function MobileDevicesDashboard({ userId }: Props) {
   const t = useTranslations("dashboard.mobileDevices");
   const stack = useStackApp();
-  const user = useUser({ or: "return-null" });
-  if (!user) return <p className="text-muted">{t("loading")}</p>;
-  return <AuthenticatedMobileDevices key={props.userId} {...props} user={user} stack={stack} />;
-}
-
-function AuthenticatedMobileDevices({ user, userId, stack }: AuthenticatedProps) {
-  const t = useTranslations("dashboard.mobileDevices");
-  const router = useRouter();
-  const teams = user.useTeams();
-  const [chosenTeam, setChosenTeam] = useState<string | null>(() => coderouterOrganizationFromCookieHeader(
-    typeof document === "undefined" ? null : document.cookie, userId,
-  ));
-  const preferredTeam = chosenTeam ?? user.selectedTeam?.id;
-  const teamId = teams.find(team => team.id === preferredTeam)?.id ?? teams[0]?.id ?? null;
-  const chooseTeam = (next: string) => {
-    if (!next || next === teamId) return;
-    persistCoderouterOrganizationScope(userId, next);
-    setChosenTeam(next);
-    router.refresh();
-  };
+  const scope = useDashboardTeamScope(userId);
   return <div className="space-y-4" data-testid="mobile-devices-dashboard">
-    <label className="block text-xs text-muted" htmlFor="mobile-devices-team">{t("team")}</label>
-    <select id="mobile-devices-team" value={teamId ?? ""} onChange={event => chooseTeam(event.target.value)} className="border border-border bg-background px-2 py-1.5">
-      {teams.map(team => <option key={team.id} value={team.id}>{team.displayName}</option>)}
-    </select>
-    {teamId ? <ConnectedDevices key={teamId} teamId={teamId} userId={userId} stack={stack} /> : <p className="text-muted">{t("empty")}</p>}
+    {scope.status === "loading" ? <p className="text-muted">{t("loading")}</p> :
+      scope.status === "unavailable" ? <p role="alert" className="text-muted">{t("unavailable")}</p> :
+        <ConnectedDevices key={`${userId}:${scope.selected.id}`} teamId={scope.selected.id} userId={userId} stack={stack} />}
   </div>;
 }
 
 /** Each team owns its connection and view state; switching teams unmounts both. */
-function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; readonly userId: string; readonly stack: AuthenticatedProps["stack"] }) {
+function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; readonly userId: string; readonly stack: ReturnType<typeof useStackApp> }) {
   const t = useTranslations("dashboard.mobileDevices");
   const [directory, setDirectory] = useState<DashboardDirectory | null>(null);
   const [error, setError] = useState<string | null>(null);

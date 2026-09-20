@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "Ingen enheter er registrert for dette teamet.",
-      "unavailable": "Kunne ikke koble til enhetene dine. Prøver igjen…",
+      "unavailable": "Kunne ikke laste inn enhetene dine. Oppdater siden for å prøve igjen.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

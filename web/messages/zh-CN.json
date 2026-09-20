@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "此团队尚未注册设备。",
-      "unavailable": "无法连接到你的设备。正在重试…",
+      "unavailable": "无法加载你的设备。请刷新页面重试。",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

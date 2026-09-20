@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "ไม่มีอุปกรณ์ที่ลงทะเบียนสำหรับทีมนี้",
-      "unavailable": "ไม่สามารถเชื่อมต่อกับอุปกรณ์ของคุณ กำลังลองอีกครั้ง…",
+      "unavailable": "ไม่สามารถโหลดอุปกรณ์ของคุณ โปรดรีเฟรชหน้าเพื่อลองอีกครั้ง",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

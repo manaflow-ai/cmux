@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "Aucun appareil n’est enregistré pour cette équipe.",
-      "unavailable": "Impossible de se connecter à vos appareils. Nouvelle tentative…",
+      "unavailable": "Impossible de charger vos appareils. Actualisez la page pour réessayer.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

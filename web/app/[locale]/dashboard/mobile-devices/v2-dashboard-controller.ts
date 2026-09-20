@@ -67,7 +67,7 @@ export class V2DashboardController {
       this.ticket = await this.openSession();
       await this.connect(this.ticket);
       this.scheduleRefresh();
-    } catch (cause) { this.fail(cause); this.scheduleReconnect(); }
+    } catch (cause) { this.fail(cause); this.scheduleReconnect(cause); }
   }
 
   async stop(): Promise<void> {
@@ -99,7 +99,7 @@ export class V2DashboardController {
 
   private async openSession(): Promise<Ticket> {
     const stackToken = await this.options.getStackToken();
-    if (!stackToken) throw new Error("Dashboard sign-in expired");
+    if (!stackToken) throw this.errorFrom({ code: "unauthorized", retryable: false });
     const requestId = this.nextRequestId();
     const response = await fetch(`${this.options.origin}/v2/dashboard/session`, {
       method: "POST", mode: "cors", credentials: "omit",
@@ -109,7 +109,7 @@ export class V2DashboardController {
     });
     const body = await this.readJSON(response) as Record<string, unknown>;
     if (!response.ok || body.schemaId !== "dashboard.ready.v1") throw this.errorFrom(body);
-    if (!isTicket(body.ticket)) throw new Error("Dashboard session returned an invalid ticket");
+    if (!isTicket(body.ticket)) throw this.errorFrom({ code: "invalid_ticket", retryable: false });
     return body.ticket;
   }
 
@@ -219,9 +219,10 @@ export class V2DashboardController {
     }, delay);
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(cause?: unknown) {
     if (this.stopped || this.reconnectTimer) return;
-    const delay = this.reconnectDelayMs;
+    const retryAfter = cause instanceof Error ? (cause as Error & { retryAfterMs?: number }).retryAfterMs : undefined;
+    const delay = Math.max(this.reconnectDelayMs, Math.min(retryAfter ?? 0, 60_000));
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 60_000);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -238,7 +239,7 @@ export class V2DashboardController {
       this.scheduleRefresh();
     } catch (cause) {
       this.fail(cause);
-      this.scheduleReconnect();
+      this.scheduleReconnect(cause);
     }
   }
 
@@ -253,16 +254,21 @@ export class V2DashboardController {
     catch (cause) { this.fail(cause); if (!this.stopped) this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
   }
 
-  private fail(cause: unknown) { if (!this.stopped) this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
+  private fail(cause: unknown) {
+    if (this.stopped) return;
+    this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed");
+    if (cause instanceof Error && (cause as Error & { retryable?: boolean }).retryable === false) void this.stop();
+  }
   private nextRequestId() { this.requestCounter += 1; return `${this.clientInstanceId}:${this.requestCounter}`; }
   private expectSuccess(frame: Frame, requestId: string) { if (frame.requestId !== requestId || frame.schemaId === "error.v1") throw this.errorFrom(frame); }
   private errorFrom(body: unknown): Error {
     const error = body as Partial<ErrorResponse>;
     const result = new Error(error.code === "permission_denied" ? "You do not have permission to change this device" : error.code === "team_access_revoked" ? "Team access was removed" : `Dashboard request failed (${error.code ?? "unknown"})`);
-    if (typeof error.code === "string") Object.assign(result, { code: error.code });
+    Object.assign(result, { code: error.code, retryable: error.retryable === true,
+      ...(typeof error.retryAfterMs === "number" && Number.isFinite(error.retryAfterMs) && error.retryAfterMs >= 0 ? { retryAfterMs: error.retryAfterMs } : {}) });
     return result;
   }
-  private async readJSON(response: Response): Promise<unknown> { try { return await response.json(); } catch { throw new Error(`Dashboard returned HTTP ${response.status}`); } }
+  private async readJSON(response: Response): Promise<unknown> { try { return await response.json(); } catch { throw this.errorFrom({ code: "invalid_response", retryable: response.status === 429 || response.status >= 500 }); } }
 }
 
 function parseFrame(value: unknown): Frame | null { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return parsed && typeof parsed === "object" ? parsed as Frame : null; } catch { return null; } }

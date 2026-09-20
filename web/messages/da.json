@@ -375,7 +375,7 @@
       "team": "Team",
       "loading": "Loading devices…",
       "empty": "Ingen enheder er registreret for dette team.",
-      "unavailable": "Kunne ikke oprette forbindelse til dine enheder. Prøver igen…",
+      "unavailable": "Kunne ikke indlæse dine enheder. Opdater siden for at prøve igen.",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",
