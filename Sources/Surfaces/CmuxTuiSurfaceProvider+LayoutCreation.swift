@@ -4,7 +4,7 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
     /// Uses the exact source view, not daemon focus, so a local split and the
     /// Cloud tree acquire the same pane/tab relationship in one remote mutation.
     func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?) async throws -> SurfaceResource {
-        try await createTerminal(nearTabID: nearTabID, splitDirection: splitDirection, request: CloudTerminalCreationRequest())
+        try await createTerminal(nearTabID: nearTabID, splitDirection: splitDirection, cwd: nil, request: CloudTerminalCreationRequest())
     }
 
     /// Keeps the caller's idempotency identity through revision retries and
@@ -12,6 +12,7 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
     func createTerminal(
         nearTabID: String,
         splitDirection: SurfaceSplitDirection?,
+        cwd: String?,
         request: CloudTerminalCreationRequest
     ) async throws -> SurfaceResource {
         let connected = try await links.connected(machineID: machineID)
@@ -28,6 +29,7 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         ).run(
             nearTabID: nearTabID,
             splitDirection: splitDirection,
+            cwd: cwd,
             idempotencyKey: request.attemptKey,
             correlationKey: request.correlationArgument
         )

@@ -16,18 +16,23 @@ extension CmuxTuiSurfaceProvider {
 /// completion and give me the result" into `wait-exit` + `output` instead of a prompt
 /// regex and a screenful of text.
 extension CmuxTuiSurfaceProvider {
-    /// Returns the cwd of the process group currently owning the remote PTY.
-    /// This is deliberately a live process query: the snapshot's `cwd` is the
-    /// terminal's spawn directory and remains stale after a remote `cd`.
-    func currentWorkingDirectory(of resource: SurfaceResource) async -> String? {
-        guard resource.kind == .terminal else { return nil }
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func readLiveWorkingDirectory(
+        links: CloudMachineLinkManager,
+        machineID: String,
+        terminalID: String
+    ) async -> String? {
         do {
             let connected = try await links.connected(machineID: machineID)
             guard let link = await links.link(machineID: machineID) else { return nil }
             let data = try await link.run(
                 arguments: CloudTuiRequests.processInfoArguments(
                     socketPath: connected.socketPath,
-                    terminalID: resource.id.key
+                    terminalID: terminalID
                 )
             )
             guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -35,10 +40,20 @@ extension CmuxTuiSurfaceProvider {
             }
             return CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: result)
         } catch {
-            // Directory inheritance is best effort. A daemon without the process
-            // query capability must retain the existing workspace fallback.
             return nil
         }
+    }
+
+    /// Returns the cwd of the process group currently owning the remote PTY.
+    /// This is deliberately a live process query: the snapshot's `cwd` is the
+    /// terminal's spawn directory and remains stale after a remote `cd`.
+    func currentWorkingDirectory(of resource: SurfaceResource) async -> String? {
+        guard resource.kind == .terminal else { return nil }
+        return await Self.readLiveWorkingDirectory(
+            links: links,
+            machineID: machineID,
+            terminalID: resource.id.key
+        )
     }
 
     /// Block until the remote terminal's process exits or `timeoutMs` elapses (the same
