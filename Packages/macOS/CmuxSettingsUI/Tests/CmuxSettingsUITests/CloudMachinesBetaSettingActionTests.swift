@@ -13,6 +13,7 @@ struct CloudMachinesBetaSettingActionTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let key = BetaFeaturesCatalogSection().cloudMachines
         let keyName = key.userDefaultsKey
+        defaults.set(false, forKey: keyName)
         let center = NotificationCenter()
         let changes = AsyncStream<Bool>.makeStream()
         // UserDefaults is thread-safe; the notification callback only reads this isolated suite.
