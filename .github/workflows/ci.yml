@@ -306,6 +306,9 @@ jobs:
       - name: Validate reload shared DerivedData default
         run: ./tests/test_reload_shared_derived_data.sh
 
+      - name: Validate sidebar extension point generation
+        run: python3 tests/test_write_sidebar_extension_point.py
+
       - name: Validate Localizable.xcstrings catalog structure
         run: python3 tests/test_localizable_xcstrings_structure.py
 
