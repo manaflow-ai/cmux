@@ -65,6 +65,13 @@ function hasLegacyProviderNotFoundDetail(candidate: ProviderFailure): boolean {
   return false;
 }
 
+function httpStatus(candidate: ProviderFailure): number | undefined {
+  const candidates = [candidate.status, candidate.statusCode, candidate.response?.status];
+  return candidates.find((status): status is number =>
+    typeof status === "number" && status >= 400 && status <= 599,
+  );
+}
+
 export function isProviderNotFoundError(err: unknown): boolean {
   const seen = new Set<unknown>();
   let legacyNotFound = false;
@@ -72,10 +79,10 @@ export function isProviderNotFoundError(err: unknown): boolean {
   while (current && typeof current === "object" && !seen.has(current)) {
     seen.add(current);
     const candidate = current as ProviderFailure;
-    const status = candidate.status ?? candidate.statusCode ?? candidate.response?.status;
+    const status = httpStatus(candidate);
     // The concrete HTTP failure wins over wrapper/code/message heuristics.
     // A 502 mentioning a missing VM must never mark the machine destroyed.
-    if (typeof status === "number" && status >= 400 && status <= 599) return status === 404;
+    if (status !== undefined) return status === 404;
     legacyNotFound ||= hasLegacyProviderNotFoundDetail(candidate);
     current = candidate.cause;
   }

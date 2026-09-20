@@ -21,6 +21,14 @@ describe("provider error classification", () => {
     expect(isProviderNotFoundError({ cause: { statusCode: 404 } })).toBe(true);
   });
 
+  test.each([
+    { status: 0, response: { status: 502 } },
+    { status: 600, response: { status: 503 } },
+    { status: -1, statusCode: 502 },
+  ])("ignores invalid status sentinels before selecting a retryable HTTP status: %j", (error) => {
+    expect(isProviderNotFoundError({ ...error, message: "VM not found while reading stats" })).toBe(false);
+  });
+
   test("keeps identity deletion errors out of VM not-found classification", () => {
     expect(isProviderNotFoundError(new Error("identity does not exist"))).toBe(false);
     expect(isProviderIdentityNotFoundError(new Error("identity does not exist"))).toBe(true);
