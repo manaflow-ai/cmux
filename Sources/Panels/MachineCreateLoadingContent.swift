@@ -10,9 +10,6 @@ struct MachineCreateLoadingContent: View {
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(operation.startedAt).rounded(.down)))
             VStack(spacing: 16) {
                 if operation.failureOutput == nil {
-                    Image(systemName: "cloud.fill")
-                        .font(.system(size: 26, weight: .medium))
-                        .foregroundStyle(.secondary)
                     ProgressView()
                         .controlSize(.large)
                 } else {

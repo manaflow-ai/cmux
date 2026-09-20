@@ -13,7 +13,13 @@ struct CloudBrowserAccessView<Content: View>: View {
         Group {
             if let model = state.model {
                 Group {
-                    if state.showsPage || state.failureMessage == nil { content() } else {
+                    if state.isDesktop && !state.showsPage && state.failureMessage == nil {
+                        CloudBrowserConnectionCard(
+                            address: state.remoteURL?.absoluteString ?? "",
+                            message: nil,
+                            onRetry: nil
+                        )
+                    } else if state.showsPage || state.failureMessage == nil { content() } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
                             message: state.error ?? model.failureMessage,

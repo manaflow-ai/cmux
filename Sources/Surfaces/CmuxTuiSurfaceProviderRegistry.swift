@@ -45,18 +45,15 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// fleet read. This prevents an older page from unregistering a machine that
     /// a newer page just added.
     private var refreshGeneration: UInt64 = 0
-    /// Bumped by every ``start(catalog:)``. `NotificationCenter` blocks queued
     /// on `.main` are already enqueued when `removeObserver` runs, so a
     /// teardown posted before a restart can still land after it. The observer
     /// carries the epoch it was registered with and a stale one is dropped:
     /// without this, a `DisableCloud` teardown that lands just after the
     /// policy lifts would clear the freshly restarted registry.
     private var accessEpoch: UInt64 = 0
-    /// Whether account access has ended. Retired registries reject all new Cloud work
-    /// until ``start(catalog:)`` reactivates them for the next account.
     private var isRetired = true
     private let pollInterval: Duration = .seconds(45)
-    /// In-flight forward and link teardowns for deleted machines, keyed by
+    /// In-flight teardowns for deleted machines, keyed by
     /// machine id; sign-out waits for them before stopping the hub.
     private var machineTeardowns: [String: Task<Void, Never>] = [:]
     private var featureResumeTask: Task<Void, Never>?
@@ -243,8 +240,11 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard let self, access == self.accessEpoch, !Task.isCancelled,
                       let discovered = await self.discoverMachines(force: force, updateExisting: true),
                       access == self.accessEpoch, !Task.isCancelled else { return false }
+                let activeMachines = force
+                    ? Set(discovered.map(\.machine))
+                    : Set(self.catalog?.snapshot.projections.map(\.resource.machine) ?? [])
                 await withTaskGroup(of: Void.self) { group in
-                    for provider in discovered {
+                    for provider in discovered where activeMachines.contains(provider.machine) {
                         group.addTask { @MainActor in
                             guard access == self.accessEpoch, !Task.isCancelled else { return }
                             await self.refreshProvider(provider, force)

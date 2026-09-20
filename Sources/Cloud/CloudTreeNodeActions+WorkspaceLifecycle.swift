@@ -50,6 +50,16 @@ extension CloudTreeNodeActions {
         let reservation = openLocally
             ? reserveLocalWorkspace(machine: machine, focus: focus, catalog: catalog)
             : nil
+#if DEBUG
+        let timingID = UUID().uuidString
+        let timingStartedAt = Date()
+        let timingWorkspaceID = reservation?.workspaceID.uuidString ?? "none"
+        func logWorkspaceTiming(_ phase: String) {
+            let elapsedMs = Int(Date().timeIntervalSince(timingStartedAt) * 1000)
+            cmuxDebugLog("cloud.workspace.timing id=\(timingID) machine=\(machine.rawValue) workspace=\(timingWorkspaceID) phase=\(phase) elapsedMs=\(elapsedMs)")
+        }
+        logWorkspaceTiming("accepted")
+#endif
         // An app-owned presentation workspace is part of the transaction. Do
         // not create remote state that cannot be shown locally if the host is
         // unavailable or its active window changed during admission.
@@ -70,6 +80,9 @@ extension CloudTreeNodeActions {
 
         let createdRemoteWorkspace = existingWorkspace == nil
         let workspace: SurfaceRemoteWorkspace = if let existingWorkspace { existingWorkspace } else { try await provider.createRemoteWorkspace(name: name) }
+#if DEBUG
+        logWorkspaceTiming("remote_workspace")
+#endif
         onReceipt(workspace, nil)
         guard !openLocally || isLiveReservation(reservation) else {
             if createdRemoteWorkspace { await cleanupRemoteWorkspaceCreation(provider: provider, workspace: workspace, terminal: nil) }
@@ -92,8 +105,14 @@ extension CloudTreeNodeActions {
             createdRemoteTerminal = true
         }
         onReceipt(workspace, terminal)
+#if DEBUG
+        logWorkspaceTiming("remote_terminal")
+#endif
         guard openLocally else {
             committed = true
+#if DEBUG
+            logWorkspaceTiming("complete")
+#endif
             return (workspace, terminal, nil)
         }
         let placement = SurfaceResourcePlacement(
@@ -139,6 +158,9 @@ extension CloudTreeNodeActions {
             focus: focus,
             optimistic: .app
         )
+#if DEBUG
+        logWorkspaceTiming("projection")
+#endif
         if let loadingWorkspace = Workspace.liveWorkspace(id: reservation.workspaceID),
            loadingWorkspace.panels[reservation.loadingPanelID] != nil {
             SurfacePaneFactory.close(panelID: reservation.loadingPanelID, in: reservation.workspaceID)
@@ -176,6 +198,9 @@ extension CloudTreeNodeActions {
         )
         if focus, let first = projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
         committed = true
+#if DEBUG
+        logWorkspaceTiming("complete")
+#endif
         return (workspace, terminal, (reservation.workspaceID, projections))
     }
 

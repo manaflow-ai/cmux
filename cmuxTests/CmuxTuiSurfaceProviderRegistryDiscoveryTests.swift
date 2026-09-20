@@ -65,7 +65,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             }
         )
         registry.start(catalog: catalog)
-        let background = Task { await registry.refresh(force: false) }
+        let background = Task { await registry.refresh(force: true) }
         let started = await boundedResult(olderRefreshStarted)
         page = VMListPage(vms: [machine("vm-older"), machine("vm-new")], limits: nil)
         let discovery = Task {
