@@ -6325,8 +6325,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let workspaceRef = "workspace:7"
         let windowID = "22222222-2222-2222-2222-222222222222"
-        let surfaceID = "33333333-3333-3333-3333-333333333333"
-
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -6352,7 +6350,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     result: [
                         "workspace_id": workspaceID,
                         "window_id": windowID,
-                        "surface_id": surfaceID,
                     ]
                 )
             case "workspace.rename":
