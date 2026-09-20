@@ -3,11 +3,13 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { join } from "node:path";
 import NodeWebSocket from "ws";
 import { encodeBase64URL, issueTicket, requestSigningInput } from "../src/crypto";
+import { issueDashboardTicket } from "../src/dashboard-auth";
 
 let mf: Miniflare;
 let descriptor: any;
 let signingKey: CryptoKey;
 let ticket = "";
+let dashboardTicketKey = "";
 let fixturePublicKey = "";
 let workerRoot = "";
 let persistencePath = "";
@@ -50,6 +52,7 @@ beforeAll(async () => {
   };
   const ticketKeyBytes = crypto.getRandomValues(new Uint8Array(32));
   const ticketKey = encodeBase64URL(ticketKeyBytes);
+  dashboardTicketKey = ticketKey;
   const relayKey = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]);
   const relayPkcs8 = new Uint8Array(await crypto.subtle.exportKey("pkcs8", relayKey.privateKey));
   const relayPem = `-----BEGIN PRIVATE KEY-----\n${btoa(String.fromCharCode(...relayPkcs8)).match(/.{1,64}/g)!.join("\n")}\n-----END PRIVATE KEY-----`;
@@ -92,6 +95,28 @@ beforeAll(async () => {
 });
 
 afterAll(async () => { await mf?.dispose(); });
+
+test("browser dashboard upgrade survives the Worker-to-Durable-Object boundary", async () => {
+  const { token } = await issueDashboardTicket({
+    authority: { environment, projectId, teamId, userId, verifiedAt: Math.floor(Date.now() / 1000) },
+    origin: "https://cmux.com", clientInstanceId: "browser-dashboard", canManageTeam: false,
+  }, "k1", dashboardTicketKey);
+  const response = await mf.dispatchFetch("https://iroh.test/v2/dashboard/socket", {
+    headers: { origin: "https://cmux.com", upgrade: "websocket", "sec-websocket-protocol": `cmux-v2-dashboard, ticket.${token}` },
+  });
+  const socket = response.webSocket;
+  try {
+    expect(response.status).toBe(101);
+    expect(response.headers.get("sec-websocket-protocol")).toBe("cmux-v2-dashboard");
+    expect(socket).not.toBeNull();
+    const connected = new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("No dashboard connected frame")), 2000);
+      socket!.addEventListener("message", event => { clearTimeout(timer); resolve(JSON.parse(String(event.data))); }, { once: true });
+    });
+    socket!.accept();
+    expect((await connected).schemaId).toBe("dashboard.connected.v1");
+  } finally { socket?.close(); }
+});
 
 test("production HTTP router reaches the fixture TeamControl for directory and metadata", async () => {
   const requestId = "http-directory";
