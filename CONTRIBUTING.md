@@ -61,6 +61,14 @@
 | `./scripts/reload2.sh` | Reload both Debug and Release |
 | `./scripts/rebuild.sh` | Clean rebuild |
 
+## Verification receipts
+
+`python3 scripts/verification_receipt.py local` runs the existing docs deployment
+auth guard tests and prints a versioned JSON receipt with source observations,
+executed checks and explicit artifact/review qualifications. This portable check
+does not compile or launch the app. See [verification receipts](docs/verification-receipts.md)
+for CI import, example replay and the exact limits of the source evidence.
+
 ## Team dogfood setup
 
 DEBUG builds can auto-sign-in as you and auto-attach an iOS build to your Mac with no manual steps. Each developer does a one-time setup with their own Stack account.
