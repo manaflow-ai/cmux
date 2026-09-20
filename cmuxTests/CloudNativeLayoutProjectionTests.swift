@@ -10,6 +10,51 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test func deviceLayoutWritesAreScopedAndRejectStaleRevisions() throws {
+        let workspaceID = UUID()
+        let a = UUID().uuidString
+        let b = UUID().uuidString
+        var layout = DeviceWorkspaceLayoutNode.pane(id: "pane", surfaceIDs: [a, b], selectedSurfaceID: a)
+        var writes = 0
+        let host = DeviceWorkspaceLayoutHost(
+            capture: { $0 == workspaceID ? layout : nil },
+            apply: { id, next in
+                #expect(id == workspaceID)
+                writes += 1
+                layout = next
+            },
+            createTerminal: { _, _, _ in nil },
+            publish: { _ in },
+            notificationCenter: NotificationCenter()
+        )
+        let initial = try #require(host.snapshot(for: workspaceID))
+        let next = DeviceWorkspaceLayoutNode.split(direction: .horizontal, ratio: 0.35,
+            first: .pane(id: "local-a", surfaceIDs: [a], selectedSurfaceID: a),
+            second: .pane(id: "local-b", surfaceIDs: [b], selectedSurfaceID: b))
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(next))
+        let params: [String: Any] = ["workspace_id": workspaceID.uuidString,
+            "request_id": "move-1", "base_revision": initial.revision, "layout": encoded]
+        let request = MobileHostRPCRequest(id: "edit", method: "device.workspace.layout.apply", params: params, auth: nil)
+        guard case .ok = host.handle(request) else { Issue.record("Expected accepted layout"); return }
+        #expect(layout.hasSameArrangement(as: next))
+        #expect(writes == 1)
+        guard case .ok = host.handle(request) else { Issue.record("Expected idempotent receipt"); return }
+        #expect(writes == 1)
+        var stale = params
+        stale["request_id"] = "move-2"
+        guard case .failure(let error) = host.handle(.init(id: nil, method: request.method, params: stale, auth: nil)) else {
+            Issue.record("A stale edit must be rejected"); return
+        }
+        #expect(error.code == "layout_conflict")
+        stale["base_revision"] = try #require(host.snapshot(for: workspaceID)).revision
+        stale["layout"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
+            DeviceWorkspaceLayoutNode.pane(id: "foreign", surfaceIDs: [UUID().uuidString], selectedSurfaceID: nil)))
+        guard case .failure = host.handle(.init(id: nil, method: request.method, params: stale, auth: nil)) else {
+            Issue.record("A layout must not borrow terminals from another workspace"); return
+        }
+        #expect(writes == 1)
+    }
+
     @Test func deviceNamesFollowTheCatalogWithoutCreatingACloudBinding() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
