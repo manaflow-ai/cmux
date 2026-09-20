@@ -1775,7 +1775,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_FINAL_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
   TAG_APP_STAGING_PATH="$(dirname "$APP_PATH")/.${APP_NAME}.reload-$$.app"
   rm -rf "$TAG_APP_STAGING_PATH"
-  cp -R "$APP_PATH" "$TAG_APP_STAGING_PATH"
+  /bin/cp -cR "$APP_PATH" "$TAG_APP_STAGING_PATH"
   INFO_PLIST="$TAG_APP_STAGING_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
