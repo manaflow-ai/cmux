@@ -302,7 +302,10 @@ struct CloudWorkspaceRenameSurfaceParityTests {
                 machine: harness.machine, state: oldGraph, catalog: harness.catalog, observation: .current
             )
             #expect(harness.workspace.title == "Chosen during creation")
-            #expect(harness.surfaces().cloudTree == "Same workspace")
+            #expect(harness.provider.graph.lookupIndex.workspace(id: "a")?.name == "Same workspace")
+            #expect(harness.catalog.cloudStates[harness.machine] == oldGraph)
+            // The tree projects the pending intent without mutating the accepted graph.
+            #expect(harness.surfaces().cloudTree == "Chosen during creation")
 
             gate.continuation.yield(())
             gate.continuation.finish()
