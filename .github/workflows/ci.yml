@@ -417,6 +417,11 @@ jobs:
       - name: Validate pbxproj test-wiring lint
         run: ./tests/test_ci_pbxproj_test_wiring.sh
 
+      - name: Lint remote-tmux for time-based waits
+        run: |
+          ./scripts/lint-remote-tmux-no-polling.test.sh
+          ./scripts/lint-remote-tmux-no-polling.sh
+
       - name: Validate workspace SPM package grouping
         run: python3 scripts/check-workspace-package-groups.py --check
 
