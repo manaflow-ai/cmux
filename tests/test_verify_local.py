@@ -357,5 +357,115 @@ class SwiftSelectionTests(unittest.TestCase):
             self.assertIn(b"PASSED", consumer.stderr)
 
 
+
+class AffectedChecksTests(unittest.TestCase):
+    def commit(self, repo):
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=fixture",
+                        "-c", "user.email=fixture@example.invalid", "commit", "-qm", "inputs"], check=True)
+
+    def test_catalog_selects_both_consumers_and_time_sensitive_check(self):
+        with repo_fixture() as repo:
+            (repo / "Resources").mkdir()
+            (repo / "Resources" / "odd name\nstrings.xcstrings").write_text("{}")
+            selected, evidence = verify.affected_checks(repo, "HEAD")
+            self.assertEqual(selected, ["xcstrings", "localization", "feature-flags"])
+            self.assertEqual(evidence["paths"], ["Resources/odd name\nstrings.xcstrings"])
+            self.assertIn("time_sensitive", evidence["reasons"]["feature-flags"])
+
+    def test_shared_normalizer_selects_tests_and_production_check(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/normalize-pbxproj.py").write_text("# changed helper")
+            selected, _ = verify.affected_checks(repo, "HEAD")
+            self.assertEqual(selected, ["project-tests", "project", "feature-flags"])
+
+    def test_configuration_and_generated_outputs_are_dependencies(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/claude-launch-environment-policy.json").write_text("{}")
+            selected, _ = verify.affected_checks(repo, "HEAD")
+            self.assertEqual(selected, ["launch-policy", "feature-flags"])
+            output = repo / "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift"
+            output.parent.mkdir(parents=True)
+            output.write_text("// edited generated output")
+            selected, _ = verify.affected_checks(repo, "HEAD")
+            self.assertIn("launch-policy", selected)
+            self.assertIn("package-groups", selected)
+
+    def test_deleted_input_and_rename_keep_old_and_new_dependencies(self):
+        with repo_fixture() as repo:
+            old = repo / "scripts/localization-plurals.json"
+            old.write_text("{}")
+            self.commit(repo)
+            old.rename(repo / "scripts/claude-launch-environment-policy.json")
+            selected, evidence = verify.affected_checks(repo, "HEAD")
+            self.assertEqual(selected, ["localization", "launch-policy", "feature-flags"])
+            self.assertIn("scripts/localization-plurals.json", evidence["paths"])
+
+    def test_unknown_input_mixed_with_known_input_falls_back_to_full_recipe(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/localization-plurals.json").write_text("{}")
+            (repo / "unmodeled-input").write_text("new")
+            selected, evidence = verify.affected_checks(repo, "HEAD")
+            self.assertEqual(selected, [c[0] for c in verify.CHECKS])
+            self.assertEqual(evidence["fallback_paths"], ["unmodeled-input"])
+
+    def test_unchanged_or_docs_only_still_runs_date_sensitive_policy(self):
+        with repo_fixture() as repo:
+            self.assertEqual(verify.affected_checks(repo, "HEAD")[0], ["feature-flags"])
+            (repo / "README.md").write_text("docs")
+            selected, evidence = verify.affected_checks(repo, "HEAD")
+            self.assertEqual(selected, ["feature-flags"])
+            self.assertIn("xcstrings", evidence["omitted"])
+
+    def test_base_includes_committed_changes_and_dirty_source(self):
+        with repo_fixture() as repo:
+            subprocess.run(["git", "-C", str(repo), "branch", "base"], check=True)
+            (repo / "scripts/localization-plurals.json").write_text("{}")
+            self.commit(repo)
+            (repo / ".xcode-version").write_text("26")
+            selected, evidence = verify.affected_checks(repo, "base")
+            self.assertEqual(selected, ["localization", "project", "feature-flags"])
+            self.assertEqual(evidence["base_ref"], "base")
+            self.assertEqual(len(evidence["merge_base_sha"]), 40)
+
+    def test_plan_does_not_execute_scripts_and_missing_ref_fails(self):
+        with repo_fixture() as repo:
+            (repo / "README.md").write_text("docs")
+            result = cli(repo, "--affected", "--list")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("feature-flags", result.stdout)
+            self.assertIn("time_sensitive", result.stdout)
+            self.assertEqual(cli(repo, "--affected", "missing-ref", "--list").returncode, 2)
+            self.assertEqual(cli(repo, "--affected", "--only", "project").returncode, 2)
+
+    def test_cli_executes_only_selected_checks_and_emits_selection_in_json(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/lint-feature-flags.py").write_text("print('policy ok')")
+            self.commit(repo)
+            (repo / "README.md").write_text("docs edit")
+            result = cli(repo, "--affected", "--receipt", "-")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            data = json.loads(result.stdout)
+            self.assertEqual([e["id"] for e in data["evidence"]["executions"]], ["feature-flags"])
+            self.assertEqual(data["evidence"]["affected_selection"]["paths"], ["README.md"])
+            self.assertFalse(data["assessment"]["exact_verification"])
+            self.assertIsNone(data["tests"]["executed"])
+
+    def test_untracked_input_drift_interrupts_selected_run(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/lint-feature-flags.py").write_text("print('ok')")
+            self.commit(repo)
+            target = repo / "README.md"
+            target.write_text("before")
+            original = verify.execute
+            def mutate(*args):
+                value = original(*args)
+                target.write_text("after")
+                return value
+            with patch.object(verify, "execute", side_effect=mutate):
+                data = verify.run(repo, [], 5, stream=io.StringIO(), affected="HEAD")
+            self.assertEqual(data["outcome"]["status"], "interrupted")
+            self.assertIn("affected_input_drift_observed", data["assessment"]["qualifications"])
+
 if __name__ == "__main__":
     unittest.main()
