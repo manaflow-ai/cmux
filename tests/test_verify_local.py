@@ -229,6 +229,9 @@ class SwiftSyntaxTests(unittest.TestCase):
             self.assertEqual(verify.receipt.check(result, "tests")["status"], "skipped")
             self.assertEqual(len(result["evidence"]["swift_inputs"]["before"]), 1)
             self.assertIn("Swift", result["environment"]["toolchain"])
+            self.assertNotIn(str(repo), json.dumps(result))
+            self.assertEqual(result["evidence"]["executions"][0]["argv"][0], "swiftc")
+            self.assertIn("./" + source.name, result["evidence"]["executions"][0]["argv"])
             self.assertFalse(result["assessment"]["exact_verification"])
 
 
