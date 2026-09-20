@@ -1,10 +1,11 @@
 import Darwin
 
-struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
+nonisolated struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     let pid: pid_t
     let startSeconds: Int64
     let startMicroseconds: Int64
 
+    /// Creates an identity from a known PID and kernel birth timestamp.
     init(pid: pid_t, startSeconds: Int64, startMicroseconds: Int64) {
         self.pid = pid
         self.startSeconds = startSeconds
@@ -52,15 +53,42 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
     /// `kill(pid, 0)` cannot distinguish it from a running process. It runs no
     /// code and can own no resources, so callers weighing whether a PID might
     /// still hold something read it as gone.
-    static func hasExitedWithoutReaping(pid: pid_t) -> Bool {
+    nonisolated static func hasExitedWithoutReaping(pid: pid_t) -> Bool {
         processTableEntry(pid: pid)?.hasExited ?? false
+    }
+
+    /// Returns the captured process generation even after it becomes a
+    /// zombie.  This is only safe for a direct child that the caller has not
+    /// reaped: retaining that child reserves its PID, so the generation cannot
+    /// be replaced between the identity read and process-group cleanup.
+    nonisolated static func includingExitedProcess(pid: pid_t) -> Self? {
+        guard let entry = processTableEntry(pid: pid) else { return nil }
+        return Self(
+            pid: pid,
+            startSeconds: entry.startSeconds,
+            startMicroseconds: entry.startMicroseconds
+        )
+    }
+
+    /// Reads the process-table process-group ID.  Unlike `getpgid`, this
+    /// remains available during the short exit/zombie transition, which lets
+    /// identity-checked cleanup retain the captured group anchor until the
+    /// child is actually gone.
+    nonisolated static func processGroupID(pid: pid_t) -> pid_t? {
+        processTableEntry(pid: pid)?.processGroupID
     }
 
     /// One read of the process table, shared so a second reader cannot drift
     /// into different privilege or liveness behavior.
-    private static func processTableEntry(
+    private nonisolated static func processTableEntry(
         pid: pid_t
-    ) -> (startSeconds: Int64, startMicroseconds: Int64, parentPID: pid_t, hasExited: Bool)? {
+    ) -> (
+        startSeconds: Int64,
+        startMicroseconds: Int64,
+        parentPID: pid_t,
+        hasExited: Bool,
+        processGroupID: pid_t
+    )? {
         guard pid > 0 else { return nil }
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
         var info = kinfo_proc()
@@ -75,7 +103,8 @@ struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
             Int64(started.tv_sec),
             Int64(started.tv_usec),
             pid_t(info.kp_eproc.e_ppid),
-            info.kp_proc.p_stat == Int8(SZOMB)
+            info.kp_proc.p_stat == Int8(SZOMB),
+            info.kp_eproc.e_pgid
         )
     }
 }
