@@ -144,6 +144,34 @@ def test_website_only_does_not_run_agent_session_resource_check() -> None:
     assert_areas(["web/app/page.tsx"], macos=False, web=True, agent_session_web=False)
 
 
+def test_review_rules_skip_app_builds_but_preserve_unknown_and_mixed_inputs() -> None:
+    paths = [".coderabbit.yaml", ".greptile/rules.md",
+             ".github/review-bot-rules/user-facing-errors.md"]
+    for changed in [[path] for path in paths] + [paths]:
+        assert module.classify_files(changed) == module.ChangeAreas(False, False, False, False)
+    for unknown in (".greptile/new-policy.json", ".github/review-bot-rules/new-rule.md",
+                    ".coderabbit.yml", ".github/swift-warning-budget.tsv"):
+        actual = module.classify_files(paths + [unknown])
+        assert actual.macos and actual.release_build, (unknown, actual)
+    actual = module.classify_files(paths + ["Sources/App.swift"])
+    assert actual.macos and actual.release_build, actual
+    actual = module.classify_files(paths + ["web/app/page.tsx"])
+    assert not actual.macos and actual.web, actual
+
+
+def test_review_rules_workflow_skips_native_but_still_requires_linux_guards() -> None:
+    _, outputs = run_detect_step_for_paths([
+        ".coderabbit.yaml", ".greptile/rules.md",
+        ".github/review-bot-rules/user-facing-errors.md",
+    ])
+    assert outputs == ["macos=false", "web=false", "agent_session_web=false", "release_build=false"]
+    for job in GUARD_JOBS:
+        result = run_linux_preflight(linux_preflight_needs(
+            outputs=dict(line.split("=", 1) for line in outputs), results={job: "failure"},
+        ))
+        assert result.returncode != 0, job
+
+
 def test_agent_session_webview_sources_run_bundled_asset_check() -> None:
     assert_areas(
         ["webviews/src/agent-session/shared/message.test.ts"],
