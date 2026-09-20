@@ -128,6 +128,29 @@ class FakeSocket implements CtlSocket {
   }
 }
 
+/// The Durable Object adapter creates a fresh transport wrapper whenever the
+/// core enumerates hibernating sockets. Keep the test harness honest about that
+/// ownership boundary instead of making wrapper identity accidentally stable.
+class FreshSocketView implements CtlSocket {
+  constructor(private readonly base: FakeSocket) {}
+
+  send(data: string): void {
+    this.base.send(data);
+  }
+
+  close(code?: number, reason?: string): void {
+    this.base.close(code, reason);
+  }
+
+  getAttachment(): CtlAttachment | null {
+    return this.base.getAttachment();
+  }
+
+  setAttachment(attachment: CtlAttachment): void {
+    this.base.setAttachment(attachment);
+  }
+}
+
 type UpstreamHandler = (init: CtlUpstreamInit) => CtlUpstreamResult;
 
 class Harness {
@@ -162,7 +185,7 @@ class Harness {
     scheduleAlarmAt: async (atMs) => {
       this.alarms.push(atMs);
     },
-    sockets: () => [...this.socketList],
+    sockets: () => this.socketList.map((socket) => new FreshSocketView(socket)),
   });
 
   serveDiscovery(response: () => unknown): void {
@@ -232,6 +255,17 @@ describe("listv2 seeded overlay", () => {
 });
 
 describe("confirm-on-hello", () => {
+  it("keeps the current socket when the adapter returns fresh socket wrappers", async () => {
+    const harness = new Harness();
+    harness.serveDiscovery(() => discoveryResponse(42));
+
+    const socket = await harness.connect("s1");
+    await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: false });
+
+    expect(socket.closes).toEqual([]);
+    expect(socket.types()).toEqual(["hello_ack", "directory", "snapshot_complete"]);
+  });
+
   it("flips seeded -> active, records version/track/capabilities, bumps rev, and broadcasts", async () => {
     const harness = new Harness();
     harness.serveDiscovery(() => discoveryResponse(42));

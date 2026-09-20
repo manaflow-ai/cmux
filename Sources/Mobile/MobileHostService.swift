@@ -693,6 +693,11 @@ final class MobileHostService {
         if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
             return override
         }
+        // Preserve an existing user's explicit choice from before the settings
+        // catalog migration. A current explicit disable always wins above.
+        if let legacyOverride = defaults.object(forKey: "cmuxMobilePairingHostEnabled") as? Bool {
+            return legacyOverride
+        }
         return false
     }
 
@@ -841,6 +846,7 @@ final class MobileHostService {
     nonisolated static func acceptTransport(
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
+        hostDeviceID: String? = nil,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         firstFrameTimeoutNanoseconds: UInt64? = nil,
@@ -912,11 +918,15 @@ final class MobileHostService {
                     return await Self.connectionStatusResult(
                         for: request,
                         authorization: authorization,
+                        hostDeviceID: hostDeviceID,
                         supportsArtifactLane: artifactTransfers != nil,
                         stackStatus: { request in
                             await MobileHostService.networkStatusResult(for: request)
                         }
                     )
+                }
+                if request.method == "phone_push.keys.exchange" {
+                    return await MobileHostService.shared.handlePhonePushKeyExchange(request)
                 }
                 let result = await TerminalController.shared.mobileHostHandleRPC(
                     request,
@@ -983,6 +993,7 @@ final class MobileHostService {
     nonisolated static func connectionStatusResult(
         for request: MobileHostRPCRequest,
         authorization: MobileHostConnectionAuthorizationContext,
+        hostDeviceID: String? = nil,
         supportsArtifactLane: Bool = false,
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
@@ -998,6 +1009,7 @@ final class MobileHostService {
             }
             return MobileHostPublicStatusCache.result(
                 includeIdentity: true,
+                deviceID: hostDeviceID,
                 additionalCapabilities: supportsArtifactLane
                     ? Set([irohArtifactLaneCapability])
                     : Set(),
@@ -1025,11 +1037,21 @@ final class MobileHostService {
             routeKind: routeKind
         )
         let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
+        let deviceID: String
+        if selectedRoutes.contains(where: { $0.kind == .iroh }) {
+            guard let publishedID = MobileHostPublicStatusCache.currentV2DeviceID() else {
+                throw MobileAttachTicketStoreError.routeUnavailable
+            }
+            deviceID = publishedID
+        } else {
+            deviceID = MobileHostIdentity.deviceID()
+        }
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
             routes: selectedRoutes,
             ttl: ttl,
+            macDeviceID: deviceID,
             macUserEmail: await currentAuthenticatedLocalUserEmail(),
             macUserID: await currentAuthenticatedLocalUserID(),
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,

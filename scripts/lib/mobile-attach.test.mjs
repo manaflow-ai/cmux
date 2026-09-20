@@ -696,15 +696,15 @@ test("cloud physical-device archives bake staging origins with override escape h
   assert.match(workflow, /CMUX_IROH_BROKER_BASE_URL="\$iroh_broker_base_url"/);
 });
 
-test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
+test("physical-device mint accepts the authenticated Tailscale fallback", async () => {
   const result = await mintAttachURL(
     "physical_device",
     [attachPayload("tailscale"), attachPayload("tailscale")],
     2,
   );
-  assert.equal(result.status, 2);
-  assert.equal(result.stdout, "");
-  assert.equal(result.callCount, 2);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, attachPayload("tailscale").attach_url);
+  assert.equal(result.callCount, 1);
 });
 
 test("physical-device mint waits for asynchronous Iroh publication", async () => {

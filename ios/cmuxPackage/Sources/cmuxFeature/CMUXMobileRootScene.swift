@@ -4,6 +4,8 @@ import CmuxAuthRuntime
 import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileBrowserStream
+import CmuxMobileRPC
+import CmuxPhonePush
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -36,6 +38,7 @@ public struct CMUXMobileRootScene: View {
     private let auth: MobileAuthComposition
     private let reachability: any ReachabilityProviding
     private let analytics: any AnalyticsEmitting
+    private let terminalLatencyObserver: any MobileTerminalLatencyObserving
     package let signOutHook: MobileSignOutHook
     private let personalIrohRouteCatalog: MobileIrohRouteCatalog?
     private let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
@@ -139,6 +142,7 @@ public struct CMUXMobileRootScene: View {
         auth: MobileAuthComposition,
         reachability: any ReachabilityProviding,
         analytics: any AnalyticsEmitting,
+        terminalLatencyObserver: any MobileTerminalLatencyObserving = NoopMobileTerminalLatencyObserver(),
         pushCoordinator: MobilePushCoordinator,
         displaySettings: MobileDisplaySettings,
         featureFlags: MobileFeatureFlags,
@@ -159,6 +163,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.terminalLatencyObserver = terminalLatencyObserver
         self.pushCoordinator = pushCoordinator
         self.displaySettings = displaySettings
         self.featureFlags = featureFlags
@@ -202,6 +207,7 @@ public struct CMUXMobileRootScene: View {
         self.auth = auth
         self.reachability = reachability
         self.analytics = analytics
+        self.terminalLatencyObserver = NoopMobileTerminalLatencyObserver()
         self.signOutHook = signOutHook
         self.personalIrohRouteCatalog = nil
         self.personalIrohDiscovery = nil
@@ -351,6 +357,7 @@ public struct CMUXMobileRootScene: View {
             .toastHost(toastCenter, haptics: displaySettings.haptics)
             .environment(auth.coordinator)
             .analytics(analytics)
+            .analyticsClientID(analytics.anonymousID)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
@@ -375,6 +382,8 @@ public struct CMUXMobileRootScene: View {
             TaskComposerAccessibilityPreviewView()
         } else if UITestConfig.notificationFeedPreviewEnabled {
             NotificationFeedPreviewView()
+        } else if UITestConfig.whatsNewPreviewEnabled {
+            MobileWhatsNewPreviewView()
         } else if UITestConfig.workspaceListLayoutPreviewEnabled {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
@@ -422,6 +431,42 @@ public struct CMUXMobileRootScene: View {
             signOutHook: signOutHook
         )
         #endif
+    }
+
+    @MainActor
+    private func makePhonePushKeyExchangeHooks() -> MobilePhonePushKeyExchangeHooks {
+        let bundleID = Bundle.main.bundleIdentifier ?? "dev.cmux.ios"
+        let accessGroup = auth.keychainAccessGroup
+        return MobilePhonePushKeyExchangeHooks(
+            makeDescriptor: {
+                let key = try PhonePushKeyStore.current(
+                    bundleID: bundleID,
+                    accessGroup: accessGroup
+                )
+                return MobilePhonePushPublicKeyDescriptor(
+                    installationID: key.installationID,
+                    keyID: key.keyID,
+                    publicKey: key.publicKeyData
+                )
+            },
+            iosBuildID: { bundleID },
+            pinPeerDescriptor: { descriptor, context in
+                let tuple = PhonePushDeviceTuple(
+                    accountID: context.accountID,
+                    teamID: context.teamID,
+                    iosBuildID: context.iosBuildID,
+                    iosInstallationID: context.iosInstallationID,
+                    macDeviceID: context.macDeviceID,
+                    macInstanceTag: context.macInstanceTag,
+                    macBuildID: context.macBuildID
+                )
+                PhonePushPeerKeyStore.pin(
+                    descriptor.publicKey,
+                    keyID: descriptor.keyID,
+                    for: tuple
+                )
+            }
+        )
     }
 
     @MainActor
@@ -478,10 +523,12 @@ public struct CMUXMobileRootScene: View {
             personalIrohForget: resolvedPersonalIrohForget,
             presence: nil,
             identityProvider: identityProvider,
+            phonePushKeyExchangeHooks: makePhonePushKeyExchangeHooks(),
             teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             hiddenMacStore: hiddenMacStore,
             analytics: analytics,
+            terminalLatencyObserver: terminalLatencyObserver,
             diagnosticLog: diagnosticLog,
             feedbackEmailSubmitter: feedbackEmailSubmitter,
             feedbackStampProvider: feedbackStampProvider,

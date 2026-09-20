@@ -10,6 +10,7 @@ import {
   type VmBillingGatewayShape,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
+import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   FAILED_CREATE_RETRY_WINDOW_MS,
@@ -223,7 +224,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000151",
       userId: "user-workflow-legacy-fork-shape",
       billingTeamId: "team-workflow-legacy-fork-shape",
-      billingPlanId: "pro",
+      billingPlanId: "max",
       providerVmId: "provider-vm-legacy-fork-source",
       status: "running",
       providerMetadata: {},
@@ -232,7 +233,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000152",
       userId: source.userId,
       billingTeamId: source.billingTeamId,
-      billingPlanId: "pro",
+      billingPlanId: "max",
       providerVmId: null,
       status: "provisioning",
       providerMetadata: {},
@@ -270,10 +271,11 @@ describe("VM Effect workflows", () => {
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      capabilities: (provider) => ({ ...vmCapabilitiesFor(provider), fork: true }),
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        expect(providerVmId).toBe("provider-vm-legacy-fork-copy");
+        expect([source.providerVmId, "provider-vm-legacy-fork-copy"]).toContain(providerVmId);
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -291,7 +293,7 @@ describe("VM Effect workflows", () => {
         billingCustomerType: "team",
         billingTeamId: source.billingTeamId!,
         teamIds: [source.billingTeamId!],
-        billingPlanId: "pro",
+        billingPlanId: "max",
         maxActiveVms: 50,
         providerVmId: source.providerVmId!,
       }).pipe(Effect.provide(workflowLayer(repo, provider))),
@@ -355,10 +357,12 @@ describe("VM Effect workflows", () => {
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      capabilities: (provider) => ({ ...vmCapabilitiesFor(provider), fork: true }),
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        expect(providerVmId).toBe("provider-vm-legacy-fork-invalid-copy");
+        expect([source.providerVmId, "provider-vm-legacy-fork-invalid-copy"]).toContain(providerVmId);
+        if (providerVmId === source.providerVmId) return Effect.succeed({ state: "awake" as const, sampledAt: Date.now(), cpus: 4, memoryTotalMb: 8192, diskTotalMb: 32768 });
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -440,10 +444,11 @@ describe("VM Effect workflows", () => {
     } as unknown as VmRepositoryShape;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      capabilities: (provider) => ({ ...vmCapabilitiesFor(provider), fork: true }),
       getStatus: () => Effect.succeed("running"),
       resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
       getStats: (_provider: string, providerVmId: string) => {
-        expect(providerVmId).toBe("provider-vm-legacy-fork-one-vcpu-copy");
+        expect([source.providerVmId, "provider-vm-legacy-fork-one-vcpu-copy"]).toContain(providerVmId);
         return Effect.succeed({
           state: "awake" as const,
           sampledAt: Date.now(),
@@ -2757,6 +2762,52 @@ describe("VM Effect workflows", () => {
     expect(usageEventAttempts).toBe(2);
   });
 
+  test("create configures the first guest prompt with the stored display name", async () => {
+    const requested = testCloudVmRow({ displayName: "Build box", slug: "calm-heron" });
+    const running = { ...requested, status: "running" as const, providerVmId: "named-vm" };
+    let promptName: string | undefined;
+    const repo: VmRepositoryShape = {
+      ...testWorkflowRepo({ vm: requested }),
+      beginCreate: () => Effect.succeed({ inserted: true, vm: requested }),
+      markCreateRunning: () => Effect.succeed(running),
+      setDisplayName: () => unusedDatabaseEffect("rename during create"),
+    };
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: (_provider, options) => Effect.sync(() => {
+        promptName = options.promptIdentity?.name;
+        return testVmHandle({ providerVmId: "named-vm" });
+      }),
+    };
+    const result = await Effect.runPromise(createVm({
+      userId: "user-workflow-usage-events",
+      billingCustomerType: "team",
+      billingTeamId: "user-workflow-usage-events",
+      billingPlanId: "free", maxActiveVms: 1, provider: "freestyle", image: requested.imageId ?? "snapshot-test",
+      displayName: "Build box",
+    }).pipe(Effect.provide(workflowLayer(repo, provider))));
+    expect(promptName).toBe("build-box");
+    expect(result.displayName).toBe("Build box");
+  });
+
+  dbTest("create reserves the display name atomically and an idempotent replay preserves it", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const input = {
+      userId: "user-create-name", billingTeamId: "team-create-name", billingPlanId: "pro",
+      provider: "freestyle" as const, image: "snapshot-test", maxActiveVms: 5,
+      idempotencyKey: "named-create", displayName: "Build box",
+    };
+    const first = await Effect.runPromise(vmRepositoryLiveShape.beginCreate(input));
+    expect(first.inserted).toBe(true);
+    expect(first.vm.displayName).toBe("Build box");
+    const retryInput = { ...input, displayName: "stale retry" };
+    const replay = await Effect.runPromise(vmRepositoryLiveShape.beginCreate(retryInput));
+    expect(replay.inserted).toBe(false);
+    expect(replay.vm.id).toBe(first.vm.id);
+    expect(replay.vm.displayName).toBe("Build box");
+  });
+
   dbTest("creates one provider VM per account-scoped idempotency key and records usage", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -4656,7 +4707,9 @@ describe("VM Effect workflows", () => {
         userId: "user-workflow-restore",
         billingCustomerType: "team",
         billingTeamId: "team-workflow-restore",
-        billingPlanId: "free",
+        // This test isolates ownership. Max also permits legacy snapshots
+        // without a recorded shape; size-limit rejection is covered separately.
+        billingPlanId: "max",
         maxActiveVms: 1,
         provider: "freestyle",
         snapshotId: "snapshot-owned",
@@ -6461,6 +6514,8 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? overrides.userId ?? "user-workflow-usage-events",
+    coderouterPoolId: null,
     ...overrides,
   };
   if (!("billingTeamId" in overrides)) {

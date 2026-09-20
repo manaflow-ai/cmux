@@ -1,27 +1,6 @@
 import CmuxCore
 import Foundation
 
-/// One resource in a group, with the immutable daemon placement that produced the
-/// row. A terminal id is not enough when one terminal is shown by several tabs.
-/// The tab id is an opaque routing key; the current catalog resolves it to fresh
-/// metadata immediately before materialization.
-struct SurfaceResourcePlacement: Hashable, Codable, Sendable {
-    let resource: SurfaceResourceID
-    let remoteWorkspaceID: String?
-    let remoteTabID: String?
-
-    init(
-        resource: SurfaceResourceID,
-        remoteView: SurfaceRemoteView? = nil,
-        remoteWorkspaceID: String? = nil,
-        remoteTabID: String? = nil
-    ) {
-        self.resource = resource
-        self.remoteWorkspaceID = remoteView?.workspace.id ?? remoteWorkspaceID
-        self.remoteTabID = remoteView?.tabID ?? remoteTabID
-    }
-}
-
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
 /// workspace on a machine, or a local workspace (the panes it projects). The canonical
 /// payload is typed placements. `resources` and the group workspace id remain as derived
@@ -147,9 +126,11 @@ extension SurfaceCatalog {
         paneLookup: PaneLookup = { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
         optimistic: OptimisticPaneHost? = nil
     ) async throws -> [SurfaceProjection] {
+        try validateOwnership(of: group.resources, at: destination)
         let scope = beginProjectionMutation(for: group.resources)
         defer { endProjectionMutation(scope) }
         let group = try currentCloudWorkspace(group)?.group ?? group
+        try validateOwnership(of: group.resources, at: destination)
         if let optimistic, let reserved = reserveTerminalGroup(group, into: destination, focus: focus, paneLookup: paneLookup, host: optimistic) {
             return reserved
         }
@@ -217,8 +198,8 @@ extension SurfaceCatalog {
         }
         let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
         guard let workspaceID else { return nil }
-        if member.resource.kind == .display, projections.contains(where: {
-            $0.resource == member.resource && $0.remoteTabID == nil && $0.remoteWorkspaceID == workspaceID
+        if projections.contains(where: {
+            $0.resource == member.resource && $0.isLocalWorkspaceView && $0.remoteWorkspaceID == workspaceID
         }) {
             return nil
         }
@@ -246,7 +227,7 @@ extension SurfaceCatalog {
 
         @MainActor
         static let app = NewWorkspaceHost(
-            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title) },
+            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title, titleSource: .auto) },
             paneLookup: { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
             closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) },
             applyDividerRatios: { workspaceID, layout in SurfacePaneFactory.applyDividerRatios(layout, in: workspaceID) }

@@ -5,7 +5,7 @@ import { requireVmPrincipal } from "../services/vms/vmPrincipal";
 import type { VmPrincipalRow } from "../services/vms/vmPrincipalContract";
 
 const vm: VmPrincipalRow = { id: "self", providerVmId: "provider-self", provider: "freestyle", userId: "owner",
-  billingTeamId: "team", billingPlanId: "pro", displayName: null, slug: null, imageId: "image", imageVersion: null,
+  ownerTeamId: "team", billingTeamId: "team", billingPlanId: "pro", displayName: null, slug: null, imageId: "image", imageVersion: null,
   status: "running", createdAt: new Date(0), providerMetadata: { networkId: "keep" } };
 function harness(metadata = vm.providerMetadata, failStore = false) {
   const writes: unknown[] = [];
