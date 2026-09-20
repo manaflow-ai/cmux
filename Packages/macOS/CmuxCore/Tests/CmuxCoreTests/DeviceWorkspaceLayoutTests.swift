@@ -4,6 +4,27 @@ import Testing
 
 @Suite("Mac device workspace layouts")
 struct DeviceWorkspaceLayoutTests {
+    @Test func decodingRejectsInvalidSnapshotsBeforeProjection() throws {
+        let pane = DeviceWorkspaceLayoutNode.pane(id: "p", surfaceIDs: ["a"], selectedSurfaceID: "a")
+        var deep = pane
+        for index in 0..<65 {
+            deep = .split(direction: .horizontal, ratio: 0.5, first: deep,
+                second: .pane(id: "p\(index)", surfaceIDs: ["b\(index)"], selectedSurfaceID: nil))
+        }
+        let invalid: [DeviceWorkspaceLayoutNode] = [
+            .pane(id: "p", surfaceIDs: ["a", "a"], selectedSurfaceID: "a"),
+            .pane(id: "p", surfaceIDs: (0..<513).map(String.init), selectedSurfaceID: nil),
+            .split(direction: .horizontal, ratio: 1.2, first: pane, second: pane),
+            deep
+        ]
+        for layout in invalid {
+            let data = try JSONEncoder().encode(DeviceWorkspaceLayoutSnapshot(workspaceID: "w", layout: layout))
+            #expect(throws: (any Error).self) {
+                try JSONDecoder().decode(DeviceWorkspaceLayoutSnapshot.self, from: data)
+            }
+        }
+    }
+
     @Test func arrangementComparisonIgnoresLocalPaneIdentitiesAndSelection() {
         let source = DeviceWorkspaceLayoutNode.pane(id: "source-pane", surfaceIDs: ["a", "b"], selectedSurfaceID: "a")
         let viewer = DeviceWorkspaceLayoutNode.pane(id: "viewer-pane", surfaceIDs: ["a", "b"], selectedSurfaceID: "b")

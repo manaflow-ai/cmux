@@ -10,6 +10,25 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test func nativeMirrorTabInsertionHonorsTheSourceOrder() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        defer { workspace.teardownAllPanels(); manager.tabs = [] }
+        var ids: [String: UUID] = [:]
+        for (name, index) in [("C", 0), ("A", 0), ("B", 1), ("D", 3)] {
+            let panel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }, keyNameResolver: nil))
+            ids[name] = try workspace.insertCloudManualMirrorPanel(panel,
+                at: .tab(workspaceID: workspace.id, paneID: pane.id.uuidString, index: index),
+                focus: name == "C", isLoading: false)
+        }
+        let expected = ["A", "B", "C", "D"].compactMap { ids[$0] }.compactMap { workspace.surfaceIdFromPanelId($0) }
+        let actual = workspace.bonsplitController.tabs(inPane: pane).map(\.id)
+            .filter { expected.contains($0) }
+        #expect(actual == expected)
+        #expect(workspace.focusedPanelId == ids["C"])
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func deviceLayoutsRoundTripWithoutEchoAndPreserveTheNewestGesture() async throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
