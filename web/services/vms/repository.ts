@@ -773,22 +773,21 @@ async function restoreBaseAfterCreateFailure(
         eq(cloudVmBases.activeVmId, input.vmId),
       ))
       .returning({ id: cloudVmBases.id });
-    if (activeBase.length === 0) return;
-    await tx
-      .update(cloudVmBaseGenerations)
-      .set({ state: "active", updatedAt: now })
-      .where(eq(cloudVmBaseGenerations.id, retained.generation.id));
+    if (activeBase.length > 0) {
+      await tx
+        .update(cloudVmBaseGenerations)
+        .set({ state: "active", updatedAt: now })
+        .where(eq(cloudVmBaseGenerations.id, retained.generation.id));
+    }
   } else {
-    const failedBase = await tx
+    await tx
       .update(cloudVmBases)
       .set({ state: "failed", updatedAt: now })
       .where(and(
         eq(cloudVmBases.id, input.baseId),
         eq(cloudVmBases.activeGeneration, input.generation),
         eq(cloudVmBases.activeVmId, input.vmId),
-      ))
-      .returning({ id: cloudVmBases.id });
-    if (failedBase.length === 0) return;
+      ));
   }
   await tx.insert(cloudVmBaseEvents).values({
     baseId: input.baseId,

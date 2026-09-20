@@ -354,6 +354,108 @@ describe("VM Effect workflows", () => {
     expect(row.metadata.createCleanupLeaseId).toBeUndefined();
   });
 
+  dbTest("treats malformed cleanup timestamps and oversized attempts as immediately eligible", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const fixture = freestyleGuestFixture({
+      exec: async () => Response.json({ statusCode: 1 }),
+      deleteFailure: true,
+      idPrefix: "vm-cleanup-timestamp",
+    });
+    let destroyCalls = 0;
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create(options),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+      destroy: (_, providerVmId) => Effect.sync(() => {
+        destroyCalls += 1;
+        fixture.liveVms.delete(providerVmId);
+      }),
+    });
+    const input = {
+      ...guestCreateOptions, userId: "user-guest-cleanup-timestamp", billingTeamId: "team-guest-cleanup-timestamp",
+      billingCustomerType: "team" as const, billingPlanId: "pro", provider: "freestyle" as const,
+      idempotencyKey: "guest-cleanup-timestamp", maxActiveVms: 1,
+    };
+    expect((await Effect.runPromise(Effect.either(createVm(input).pipe(Effect.provide(layer)))))._tag).toBe("Left");
+    await sql`
+      update cloud_vms
+      set provider_metadata = provider_metadata || jsonb_build_object(
+        'createCleanupNextAttemptAtMs', '999999999999999999999999999999',
+        'createCleanupLeaseExpiresAtMs', 'not-a-timestamp',
+        'createCleanupAttempt', '999999999999999999999999999999'
+      )
+      where user_id = 'user-guest-cleanup-timestamp'
+    `;
+    await Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer)));
+    expect(destroyCalls).toBe(1);
+    const [row] = await sql<{ status: string; metadata: Record<string, unknown> }[]>`
+      select status, provider_metadata as metadata from cloud_vms where user_id = 'user-guest-cleanup-timestamp'
+    `;
+    expect(row.status).toBe("failed");
+    expect(row.metadata.createCleanupProviderVmId).toBeUndefined();
+  });
+
+  dbTest("does not resolve a replaced cleanup marker with a stale lease", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    const fixture = freestyleGuestFixture({
+      exec: async () => Response.json({ statusCode: 1 }),
+      deleteFailure: true,
+      idPrefix: "vm-cleanup-cas",
+    });
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create(options),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+    });
+    const input = {
+      ...guestCreateOptions, userId: "user-guest-cleanup-cas", billingTeamId: "team-guest-cleanup-cas",
+      billingCustomerType: "team" as const, billingPlanId: "pro", provider: "freestyle" as const,
+      idempotencyKey: "guest-cleanup-cas", maxActiveVms: 1,
+    };
+    expect((await Effect.runPromise(Effect.either(createVm(input).pipe(Effect.provide(layer)))))._tag).toBe("Left");
+    const [row] = await sql<{ id: string; providerVmId: string }[]>`
+      select id, provider_metadata->>'createCleanupProviderVmId' as "providerVmId"
+      from cloud_vms where user_id = 'user-guest-cleanup-cas'
+    `;
+    const claim = await Effect.runPromise(vmRepositoryLiveShape.claimCreateCleanup!({
+      id: row.id,
+      providerVmId: row.providerVmId,
+      leaseId: "lease-a",
+      now: new Date(),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    }));
+    expect(claim?.attempt).toBe(1);
+    const duplicateClaim = await Effect.runPromise(vmRepositoryLiveShape.claimCreateCleanup!({
+      id: row.id,
+      providerVmId: row.providerVmId,
+      leaseId: "lease-b",
+      now: new Date(),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    }));
+    expect(duplicateClaim).toBeNull();
+    await sql`
+      update cloud_vms
+      set provider_metadata = provider_metadata || jsonb_build_object('createCleanupProviderVmId', 'replacement-provider-vm')
+      where id = ${row.id}
+    `;
+    const resolved = await Effect.runPromise(vmRepositoryLiveShape.resolveCreateCleanup!({
+      id: row.id,
+      providerVmId: row.providerVmId,
+      leaseId: "lease-a",
+    }));
+    expect(resolved).toBe(false);
+    const [stillPending] = await sql<{ status: string; providerVmId: string }[]>`
+      select status, provider_metadata->>'createCleanupProviderVmId' as "providerVmId"
+      from cloud_vms where id = ${row.id}
+    `;
+    expect(stillPending.status).toBe("provisioning");
+    expect(stillPending.providerVmId).toBe("replacement-provider-vm");
+  });
+
   dbTest("unconfirmed guest rollback keeps the Base generation reserved", async () => {
     if (!sql) throw new Error("test database not initialized");
     const fixture = freestyleGuestFixture({ exec: async () => Response.json({ statusCode: 1 }), deleteFailure: true });
@@ -383,6 +485,45 @@ describe("VM Effect workflows", () => {
     expect(row.status).toBe("provisioning");
     expect(row.providerVmId).toBeNull();
     expect(row.metadata.createCleanupProviderVmId).toBe("vm-fixture-1");
+  });
+
+  dbTest("confirmed Base cleanup restores the retained generation", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    let failInstall = false;
+    const fixture = freestyleGuestFixture({
+      exec: async () => Response.json({ statusCode: failInstall ? 1 : 0 }),
+      deleteFailure: true,
+      idPrefix: "vm-base-cleanup-recovery",
+    });
+    const layer = providerLayer({
+      ...unusedProviderGateway(),
+      create: (_, options) => Effect.tryPromise({
+        try: () => fixture.provider.create(options),
+        catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
+      }),
+      destroy: (_, providerVmId) => Effect.sync(() => {
+        fixture.liveVms.delete(providerVmId);
+      }),
+    });
+    const input = {
+      userId: "user-base-cleanup-recovery", billingTeamId: "team-base-cleanup-recovery",
+      billingCustomerType: "team" as const, billingPlanId: "pro", provider: "freestyle" as const,
+      image: "sh-synthetic", baseName: "cleanup-recovery", maxActiveVms: 2,
+    };
+    const first = await Effect.runPromise(openBaseVm(input).pipe(Effect.provide(layer)));
+    expect(first.providerVmId).toBe("vm-base-cleanup-recovery-1");
+    failInstall = true;
+    const reset = await Effect.runPromise(Effect.either(resetBaseVm(input).pipe(Effect.provide(layer))));
+    expect(reset._tag).toBe("Left");
+    await Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer)));
+    const recovered = await Effect.runPromise(openBaseVm(input).pipe(Effect.provide(layer)));
+    expect(recovered.providerVmId).toBe("vm-base-cleanup-recovery-1");
+    const [base] = await sql<{ state: string; activeProviderVmId: string | null }[]>`
+      select state, active_provider_vm_id as "activeProviderVmId"
+      from cloud_vm_bases where scope_id = 'team-base-cleanup-recovery' and name = 'cleanup-recovery'
+    `;
+    expect(base.state).toBe("ready");
+    expect(base.activeProviderVmId).toBe("vm-base-cleanup-recovery-1");
   });
 
   dbTest("keeps prompt revisions ordered across rapid renames and clock skew", async () => {

@@ -74,9 +74,11 @@ def validate_target(path):
             raise ValueError("refusing to mutate a symlink target")
         if not os.path.islink(path) and not stat.S_ISREG(os.lstat(path).st_mode):
             raise ValueError("target is not a regular file")
-    for parent in parent_dirs(path):
-        if os.path.lexists(parent) and not os.path.isdir(parent):
-            raise NotADirectoryError(parent)
+    parent = os.path.dirname(path)
+    if os.path.islink(parent):
+        raise ValueError("refusing a symlink parent directory")
+    if os.path.lexists(parent) and not os.path.isdir(parent):
+        raise NotADirectoryError(parent)
 
 def remove_path(path):
     if not os.path.lexists(path):
@@ -135,7 +137,7 @@ def cleanup_generated():
     prefixes = [".prompt-" + transaction_token + "-"]
     prefixes.extend(os.path.basename(path) + "." + transaction_token + "." for path in paths)
     for directory in directory_paths:
-        if not os.path.isdir(directory):
+        if not os.path.isdir(directory) or os.path.islink(directory):
             continue
         try:
             for name in os.listdir(directory):
