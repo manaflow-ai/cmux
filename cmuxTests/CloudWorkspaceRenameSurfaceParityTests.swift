@@ -297,12 +297,15 @@ struct CloudWorkspaceRenameSurfaceParityTests {
             let key = CloudRenameCoordinator.Key.workspace(machine: harness.machine, id: "a")
             #expect(harness.catalog.pendingCloudRenameName(for: key) == "Chosen during creation")
 
-            // The older snapshot arrives while the intent is still unacknowledged.
+            // The older snapshot remains authoritative while the intent is still
+            // unacknowledged. The catalog's presentation snapshot deliberately
+            // projects the pending name onto the Cloud tree until the receipt lands.
             harness.fixture.renameService.reconcileRemoteState(
                 machine: harness.machine, state: oldGraph, catalog: harness.catalog, observation: .current
             )
             #expect(harness.workspace.title == "Chosen during creation")
-            #expect(harness.surfaces().cloudTree == "Same workspace")
+            #expect(harness.provider.graph.lookupIndex.workspace(id: "a")?.name == "Same workspace")
+            #expect(harness.surfaces().cloudTree == "Chosen during creation")
 
             gate.continuation.yield(())
             gate.continuation.finish()
