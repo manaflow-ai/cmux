@@ -213,6 +213,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var releaseGateUIProbe: MobileReleaseGateUIProbe?
         var releaseGateSawNonblankFrame = false
         var releaseGateFullFrameInspections = 0
+        var releaseGateDeltaFrameInspections = 0
         #endif
         let workspaceID: String
         let surfaceID: String
@@ -419,6 +420,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             #if DEBUG
             releaseGateSawNonblankFrame = false
             releaseGateFullFrameInspections = 0
+            releaseGateDeltaFrameInspections = 0
             #endif
             // An explicit remount may race a delayed restart. The remount owns
             // the new consumer, so retire the pending replacement first.
@@ -637,9 +639,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             if self.releaseGateSawNonblankFrame {
                                 containsText = true
                             } else if !frame.full {
-                                // Verified deltas are not independently
-                                // observable evidence.
-                                containsText = false
+                                self.releaseGateDeltaFrameInspections += 1
+                                // Deltas can carry the first prompt after a
+                                // blank full replay. Inspect a bounded prefix
+                                // of early deltas and then sample periodically.
+                                let shouldInspect = self.releaseGateDeltaFrameInspections <= 4
+                                    || self.releaseGateDeltaFrameInspections.isMultiple(of: 8)
+                                containsText = shouldInspect && frame.rowSpans.prefix(64).contains { span in
+                                    span.text.prefix(256).contains { !$0.isWhitespace }
+                                }
                             } else {
                                 self.releaseGateFullFrameInspections += 1
                                 // Inspect the first two full frames promptly,

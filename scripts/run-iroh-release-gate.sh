@@ -774,29 +774,29 @@ def interrupted(*_):
 signal.signal(signal.SIGTERM, interrupted)
 base = ["xcrun", "simctl", "spawn", os.environ["SIMULATOR_ID"], "notifyutil"]
 target = "dev.cmux.ios.iroh-release-gate.ui-terminal-ready"
-listener_ready = "dev.cmux.ios.iroh-release-gate.listener-ready"
 waiter = subprocess.Popen(
-    base + ["-1", listener_ready, "-1", target],
+    base + ["-2", target],
     stdout=subprocess.PIPE,
     stderr=subprocess.DEVNULL,
     text=True,
     bufsize=1,
 )
 try:
-    # notifyutil has no registration acknowledgement. Register a private
-    # handshake key first, post it until the listener reports it, then let the
-    # utility advance to the real terminal key. The FIFO wakes the shell only
-    # after that causal registration step, so launch cannot beat the listener.
+    # notifyutil has no registration acknowledgement. Register the real target
+    # for two notifications and post the first one until it is observed. The
+    # first target notification is the registration proof; the second is the
+    # app's real presentation event. The FIFO therefore acknowledges the exact
+    # listener that will capture the app frame.
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         if waiter.poll() is not None:
             raise SystemExit("terminal evidence listener exited before registration")
-        subprocess.run(base + ["-p", listener_ready], check=True,
+        subprocess.run(base + ["-p", target], check=True,
                        timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         readable, _, _ = select.select([waiter.stdout], [], [], 0.2)
         if readable:
             line = waiter.stdout.readline() if waiter.stdout is not None else ""
-            if listener_ready in line:
+            if target in line:
                 try:
                     fd = os.open(os.environ["UI_CAPTURE_READY_FIFO"], os.O_WRONLY | os.O_NONBLOCK)
                     os.write(fd, b"ready\n")
