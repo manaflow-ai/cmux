@@ -230,6 +230,9 @@ final class CloudBrowserAccessState {
         guard let url, navigationURL != nil, owns(url) else { return }
         loaded = false
         error = message
+        hasCommittedNavigation = false
+        activeNavigationID = nil
+        desktopConnected = false
         connectionDeadline.cancel()
         trace("navigation_failed")
     }
@@ -239,6 +242,9 @@ final class CloudBrowserAccessState {
               navigationID == nil || navigationID == activeNavigationID else { return }
         connectionDeadline.cancel()
         error = String(localized: "cloud.display.connectionCancelled", defaultValue: "The Cloud page connection was cancelled. Retry to connect.")
+        hasCommittedNavigation = false
+        activeNavigationID = nil
+        desktopConnected = false
         trace("navigation_cancelled")
     }
 

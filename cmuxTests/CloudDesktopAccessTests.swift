@@ -102,6 +102,9 @@ struct CloudDesktopAccessTests {
         #expect(state.error == nil)
         state.didCancel(navigationID: ObjectIdentifier(current))
         #expect(state.error != nil && !state.showsPage)
+        state.didCommit(url: url, navigationID: ObjectIdentifier(current))
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(!state.showsPage && !state.desktopConnected)
         state.leave()
         await model.retire()
     }
