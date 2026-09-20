@@ -905,6 +905,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(TerminalNotificationClickAction(userInfo: userInfo), action)
 
         let originalTabManager = appDelegate.tabManager
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
         let originalNotificationStore = appDelegate.notificationStore
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, notification in
@@ -912,11 +913,13 @@ final class NotificationDockBadgeTests: XCTestCase {
         }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
         defer {
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
 
         guard let workspace = manager.selectedWorkspace else {
