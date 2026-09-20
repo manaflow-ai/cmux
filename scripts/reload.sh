@@ -662,12 +662,18 @@ if [[ -n "\$SOCKET_ARG" ]]; then
     TAG="\${SOCKET_NAME#cmux-debug-}"
     TAG="\${TAG%.sock}"
     if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
-      TAG_CLI="\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
-      if live_cli_bundle "\$TAG_CLI" >/dev/null; then
-        if [[ "\$HAS_EXPLICIT_SOCKET" == "0" ]] || socket_is_live "\$SOCKET_ARG"; then
-          exec "\$TAG_CLI" "\$@"
+      # reload.sh links /tmp/cmux-<tag> to the DerivedData it built the tag into,
+      # which is not the per-tag default when tags share one.
+      TAG_CLI_SUFFIX="Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
+      for TAG_CLI in "/tmp/cmux-\$TAG/\$TAG_CLI_SUFFIX" "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/\$TAG_CLI_SUFFIX"; do
+        # /tmp is shared, so only trust a CLI this user owns.
+        [[ -O "\$TAG_CLI" ]] || continue
+        if live_cli_bundle "\$TAG_CLI" >/dev/null; then
+          if [[ "\$HAS_EXPLICIT_SOCKET" == "0" ]] || socket_is_live "\$SOCKET_ARG"; then
+            exec "\$TAG_CLI" "\$@"
+          fi
         fi
-      fi
+      done
     fi
   fi
 fi
@@ -1084,8 +1090,25 @@ validate_app_bundle() {
   fi
 }
 
+# Prints the quoted rm -rf targets that hold a tag's build. A DerivedData that is
+# not the tag's own may hold other tags, so only the tag's app is removed from it.
+tag_build_cleanup_paths() {
+  local tag="$1" derived="${2:-}"
+  local own="" link="/tmp/cmux-${tag}"
+  own="$(tagged_derived_data_path "$tag")"
+  if [[ -z "$derived" && -L "$link" ]]; then
+    derived="$(readlink "$link" 2>/dev/null || true)"
+  fi
+  if [[ -n "$derived" && "$derived" != "$own" && "$derived" != "$link" ]]; then
+    printf '"%s" ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
+    [[ -d "$own" ]] || return 0
+  fi
+  printf '"%s" ' "$own"
+}
+
 print_tag_cleanup_reminder() {
   local current_slug="$1"
+  local current_derived="${2:-}"
   local path=""
   local tag=""
   local seen=" "
@@ -1112,7 +1135,8 @@ print_tag_cleanup_reminder() {
     seen="${seen}${tag} "
     stale_tags+=("$tag")
   done < <(
-    find /tmp -maxdepth 1 -name 'cmux-*' -print0 2>/dev/null
+    # The trailing slash makes find descend when /tmp is itself a symlink.
+    find /tmp/ -maxdepth 1 -name 'cmux-*' -print0 2>/dev/null
     find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null
   )
 
@@ -1130,14 +1154,14 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -rf $(tag_build_cleanup_paths "$tag")\"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -rf $(tag_build_cleanup_paths "$current_slug" "$current_derived")\"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
@@ -1208,6 +1232,10 @@ while [[ $# -gt 0 ]]; do
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
         echo "error: --derived-data requires a value" >&2
+        exit 1
+      fi
+      if [[ "$DERIVED_DATA" != /* ]]; then
+        echo "error: --derived-data must be an absolute path, got '$DERIVED_DATA'" >&2
         exit 1
       fi
       DERIVED_SET=1
@@ -2185,5 +2213,5 @@ fi
 # tag-cleanup reminder still runs here, but its output goes to $RELOAD_LOG
 # (visible by tail -f or by inspecting the log path printed in the summary).
 if [[ -n "${TAG_SLUG:-}" ]]; then
-  print_tag_cleanup_reminder "$TAG_SLUG"
+  print_tag_cleanup_reminder "$TAG_SLUG" "$DERIVED_DATA"
 fi
