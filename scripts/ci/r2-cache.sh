@@ -45,7 +45,12 @@ unpack() { # <extension> <archive>
   if [[ "$1" == "tar.zst" ]]; then
     # Consume padding through EOF, otherwise bsdtar exits early and zstd
     # receives SIGPIPE, turning a valid restore into a miss under pipefail.
-    zstd -dc "$2" | tar -ixf - -C "$dir"
+    zstd -dc "$2" | {
+      local tar_status=0
+      tar -xf - -C "$dir" || tar_status=$?
+      cat > /dev/null
+      return "$tar_status"
+    }
   else
     tar -xzf "$2" -C "$dir"
   fi
