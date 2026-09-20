@@ -16,19 +16,22 @@ not need the same first step. Run commands from the repository root.
 
 ```bash
 git diff --check
-./scripts/check-pbxproj.sh
-./scripts/lint-pbxproj-test-wiring.sh
+python3 scripts/verify-local.py
+python3 scripts/verify-local.py --swift-changed
 ```
 
 The project checks matter when adding or moving app/test files. An unwired test can
-silently execute zero tests. For changed Swift files, `swiftc -D DEBUG -parse` followed
-by their paths is an early syntax check only: it does not type-check imports, compile
+silently execute zero tests. For changed Swift files, `--swift-changed` discovers current edits; supply a base
+ref to include committed branch changes. The [command guide](verification-receipts.md)
+covers focused checks, piped paths and JSON receipts. Parsing is an early check only: it does not type-check imports, compile
 the test target, or run assertions. Use the owning script/package's tests for logic
 changes instead of tests that merely search source text for the new implementation.
 
 For a bug fix, add a behavior regression that fails without the fix, then make it
 pass. Keep the failing regression and repair in separate commits so reviewers can
-reproduce both states. Do not describe an infrastructure failure as the expected
+reproduce both states. Record the same focused command failing before and passing
+after; push both commits together when that proof is available locally. Use CI for
+CI-only reproductions and retain final-head checks. Do not describe an infrastructure failure as the expected
 regression failure.
 
 ## 2. Test the owning package
