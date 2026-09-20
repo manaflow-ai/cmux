@@ -111,6 +111,13 @@ public enum ComputerUseHelperIconRenderer {
 /// outline, as a stable AppKit view.
 @MainActor
 public final class AgentCursorPointerView: NSView {
+    /// Draws the same pointer artwork into an existing overlay context.
+    /// Consumers such as Cloud presence can reuse the cursor without creating
+    /// an interactive view or duplicating the asset geometry.
+    public static func drawPointer(in context: CGContext) {
+        ComputerUseCursorArtwork.drawPointer(in: context)
+    }
+
     /// The is opaque exposed to the host application.
     public override var isOpaque: Bool { false }
     /// The is flipped exposed to the host application.
