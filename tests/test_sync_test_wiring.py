@@ -170,7 +170,7 @@ class SyncTestWiringTests(unittest.TestCase):
         self.assertEqual(self.project_text(first), self.project_text(second))
 
     def test_same_target_duplicates_collapse_without_damaging_neighbor_objects(self) -> None:
-        repo = self.make_repo("duplicate.pbxproj", ["ExistingTests.swift", "DuplicateTests.swift"])
+        repo = self.make_repo("duplicate.pbxproj", ["ExistingTests.swift", "DuplicateTests.swift", "Neighbor.swift"])
         self.run_sync(repo)
         text = self.project_text(repo)
         self.assertEqual(text.count("/* DuplicateTests.swift */ = {isa = PBXFileReference;"), 1)
