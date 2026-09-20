@@ -15,9 +15,11 @@ portable-tooling changes do not automatically need a native build.
 
 ## Regression commits
 
-Bug fixes ship the failing behavioral test first (CI red), then the fix in a second
-commit (CI green). Record the failing-before/passing-after result; the PR history must show
-that the test catches the defect.
+Keep the failing behavioral test and repair in separate commits. Record both
+SHAs and the same focused command failing before and passing after; push both
+together when reproduced locally. Follow the root [regression policy](../../CLAUDE.md#regression-test-commits)
+for CI-only failures and final-head checks. Setup failures and zero tests do not
+prove the regression.
 
 ## Test wiring
 

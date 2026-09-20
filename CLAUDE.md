@@ -172,7 +172,13 @@ iPhone build; do not mint a shared tag or rebuild the phone for that.
 
 ## Regression test commits
 
-Two commits, so CI proves the test catches the bug: commit 1 adds the failing test only (CI red), commit 2 adds the fix (CI green). This is visible in the PR Commits tab.
+Keep two commits: first the failing behavioral regression, then the fix. Run the
+same focused command on both and record the commit SHAs, expected failure, and
+passing result. A setup failure or zero executed tests is not regression proof.
+When this proof is available locally, push both commits together after the fix
+passes; a separate hosted CI run on the deliberately broken intermediate commit
+is unnecessary. If the failure only reproduces in CI, use that lane and retain
+its receipts. Required CI and review still apply to the final pushed head.
 
 ## First pass, then dogfood
 

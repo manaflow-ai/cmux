@@ -67,6 +67,10 @@ and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation
 
 ## Fast checks before building or pushing
 
+For edited Swift, use `python3 scripts/verify-local.py --swift path/to/Changed.swift`
+to add a quick syntax check with your installed compiler. Use `--only swift-syntax`
+while fixing a parser error. Parsing does not replace typechecking or tests.
+
 Run `python3 scripts/verify-local.py` to run the same static checks as CI locally,
 without Xcode, package installs, submodules or an app build. It checks localization,
 project configuration, generated policy, test-target wiring, package grouping and

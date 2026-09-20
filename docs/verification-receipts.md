@@ -28,6 +28,37 @@ python3 scripts/verify-local.py --only localization
 python3 scripts/verify-local.py --receipt /tmp/cmux-preflight.json
 ```
 
+For a Swift edit, add the files you changed to catch syntax errors before a native
+build. Paths are relative to the checkout; this includes dirty and untracked files:
+
+```sh
+# The default static checks, plus parsing these files:
+python3 scripts/verify-local.py --swift Sources/MyFile.swift cmuxTests/MyTests.swift
+# Just parsing while fixing a syntax error:
+python3 scripts/verify-local.py --only swift-syntax --swift cmuxTests/MyTests.swift
+```
+
+Replace the example paths with existing files. This opt-in check needs `swiftc`
+on PATH and runs `-frontend -parse -swift-version 5 -D DEBUG -enable-bare-slash-regex`.
+It does not resolve imports, expand macros, typecheck, compile, execute tests, or
+validate every conditional-compilation configuration. Use the intended toolchain;
+parsing with a newer compiler does not prove compatibility with an older one.
+The default Linux CI recipe remains the eight portable checks below.
+
+Receipts record the parser version, exact argv, selected-file hashes before and
+after, and a separate `parsing` result. Missing `swiftc` is `unsupported`; an empty
+selection is rejected. Selected-file content drift interrupts the result, including
+untracked files whose Git status stays unchanged. These observations still do not
+establish an isolated snapshot of the entire checkout.
+
+The `swift-failed.json` and `swift-repaired.json` examples replay the PR-head file
+behind [a real CI syntax failure](https://github.com/manaflow-ai/cmux/actions/runs/35525568719/job/106117704441).
+That CI compile step lasted 12m14s. The local parser rejected the original file in
+0.132s and accepted the missing-backslash repair in 0.075s on the recorded compiler.
+Those are single observations, not a build-speed benchmark or proof that the
+repaired tests compile or pass. The example identifies the source file and SHA;
+it does not assert that the entire CI checkout equals the PR head.
+
 | Check ID | Existing validation |
 | --- | --- |
 | `xcstrings` | Localization catalog structure |

@@ -157,6 +157,18 @@ AAAA000000000000000000S1 /* Sources */ = {
 
 
 class SwiftSyntaxTests(unittest.TestCase):
+    def test_swift_option_adds_parse_without_broadening_selected_static_checks(self):
+        with repo_fixture() as repo:
+            (repo / "Example.swift").write_text("let value = 1\n")
+            (repo / "scripts/lint-xcstrings.py").write_text('print("ok")\n')
+            with patch.object(verify.shutil, "which", return_value=None):
+                result = verify.run(repo, ["xcstrings"], 5, io.StringIO(),
+                                    swift_files=["Example.swift", "Example.swift"])
+            self.assertEqual([e["id"] for e in result["evidence"]["executions"]],
+                             ["swift-syntax", "xcstrings"])
+            self.assertEqual(len(result["evidence"]["swift_inputs"]["before"]), 1)
+            self.assertIn("--swift", result["recipe"]["argv"])
+
     def test_no_files_is_an_error_not_a_passing_parse(self):
         with repo_fixture() as repo:
             result = cli(repo, "--only", "swift-syntax")
