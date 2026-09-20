@@ -18,7 +18,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
       - name: Require reporter OS family
         run: |
           sw_vers
@@ -35,7 +35,7 @@ jobs:
           CMUX_PASTE_HELPER: ${{ runner.temp }}/plain-paste/helper
           CMUX_PASTE_PROVIDER: ${{ runner.temp }}/plain-paste/provider
         run: python3 tests/test_plain_text_paste_worker.py 2>&1 | tee "$RUNNER_TEMP/plain-paste/results.log"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
           name: plain-paste-controls-macos15
