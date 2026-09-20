@@ -1660,6 +1660,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.menubarDebug",
     "cmux.spinnerGallery",
     "cmux.cloudTreeStyleGallery",
+    "cmux.cloudRowLayoutPreview",
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
