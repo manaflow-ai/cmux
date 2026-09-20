@@ -200,7 +200,7 @@ struct CloudTreeNodeActions {
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
-                let target = Result { try destination(.tab) }
+                let target: Result<SurfaceDestination, Error> = Result { try destination(.tab) }
                 // A cloud machine gets its pane at once; the sidebar shares the
                 // shortcut routes' optimistic path. The local machine and a missing
                 // workspace keep the awaited create below.
