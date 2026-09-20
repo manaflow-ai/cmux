@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# Regression test for the Debug compilation cache that nightly seeds from main
+# and the pull request compile admission job restores.
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
+SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
+
+# Prints one job's body.
+job_body() {
+  awk -v job="$2" '
+    $0 ~ "^  "job":" { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+    in_job { print }
+  ' "$1"
+}
+
+ADMISSION="$(job_body "$CI_FILE" "macos-compile-admission")"
+SEEDER="$(job_body "$NIGHTLY_FILE" "refresh-test-compilation-cache")"
+
+if [ -z "$ADMISSION" ] || [ -z "$SEEDER" ]; then
+  echo "FAIL: expected ci.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
+  exit 1
+fi
+
+# A cache entry is keyed on the whole compiler invocation. If either job builds
+# the product by hand, the two drift and the seed stops hitting without any
+# job failing.
+for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
+  name="${pair%%:*}"
+  body="${pair#*:}"
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh build' <<<"$body" \
+    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh fingerprint' <<<"$body"; then
+    echo "FAIL: the $name job must build and fingerprint through scripts/ci/compile-app-host-test-product.sh"
+    exit 1
+  fi
+  if grep -Eq 'xcodebuild .*build-for-testing|^[[:space:]]+build-for-testing' <<<"$body"; then
+    echo "FAIL: the $name job must not hand-roll the app-host test build; change scripts/ci/compile-app-host-test-product.sh"
+    exit 1
+  fi
+done
+echo "PASS: admission and the seeder build the app-host test product through one script"
+
+# The build paths are part of every cache entry, so both jobs must use the
+# same ones.
+for line in \
+  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission' \
+  'CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas'; do
+  if ! grep -Fq "$line" <<<"$ADMISSION" || ! grep -Fq "$line" <<<"$SEEDER"; then
+    echo "FAIL: admission and the seeder must both set $line"
+    exit 1
+  fi
+done
+echo "PASS: admission and the seeder build from the same paths"
+
+KEY_PREFIX='xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-'
+for file in "$CI_FILE" "$NIGHTLY_FILE"; do
+  if ! grep -Fq -- "$KEY_PREFIX" "$file" \
+    || grep -F 'xcode-compilation-test-' "$file" | grep -vqF -- "$KEY_PREFIX"; then
+    echo "FAIL: $(basename "$file") must use the shared test compilation cache key prefix"
+    exit 1
+  fi
+done
+echo "PASS: admission and the seeder share one cache key prefix"
+
+# Pull requests restore and never save: a cache written from a pull request is
+# scoped to it, so it helps nobody else and spends the budget that keeps the
+# main seed from being evicted.
+if ! awk '
+  /uses: actions\/cache/ { uses=$0 }
+  /key: xcode-compilation-test-/ { saw=1; if (uses !~ /actions\/cache\/restore@/) bad=1 }
+  END { exit !(saw && !bad) }
+' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must restore the test compilation cache with actions/cache/restore and never save it"
+  exit 1
+fi
+echo "PASS: pull requests restore the test compilation cache read-only"
+
+if ! awk '
+  /^      - name: Restore test compilation cache/ { step="restore" }
+  /^      - name: Bound test compilation cache size/ { step="bound" }
+  /^      - name: Save test compilation cache/ { step="save" }
+  step == "restore" && /id: compilation-cache-restore/ { saw_restore_id=1 }
+  step == "restore" && /needs\.decide\.outputs\.head_sha/ { saw_revision_key=1 }
+  step == "bound" && /prune-xcode-compilation-cache\.py/ { saw_prune=1 }
+  step == "save" && /uses: actions\/cache\/save@/ { saw_save=1 }
+  step == "save" && /cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''/ { saw_gate=1 }
+  END { exit !(saw_restore_id && saw_revision_key && saw_prune && saw_save && saw_gate) }
+' <<<"$SEEDER"; then
+  echo "FAIL: refresh-test-compilation-cache must key the seed by main revision, prune it, and save only a new, bounded cache"
+  exit 1
+fi
+echo "PASS: the seeder rolls the cache forward by main revision and bounds what it saves"
+
+if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
+  echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
+  exit 1
+fi
+echo "PASS: the seeder runs on the cache-warming schedule"
+
+# Exercise the script against a stub xcodebuild.
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+mkdir -p "$TMP_DIR/bin" "$TMP_DIR/work"
+cat > "$TMP_DIR/bin/xcodebuild" <<'STUB'
+#!/usr/bin/env bash
+if [ "${1:-}" = "-version" ]; then
+  echo "Xcode ${STUB_XCODE_VERSION:-26.3}"
+  exit 0
+fi
+printf '%s\n' "$@" >> "$STUB_XCODEBUILD_ARGS"
+echo "---" >> "$STUB_XCODEBUILD_ARGS"
+# Resolution fails for the first STUB_RESOLVE_FAILS_UNTIL attempts, then reports
+# success, and writes the binary artifacts only from the attempt named by
+# STUB_RESOLVE_ARTIFACTS_FROM.
+packages=""
+resolving=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -clonedSourcePackagesDirPath) packages="$2"; shift ;;
+    -resolvePackageDependencies) resolving=1 ;;
+  esac
+  shift
+done
+if [ "$resolving" -eq 1 ]; then
+  echo x >> "$STUB_RESOLVE_ATTEMPTS"
+  if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -le "${STUB_RESOLVE_FAILS_UNTIL:-0}" ]; then
+    # A failed resolve that leaves a partial clone behind.
+    mkdir -p "$packages/checkouts/partial-clone"
+    exit 74
+  fi
+  if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ge "${STUB_RESOLVE_ARTIFACTS_FROM:-1}" ]; then
+    mkdir -p "$packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" \
+      "$packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework"
+  fi
+fi
+STUB
+chmod +x "$TMP_DIR/bin/xcodebuild"
+export STUB_RESOLVE_ATTEMPTS="$TMP_DIR/resolve-attempts.txt"
+export STUB_XCODEBUILD_ARGS="$TMP_DIR/args.txt"
+
+run_script() {
+  (cd "$TMP_DIR/work" && PATH="$TMP_DIR/bin:$PATH" "$SCRIPT" "$@")
+}
+
+first="$(run_script fingerprint /tmp/derived-a)"
+again="$(run_script fingerprint /tmp/derived-a)"
+other_path="$(run_script fingerprint /tmp/derived-b)"
+other_xcode="$(STUB_XCODE_VERSION=26.5 run_script fingerprint /tmp/derived-a)"
+if [ "$first" != "$again" ] || [ "$first" = "$other_path" ] || [ "$first" = "$other_xcode" ] || [ -z "$first" ]; then
+  echo "FAIL: the fingerprint must be stable and must change with the build path and the toolchain"
+  exit 1
+fi
+echo "PASS: the fingerprint follows the build path and the toolchain"
+
+run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+for expected in \
+  cmux-unit \
+  cmux-numeric-locale \
+  build-for-testing \
+  COMPILATION_CACHE_ENABLE_CACHING=YES \
+  "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
+  "$TMP_DIR/derived" \
+  "$TMP_DIR/packages"; do
+  if ! grep -Fxq -- "$expected" "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: the build must pass $expected to xcodebuild"
+    exit 1
+  fi
+done
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 2 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run both schemes against an existing CAS directory"
+  exit 1
+fi
+# `build` compiles no test files: the cmux-unit scheme marks cmuxTests
+# buildForRunning=NO.
+if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
+  exit 1
+fi
+echo "PASS: the build compiles both schemes for testing with the compilation cache on"
+
+# A restored package cache can make resolution succeed without the binary
+# artifacts, and the build cannot resolve again.
+: > "$STUB_RESOLVE_ATTEMPTS"
+mkdir -p "$TMP_DIR/stale-packages/checkouts"
+if ! STUB_RESOLVE_ARTIFACTS_FROM=2 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/stale-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
+  || [ -d "$TMP_DIR/stale-packages/checkouts" ]; then
+  echo "FAIL: resolve must clear the package cache and retry when the binary artifacts are missing"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+if ! STUB_RESOLVE_FAILS_UNTIL=1 STUB_RESOLVE_ARTIFACTS_FROM=2 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/failed-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
+  || [ -d "$TMP_DIR/failed-packages/checkouts/partial-clone" ]; then
+  echo "FAIL: resolve must clear the partial clone a failed attempt leaves and retry"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+if STUB_RESOLVE_ARTIFACTS_FROM=9 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/never-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 3 ]; then
+  echo "FAIL: resolve must fail after three attempts without the binary artifacts"
+  exit 1
+fi
+for name_and_body in "macos-compile-admission:$ADMISSION" "refresh-test-compilation-cache:$SEEDER"; do
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh resolve' <<<"${name_and_body#*:}"; then
+    echo "FAIL: the ${name_and_body%%:*} job must resolve packages through scripts/ci/compile-app-host-test-product.sh"
+    exit 1
+  fi
+done
+echo "PASS: resolve retries until the binary artifacts exist, in both jobs"
+
+if run_script bogus >/dev/null 2>&1 || run_script build only-one-arg >/dev/null 2>&1; then
+  echo "FAIL: the script must reject unknown commands and short argument lists"
+  exit 1
+fi
+echo "PASS: the script rejects bad usage"

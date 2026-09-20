@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+env:
+  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -164,6 +167,9 @@ jobs:
       - name: Validate macOS runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: Validate tagged reload works without the shared dev backend
+        run: ./tests/test_reload_local_backend_mode.sh
+
       - name: Validate release SDK build lane
         run: ./tests/test_ci_release_sdk_lane.sh
 
@@ -229,6 +235,9 @@ jobs:
 
       - name: Validate required checks report for the merge queue
         run: python3 tests/test_ci_merge_queue_required_checks.py
+
+      - name: Validate the trusted web complexity workflow
+        run: python3 tests/test_web_complexity_trusted_workflow.py
 
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
@@ -342,6 +351,9 @@ jobs:
 
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
+
+      - name: Validate test compilation cache seeding
+        run: bash ./tests/test_ci_test_compilation_cache_seed.sh
 
       - name: Validate cmux-tui client installation
         run: bash ./tests/test_install_cmux_tui_client.sh
@@ -1453,6 +1465,28 @@ jobs:
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
+      - name: Run Cloud machine ordering acceptance
+        if: ${{ !cancelled() && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        timeout-minutes: 10
+        run: |
+          # Separate invocations prove each selector executed tests; a healthy
+          # suite cannot mask a miswired or accidentally empty selector.
+          set -euo pipefail
+          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests; do
+            test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
+            scripts/ci/run-in-console-session.sh \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -test-timeouts-enabled YES \
+              -default-test-execution-time-allowance 60 \
+              -maximum-test-execution-time-allowance 60 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building 2>&1 | tee "$test_log"
+            scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
+          done
+
       - name: Run unit tests
         run: |
           set -euo pipefail
@@ -1696,6 +1730,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_transfer_progress.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_vm_resize.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_cloud_hostname.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_simulator_contract.py
@@ -2248,7 +2283,11 @@ jobs:
           persist-credentials: false
 
       - name: Prepare isolated admission DerivedData
-        run: echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission" >> "$GITHUB_ENV"
+        run: |
+          set -euo pipefail
+          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission" >> "$GITHUB_ENV"
+          # Outside DerivedData: the resolve step below recreates that directory.
+          echo "CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -2284,44 +2323,35 @@ jobs:
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          mkdir -p "$SOURCE_PACKAGES_DIR" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          scripts/ci/compile-app-host-test-product.sh resolve \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
 
-          for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
-                && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
-                exit 0
-              fi
-              echo "Resolve succeeded but binary artifacts are missing; clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR"
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
+      - name: Compute test compilation cache key
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
+      # only writer. A cache saved here would be scoped to this pull request and
+      # would spend the cache budget that keeps the main seed alive.
+      - name: Restore test compilation cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
+          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Compile app-host test product
         run: |
           set -euo pipefail
-          # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-          for scheme in cmux-unit cmux-numeric-locale; do
-            xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
-              -derivedDataPath "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-              -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
-              'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
-              build-for-testing 2>&1 | tee -a "$RUNNER_TEMP/cmux-compile-admission.txt"
-          done
+          scripts/ci/compile-app-host-test-product.sh build \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+            "$PWD/.ci-source-packages" \
+            "$CMUX_COMPILE_ADMISSION_CAS" \
+            "$RUNNER_TEMP/cmux-compile-admission.txt"
 
       - name: Package compiled app-host test product
         id: package-products
