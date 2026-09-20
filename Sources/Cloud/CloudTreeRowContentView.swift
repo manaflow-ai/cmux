@@ -1,17 +1,17 @@
 import CmuxFoundation
 import SwiftUI
 enum CloudTreeRowGrid {
-    /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
+    /// Width of the outline's native disclosure control; content starts
+    /// `disclosureGap` after it. The native caret keeps its own artwork.
     static let disclosureSlot: CGFloat = 16
-    /// Small separation between a disclosure control and its row content.
-    /// Keeping this below the tree indent makes group headers read as one
-    /// shared outline rather than disconnected columns.
-    static let disclosureGap: CGFloat = 4
+    /// A gap smaller than the tree indent keeps carets and content together
+    /// so group headers read as one shared outline.
+    static let disclosureGap: CGFloat = 2
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
-    static let dotGap: CGFloat = 8
+    static let dotGap: CGFloat = 4
     /// Space between a title and its dim detail text.
-    static let detailGap: CGFloat = 6
+    static let detailGap: CGFloat = 5
     /// Trailing accessories (open marker): gap after the text, a fixed slot, then padding.
     static let trailingGap: CGFloat = 10
     static let trailingSlot: CGFloat = 16
