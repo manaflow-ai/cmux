@@ -26,9 +26,9 @@ CATALOG_SPEC.loader.exec_module(CATALOG)
 SWIFT_CALL = re.compile(
     r"(?P<kind>String\s*\(\s*localized:|LocalizedStringResource\s*\()\s*"
     r'(?P<key>"(?:\\.|[^"\\])*")'
-    r"(?P<middle>[\s\S]{0,1200}?)"
-    r'defaultValue\s*:\s*(?P<value>"(?:\\.|[^"\\])*")',
+
 )
+SWIFT_DEFAULT = re.compile(r'defaultValue\s*:\s*(?P<value>"(?:\\.|[^"\\])*")')
 SWIFT_COMMENT = re.compile(r'comment\s*:\s*(?P<comment>"(?:\\.|[^"\\])*")')
 WEB_LOCALES = re.compile(r"export\s+const\s+locales\s*=\s*\[(?P<body>[\s\S]*?)\]\s*as\s+const")
 QUOTED = re.compile(r'"((?:\\.|[^"\\])*)"|\'((?:\\.|[^\'\\])*)\'')
@@ -158,11 +158,15 @@ def parse_swift_messages(path: str, text: str) -> tuple[dict[str, SwiftMessage],
     conflicts: set[str] = set()
     handled = 0
     for match in SWIFT_CALL.finditer(text):
+        suffix = swift_call_suffix(text, match.end())
+        default = SWIFT_DEFAULT.search(suffix)
+        if default is None:
+            continue
         handled += 1
         try:
             key = decode_swift_string(match.group("key"))
-            source = decode_swift_string(match.group("value"))
-            comment_match = SWIFT_COMMENT.search(match.group("middle") + swift_call_suffix(text, match.end()))
+            source = decode_swift_string(default.group("value"))
+            comment_match = SWIFT_COMMENT.search(suffix)
             comment = decode_swift_string(comment_match.group("comment")) if comment_match else None
         except ValueError as error:
             attention.append(f"{path}: {error}")
@@ -562,8 +566,18 @@ def apply_completed(root: Path, work: dict, omissions: dict) -> int:
             key: row[key] for key in ("key", "source", "value", "localization") if key in row
         })
     updated = 0
+    staged: dict[Path, str] = {}
+    # Validate and compose every locale before modifying any catalog on disk.
     for (catalog_path, locale), rows in sorted(grouped.items()):
-        updated += CATALOG.merge(root / catalog_path, locale, rows, omissions)
+        path = root / catalog_path
+        text = staged.get(path)
+        if text is None:
+            text = path.read_text(encoding="utf-8")
+        staged[path], changes = CATALOG.merge_text(text, locale, rows, omissions)
+        updated += changes
+    for path, text in staged.items():
+        if path.read_text(encoding="utf-8") != text:
+            CATALOG.atomic_write(path, text)
     return updated
 
 
@@ -663,8 +677,20 @@ def web_work(root: Path, base: str, paths: Iterable[str], locales: tuple[str, ..
                 issues.append("missing message key")
             elif value in ("", []) or (isinstance(value, str) and not value.strip()):
                 issues.append("empty translation")
-            elif key in previous_en and previous_en[key] != source and previous_localized.get(key) == value:
-                issues.append("translation was unchanged after the English source changed; review it")
+            elif key in previous_en and previous_en[key] != source:
+                previous_source = previous_en[key]
+                previous_value = previous_localized.get(key)
+                if previous_value == value:
+                    issues.append("translation was unchanged after the English source changed; review it")
+                elif isinstance(source, list):
+                    if not isinstance(value, list) or len(value) != len(source):
+                        issues.append("translation array does not match the English array length; review it")
+                    elif isinstance(previous_source, list) and isinstance(previous_value, list):
+                        stale = [index for index, item in enumerate(source)
+                                 if index < len(previous_source) and item != previous_source[index]
+                                 and index < len(previous_value) and value[index] == previous_value[index]]
+                        if stale:
+                            issues.append(f"translation array elements {stale} were unchanged after the English source changed; review them")
             if issues:
                 row = {"catalog": f"web/messages/{locale}.json", "key": key, "source": source, "locale": locale, "issues": issues}
                 if value is not None:
