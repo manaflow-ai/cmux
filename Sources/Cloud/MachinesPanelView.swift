@@ -43,7 +43,13 @@ struct MachinesPanelView: View {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
-            defaultMachineStore: defaultMachineStore, machinePinStore: machinePinStore
+            defaultMachineStore: defaultMachineStore, machinePinStore: machinePinStore,
+            localWorkspacesProvider: { [weak tabManager] in
+                guard let tabManager else { return [] }
+                return tabManager.tabs.map {
+                    CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == tabManager.selectedTabId)
+                }
+            }
         ))
     }
 
@@ -466,7 +472,7 @@ struct MachinesPanelView: View {
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            preferredWindow: tabManager?.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
     }
@@ -501,14 +507,15 @@ struct MachinesPanelView: View {
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectedWorkspaceID: { tabManager?.selectedTabId },
             selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+                tabManager?.selectedTabId = workspaceID
             },
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
+            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
+            workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
         )
         return CloudTreeOutlineView(
             machines: viewModel.sidebarMachines,
