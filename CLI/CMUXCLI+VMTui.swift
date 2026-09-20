@@ -459,6 +459,7 @@ extension CMUXCLI {
                         try bindVMTuiInitialWorkspace(workspaceId, machine: vmId, remoteWorkspaceID: remoteWorkspaceID, base: options.pinAsBase, client: client)
                     }
                     var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": reusesTarget, "reuse_in_workspace": reusesTarget]
+                    if reusesTarget { params["placement"] = "tab" }
                     if let tabID { params["remote_tab_id"] = tabID }
                     var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
                     projected["terminal_id"] = terminalID
@@ -466,6 +467,7 @@ extension CMUXCLI {
                     opened = projected
                 case .empty(let remoteWorkspaceID):
                     var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    if requestedTarget?.isEmpty == false { params["placement"] = "tab" }
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
                 case .unavailable:
