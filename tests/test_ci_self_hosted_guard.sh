@@ -16,6 +16,7 @@ E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
+MERGE_GROUP_POLICY_FILE="$ROOT_DIR/.github/workflows/merge-group-policy-checks.yml"
 
 check_cla_guard_runner() {
   if ! grep -Fqx '    runs-on: ubuntu-24.04' "$CLA_GUARD_FILE"; then
@@ -29,6 +30,34 @@ check_cla_guard_runner() {
   fi
 
   echo "PASS: CLA policy guard uses the fixed GitHub-hosted runner"
+}
+
+check_merge_group_policy_bridge() {
+  # This workflow is exempt from the product-runner policy below because it
+  # reports required control-plane contexts on the synthetic merge commit.
+  # Keep the exemption narrow: adding a candidate/product job here must fail
+  # this test until it gets an explicit runner and trust review.
+  local file="$MERGE_GROUP_POLICY_FILE"
+  if [ ! -f "$file" ]; then
+    echo "FAIL: merge-group-policy-checks.yml is missing"
+    exit 1
+  fi
+  if ! grep -Fqx '  merge_group:' "$file"; then
+    echo "FAIL: merge-group-policy-checks.yml must be merge_group-only"
+    exit 1
+  fi
+  if [ "$(grep -Fc '    name: CLA Assistant' "$file")" -ne 1 ] || \
+     [ "$(grep -Fc '    name: CLA policy guard' "$file")" -ne 1 ] || \
+     [ "$(grep -Fc '    runs-on: ubuntu-24.04' "$file")" -ne 2 ]; then
+    echo "FAIL: merge-group-policy-checks.yml may only expose the two fixed policy bridge jobs"
+    exit 1
+  fi
+  if grep -Eq '^[[:space:]]+uses:|checkout|curl|ruby|scripts/' "$file" || \
+     grep -Eq '(^|[^[:alnum:]_])bun([^[:alnum:]_]|$)' "$file"; then
+    echo "FAIL: merge-group-policy-checks.yml must not execute candidate-controlled actions or scripts"
+    exit 1
+  fi
+  echo "PASS: merge-group policy runner exemption is limited to the two fixed bridge jobs"
 }
 
 check_macos_runner() {
@@ -1261,6 +1290,7 @@ check_no_self_hosted_fleet_runners() {
 }
 
 check_cla_guard_runner
+check_merge_group_policy_bridge
 
 # ci.yml jobs
 check_no_bare_github_hosted_runners
