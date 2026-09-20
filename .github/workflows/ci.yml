@@ -365,6 +365,9 @@ jobs:
       - name: Validate package test selection
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate stale run cleanup eligibility
+        run: python3 tests/test_cleanup_stale_runs.py
+
       - name: Validate the trusted web complexity workflow
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
@@ -486,6 +489,9 @@ jobs:
 
       - name: Validate Ghostty Zig version synchronization
         run: ./tests/test_ghostty_zig_version_sync.sh
+
+      - name: Validate bundled-resource incremental outputs
+        run: ./tests/test_build_app_bundled_resources.sh
 
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
