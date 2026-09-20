@@ -121,7 +121,9 @@ struct CloudBrowserRouting {
           const rewrite = (input) => {
             let parsed;
             try { parsed = new URL(input, document.baseURI); } catch (_) { return null; }
-            if (!['ws:', 'wss:'].includes(parsed.protocol) || parsed.hostname.toLowerCase() !== targetHost) return null;
+            // Keep wss:// on WebKit's native CONNECT path. Rewriting it to ws://
+            // would downgrade TLS and make the upstream handshake invalid.
+            if (parsed.protocol !== 'ws:' || parsed.hostname.toLowerCase() !== targetHost) return null;
             const target = `${parsed.hostname}:${parsed.port || '80'}`;
             parsed.protocol = 'ws:';
             parsed.hostname = '127.0.0.1';
