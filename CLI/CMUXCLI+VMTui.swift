@@ -391,6 +391,7 @@ extension CMUXCLI {
         let windowId: String?
         let terminalSurfaceId: String?
         let didCreateWorkspace: Bool
+        var targetBinding: [String: Any]?
         // Background creates preserve navigation even if the user visited the
         // loading card while provisioning. Adoption keeps its native tab identity.
         let requestedTarget = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -398,9 +399,11 @@ extension CMUXCLI {
         let workspaceTitle = options.workspaceTitle
         if let target = requestedTarget, !target.isEmpty {
             let ready = try prepareVMTuiTargetWorkspace(
-                target, windowRaw: windowRaw, fullClient: options.fullClient,
-                initialCommand: initialCommand, focus: paneFocus, client: client
+                target, fullClient: options.fullClient, initialCommand: initialCommand, focus: paneFocus,
+                machineID: vmId, isBase: options.pinAsBase,
+                generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil, client: client
             )
+            if !options.fullClient { targetBinding = ready }
             workspaceId = (ready["workspace_id"] as? String) ?? target
             workspaceRef = ready["workspace_ref"] as? String
             windowId = (ready["window_id"] as? String) ?? (options.fullClient ? windowRaw : nil)
@@ -426,7 +429,7 @@ extension CMUXCLI {
         do {
             // The binding is how the app finds this machine's workspace again (Machines
             // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
-            let binding = try client.sendV2(
+            let binding = try targetBinding ?? client.sendV2(
                 method: "workspace.cloud_vm_bind",
                 params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)
             )

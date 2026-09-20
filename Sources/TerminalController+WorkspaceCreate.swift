@@ -299,6 +299,7 @@ extension TerminalController {
             generatedTitle: generatedTitle
         )
         return .ok([
+            "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
             "workspace_id": workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
             "vm_id": vmID,
