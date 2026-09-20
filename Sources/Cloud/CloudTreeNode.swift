@@ -1,5 +1,6 @@
 import CmuxCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
 /// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace

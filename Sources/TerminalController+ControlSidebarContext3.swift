@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 
 /// The live-app half of the v1 bonsplit pane commands (`list_panes` /

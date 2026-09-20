@@ -2,6 +2,7 @@ import AppKit
 import CmuxFoundation
 import CmuxAppKitSupportUI
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 func titlebarShortcutHintShouldShow(

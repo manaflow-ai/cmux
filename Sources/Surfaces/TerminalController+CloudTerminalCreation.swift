@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Keeps a socket create and its requested native projection in one local intent.

@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Semantic row content, without reflection or derived drag-payload allocation.

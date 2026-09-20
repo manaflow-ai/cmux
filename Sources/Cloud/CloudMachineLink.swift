@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Bounded recovery for the event side channel. The command socket remains usable while the

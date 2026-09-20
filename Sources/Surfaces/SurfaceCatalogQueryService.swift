@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Reads the surface catalog and resolves providers for machines not yet discovered

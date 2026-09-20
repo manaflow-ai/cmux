@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 // Cloud notifications: the VM's cmux-tui daemon is the source of truth.

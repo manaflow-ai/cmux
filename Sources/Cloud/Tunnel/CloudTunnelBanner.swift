@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// What the setup pane says about the explicit system-wide Cloud VPN

@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 import WebKit

@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 enum CloudTreeRowGrid {
     /// Width of the outline's native disclosure control; content starts

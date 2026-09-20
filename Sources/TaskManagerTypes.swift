@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Darwin
 import CmuxTerminalCore
 import Foundation

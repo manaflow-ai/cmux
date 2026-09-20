@@ -1,7 +1,7 @@
 import Foundation
 
 extension CloudVMState {
-    static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
+    public static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
         lhs.hasSameModeledContent(as: rhs) && lhs.document == rhs.document
     }
 
@@ -10,7 +10,7 @@ extension CloudVMState {
     /// them in exports without treating inspection or resize as a conflict.
     /// Compare resource rows by identity. Positional keys keep unkeyed arrays
     /// strict, and every unknown field inside a row remains part of equality.
-    func hasSameRevisionedContent(as other: CloudVMState) -> Bool {
+    public func hasSameRevisionedContent(as other: CloudVMState) -> Bool {
         hasSameRevisionedModeledContent(as: other)
             && document.values.filter { $0.key != "clients" && $0.key != "session" }
                 == other.document.values.filter { $0.key != "clients" && $0.key != "session" }

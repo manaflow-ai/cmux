@@ -1,5 +1,6 @@
 import CmuxControlSocket
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
@@ -1337,12 +1338,4 @@ extension TerminalController {
         guard let array = raw as? [Any] else { return [] }
         return array.compactMap { surfaceString($0) }
     }
-}
-
-extension SurfaceResourceID {
-    /// The key every provider uses for a machine's one VNC display (T10 makes this a list).
-    static let desktopDisplayKey = "display:1"
-
-    /// The key for the browser that shows a forwarded HTTP port.
-    static func portKey(_ port: Int) -> String { "port:\(port)" }
 }

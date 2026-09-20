@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Browser opens target the VM's private address. The provider may carry that

@@ -1,3 +1,5 @@
+import CmuxSurfaceCatalogModel
+
 extension SurfaceProjection {
     /// Explicit VNC panes have no daemon tab. Their live catalog projections name
     /// their bound workspace; availability in the machine display pool never does.

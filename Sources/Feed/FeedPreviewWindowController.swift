@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 #if DEBUG
 import AppKit
 import CMUXAgentLaunch

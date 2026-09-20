@@ -1,4 +1,5 @@
 import CmuxCloudMachines
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension cmuxApp {

@@ -2,6 +2,7 @@ import CmuxFoundation
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxSurfaceCatalogModel
 import SwiftUI
 #if DEBUG
 private func feedDebugResponderSummary(_ responder: NSResponder?) -> String {

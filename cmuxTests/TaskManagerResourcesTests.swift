@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import XCTest
 
 #if canImport(cmux_DEV)

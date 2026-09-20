@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import XCTest
 
 /// New Machine has one creation flow with no Desktop/Base switcher.

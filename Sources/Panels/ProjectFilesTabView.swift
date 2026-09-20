@@ -1,6 +1,7 @@
 import CmuxFoundation
 import AppKit
 import CMUXProjectModel
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Files tab inside ``ProjectPanelView``.

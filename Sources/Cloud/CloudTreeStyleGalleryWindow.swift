@@ -1,3 +1,5 @@
+import CmuxSurfaceCatalogModel
+
 #if DEBUG
 import AppKit
 import SwiftUI

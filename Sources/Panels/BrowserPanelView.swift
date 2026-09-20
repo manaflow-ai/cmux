@@ -4,6 +4,7 @@ import CmuxFoundation
 import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSurfaceCatalogModel
 import SwiftUI
 import WebKit
 import AppKit

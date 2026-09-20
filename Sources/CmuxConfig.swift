@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Combine
 import CryptoKit
 import Foundation
