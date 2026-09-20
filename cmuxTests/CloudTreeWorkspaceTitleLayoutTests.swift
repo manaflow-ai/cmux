@@ -59,6 +59,7 @@ struct CloudTreeWorkspaceTitleLayoutTests {
     func containerDocumentFillsScrollViewportAtWideAndNarrowSizes() {
         let machineActions = MachineRowActions.bound(onDidMutate: {})
         let nodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared }, selectedWorkspaceID: { nil },
             selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
             onDidMutate: {}, onFailure: { _ in }, refresh: {}
