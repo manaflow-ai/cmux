@@ -68,10 +68,9 @@ test("create failure settles independent setup before destroying the VM", async 
     throw new Error("required CLI upload failed");
   };
   let reporterFinished = false;
-  const reporter = gate(), finishReporter = gate(), exec = f.vm.exec;
+  const finishReporter = gate(), exec = f.vm.exec;
   f.vm.exec = async input => {
     if (input.command.includes("cmux-resource-stats.service")) {
-      reporter.release();
       await finishReporter.promise;
       reporterFinished = true;
     }

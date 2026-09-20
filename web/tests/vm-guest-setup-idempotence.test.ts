@@ -32,7 +32,7 @@ esac`);
   const run = (command: string) => {
     const isolated = command.replaceAll("/usr/local/", `${root}/usr/local/`).replaceAll("/etc/", `${root}/etc/`);
     const result = spawnSync("sh", ["-c", isolated], {
-      encoding: "utf8", env: { PATH: `${bin}:${process.env.PATH}`, FIXTURE_ROOT: root, HOME: root },
+      encoding: "utf8", env: { NODE_ENV: "test", PATH: `${bin}:${process.env.PATH}`, FIXTURE_ROOT: root, HOME: root },
     });
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);

@@ -1461,14 +1461,15 @@ export class FreestyleProvider implements VMProvider {
             bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
           if (!healed && bundleResult?.exitCode === 0) {
-            // Healthy existing machines skip daemon healing, but still need
-            // current OS openers before an interactive terminal is attached.
-            await this.ensureGuestCli(vm, vmId);
-            // The healthy fast path skips the heal, so this is where a machine
-            // that predates hook installation gets its Claude Code and Codex
-            // hooks (best effort inside).
-            await this.ensureAgentHooks(vm, vmId);
-            await this.ensureResourceReporter(vm, vmId);
+            // The settled daemon's CLI files, agent hooks, and systemd reporter
+            // own separate paths. Prepare them concurrently, retaining the CLI
+            // gate and waiting for every side effect before returning an error.
+            const [cli] = await Promise.allSettled([
+              this.ensureGuestCli(vm, vmId, false),
+              this.ensureAgentHooks(vm, vmId),
+              this.ensureResourceReporter(vm, vmId),
+            ]);
+            if (cli.status === "rejected") throw cli.reason;
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
@@ -1718,10 +1719,21 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
-  private async ensureGuestCli(vm: Vm, vmId: string): Promise<void> {
+  private async ensureGuestCli(vm: Vm, vmId: string, installReporter = true): Promise<void> {
     const expected = createHash("sha256").update(GUEST_CMUX_SHIM).digest("hex");
     const current = await this.execResult(vm, `test "$(sha256sum '${GUEST_CMUX_SHIM_PATH}' 2>/dev/null | cut -d ' ' -f 1)" = '${expected}' && ${guestBrowserReadyCommand}`);
-    if (current?.exitCode !== 0) await this.installGuestCli(vm, vmId);
+    if (current?.exitCode === 0) return;
+    if (installReporter) await this.installGuestCli(vm, vmId);
+    else await this.installGuestCliFiles(vm);
+  }
+
+  /** Separate guest paths may initialize together; rollback waits for both to settle. */
+  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+    const [cli] = await Promise.allSettled([
+      this.installGuestCliFiles(vm, promptIdentity),
+      this.ensureResourceReporter(vm, vmId),
+    ]);
+    if (cli.status === "rejected") throw cli.reason;
   }
 
   /**
@@ -1731,7 +1743,7 @@ export class FreestyleProvider implements VMProvider {
    * the adapter on older images; create/attach callers treat a failed install
    * as a failed heal.
    */
-  private async installGuestCli(vm: Vm, vmId: string, promptIdentity?: GuestPromptIdentity): Promise<void> {
+  private async installGuestCliFiles(vm: Vm, promptIdentity?: GuestPromptIdentity): Promise<void> {
     const temporaryPath = `${GUEST_CMUX_SHIM_PATH}.tmp-${randomBytes(12).toString("hex")}`;
     try {
       await vm.fs.writeTextFile(temporaryPath, GUEST_CMUX_SHIM, { mode: 0o755 });
@@ -1749,7 +1761,6 @@ export class FreestyleProvider implements VMProvider {
       await vm.fs.remove(temporaryPath).catch(() => undefined);
       throw error;
     }
-    await this.ensureResourceReporter(vm, vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

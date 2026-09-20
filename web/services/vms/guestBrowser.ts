@@ -98,11 +98,15 @@ export function guestBrowserInstallCommand(): string {
     `printf '%s' '${Buffer.from(content).toString("base64")}' | base64 -d > "$cmux_browser_tmp"`,
     `chmod ${mode} "$cmux_browser_tmp" && mv -f "$cmux_browser_tmp" '${path}'`,
   ]);
-  return [
+  const install = [
     "mkdir -p /usr/local/bin /usr/local/share/applications /etc/profile.d /etc/cmux /etc/fish/conf.d",
     ...writes,
     `for cmux_rc in /etc/bash.bashrc /etc/zsh/zshenv; do [ -f "$cmux_rc" ] || continue; grep -Fqx '${source}' "$cmux_rc" || printf '\\n%s\\n' '${source}' >> "$cmux_rc"; done`,
     "if command -v xdg-mime >/dev/null 2>&1; then for cmux_browser_user in root cmux ubuntu; do getent passwd \"$cmux_browser_user\" >/dev/null || continue; runuser -u \"$cmux_browser_user\" -- xdg-mime default cmux-browser.desktop x-scheme-handler/http x-scheme-handler/https; done; fi",
     `printf '%s\\n' '${browserDigest}' > /etc/cmux/browser-opener-version`,
   ].join(" && ");
+  // A fresh snapshot can already contain these exact files. In particular,
+  // repeating xdg-mime for every user needlessly adds subprocesses to create.
+  // The byte checks still repair missing, changed, or outdated integration.
+  return `( ${guestBrowserReadyCommand} ) || ( ${install} )`;
 }

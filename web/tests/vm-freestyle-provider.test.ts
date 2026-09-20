@@ -49,7 +49,7 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const vm = {
     exec: async ({ command }: { command: string }) => {
       execs.push(command);
-      const statusCode = command.includes("sha256sum") ? (input.guestCliExit ?? 0)
+      const statusCode = command.includes(`sha256sum '${GUEST_CMUX_SHIM_PATH}'`) ? (input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
       return { statusCode, stdout: "", stderr: statusCode === 0 ? "" : "probe failed" };
     },
@@ -328,7 +328,7 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(1);
     expect(fake.writes[0]?.content).toBe(GUEST_CMUX_SHIM);
-    expect(fake.execs[1]).toContain(`mv -f`);
+    expect(fake.execs.some(command => command.includes("mv -f"))).toBe(true);
     expect(fake.execs.at(-1)).toBe("cmux self --json");
   });
 
