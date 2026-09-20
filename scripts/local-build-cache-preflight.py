@@ -46,12 +46,12 @@ def remaining(deadline):
     return budget
 
 
-def run(command, deadline, *, env=None, cwd=None):
+def run(command, deadline, *, env=None, cwd=None, pass_fds=()):
     # Kill the entire helper group on timeout, including a downloader child.
     timeout = remaining(deadline)
     with tempfile.TemporaryFile() as log:
         process = subprocess.Popen(command, stdout=log, stderr=log, env=env, cwd=cwd,
-                                   start_new_session=True)
+                                   start_new_session=True, pass_fds=pass_fds)
         try:
             status = process.wait(timeout=timeout)
         except BaseException as error:
@@ -79,12 +79,15 @@ def populated(path):
 def locked(path, deadline):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as handle:
-        while True:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError:
-                time.sleep(min(0.1, remaining(deadline)))
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Inherit the same open file description: the acquired flock
+            # remains held by this parent after the waiting helper exits.
+            # The process-group watchdog bounds blocking acquisition.
+            run([sys.executable, "-c",
+                 "import fcntl,sys; fcntl.flock(int(sys.argv[1]), fcntl.LOCK_EX)",
+                 str(handle.fileno())], deadline, pass_fds=(handle.fileno(),))
         try:
             yield
         finally:
@@ -96,7 +99,8 @@ def fetch(url, output, deadline, limit=MAX_ARCHIVE):
         available = shutil.disk_usage(output.parent).free - DISK_RESERVE
         if available <= 0:
             raise RuntimeError("insufficient disk headroom for build cache")
-        run(["curl", "--fail", "--silent", "--show-error", "--location",
+        protocols = "=https" if url.lower().startswith("https://") else "=http,https"
+        run(["curl", "--proto", protocols, "--proto-redir", protocols, "--fail", "--silent", "--show-error", "--location",
              "--connect-timeout", "5", "--max-time", str(min(90, remaining(deadline))),
              "--max-filesize", str(min(limit, available)), "--output", str(output), url], deadline)
         if output.stat().st_size > limit:
