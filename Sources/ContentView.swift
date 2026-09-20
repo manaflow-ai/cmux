@@ -3124,16 +3124,16 @@ struct ContentView: View {
                 attemptCommandPaletteTextSelectionIfNeeded()
             }
         })
-
         view = AnyView(view.onReceive(tabManager.tabsPublisher) { tabs in
             let existingIds = Set(tabs.map { $0.id })
+            let hadSidebarSelection = !selectedTabIds.isEmpty
             if let previousSelectedWorkspaceId, !existingIds.contains(previousSelectedWorkspaceId) {
                 self.previousSelectedWorkspaceId = tabManager.selectedTabId
             }
             tabManager.pruneBackgroundWorkspaceLoads(existingIds: existingIds)
             reconcileMountedWorkspaceIds(tabs: tabs)
             selectedTabIds = selectedTabIds.filter { existingIds.contains($0) }
-            if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
+            if hadSidebarSelection, selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
             }
             if let lastIndex = lastSidebarSelectionIndex, lastIndex >= tabs.count {
@@ -12294,6 +12294,12 @@ struct VerticalTabsSidebar: View, Equatable {
     private func workspaceTableActions(
         renderContext: WorkspaceListRenderContext
     ) -> SidebarWorkspaceTableActions {
+        let emptyArea = SidebarWorkspaceTableEmptyAreaActions(
+            tabManager: tabManager,
+            selectedWorkspaceIds: $selectedTabIds,
+            selectionAnchorIndex: $lastSidebarSelectionIndex,
+            selectTabs: { selection = .tabs }
+        )
         var actions = SidebarWorkspaceTableActions(
             attachScrollView: { scrollView in
                 dragAutoScrollController.attach(scrollView: scrollView)
@@ -12305,24 +12311,11 @@ struct VerticalTabsSidebar: View, Equatable {
 #endif
                 tabManager.closeWorkspaceWithConfirmation(workspace)
             },
-            createWorkspaceAtEnd: {
-                if tabManager.selectedTab?.isRemoteTmuxMirror == true {
-                    _ = AppDelegate.shared?.performNewWorkspaceAction(
-                        tabManager: tabManager,
-                        debugSource: "sidebar.emptyArea.remoteTmux"
-                    )
-                } else {
-                    tabManager.addWorkspaceIfActive(placementOverride: .end)
-                }
-                if let selectedId = tabManager.selectedTabId {
-                    selectedTabIds = [selectedId]
-                    lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
-                }
-                selection = .tabs
-            },
+            createWorkspaceAtEnd: emptyArea.createWorkspaceAtEnd,
             createEmptyWorkspaceGroup: {
                 _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
             },
+            clearWorkspaceSelection: emptyArea.clearSelection,
             beginWorkspaceDrag: { workspaceId in
                 _ = dragState.beginDragging(tabId: workspaceId)
             },

@@ -2047,21 +2047,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         actions?.createWorkspaceAtEnd()
     }
 
+    func clearWorkspaceSelection() {
+        cancelSelectionIntent()
+        restoreVisibleCellPaint()
+        actions?.clearWorkspaceSelection()
+    }
+
     func createEmptyWorkspaceGroup() {
         actions?.createEmptyWorkspaceGroup()
     }
 
     func emptyAreaMenu() -> NSMenu {
         let menu = NSMenu()
-        let item = NSMenuItem(
+        let item = SidebarRowMenuActionItem(
             title: String(
                 localized: "contextMenu.workspaceGroup.newEmpty",
                 defaultValue: "New Empty Workspace Group"
-            ),
-            action: #selector(createEmptyWorkspaceGroupFromMenu),
-            keyEquivalent: ""
-        )
-        item.target = self
+            )
+        ) { [weak self] in self?.createEmptyWorkspaceGroup() }
         let shortcut = KeyboardShortcutSettings.shortcut(for: .newWorkspaceGroup)
         if let keyEquivalent = shortcut.menuItemKeyEquivalent {
             item.keyEquivalent = keyEquivalent
@@ -2069,10 +2072,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         menu.addItem(item)
         return menu
-    }
-
-    @objc private func createEmptyWorkspaceGroupFromMenu() {
-        createEmptyWorkspaceGroup()
     }
 
     func pointerDidLeaveTable() {
