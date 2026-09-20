@@ -117,7 +117,7 @@ struct CloudMachineOrderingTests {
         #expect(fixture.order == (accept ? ["d", "a", "c", "new"] : ["a", "c", "d", "new"]))
         #expect(coordinator.nodes.filter(\.canReorderMachine).allSatisfy { $0.searchableTitle.hasPrefix("fresh-") })
         #expect(coordinator.deferredNodes == nil)
-        #expect(outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }.allSatisfy(\.isHidden))
+        #expect(outline.subviews.filter { $0.identifier?.rawValue == "sidebarReorderIndicator" }.allSatisfy { $0.isHidden })
         #expect(!coordinator.outlineView(outline, acceptDrop: drag.info, item: nil, childIndex: 1))
     }
 
