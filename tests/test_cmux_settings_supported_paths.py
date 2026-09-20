@@ -12,6 +12,13 @@ import unittest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = REPO_ROOT / "skills" / "cmux-settings"
+# This helper covers settings only, not structural configuration such as actions
+# or ui. Object-valued settings are listed at their root, as the CLI permits
+# descendant paths beneath these roots (for example shortcuts.bindings).
+SETTINGS_SECTIONS = (
+    "app", "terminal", "notifications", "sidebar", "sidebarAppearance",
+    "workspaceColors", "automation", "browser", "shortcuts",
+)
 
 
 class SupportedPathsTests(unittest.TestCase):
@@ -48,7 +55,6 @@ class SupportedPathsTests(unittest.TestCase):
             cwd=self.root,
             capture_output=True,
             text=True,
-            timeout=10,
             check=False,
         )
 
@@ -93,6 +99,36 @@ class SupportedPathsTests(unittest.TestCase):
         invalid = self.run_helper(script, "validate")
         self.assertEqual(invalid.returncode, 1, invalid.stdout + invalid.stderr)
         self.assertIn("app.notARealSetting", invalid.stdout)
+
+    def test_list_supported_matches_schema_settings_paths(self):
+        schema = json.loads((REPO_ROOT / "web" / "data" / "cmux.schema.json").read_text())
+        expected = {
+            f"{section}.{key}"
+            for section in SETTINGS_SECTIONS
+            for key in schema["properties"][section]["properties"]
+        }
+        result = self.run_helper(self.helper("installed"), "list-supported")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        actual = set(result.stdout.splitlines())
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        self.assertFalse(
+            missing or extra,
+            f"Refresh skills/cmux-settings/references/all-keys.md from the schema. "
+            f"Missing paths: {missing}; extra paths: {extra}",
+        )
+
+    def test_validate_accepts_paths_previously_only_in_checkout_source(self):
+        self.config.write_text(json.dumps({
+            "terminal": {"copyOnSelect": True},
+            "browser": {"urlAllowlist": ["https://example.com"]},
+        }))
+        for layout in ("checkout", "installed"):
+            with self.subTest(layout=layout):
+                result = self.run_helper(self.helper(layout), "validate")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("all settings keys are recognized", result.stdout)
+                self.assertEqual(result.stderr, "")
 
 
 if __name__ == "__main__":

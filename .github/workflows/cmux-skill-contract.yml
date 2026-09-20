@@ -5,6 +5,7 @@ on:
     paths:
       - "skills/cmux-browser/**"
       - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
       - "Sources/CmuxSettingsJSONPathSupport.swift"
       - "tests/test_cmux_settings_supported_paths.py"
       - ".agents/skills"
@@ -18,6 +19,7 @@ on:
     paths:
       - "skills/cmux-browser/**"
       - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
       - "Sources/CmuxSettingsJSONPathSupport.swift"
       - "tests/test_cmux_settings_supported_paths.py"
       - ".agents/skills"
