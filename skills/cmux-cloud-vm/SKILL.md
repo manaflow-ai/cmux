@@ -5,6 +5,10 @@ description: "Route work to cmux Cloud machines from the plain `cmux vm` CLI (al
 
 # cmux Cloud Machines
 
+Provider and image-generation limits are in the [Cloud VM provider and
+transport matrix](../../docs/cloud-vm-provider-matrix.md). Check that matrix
+before selecting an attach transport or checkpoint operation.
+
 Everything cmux Cloud exposes from the CLI, for any coding agent (Claude Code, Codex, OpenCode, Pi, or another harness): the agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`, `terminal send|read|wait`) plus every verb the Cloud sidebar has. Host-side operations require the cmux app and a signed-in account (`cmux auth status`, `cmux auth login`); a guest-safe auth/CodeRouter subset is available inside a machine. Bring up WireGuard (`cmux vpn up`) before private VM attach, exec, desktop, or port operations; a published domain is reached through its HTTPS edge and does not require the viewer's tunnel. `cmux vm --help` is the overview and `cmux vm <verb> --help` prints a verb's own options, both offline; [references/commands.md](references/commands.md) is the complete reference and CI keeps it in lockstep with the CLI (`tests/test_cloud_vm_skill_coverage.py`). An agent with no skill loaded can bootstrap itself with `cmux vm prompt`, which installs the app-bundled copy of this skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt.
 
 **The mission is delegation.** A local agent (you, on the user's Mac) sends work to machines that outlive the laptop: every terminal and agent session lives in the machine's own cmux-tui daemon, so work keeps running with every pane closed and the lid shut, and any signed-in Mac reattaches later through the same addresses. Compose machine workspaces headlessly (as many as the task needs), watch them with `vm tree --json` and `vm terminal read` without opening anything, and surface panes or a `cmux notify` only when the user should look.
@@ -31,7 +35,7 @@ if help and this document disagree, follow help and report the discrepancy.
 | **Base** | The one pinned persistent machine per user (`cmux vm base open`; `base reset` mints a new generation and keeps the old VM) — the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (labeled `agent-pool` in `vm ls`, membership persisted in `~/.cmuxterm/vm-run-pool.json`). `vm run`/`vm agent` only draft these; any other machine needs `--machine <id>`. |
 | **Plan meter** | `cmux vm ls` prints the meter; the cap is whatever the backend sends (`vm ls --json` → `limits.maxActiveVms`; absent = uncapped, printed as `no limit`). The same `limits` object advertises `memoryOptionsMb`; plan tiers change, so read those fields instead of relying on remembered caps or sizes. Where the deployment gates provisioning to paid plans, `vm new`, the first `vm base open`, `base reset`, `fork`, `restore`, and the router's own provisioning answer `vm_requires_pro` with the pricing link on free or unknown plans; a free plan that can provision gets its advertised machine inside a 7-day access window (`limits.freeAccessExpiresAt` — after it, access verbs need a paid plan while list/status/delete keep working). Never delete machines to make room without asking. |
-| **Checkpoint / fork** | `vm snapshot` mints a restorable checkpoint, `vm fork` clones a machine for a parallel experiment, `vm restore` brings a snapshot back — where the provider supports it (`vm ls --json` → `capabilities`). |
+| **Checkpoint / fork** | `vm snapshot` mints a checkpoint and `vm restore` creates a machine from it. Freestyle has no `fork` operation; check `vm ls --json` → `capabilities`. |
 
 ## Decide: cloud or local?
 
@@ -39,7 +43,7 @@ if help and this document disagree, follow help and report the discrepancy.
 |------------------------|------------------|
 | Builds/tests take minutes, need Linux, or would hog the user's Mac | The task is a quick edit or read |
 | The task needs Linux isolation or a machine the user can watch through panes and port URLs | The user is editing the same files right now |
-| You want isolation (a fork per experiment, a throwaway machine) | The repo has uncommitted local-only state you cannot sync |
+| You want isolation (a restored snapshot or a throwaway machine) | The repo has uncommitted local-only state you cannot sync |
 | You want to fan out: several agents on several machines in parallel | |
 | The user said "cloud", "machine", "VM", or `cmux vm route` shows a warm machine for this directory | |
 
@@ -65,7 +69,7 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 1. `cmux vm route` — the router's answer for this directory. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first (`--provision` creates it now).
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
 3. A new task on a machine you already use → a new **workspace**, not a new machine (`cmux vm workspace new <id> --name <task>`): one machine hosts many workspaces, and that is the intended unit of scale.
-4. Hard isolation (a different environment, a risky experiment) → `cmux vm fork <id>` of a warm machine, or `cmux vm new --detach --json` for a new devbox; add `--name <label>`. Choose `--size` from `vm ls --json` → `limits.memoryOptionsMb` (named aliases: `4g`, `8g`, `16g`, `24g`, `32g`, `64g`; raw MB also parses). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
+4. Hard isolation (a different environment, a risky experiment) → restore a snapshot of a warm machine, or `cmux vm new --detach --json` for a new devbox; add `--name <label>`. Choose `--size` from `vm ls --json` → `limits.memoryOptionsMb` (named aliases: `4g`, `8g`, `16g`, `24g`, `32g`, `64g`; raw MB also parses). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
 5. Resource growth → `cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]` after confirming the target and requested capacity. CPU accepts 1–32 vCPUs; memory accepts 4–64 GiB in whole GiB; disk accepts 4–256 GiB in 4 GiB steps. Every resource is grow-only, the server enforces the account plan ceiling, and the provider-confirmed shape is returned. Run `cmux vm stats <id>` afterward to verify the result.
 6. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
@@ -165,7 +169,7 @@ selected machine, while the guest `cmux agent` form runs through CodeRouter.
 - **Prefer `vm route` / `vm run` / `vm agent` over naming machines.** They only draft pool machines; `--machine <id>` is the deliberate way to use another.
 - **Reuse before create.** `vm ls`, then an idle machine or Base. Creating machines needs a paid plan and counts against its cap.
 - **Stay headless while working** (`--detach`, `--no-open`, `--print`, `terminal send|read|wait`); open panes (`vm open`, `vm tree`'s addresses) to *show* results, and `--focus true` only when the user should be looking.
-- **Checkpoint before risky operations** (`vm snapshot`); fork instead of experimenting on a machine the user relies on.
+- **Checkpoint before risky operations** (`vm snapshot`); restore the snapshot into a new machine instead of experimenting on a machine the user relies on. Freestyle has no `fork` operation.
 - **Only destroy what you created this session.** `vm rm` and `vm workspace rm` are permanent; `vm base reset` keeps the old VM but the user must ask for it.
 - **Read plan limits and sizes from `cmux vm ls` and `--help`, not from memory.**
 
@@ -197,7 +201,7 @@ selected machine, while the guest `cmux agent` form runs through CodeRouter.
 |-----------|-------------|
 | [references/commands.md](references/commands.md) | Every verb, alias, flag, `--json` shape, exit code, socket method, and the sidebar action it mirrors — plus the "In flight" list of verbs that exist only in open PRs |
 | [references/sidebar-parity.md](references/sidebar-parity.md) | Every Cloud-sidebar action and the CLI verb that does the same thing (1:1) |
-| [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, headless terminal loops, parallel forks, desktop/browser tasks, showing the human |
+| [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, headless terminal loops, parallel machines, desktop/browser tasks, showing the human |
 | [../cmux/SKILL.md](../cmux/SKILL.md) | Windows/workspaces/panes when presenting machine panes |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Non-disruptive automation rules (focus, caller workspace) |
 ---
@@ -206,6 +210,10 @@ description: "Route work to cmux Cloud machines (persistent cloud VMs) from the 
 ---
 
 # cmux Cloud Machines
+
+Provider and image-generation limits are in the [Cloud VM provider and
+transport matrix](../../docs/cloud-vm-provider-matrix.md). Check that matrix
+before selecting an attach transport or checkpoint operation.
 
 Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Host-side operations require the cmux app and a signed-in account (`cmux auth status`, `cmux auth login`); the guest-safe subset documented below runs inside a VM without a Stack session. All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness — and `cmux vm prompt` bootstraps an agent that has no skill loaded: it installs the app-bundled cmux-cloud skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt pointing at it (`--open <agent>` starts a local agent terminal with that prompt directly).
 
@@ -221,15 +229,15 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
 | **Plan meter** | `cmux vm ls` prints `N of M machines`. Free plans get **1 machine and a 7-day cloud window**; `vm ls --json` carries `limits.freeAccessExpiresAt`. At the cap, creates fail with an upgrade action — never delete machines to make room without asking. |
-| **Checkpoint / fork** | `snapshot` mints a restorable checkpoint; `fork` clones a machine for a parallel experiment. |
+| **Checkpoint / fork** | `snapshot` mints a restorable checkpoint; restore that snapshot or create a new machine for isolation. `fork` is provider-dependent and is unavailable on the current Freestyle provider. |
 
 ## Decide: cloud or local?
 
 | Run in the cloud when… | Stay local when… |
 |------------------------|------------------|
 | Builds/tests take minutes, need Linux, or would hog the user's Mac | The task is a quick edit or read |
-| The task needs a desktop, browser automation, or a screen the user can watch (`vm open <m>:desktop`) | The user is editing the same files right now |
-| You want isolation (fork per experiment, throwaway machine) | The repo has uncommitted local-only state you cannot sync |
+| The task needs a desktop, browser automation, or a screen the user can watch (`vm open <m>:desktop`) when `limits.imageKinds` advertises `desktop` | The user is editing the same files right now |
+| You want isolation (restore a snapshot or use a throwaway machine) | The repo has uncommitted local-only state you cannot sync |
 | You want to fan out: several agents on several machines in parallel | |
 | The user said "cloud", "machine", "VM", or the sticky machine for this directory already has a warm checkout (`cmux vm route`) | |
 
@@ -253,7 +261,7 @@ Repeat runs from the same directory hit the same machine (sticky binding), so sy
 
 1. `cmux vm route` — the router's answer for this directory; `--json` for scripts. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first.
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
-3. Isolation → `cmux vm new --detach --json` (desktop machine) or `--base` (shell-only); add `--size 8g`/`--name <label>` as needed. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`.
+3. Isolation → `cmux vm new --detach --json` with the kind advertised by `cmux vm ls --json`, or restore a snapshot. Current images provide a desktop for both advertised kinds; inspect `limits.imageKinds` for the deployed image configuration. Add `--size 8g`/`--name <label>` as needed. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`.
 4. Never draft the user's own named machines without `--machine`, and respect the plan meter.
 
 ## Running work
@@ -418,7 +426,7 @@ provider subcommands pass through unchanged.
 - **Prefer `vm route` / `vm run` / `vm agent` over naming machines.** They only draft pool machines; `--machine <id>` is the deliberate way to use another.
 - **Reuse before create.** `vm ls`, then an idle machine or Base. Free plans: one machine, 7 days.
 - **Stay headless while working** (`--detach`, `--no-open`, `--print`); open panes (`vm open`, `vm tree`'s addresses) to *show* results.
-- **Checkpoint before risky operations** (`vm snapshot`), fork instead of experimenting on a machine the user relies on.
+- **Checkpoint before risky operations** (`vm snapshot`), then restore the snapshot or create a new machine instead of experimenting on a machine the user relies on. Current Freestyle has no `fork` operation.
 - **Only destroy what you created this session.** `vm rm` is permanent.
 - **Stage, then show.** Prefer `vm dev --no-open` for a project, or `vm layout apply --name <workspace>` for a hand-authored layout; `vm workspace new --no-open` intentionally preserves a starter-shell workspace and is not an empty layout target. Verify with `vm tree`/`terminal read`, then `vm workspace open` so the person lands in a finished layout, not a half-built one.
 
@@ -427,7 +435,7 @@ provider subcommands pass through unchanged.
 | Symptom | Fix |
 |---------|-----|
 | `vm exec` hangs or times out | Exec is capped (~30 s default). Background it: `nohup … > /tmp/x.log 2>&1 &`, then poll — or use `vm agent` / a terminal in the session for long work. |
-| `claude`/`codex` not found on a brand-new machine | Provisioning is still running: `cmux vm exec <id> -- tail /tmp/cmux/provision.log`; the agents land in `/root/.npm-global/bin` (on PATH in login shells). |
+| `claude`/`codex` not found | Inspect `cmux vm status <id>` and `cmux vm tools <id>`. Current Freestyle promoted images bake the pinned agents on the `cmux` session PATH; create does not install them after boot. Recreate from a validated manifest image when the image is old or missing a tool. |
 | First command after idle is slow | The machine was asleep: `cmux vm wait <id> --wake`. |
 | `vm route` says it would provision | The pool is empty/busy. Check the plan meter; `--provision` (or `vm run`) creates one. |
 | Create fails with an active-limit error | Plan cap (free: 1). Report it; let the user upgrade or choose a machine to remove. |
@@ -443,7 +451,7 @@ provider subcommands pass through unchanged.
 |-----------|-------------|
 | [references/commands.md](references/commands.md) | Exhaustive `cmux vm` command list with examples |
 | [references/sidebar-parity.md](references/sidebar-parity.md) | Every Cloud-sidebar action and the CLI verb that does the same thing (1:1) |
-| [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel forks, desktop/browser tasks, showing the human |
+| [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel machines, desktop/browser tasks, showing the human |
 | [../cmux/SKILL.md](../cmux/SKILL.md) | Windows/workspaces/panes when presenting machine panes |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Non-disruptive automation rules (focus, caller workspace) |
 
