@@ -8,7 +8,7 @@
     "welcomeUsage": "使い方: cmux welcome\n\ncmux Cloud ガイドをもう一度表示します。",
     "welcomeOption": "cmux welcome: 不明なオプション %s\n\n使い方: cmux welcome",
     "welcomeIntro": "cmux Cloud へようこそ\nコーディングエージェントの作業環境",
-    "welcomeCodeRouter": "\nエージェント\ncodex / claude\tこの端末で通常どおり実行。接続済みの CodeRouter アカウントが使われます。\ncmux cr accounts\t接続済みアカウント\ncmux cr models\t利用可能なモデル\n\nアカウントの追加は Mac で\ncmux cr add codex\tChatGPT アカウントを接続\ncmux cr add claude\tClaude アカウントを接続",
+    "welcomeCodeRouter": "\nエージェント\ncodex\tCodeRouter の接続済みアカウントで Codex を実行。\nclaude\tCodeRouter 経由で Claude Code を通常どおり実行。\ncmux cr accounts\t接続済みアカウント\ncmux cr models\t利用可能なモデル\n\nアカウントの追加は Mac で\ncmux cr add codex\tChatGPT アカウントを接続\ncmux cr add claude\tClaude アカウントを接続",
     "welcomeWorkspaces": "\nこのマシンについて\nワークスペース\t1 台に複数のワークスペースと端末を作れます。Mac のペインを閉じてもリモート端末は動き続けます。\nスリープと保存\tスリープ中は計算が止まります。再接続すると再開します。実行時間と保存期間の上限はプランに従います。削除前にバックアップしてください。",
     "welcomeDisplays": "Displays → Desktop\tMac から GUI アプリやブラウザーを開けます。",
     "welcomeNoDisplays": "Displays → Desktop\t対応マシンでは Mac から GUI アプリやブラウザーを開けます。",
