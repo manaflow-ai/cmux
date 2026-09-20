@@ -107,6 +107,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var statsTask: Task<Void, Never>?
     private var resourceUpdatesTask: Task<Void, Never>?
     private let resourceStats: VMResourceStatsStore?
+    private var machineIndexByID: [String: Int] = [:]
     private var usageTask: Task<Void, Never>?
     private var usageFailureCount = 0
     private var usageRetryNotBefore: Date?
@@ -196,9 +197,9 @@ final class MachinesPanelViewModel: ObservableObject {
         if let resourceStats = self.resourceStats {
             let changes = resourceStats.changes()
             resourceUpdatesTask = Task { [weak self] in
-                for await _ in changes {
+                for await _ in changes.events {
                     guard !Task.isCancelled else { return }
-                    self?.applyResourceStats()
+                    self?.applyResourceStats(machineIDs: changes.takeMachineIDs())
                 }
             }
         }
@@ -324,13 +325,13 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     /// Read the shared owner's current snapshot, never a delayed poll's raw result.
-    private func applyResourceStats() {
+    private func applyResourceStats(machineIDs: Set<String>?) {
         guard CloudMachinesFeature.isEnabled, let resourceStats else { return }
-        let latest = resourceStats.snapshot
-        machines = machines.map { machine in
-            var next = machine
-            next.stats = machine.capabilities.stats ? latest[machine.id] : nil
-            return next
+        for id in machineIDs ?? Set(machineIndexByID.keys) {
+            guard let index = machineIndexByID[id], machines.indices.contains(index),
+                  machines[index].id == id, machines[index].capabilities.stats else { continue }
+            let stats = resourceStats.stats(for: id)
+            if machines[index].stats != stats { machines[index].stats = stats }
         }
     }
 
@@ -483,6 +484,7 @@ final class MachinesPanelViewModel: ObservableObject {
         freeAccessWindowDays = 0
         lastLimits = nil
         machines = []
+        machineIndexByID.removeAll()
         usageByMachineID = [:]
         catalog = .empty
         localWorkspaces = []
@@ -569,6 +571,7 @@ final class MachinesPanelViewModel: ObservableObject {
             // The authoritative fleet plus catalog-only rows is the complete
             // visible set: a pin whose machine is gone from both is pruned.
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
+            machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
             machines = snapshots
             lastLimits = page.limits
             scheduleFreeAccessTransition()
@@ -584,6 +587,7 @@ final class MachinesPanelViewModel: ObservableObject {
             guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier else { return }
             if case .notSignedIn = error {
                 machines = []
+                machineIndexByID.removeAll()
                 plan = nil
                 activeOperation = nil
                 lastErrorDescription = nil

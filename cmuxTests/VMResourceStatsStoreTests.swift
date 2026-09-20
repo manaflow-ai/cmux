@@ -45,6 +45,43 @@ struct VMResourceStatsStoreTests {
         #expect(store.snapshot["vm"] == reading)
     }
 
+    @Test func newerFailedAttemptDoesNotSuppressAnOlderSuccessfulObservation() {
+        let store = VMResourceStatsStore(now: { self.time })
+        let old = store.beginRead(machineID: "vm")
+        let newer = store.beginRead(machineID: "vm")
+        store.finishRead(newer, stats: nil)
+        let reading = stats(memory: 8192, disk: 32768)
+        store.finishRead(old, stats: reading)
+        #expect(store.snapshot["vm"] == reading)
+    }
+
+    @Test func newerSuccessfulObservationSupersedesOlderSuccess() {
+        let store = VMResourceStatsStore(now: { self.time })
+        let old = store.beginRead(machineID: "vm")
+        let newer = store.beginRead(machineID: "vm")
+        let reading = stats(memory: 16384, disk: 65536)
+        store.finishRead(newer, stats: reading)
+        store.finishRead(old, stats: stats(memory: 8192, disk: 32768))
+        #expect(store.snapshot["vm"] == reading)
+    }
+
+    @Test func eventsCoalesceOnlyAffectedMachinesAndRetentionIsQuiet() {
+        let store = VMResourceStatsStore(now: { self.time })
+        for id in ["a", "b", "c"] {
+            store.finishRead(store.beginRead(machineID: id), stats: stats(memory: 8192, disk: 32768))
+        }
+        let changes = store.changes()
+        #expect(changes.takeMachineIDs() == nil)
+        store.finishRead(store.beginRead(machineID: "a"), stats: stats(memory: 8192, disk: 32768))
+        store.finishRead(store.beginRead(machineID: "b"), stats: stats(memory: 8192, disk: 32768))
+        store.finishRead(store.beginRead(machineID: "a"), stats: stats(memory: 8192, disk: 32768))
+        #expect(changes.takeMachineIDs() == Set(["a", "b"]))
+        store.retain(machineIDs: ["a", "b", "c"])
+        #expect(changes.takeMachineIDs() == Set<String>())
+        store.retain(machineIDs: ["a", "c"])
+        #expect(changes.takeMachineIDs() == Set(["b"]))
+    }
+
     @Test func failedPostResizePollRetainsOnlyTheConfirmedNewShape() {
         let store = VMResourceStatsStore(now: { self.time })
         store.finishRead(store.beginRead(machineID: "vm"), stats: stats(memory: 8192, disk: 32768))
@@ -76,8 +113,10 @@ struct VMResourceStatsStoreTests {
 
     @Test func otherMachinesAndEverySubscriberShareTheAcceptedState() async {
         let store = VMResourceStatsStore(now: { self.time })
-        var first = store.changes().makeAsyncIterator()
-        var second = store.changes().makeAsyncIterator()
+        let firstSubscription = store.changes()
+        let secondSubscription = store.changes()
+        var first = firstSubscription.events.makeAsyncIterator()
+        var second = secondSubscription.events.makeAsyncIterator()
         _ = await first.next()
         _ = await second.next()
         let other = stats(memory: 4096, disk: 16384)
