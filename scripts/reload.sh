@@ -914,6 +914,9 @@ Options:
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
+                         Defaults to CMUX_DERIVED_DATA when set (an absolute
+                         path to a DerivedData kept warm for this checkout and
+                         shared by its tags), else one directory per tag.
   --no-global-cli-links  Do not update /tmp/cmux-cli, /tmp/cmux-last-cli-path,
                          or PATH cmux-dev shims. Useful for isolated dogfood.
   --swift-frontend-workaround
@@ -1003,6 +1006,26 @@ set_plist_url_scheme() {
 tagged_derived_data_path() {
   local slug="$1"
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
+}
+
+# A tag only changes the bundle id, names, socket and state files. None of those
+# are compiler inputs, so a new tag built into a DerivedData that is already warm
+# for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
+# cold build. CMUX_DERIVED_DATA lets whatever owns the checkout (a pool of reused
+# worktrees, a fleet lease) name that warm directory once, so callers do not have
+# to pass --derived-data on every reload. It must be absolute, and only one build
+# may use it at a time; that is the owner's lock to hold, not this script's.
+default_tagged_derived_data() {
+  local slug="$1"
+  if [[ -n "${CMUX_DERIVED_DATA:-}" ]]; then
+    if [[ "$CMUX_DERIVED_DATA" != /* ]]; then
+      echo "error: CMUX_DERIVED_DATA must be an absolute path, got '$CMUX_DERIVED_DATA'" >&2
+      return 1
+    fi
+    echo "$CMUX_DERIVED_DATA"
+    return 0
+  fi
+  tagged_derived_data_path "$slug"
 }
 
 remove_app_bundle_output() {
@@ -1268,7 +1291,7 @@ if [[ -n "$TAG" ]]; then
     BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
   if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
+    DERIVED_DATA="$(default_tagged_derived_data "$TAG_SLUG")"
   fi
   cleanup_stale_cli_pointer_target || true
   cleanup_stale_tag_state "$TAG_SLUG" || true

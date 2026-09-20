@@ -21,6 +21,8 @@ A tag gives the app its own name, bundle ID, socket, and derived data path, so i
 
 Other variants: `reloadp.sh` (Release), `reloads.sh` (Release as isolated "cmux STAGING"), `reload2.sh --tag <tag>` (both).
 
+A new tag's own derived data path means a full cold build. The tag is not a compiler input, so when a checkout is reused across tasks, export `CMUX_DERIVED_DATA=<absolute path>` once for that checkout: every tag built there shares one warm DerivedData and a new tag recompiles nothing. One build at a time per directory.
+
 ## Shared Mac fleet capacity
 
 Every healthy slot in the canonical Mac fleet is general-purpose. Builds, iOS archives, tests, profiling, simulator and UI verification, and any other resource-intensive workload may use any available slot. Do not wait for an AWS-only builder or infer capacity from a workload label. Use the shared lease state and slot-isolated paths supplied by the fleet tooling.
