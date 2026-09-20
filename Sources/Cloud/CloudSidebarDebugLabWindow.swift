@@ -37,9 +37,11 @@ final class CloudSidebarDebugLabWindowController: ReleasingWindowController {
 }
 
 private struct CloudSidebarDebugLabView: View {
+    static let defaultPreviewWidth = 360.0
+
     @State private var selectedStyleID = CloudTreeStyleStore.current.id
     @State private var metrics = CloudSidebarDebugSettings.metrics
-    @State private var previewWidth = 360.0
+    @State private var previewWidth = Self.defaultPreviewWidth
     @State private var expansionStore = CloudSidebarDebugFixture.makeExpansionStore()
 
     private var selectedStyle: CloudTreeStyle {
@@ -93,12 +95,21 @@ private struct CloudSidebarDebugControls: View {
 
                 GroupBox("Style") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Picker("Preset", selection: $selectedStyleID) {
-                            ForEach(CloudTreeStyle.presets) { style in
-                                Text(style.name).tag(style.id)
+                        HStack {
+                            Picker("Preset", selection: $selectedStyleID) {
+                                ForEach(CloudTreeStyle.presets) { style in
+                                    Text(style.name).tag(style.id)
+                                }
                             }
+                            .labelsHidden()
+                            Spacer(minLength: 0)
+                            CloudSidebarDebugResetButton(
+                                title: "Preset",
+                                value: $selectedStyleID,
+                                defaultValue: CloudTreeStyle.defaultStyle.id,
+                                defaultLabel: CloudTreeStyle.defaultStyle.name
+                            )
                         }
-                        .labelsHidden()
                         Text("Previewing \(selectedStyle.name), with spacing overrides below.")
                             .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
@@ -108,26 +119,26 @@ private struct CloudSidebarDebugControls: View {
 
                 GroupBox("Outline") {
                     VStack(alignment: .leading, spacing: 8) {
-                        CloudSidebarDebugSliderRow(title: "Preview width", value: $previewWidth, range: 240...540)
-                        CloudSidebarDebugSliderRow(title: "Row height", value: $metrics.rowHeight, range: 16...44)
-                        CloudSidebarDebugSliderRow(title: "Indent / level", value: $metrics.indentPerLevel, range: 6...24)
-                        CloudSidebarDebugSliderRow(title: "Trailing inset", value: $metrics.referenceInset, range: 0...28)
-                        CloudSidebarDebugSliderRow(title: "Disclosure slot", value: $metrics.disclosureSlot, range: 8...24)
-                        CloudSidebarDebugSliderRow(title: "Disclosure gap", value: $metrics.disclosureGap, range: 0...14)
+                        CloudSidebarDebugSliderRow(title: "Preview width", value: $previewWidth, range: 240...540, defaultValue: CloudSidebarDebugLabView.defaultPreviewWidth)
+                        CloudSidebarDebugSliderRow(title: "Row height", value: $metrics.rowHeight, range: 16...44, defaultValue: CloudSidebarDebugMetrics.default.rowHeight)
+                        CloudSidebarDebugSliderRow(title: "Indent / level", value: $metrics.indentPerLevel, range: 6...24, defaultValue: CloudSidebarDebugMetrics.default.indentPerLevel)
+                        CloudSidebarDebugSliderRow(title: "Trailing inset", value: $metrics.referenceInset, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.referenceInset)
+                        CloudSidebarDebugSliderRow(title: "Disclosure slot", value: $metrics.disclosureSlot, range: 8...24, defaultValue: CloudSidebarDebugMetrics.default.disclosureSlot)
+                        CloudSidebarDebugSliderRow(title: "Disclosure gap", value: $metrics.disclosureGap, range: 0...14, defaultValue: CloudSidebarDebugMetrics.default.disclosureGap)
                     }
                     .padding(.top, 2)
                 }
 
                 GroupBox("Row content") {
                     VStack(alignment: .leading, spacing: 8) {
-                        CloudSidebarDebugSliderRow(title: "Icon slot", value: $metrics.iconSlot, range: 0...28)
-                        CloudSidebarDebugSliderRow(title: "Icon gap", value: $metrics.iconGap, range: 0...16)
-                        CloudSidebarDebugSliderRow(title: "Status slot", value: $metrics.dotSlot, range: 0...18)
-                        CloudSidebarDebugSliderRow(title: "Status gap", value: $metrics.dotGap, range: 0...16)
-                        CloudSidebarDebugSliderRow(title: "Detail gap", value: $metrics.detailGap, range: 0...16)
-                        CloudSidebarDebugSliderRow(title: "Trailing gap", value: $metrics.trailingGap, range: 0...24)
-                        CloudSidebarDebugSliderRow(title: "Machine line gap", value: $metrics.machineLineSpacing, range: 0...8)
-                        CloudSidebarDebugSliderRow(title: "Machine vertical pad", value: $metrics.machineVerticalPadding, range: 0...12)
+                        CloudSidebarDebugSliderRow(title: "Icon slot", value: $metrics.iconSlot, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.iconSlot)
+                        CloudSidebarDebugSliderRow(title: "Icon gap", value: $metrics.iconGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.iconGap)
+                        CloudSidebarDebugSliderRow(title: "Status slot", value: $metrics.dotSlot, range: 0...18, defaultValue: CloudSidebarDebugMetrics.default.dotSlot)
+                        CloudSidebarDebugSliderRow(title: "Status gap", value: $metrics.dotGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.dotGap)
+                        CloudSidebarDebugSliderRow(title: "Detail gap", value: $metrics.detailGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.detailGap)
+                        CloudSidebarDebugSliderRow(title: "Trailing gap", value: $metrics.trailingGap, range: 0...24, defaultValue: CloudSidebarDebugMetrics.default.trailingGap)
+                        CloudSidebarDebugSliderRow(title: "Machine line gap", value: $metrics.machineLineSpacing, range: 0...8, defaultValue: CloudSidebarDebugMetrics.default.machineLineSpacing)
+                        CloudSidebarDebugSliderRow(title: "Machine vertical pad", value: $metrics.machineVerticalPadding, range: 0...12, defaultValue: CloudSidebarDebugMetrics.default.machineVerticalPadding)
                     }
                     .padding(.top, 2)
                 }
@@ -145,7 +156,7 @@ private struct CloudSidebarDebugControls: View {
                 }
                 .controlSize(.small)
 
-                Text("The fixture keeps every section expanded and uses names long enough to exercise truncation, badges, detail columns, and the trailing edge.")
+                Text("The fixture keeps every section expanded and uses names long enough to exercise truncation, nested rows, and the trailing edge.")
                     .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -159,6 +170,7 @@ private struct CloudSidebarDebugSliderRow: View {
     let title: String
     @Binding var value: Double
     let range: ClosedRange<Double>
+    let defaultValue: Double
 
     var body: some View {
         HStack(spacing: 8) {
@@ -169,9 +181,16 @@ private struct CloudSidebarDebugSliderRow: View {
                 .cmuxFont(.caption)
                 .monospacedDigit()
                 .frame(width: 28, alignment: .trailing)
+            CloudSidebarDebugResetButton(
+                title: title,
+                value: $value,
+                defaultValue: defaultValue,
+                defaultLabel: String(format: "%.0f", defaultValue)
+            )
         }
     }
 }
+
 
 private struct CloudSidebarDebugPreview: View {
     let style: CloudTreeStyle
@@ -223,9 +242,9 @@ private struct CloudSidebarDebugPreviewNotes: View {
             Text("Stress cases")
                 .font(.system(size: 12, weight: .semibold))
             Label("Long machine and workspace names", systemImage: "text.alignleft")
-            Label("Long terminal titles and cwd details", systemImage: "terminal")
+            Label("Long terminal titles", systemImage: "terminal")
             Label("Browser URL and forwarded port rows", systemImage: "globe")
-            Label("Displays, badges, and resource metrics", systemImage: "rectangle.on.rectangle")
+            Label("Displays and resource metrics", systemImage: "rectangle.on.rectangle")
             Text("Resize the preview width to find the first awkward breakpoint. Keep the row readable before making the sidebar wider.")
                 .cmuxFont(.caption)
                 .foregroundStyle(.secondary)

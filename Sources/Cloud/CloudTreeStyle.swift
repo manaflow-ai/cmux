@@ -110,11 +110,11 @@ struct CloudTreeStyle: Equatable, Identifiable, Sendable {
         rowHeight: 24, machineRowLayout: .singleLine, leafLayout: .singleLine,
         iconTreatment: .monochrome, groupLabelStyle: .plain, metaPlacement: .inline,
         machineBand: false, monospacedText: false, rowSeparators: false,
-        indentPerLevel: 10,
+        indentPerLevel: 8,
         machineNameSize: 13, titleSize: 13, detailSize: 11, groupLabelSize: 11.5,
-        iconSize: 11, iconSlot: 16, iconGap: 7,
+        iconSize: 11, iconSlot: 2, iconGap: 13,
         showsGroupCounts: true, showsViewBadges: true, showsMachineStats: true,
-        machineVerticalPadding: 3
+        machineVerticalPadding: 0
     )
 
     /// System Settings voice: filled color squircles with white glyphs, so
@@ -210,19 +210,19 @@ enum CloudTreeStyleStore {
 /// values in one store lets the lab tune the same row and outline metrics used
 /// by the live sidebar, without forking a second renderer for the preview.
 struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
-    var referenceInset: Double = 12
-    var disclosureSlot: Double = 16
-    var disclosureGap: Double = 4
-    var dotSlot: Double = 10
-    var dotGap: Double = 8
-    var detailGap: Double = 6
-    var trailingGap: Double = 10
+    var referenceInset: Double = 8
+    var disclosureSlot: Double = 13
+    var disclosureGap: Double = 2
+    var dotSlot: Double = 11
+    var dotGap: Double = 4
+    var detailGap: Double = 4
+    var trailingGap: Double = 0
     var machineLineSpacing: Double = 1
     var rowHeight: Double = 24
-    var indentPerLevel: Double = 10
-    var iconSlot: Double = 16
-    var iconGap: Double = 7
-    var machineVerticalPadding: Double = 3
+    var indentPerLevel: Double = 8
+    var iconSlot: Double = 2
+    var iconGap: Double = 13
+    var machineVerticalPadding: Double = 0
 
     static let `default` = Self()
 }

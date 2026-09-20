@@ -89,14 +89,15 @@ struct CloudTreeRowContentView: View {
         case .terminal(let row):
             CloudTreeTerminalRowContent(row: row, style: style)
         case .display(let resource, _, let remoteView):
+            let title = Self.nonEmptyTrimmed(remoteView?.name)
+                ?? (resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title)
             CloudTreeLeafRow(
                 style: style,
                 icon: "display",
                 tint: CloudTreeIconPalette.display,
-                title: Self.nonEmptyTrimmed(remoteView?.name)
-                    ?? (resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title),
-                detail: CloudTreeRowContentView.text(for: resource)
+                title: title
             )
+            .help([title, Self.text(for: resource)].joined(separator: "\n"))
         case .browsersGroup:
             CloudTreeGroupRowContent(title: String(localized: "cloudTree.group.browsers", defaultValue: "Browsers"), count: nil, style: style)
         case .browser(let row):
@@ -136,7 +137,7 @@ struct CloudTreeRowContentView: View {
             : String(format: String(localized: "cloudTree.workspace.terminalCount.other", defaultValue: "%d terminals"), terminals)
     }
 
-    /// Formats the transport and screen label shown beneath a VNC display row.
+    /// Formats the transport and screen label shown in a VNC display row's tooltip.
     /// A key such as `display:1` becomes `noVNC · :1`; unknown key shapes retain
     /// the transport-only detail.
     static func text(for resource: SurfaceResource) -> String {
@@ -296,9 +297,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
     }
 }
 
-/// A cmux-tui terminal row: lifecycle glyph, title (a dim sparkle prefix when an
-/// agent is running in it), dimmed cwd, an optional daemon-tab badge on pool
-/// rows, and a dim "open" mark when a local pane is already showing it.
+/// A cmux-tui terminal row: lifecycle glyph and title, with secondary details on hover.
 struct CloudTreeTerminalRowContent: View {
     let row: CloudTreeTerminalRow
     var style: CloudTreeStyle = CloudTreeStyleStore.current
@@ -324,34 +323,23 @@ struct CloudTreeTerminalRowContent: View {
             icon: glyph,
             tint: CloudTreeIconPalette.terminal,
             title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
-            titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
-            detail: row.directoryText
-        ) {
-            if showsDetachedState {
-                // Zero views: still running on the machine, no daemon tab shows it.
-                // Greyed with a "detached" mark (austin, 2026-09-02 — reversing the
-                // 08-31 "no pill" call) so it stays findable under its workspace;
-                // a click re-attaches it, Kill Terminal is its right-click verb.
-                Text(String(localized: "cloudTree.terminal.detached", defaultValue: "detached"))
-                    .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                    .foregroundStyle(.tertiary)
-                    .help(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
-            } else if style.showsViewBadges, let views = Self.multiplierBadge(row.viewBadge) {
-                // Pool rows: how many daemon tabs show this terminal. Only several
-                // views earn a badge (a multiplier); one view is the normal state.
-                Text(String(format: String(localized: "cloudTree.terminal.badge.views", defaultValue: "×%d"), views))
-                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                    .foregroundStyle(.secondary)
-                    .help(Self.viewsHelp(views))
-            }
-        }
-        // Agent state stays on hover and in `cmux vm tree`; the row itself
-        // carries only the unread dot.
-        .help([row.directoryHelp, agentLabel].compactMap { $0 }.joined(separator: "\n"))
+            titleDimmed: terminal.lifecycle == .exited || showsDetachedState
+        )
+        .help(toolTip)
     }
 
-    /// The view-count badge a pool row shows: the count when several daemon tabs
-    /// show the terminal, nil otherwise (one view, zero views, or not a pool row).
+    /// Keep secondary information on hover so the narrow row gives its width to the title.
+    private var toolTip: String {
+        var details = [row.displayTitle, row.directoryHelp, agentLabel].compactMap { $0 }
+        if showsDetachedState {
+            details.append(String(localized: "cloudTree.terminal.detached.help", defaultValue: "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."))
+        } else if let views = Self.multiplierBadge(row.viewBadge) {
+            details.append(Self.viewsHelp(views))
+        }
+        return details.filter { !$0.isEmpty }.joined(separator: "\n")
+    }
+
+    /// The multiple-tab count retained in pool-row tooltips.
     static func multiplierBadge(_ views: Int?) -> Int? {
         guard let views, views > 1 else { return nil }
         return views
