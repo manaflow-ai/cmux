@@ -93,7 +93,8 @@ beforeAll(async () => {
       FIXTURE_ENDPOINT_ID: fixturePublicKey,
     },
   }), verbose: true });
-});
+  await mf.ready;
+}, 60_000);
 
 afterAll(async () => { await mf?.dispose(); });
 
