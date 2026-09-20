@@ -24,6 +24,7 @@ jobs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
+      release_build: ${{ steps.detect.outputs.release_build }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -44,6 +45,7 @@ jobs:
               echo "macos=true"
               echo "web=true"
               echo "agent_session_web=true"
+              echo "release_build=true"
             } >> "$GITHUB_OUTPUT"
           }
 
@@ -106,6 +108,7 @@ jobs:
                 echo "macos=false"
                 echo "web=false"
                 echo "agent_session_web=false"
+                echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -2634,7 +2637,7 @@ jobs:
     # See app-host-unit-tests: explicit direct-needs gate instead of the
     # implicit success() so skipped routed linux jobs upstream of
     # linux-preflight do not skip this job transitively.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.release_build == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
