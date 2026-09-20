@@ -12,11 +12,11 @@ import Observation
 @MainActor
 @Observable
 final class SurfaceCatalog {
-    /// Exact remote tabs get separate materialization lanes; nil retains resource-wide reuse.
+    /// Coalesces an exact remote view within the caller's requested reuse scope.
     private struct MaterializationKey: Hashable {
         let resource: SurfaceResourceID
         let remoteTabID: String?
-
+        let workspaceID: UUID?
         var machine: SurfaceMachineID { resource.machine }
     }
 
@@ -624,7 +624,7 @@ final class SurfaceCatalog {
         } else {
             resolvedRemoteView = nil
         }
-        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID)
+        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, workspaceID: reuseInWorkspace)
         if reuseExisting, let existing = projections.first(where: {
             guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
             // An explicit remote view is a placement identity. Reusing a pane
@@ -649,10 +649,9 @@ final class SurfaceCatalog {
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
 
-        // Workspace-scoped reuse missed: an in-flight materialization bound elsewhere
-        // must not be adopted either (it would land — and focus — in that other
-        // workspace), so scoped calls go straight to a fresh materialization.
-        if reuseExisting, reuseInWorkspace == nil {
+        // Scoped opens share only their destination's in-flight attachment. Retry
+        // or a repeated open cannot create two panes or adopt another workspace.
+        if reuseExisting {
             let waiterID = UUID()
             let result = try await withTaskCancellationHandler {
                 try await awaitMaterialization(
@@ -802,6 +801,7 @@ final class SurfaceCatalog {
             if let existing = projections.first(where: {
                 $0.resource == id
                     && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
+                    && (key.workspaceID == nil || $0.workspaceID == key.workspaceID)
             }) {
                 if existing.panelID != projection.panelID {
                     cleanupMaterialization(projection, from: inFlight.provider)

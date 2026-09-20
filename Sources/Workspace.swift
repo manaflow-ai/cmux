@@ -9339,17 +9339,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return newPanel
     }
 
-    /// Creates a configured manual-mirror ``TerminalPanel`` for one remote tmux pane,
-    /// WITHOUT inserting it into the workspace's bonsplit/`panels` (the
-    /// ``RemoteTmuxWindowMirror`` owns it and renders it via ``TerminalPanelView``
-    /// inside a single tab, so the pane gets the full native cmux pane chrome —
-    /// background, focus overlay, dividers).
+    /// Creates a configured manual-mirror panel without inserting it. Remote
+    /// tmux and Cloud owners place it in their native tab and supply its bytes.
     func makeRemoteTmuxPanePanel(
+        id panelID: UUID = UUID(),
         onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
+            id: panelID,
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),

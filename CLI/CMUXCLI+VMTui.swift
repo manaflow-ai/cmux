@@ -357,6 +357,12 @@ extension CMUXCLI {
             return values.isEmpty ? nil : values
         }()
 
+        // Discover accepted machine metadata before exposing the binding in the
+        // left sidebar. Keep an app-reserved creating card intact if this fails.
+        let catalog = options.fullClient ? nil : try client.sendV2(
+            method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180
+        )
+
         let initialCommand: String
         if options.fullClient, let clientPath {
             let stateDir = Self.vmTuiClientStateDir()
@@ -385,32 +391,16 @@ extension CMUXCLI {
         let windowId: String?
         let terminalSurfaceId: String?
         let didCreateWorkspace: Bool
-        // Focus inside the workspace the person is already looking at is not
-        // stealing; focus that would switch them to another workspace is. A
-        // freshly created workspace is never the one on screen, so only a
-        // pre-existing target can earn pane focus on a background open. The
-        // same value drives the placeholder replacement AND the real terminal
-        // (`surface.new_terminal`) that takes its place.
+        // Background creates preserve navigation even if the user visited the
+        // loading card while provisioning. Adoption keeps its native tab identity.
         let requestedTarget = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let paneFocus = options.focus || requestedTarget.map {
-            !$0.isEmpty && isWorkspaceCurrentlySelected($0, windowRaw: windowRaw, client: client)
-        } ?? false
+        let paneFocus = options.focus
         let workspaceTitle = options.workspaceTitle
         if let target = requestedTarget, !target.isEmpty {
-            // The app pre-created this workspace with a loading pane; the link takes
-            // that pane's place (no new workspace, no title change).
-            let ready: [String: Any]
-            do {
-                ready = try client.sendV2(
-                    method: "workspace.cloud_vm_terminal_ready",
-                    params: ["workspace_id": target, "initial_command": initialCommand, "focus": paneFocus]
-                )
-            } catch let error as CLIError where error.message.contains("loading surface not found") {
-                // An ordinary workspace (`--workspace workspace:3` from a person or an agent),
-                // not one the app pre-created with a loading pane: nothing to replace, the
-                // shell opens into it as a new pane — the sidebar's "Open Shell".
-                ready = ["workspace_id": target]
-            }
+            let ready = try prepareVMTuiTargetWorkspace(
+                target, windowRaw: windowRaw, fullClient: options.fullClient,
+                initialCommand: initialCommand, focus: paneFocus, client: client
+            )
             workspaceId = (ready["workspace_id"] as? String) ?? target
             workspaceRef = ready["workspace_ref"] as? String
             windowId = (ready["window_id"] as? String) ?? windowRaw
@@ -456,11 +446,11 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
                 let opened: [String: Any]
-                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
+                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog ?? [:]) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
-                    var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
+                    let reusesTarget = requestedTarget?.isEmpty == false
+                    var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": reusesTarget, "reuse_in_workspace": reusesTarget]
                     if let tabID { params["remote_tab_id"] = tabID }
                     var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
                     projected["terminal_id"] = terminalID

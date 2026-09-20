@@ -36,7 +36,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         guard let tabManager = context?.tabManager
             ?? appDelegate.activeTabManagerForCommands(preferredWindow: preferredWindow),
               let workspace = tabManager.addWorkspaceIfActive(
-                title: String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM"),
+                title: String(localized: "machines.new.title", defaultValue: "New Machine"),
                 titleSource: .auto,
                 initialSurface: .cloudVMLoading,
                 inheritWorkingDirectory: false,

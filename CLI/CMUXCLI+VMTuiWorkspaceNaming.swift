@@ -19,6 +19,25 @@ extension CMUXCLI.VMTuiOpenOptions {
 }
 
 extension CMUXCLI {
+    /// Plain Cloud opens leave a creating card intact until its real terminal
+    /// adopts it. Only the full TUI client needs a local command process.
+    func prepareVMTuiTargetWorkspace(
+        _ target: String, windowRaw: String?, fullClient: Bool,
+        initialCommand: String, focus: Bool, client: SocketClient
+    ) throws -> [String: Any] {
+        guard fullClient else {
+            return ["workspace_id": try resolveWorkspaceId(target, client: client, windowHandle: windowRaw)]
+        }
+        do {
+            return try client.sendV2(
+                method: "workspace.cloud_vm_terminal_ready",
+                params: ["workspace_id": target, "initial_command": initialCommand, "focus": focus]
+            )
+        } catch let error as CLIError where error.message.contains("loading surface not found") {
+            return ["workspace_id": target]
+        }
+    }
+
     /// Parameters shared by both Cloud bind calls. The generated title is
     /// metadata about the local placeholder, never an identity or a remote
     /// workspace name; explicit titles intentionally omit it.

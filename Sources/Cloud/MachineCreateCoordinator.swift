@@ -232,19 +232,10 @@ final class MachineCreateCoordinator {
         for handle in cancelledHandles { handle.cancel() }
         for machineID in transition.cleanupMachineIDs { cancelCreatedMachine(machineID) }
         for operation in closed { cancelOperation(operation) }
-        // A successful Cloud create already owns a bound local workspace and
-        // appears in the Cloud tree. A success toast is redundant and can point
-        // at the wrong machine while the catalog is still adopting it; only
-        // actionable failures need a notification.
-        if let finished {
-            switch finished.outcome {
-            case .createdButOpenFailed, .failed:
-                if let notice = MachineCreateNotice(finished: finished) {
-                    notifier(notice)
-                }
-            case .created:
-                break
-            }
+        // The workspace and Cloud tree acknowledge success without an unread
+        // notification. Only failures need another action from the user.
+        if let finished, let notice = MachineCreateNotice(finished: finished) {
+            notifier(notice)
         }
         if transition.changed { postDidChange(finished: finished) }
     }

@@ -1,7 +1,6 @@
 import Foundation
 
-/// Delivers actionable failure and fallback success notices through the app's
-/// notification store. A success that selected its workspace never reaches it.
+/// Delivers actionable create failures through the app's notification store.
 struct MachineCreateNotifier {
     @MainActor
     func post(_ notice: MachineCreateNotice) {
