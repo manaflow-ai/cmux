@@ -81,15 +81,21 @@ tag="ddtest-$$"
 link="/tmp/cmux-$tag"
 trap 'kill "$server" 2>/dev/null || true; rm -f "$sock" "$link" "/tmp/cmux-ddstale-$$"; rm -rf "$tmp"' EXIT
 eval "$(awk '/^reload_socket_is_live\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
-eval "$(awk '/^write_dev_cli_shim\(\) \{/,/^}/' "$ROOT/scripts/reload.sh")"
+# The shim body is a heredoc with its own top-level braces, so the function ends at the first "}" after it.
+eval "$(awk '/^write_dev_cli_shim\(\) \{/ { on = 1 } on { print } on && /<<EOF$/ { doc = 1 } on && /^EOF$/ { doc = 0 } on && !doc && /^}/ { exit }' "$ROOT/scripts/reload.sh")"
+declare -F write_dev_cli_shim >/dev/null || fail "write_dev_cli_shim not found in reload.sh"
 fake_home="$tmp/home"
 stale_app="$fake_home/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug/cmux DEV $tag.app"
 shared_app="$tmp/dd/Build/Products/Debug/cmux DEV $tag.app"
 mkdir -p "$stale_app/Contents/Resources/bin"
 printf '#!/bin/sh\necho stale-cli "$@"\n' > "$stale_app/Contents/Resources/bin/cmux"
 chmod +x "$stale_app/Contents/Resources/bin/cmux"
-: > "$stale_app/Contents/Info.plist"
-: > "$shared_app/Contents/Info.plist"
+for app in "$stale_app" "$shared_app"; do
+  cat > "$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>LSEnvironment</key><dict><key>CMUX_SOCKET_PATH</key><string>$sock</string></dict></dict></plist>
+PLIST
+done
 ln -s "$tmp/dd" "$link"
 write_dev_cli_shim "$tmp/bin/cmux" "$tmp/no-fallback" "$tmp/no-pointer"
 out="$(env -u CMUX_SOCKET -u CMUX_SOCKET_PATH -u CMUX_BUNDLED_CLI_PATH HOME="$fake_home" \
