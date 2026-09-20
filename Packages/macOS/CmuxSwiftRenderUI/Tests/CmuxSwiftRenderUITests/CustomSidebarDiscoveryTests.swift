@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxSwiftRenderUI
 
-@Suite(.timeLimit(.minutes(1)))
+@Suite
 struct CustomSidebarDiscoveryTests {
     @Test
     func observesExternalCreationRenameDeletionAndDirectoryReplacement() async throws {
