@@ -133,7 +133,8 @@ private struct CloudSidebarDebugControls: View {
                     VStack(alignment: .leading, spacing: 8) {
                         CloudSidebarDebugSliderRow(title: "Icon slot", value: $metrics.iconSlot, range: 0...28, defaultValue: CloudSidebarDebugMetrics.default.iconSlot)
                         CloudSidebarDebugSliderRow(title: "Icon gap", value: $metrics.iconGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.iconGap)
-                        CloudSidebarDebugSliderRow(title: "Machine badge gap", value: $metrics.dotGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.dotGap)
+                        CloudSidebarDebugSliderRow(title: "Status slot", value: $metrics.dotSlot, range: 0...18, defaultValue: CloudSidebarDebugMetrics.default.dotSlot)
+                        CloudSidebarDebugSliderRow(title: "Status gap", value: $metrics.dotGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.dotGap)
                         CloudSidebarDebugSliderRow(title: "Detail gap", value: $metrics.detailGap, range: 0...16, defaultValue: CloudSidebarDebugMetrics.default.detailGap)
                         CloudSidebarDebugSliderRow(title: "Trailing gap", value: $metrics.trailingGap, range: 0...24, defaultValue: CloudSidebarDebugMetrics.default.trailingGap)
                         CloudSidebarDebugSliderRow(title: "Machine line gap", value: $metrics.machineLineSpacing, range: 0...8, defaultValue: CloudSidebarDebugMetrics.default.machineLineSpacing)

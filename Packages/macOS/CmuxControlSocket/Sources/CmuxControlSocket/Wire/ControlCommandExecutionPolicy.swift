@@ -68,13 +68,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
             self = .mainActor
         }
     }
-
     /// True when the command runs on the socket-worker thread.
     public var runsOnSocketWorker: Bool {
         if case .socketWorker = self { return true }
         return false
     }
-
     /// Socket-worker methods; internal so package tests can pin the exact set.
     static let socketWorkerMethods: Set<String> = Set([
         "system.ping",
@@ -83,6 +81,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.sign_in_url",
         "auth.begin_sign_in",
         "auth.sign_out",
+        "auth.team.list",
+        "auth.team.use",
+        "auth.team.create",
         "feedback.submit",
         // `feed.jump` awaits its actor-owned hook-session lookup while the
         // socket worker waits for the response.
@@ -91,8 +92,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
-        // Admission only appends an immutable event to the actor-owned queue;
-        // all downstream process/socket work happens after the reply.
+        // Admission appends an immutable event to the actor-owned queue.
         "agent.hook.enqueue",
         "agent.hook.barrier",
         // Performs a fresh off-main process scan before one agent exec. Only
@@ -212,7 +212,6 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Presents the Cloud tree style gallery window: one v2MainSync hop for
         // the presentation, like debug.window.screenshot's capture wait.
         "debug.cloudtree.gallery",
-        "debug.cloudtree.spacing",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a

@@ -1158,7 +1158,7 @@ class TerminalController {
     /// (`Any`) field shapes, so the existing command bodies keep their
     /// `[String: Any]` params until they migrate onto the typed DTOs in the
     /// ControlCommandCoordinator stage.
-    private struct V2SocketRequest {
+    struct V2SocketRequest {
         let id: Any?
         let method: String
         let params: [String: Any]
@@ -1501,7 +1501,6 @@ class TerminalController {
             return "ERROR: reload_config busy"
         }
     }
-
     private nonisolated static func feedPushWaitTimeoutSeconds(params: [String: Any]) -> TimeInterval? {
         guard let rawTimeout = params["wait_timeout_seconds"] else {
             return 0
@@ -1521,7 +1520,6 @@ class TerminalController {
         }
         return seconds
     }
-
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1564,6 +1562,8 @@ class TerminalController {
             }
             semaphore.wait()
             return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+        case "auth.team.list", "auth.team.use", "auth.team.create":
+            return v2AuthTeamResponse(request)
         case "feedback.submit":
             return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
         case "feed.push":
@@ -1789,9 +1789,6 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
-        case "debug.cloudtree.spacing":
-            v2MainSync { CloudSidebarDebugLabWindowController.shared.show() }
-            return v2Ok(id: request.id, result: ["window": "cmux.cloudSidebarDebugLab"])
         case "debug.cloudtree.gallery":
             // `{style?: id, show?: bool}`: optionally select a Cloud tree style
             // preset, then (by default) present the side-by-side gallery window.
@@ -1949,8 +1946,7 @@ class TerminalController {
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect"
-                || request.method == "debug.cloudtree.gallery"
-                || request.method == "debug.cloudtree.spacing" {
+                || request.method == "debug.cloudtree.gallery" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -3178,10 +3174,10 @@ class TerminalController {
             "auth.status",
             "auth.sign_in_url",
             "auth.begin_sign_in",
-            "auth.sign_out",
+            "auth.sign_out", "auth.team.list", "auth.team.use",
+            "auth.team.create",
             "vm.billing_checkout",
-            "vm.list",
-            "vm.diagnostics", "vm.file_transfer_failure",
+            "vm.list", "vm.diagnostics", "vm.file_transfer_failure",
             "vm.publication_list",
             "vm.publication_create",
             "vm.publication_verify",

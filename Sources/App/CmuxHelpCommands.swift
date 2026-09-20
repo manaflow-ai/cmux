@@ -38,9 +38,6 @@ extension cmuxApp {
                 #endif
             }
             #if DEBUG
-            Button("Cloud Sidebar Spacing Lab…") {
-                CloudSidebarDebugLabWindowController.shared.show()
-            }
             Button(String(localized: "menu.help.showProWelcomeChecklist", defaultValue: "Show Pro Welcome Checklist…")) {
                 ProWelcomeChecklistPresenter.present()
             }
