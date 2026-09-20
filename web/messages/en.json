@@ -5741,37 +5741,5 @@
     "organization": "Organization",
     "personalAccount": "personal account",
     "switchAccountButton": "Use a different account"
-  },
-  "commandPaletteCurrentWork": {
-    "title": "Find Work",
-    "subtitle": "Current local and Cloud work",
-    "search": "Find current work",
-    "empty": "No work in this snapshot matches your search.",
-    "local": "Local",
-    "cloud": "Cloud",
-    "attention": "Attention",
-    "notCurrent": "May be out of date",
-    "notOpen": "No open local view · read only",
-    "truncated": "Showing %lld of %lld items",
-    "bounded": "Additional work is outside this snapshot."
-  },
-  "cliCurrent": {
-    "error": {
-      "duplicateLimit": "current: --limit may only be supplied once",
-      "limit": "current: --limit requires an integer from 1 to 200",
-      "argument": "current: unexpected argument '%@'. Known flags: --limit <1...200> --json",
-      "response": "current: invalid response (missing items)"
-    },
-    "empty": "No current work observed",
-    "cwd": "cwd: %@",
-    "freshness": "freshness: %@",
-    "attention": "attention: %@",
-    "agent": "agent: %@",
-    "pullRequest": "PR: %@",
-    "obligation": "possible human obligation: %@",
-    "limited": "Limit reached; more work was observed. Use --limit (maximum 200).",
-    "observed": "Observed: %@; cached owner facts, no refresh",
-    "owner": "Owner %@: %@",
-    "help": "Usage: cmux current [--limit <1...200>] [--json]\n\nRead bounded current-work facts already known to cmux across local and Cloud surfaces.\nDoes not refresh machines, read transcripts, or mutate work.\n\nFlags:\n  --limit <1...200>  Maximum items (default: 100)\n  --json            Exact owner payload with identities, evidence and freshness\n\nText and JSON use the same snapshot. Unknown facts remain unknown; possible\nhuman obligations are observations, not permission to act. --window does not\nfocus or filter this app-wide query; --id-format does not rewrite its identities.\n\nExamples:\n  cmux current\n  cmux current --json --limit 50"
   }
 }

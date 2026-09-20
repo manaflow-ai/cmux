@@ -1,7 +1,7 @@
 import Foundation
 
-/// Presentation only: the native owner captures and bounds all current-work facts.
-enum CurrentCommand {
+/// One invocation's options and presentation; native owners capture all work facts.
+struct CurrentCommand {
     static let usage = String(localized: "cli.current.help", defaultValue: """
             Usage: cmux current [--limit <1...200>] [--json]
 
@@ -26,7 +26,9 @@ enum CurrentCommand {
         var jsonOutput = false
     }
 
-    static func options(_ args: [String]) throws -> Options {
+    let options: Options
+
+    init(arguments args: [String]) throws {
         var result = Options()
         var index = 0
         while index < args.count {
@@ -56,10 +58,10 @@ enum CurrentCommand {
             }
             index += 1
         }
-        return result
+        options = result
     }
 
-    static func render(_ payload: [String: Any]) throws -> String {
+    func render(_ payload: [String: Any]) throws -> String {
         guard let items = payload["items"] as? [[String: Any]] else {
             throw CLIError(message: String(localized: "cli.current.error.response", defaultValue: "current: invalid response (missing items)"))
         }
@@ -118,23 +120,23 @@ enum CurrentCommand {
 
     /// Owner labels and paths can contain terminal control characters. JSON retains
     /// exact data, while human output must not execute escape sequences or add rows.
-    private static func display(_ text: String) -> String {
+    private func display(_ text: String) -> String {
         String(text.unicodeScalars.map { CharacterSet.controlCharacters.contains($0) ? " " : String($0) }.joined())
     }
 }
 
 extension CMUXCLI {
     func runCurrentCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
-        let options = try CurrentCommand.options(commandArgs)
+        let command = try CurrentCommand(arguments: commandArgs)
         var params: [String: Any] = [:]
-        if let limit = options.limit { params["limit"] = limit }
+        if let limit = command.options.limit { params["limit"] = limit }
         let payload = try client.sendV2(method: "current.list", params: params)
-        if jsonOutput || options.jsonOutput {
+        if jsonOutput || command.options.jsonOutput {
             // Preserve stable resource/projection ids and unknown owner fields.
             // --id-format must not rewrite this resource-oriented read contract.
             print(jsonString(payload))
         } else {
-            print(try CurrentCommand.render(payload))
+            print(try command.render(payload))
         }
     }
 }

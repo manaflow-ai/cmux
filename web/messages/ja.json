@@ -5651,37 +5651,5 @@
     "organization": "組織",
     "personalAccount": "個人アカウント",
     "switchAccountButton": "別のアカウントを使用"
-  },
-  "commandPaletteCurrentWork": {
-    "title": "作業を探す",
-    "subtitle": "現在のローカルとクラウドの作業",
-    "search": "現在の作業を探す",
-    "empty": "このスナップショットに検索に一致する作業はありません。",
-    "local": "ローカル",
-    "cloud": "クラウド",
-    "attention": "要確認",
-    "notCurrent": "最新でない可能性があります",
-    "notOpen": "開いているローカルビューなし · 読み取り専用",
-    "truncated": "%lld件を表示（全%lld件）",
-    "bounded": "このスナップショットに含まれていない作業があります。"
-  },
-  "cliCurrent": {
-    "error": {
-      "duplicateLimit": "current: --limit は一度だけ指定できます",
-      "limit": "current: --limit には 1〜200 の整数が必要です",
-      "argument": "current: 予期しない引数 '%@'。使用可能なフラグ: --limit <1...200> --json",
-      "response": "current: 無効な応答（items がありません）"
-    },
-    "empty": "現在の作業は確認されていません",
-    "cwd": "作業ディレクトリ: %@",
-    "freshness": "鮮度: %@",
-    "attention": "注意: %@",
-    "agent": "エージェント: %@",
-    "pullRequest": "プルリクエスト: %@",
-    "obligation": "人による対応の可能性: %@",
-    "limited": "上限に達しました。ほかにも作業が確認されています。--limit を使用してください（最大 200）。",
-    "observed": "確認時刻: %@; 所有元のキャッシュ情報、更新なし",
-    "owner": "所有元 %@: %@",
-    "help": "使用法: cmux current [--limit <1...200>] [--json]\n\ncmux がすでに把握しているローカルおよび Cloud サーフェスの作業情報を、件数を制限して読み取ります。\nマシンの更新、会話記録の読み取り、作業の変更は行いません。\n\nフラグ:\n  --limit <1...200>  最大件数（既定: 100）\n  --json            識別情報、根拠、鮮度を含む所有元の元データ\n\nテキストと JSON は同じスナップショットを使用します。不明な情報は不明のままです。\n人による対応の可能性は観察結果であり、操作の許可ではありません。--window はアプリ全体の\nクエリにフォーカスや絞り込みを行わず、--id-format は識別情報を書き換えません。\n\n例:\n  cmux current\n  cmux current --json --limit 50"
   }
 }

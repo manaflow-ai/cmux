@@ -27,7 +27,7 @@ struct CurrentWorkCommandPaletteTests {
             resource: SurfaceResourceID(machine: .cloud("other-machine"), kind: .terminal, key: "term_other"),
             workspaceID: observed.workspaceID, panelID: observed.panelID
         )
-        #expect(!(CurrentWorkPalettePresentation.matches(item: item, projection: observed, current: rebound)))
+        #expect(!(CurrentWorkPalettePresentation(item: item).matches(projection: observed, current: rebound)))
     }
 
     @Test
@@ -38,13 +38,13 @@ struct CurrentWorkCommandPaletteTests {
             resource: SurfaceResourceID(machine: .cloud("test-machine"), kind: .terminal, key: "term_test"),
             workspaceID: UUID(), panelID: observed.panelID
         )
-        #expect(CurrentWorkPalettePresentation.matches(item: item, projection: observed, current: current))
+        #expect(CurrentWorkPalettePresentation(item: item).matches(projection: observed, current: current))
         var unrelatedPanel = current
         unrelatedPanel.panelID = UUID()
-        #expect(!(CurrentWorkPalettePresentation.matches(item: item, projection: observed, current: unrelatedPanel)))
+        #expect(!(CurrentWorkPalettePresentation(item: item).matches(projection: observed, current: unrelatedPanel)))
         var inconsistentProjection = observed
         inconsistentProjection.resourceRef = "test-machine/terminal/term_other"
-        #expect(!(CurrentWorkPalettePresentation.matches(item: item, projection: inconsistentProjection, current: current)))
+        #expect(!(CurrentWorkPalettePresentation(item: item).matches(projection: inconsistentProjection, current: current)))
     }
 
     @Test
@@ -52,7 +52,7 @@ struct CurrentWorkCommandPaletteTests {
         var item = fixture()
         item.projections = []
         item.freshness.state = "stale"
-        let subtitle = CurrentWorkPalettePresentation.subtitle(item: item, canFocus: false)
+        let subtitle = CurrentWorkPalettePresentation(item: item).subtitle(canFocus: false)
         #expect(subtitle.contains(String(localized: "commandPalette.currentWork.notOpen", defaultValue: "No open local view · read only")))
         #expect(subtitle.contains(String(localized: "commandPalette.currentWork.notCurrent", defaultValue: "May be out of date")))
         #expect(subtitle.contains(item.placement.machine))
@@ -60,7 +60,7 @@ struct CurrentWorkCommandPaletteTests {
 
     @Test
     func testCurrentProjectedWorkDoesNotClaimUnavailableOrStale() {
-        let subtitle = CurrentWorkPalettePresentation.subtitle(item: fixture(), canFocus: true)
+        let subtitle = CurrentWorkPalettePresentation(item: fixture()).subtitle(canFocus: true)
         #expect(!(subtitle.contains(String(localized: "commandPalette.currentWork.notOpen", defaultValue: "No open local view · read only"))))
         #expect(!(subtitle.contains(String(localized: "commandPalette.currentWork.notCurrent", defaultValue: "May be out of date"))))
     }
