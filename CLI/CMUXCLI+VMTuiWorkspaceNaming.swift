@@ -55,7 +55,7 @@ extension CMUXCLI {
                     return receipt
                 }
             }
-            var receipt: [String: Any] = ["workspace_id": workspaceID]
+            let receipt: [String: Any] = ["workspace_id": workspaceID]
             return receipt
         }
         do {
