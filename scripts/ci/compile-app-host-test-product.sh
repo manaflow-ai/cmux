@@ -14,6 +14,8 @@
 # another layout cannot hit, so it should be a cache miss and not a download.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 usage() {
   echo "usage: $0 fingerprint <derived-data>" >&2
   echo "       $0 resolve <derived-data> <source-packages>" >&2
@@ -51,6 +53,9 @@ resolve() {
       fi
       echo "Resolve succeeded but binary artifacts are missing" >&2
     fi
+    # Preserve resolver evidence for transient WarpBuild failures. Diagnostics
+    # are advisory and never replace the bounded retry below.
+    "$SCRIPT_DIR/capture-network-diagnostics.sh" || true
     [ "$attempt" -lt 3 ] || break
     echo "Package resolution failed on attempt $attempt; clearing packages and retrying" >&2
     rm -rf "$source_packages"
