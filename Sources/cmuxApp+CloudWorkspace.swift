@@ -57,29 +57,43 @@ extension cmuxApp {
                 pendingReceipts = pendingReceipts.filter { $0.key.scopeID == request.scopeID }
                 pendingReceiptOrder = pendingReceiptOrder.filter { pendingReceipts[$0] != nil }
                 let receipt = pendingReceipts[request]
-                let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
-                    machine: .cloud(request.machineID), provider: provider, catalog: SurfaceCatalog.shared,
-                    name: nil, focus: false, host: .init(tabManager: manager), validateOperation: validate,
-                    existingWorkspace: receipt?.workspace,
-                    existingTerminal: receipt?.terminal,
-                    onReceipt: { workspace, terminal in
-                        let previousTerminal = pendingReceipts[request]?.terminal
-                        pendingReceipts[request] = (workspace, terminal ?? previousTerminal)
-                        pendingReceiptOrder.removeAll { $0 == request }
-                        pendingReceiptOrder.append(request)
-                        while pendingReceiptOrder.count > maxPendingReceipts {
-                            pendingReceipts.removeValue(forKey: pendingReceiptOrder.removeFirst())
+                do {
+                    let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                        machine: .cloud(request.machineID), provider: provider, catalog: SurfaceCatalog.shared,
+                        name: nil, focus: false, host: .init(tabManager: manager), validateOperation: validate,
+                        existingWorkspace: receipt?.workspace,
+                        existingTerminal: receipt?.terminal,
+                        onReceipt: { workspace, terminal in
+                            let previousTerminal = pendingReceipts[request]?.terminal
+                            pendingReceipts[request] = (workspace, terminal ?? previousTerminal)
+                            pendingReceiptOrder.removeAll { $0 == request }
+                            pendingReceiptOrder.append(request)
+                            while pendingReceiptOrder.count > maxPendingReceipts {
+                                pendingReceipts.removeValue(forKey: pendingReceiptOrder.removeFirst())
+                            }
+                        },
+                        onReceiptInvalidated: { workspace in
+                            guard pendingReceipts[request]?.workspace.id == workspace.id else { return }
+                            pendingReceipts.removeValue(forKey: request)
+                            pendingReceiptOrder.removeAll { $0 == request }
                         }
-                    },
-                    onReceiptInvalidated: { workspace in
-                        guard pendingReceipts[request]?.workspace.id == workspace.id else { return }
+                    )
+                    pendingReceipts[request] = nil
+                    pendingReceiptOrder.removeAll { $0 == request }
+                    return result.opened?.workspaceID
+                } catch {
+                    // A newly created remote receipt cannot be retried after a
+                    // cancellation or scope transition. Clean it up here as a
+                    // final owner-level fence; retries with an existing receipt
+                    // deliberately keep that remote workspace durable.
+                    if receipt == nil, let abandoned = pendingReceipts[request] {
                         pendingReceipts.removeValue(forKey: request)
                         pendingReceiptOrder.removeAll { $0 == request }
+                        if let terminal = abandoned.terminal { try? await provider.closeTerminal(terminal.id) }
+                        try? await provider.closeRemoteWorkspace(id: abandoned.workspace.id)
                     }
-                )
-                pendingReceipts[request] = nil
-                pendingReceiptOrder.removeAll { $0 == request }
-                return result.opened?.workspaceID
+                    throw error
+                }
             }
         )
     }
