@@ -13,7 +13,7 @@ runs:
     - name: Start transfer measurement
       id: clock
       shell: bash
-      run: echo "started=$(date +%s)" >> "$GITHUB_OUTPUT"
+      run: echo "started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_OUTPUT"
 
     - name: Download artifact
       id: download
@@ -30,7 +30,7 @@ runs:
       continue-on-error: true
       shell: bash
       env:
-        TRANSFER_STARTED: ${{ steps.clock.outputs.started }}
+        TRANSFER_STARTED_NS: ${{ steps.clock.outputs.started_ns }}
         TRANSFER_OUTCOME: ${{ steps.download.outcome }}
         TRANSFER_ARTIFACT_ID: ${{ inputs.artifact-id }}
         TRANSFER_PATH: ${{ inputs.path }}
@@ -41,7 +41,7 @@ runs:
         from pathlib import Path
         import time
 
-        elapsed = max(0, round(time.time() - float(os.environ["TRANSFER_STARTED"]), 3))
+        elapsed = max(0, round((time.monotonic_ns() - int(os.environ["TRANSFER_STARTED_NS"])) / 1_000_000_000, 3))
         archive = Path(os.environ["TRANSFER_PATH"]) / "app-host-products.tar.gz"
         archive_bytes = archive.stat().st_size if archive.is_file() else None
         complete = os.environ["TRANSFER_OUTCOME"] == "success"
