@@ -30,7 +30,19 @@ public actor MobileRemoteVaultMergePolicy {
     private let members: [UUID: MobileRemoteVaultMember]
     private var accepted: [UUID: Accepted] = [:]
 
-    /// Creates a policy over an authenticated membership snapshot.
+    /// Creates record authorization from cryptographically verified membership.
+    /// - Parameter membership: Manifest verified from the approved chain anchor.
+    /// - Throws: Invalid membership context errors.
+    public init(membership: MobileRemoteTrustedVaultManifest) throws {
+        try self.init(
+            accountID: membership.manifest.accountID,
+            vaultID: membership.manifest.vaultID,
+            keyEpoch: membership.manifest.keyEpoch,
+            members: membership.manifest.participants.map(\.member)
+        )
+    }
+
+    /// Internal constructor used to isolate record-level policy tests.
     ///
     /// - Parameters:
     ///   - accountID: Expected vault owner account.
@@ -38,7 +50,7 @@ public actor MobileRemoteVaultMergePolicy {
     ///   - keyEpoch: Only this current epoch may write new records.
     ///   - members: Authenticated device membership, never server-supplied ad hoc.
     /// - Throws: Invalid context or duplicate/invalid membership errors.
-    public init(
+    init(
         accountID: String,
         vaultID: UUID,
         keyEpoch: Int64,
