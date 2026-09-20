@@ -2308,6 +2308,25 @@ jobs:
           set -euo pipefail
           echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
+      - name: Select persistent compilation cache
+        id: persistent-compilation-cache
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || 'push' }}
+          COMPILATION_FINGERPRINT: ${{ steps.compilation-cache-key.outputs.fingerprint }}
+        run: |
+          set -euo pipefail
+          # A cancelled run may leave valid Xcode CAS entries behind. Keep the
+          # local state scoped to this branch so it cannot cross PR trust
+          # boundaries into another contributor's build.
+          scope="$(printf 'pr-%s-%s' "$PR_NUMBER" "$BRANCH_NAME" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-120)"
+          [ -n "$scope" ] || scope=default
+          cas_path="$RUNNER_TOOL_CACHE/cmux-ci-compile-admission/$scope/$COMPILATION_FINGERPRINT"
+          mkdir -p "$cas_path"
+          echo "CMUX_COMPILE_ADMISSION_CAS=$cas_path" >> "$GITHUB_ENV"
+          echo "path=$cas_path" >> "$GITHUB_OUTPUT"
+          echo "Using branch-scoped compilation CAS: $cas_path"
+
       # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
       # only writer. A cache saved here would be scoped to this pull request and
       # would spend the cache budget that keeps the main seed alive.
@@ -2327,6 +2346,19 @@ jobs:
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS" \
             "$RUNNER_TEMP/cmux-compile-admission.txt"
+
+      - name: Report reusable compilation state
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          cas_size="$(du -sh "$CMUX_COMPILE_ADMISSION_CAS" | awk '{print $1}')"
+          echo "Compilation CAS retained for superseding runs: $cas_size"
+          {
+            echo "### Reusable compilation state"
+            echo
+            echo "- Branch-scoped Xcode CAS: \`$cas_size\`"
+            echo "- Scope: retained on the self-hosted runner for replacement runs on this branch"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Package compiled app-host test product
         id: package-products
