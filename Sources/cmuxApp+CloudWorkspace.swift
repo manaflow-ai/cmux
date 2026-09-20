@@ -2,6 +2,15 @@ import CmuxCloudMachines
 import Foundation
 
 extension cmuxApp {
+    /// Builds the one machine pin store, scoped to the signed-in user and the
+    /// selected team so pins never leak across accounts.
+    static func makeCloudMachinePinStore(auth: MacAuthComposition) -> CloudMachinePinStore {
+        CloudMachinePinStore(defaults: .standard, scopeProvider: { [auth] in
+            guard let userID = auth.accountFlow.currentIdentity?.id, !userID.isEmpty else { return nil }
+            return "user:\(userID)|team:\(auth.accountFlow.confirmedTeamID ?? "personal")"
+        })
+    }
+
     /// Composes live authentication, authoritative fleet loading, and workspace projection.
     static func makeCloudWorkspaceCoordinator(auth: MacAuthComposition) -> CloudWorkspaceCoordinator {
         // Keep the authoritative remote receipt across a failed local projection.
