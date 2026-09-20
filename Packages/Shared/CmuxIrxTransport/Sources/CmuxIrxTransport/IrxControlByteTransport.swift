@@ -193,6 +193,17 @@ extension IrxControlByteTransport: CmxByteTransportContinuityIdentifying {
     }
 }
 
+extension IrxControlByteTransport: CmxByteTransportConnectionInspecting {
+    public func transportConnectionObservation() async -> CmxTransportConnectionObservation? {
+        guard !isClosed, let (connection, _) = pair else { return nil }
+        let selected = connection.underlying.paths().first(where: { $0.isSelected })
+        return CmxTransportConnectionObservation(
+            continuityID: connection.underlying.stableId(),
+            pathKind: selected.map { $0.isRelay ? .relay : .direct } ?? .unknown
+        )
+    }
+}
+
 extension IrxControlByteTransport: CmxByteTransportClosureObserving {
     /// Resolves when the underlying connection ends, letting the app react to
     /// death immediately instead of discovering it on the next failed write.
