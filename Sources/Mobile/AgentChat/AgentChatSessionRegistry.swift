@@ -46,7 +46,7 @@ final class AgentChatSessionRegistry {
     /// and without polling `kill(pid,0)` on every read. `DispatchSource` is an
     /// event source, not a timer, and is cancellable.
     private var exitWatchers: [String: (pid: Int, source: DispatchSourceProcess)] = [:]
-    private var processExitRetryTasks: [String: Task<Void, Never>] = [:]
+    var processExitRetryTasks: [String: Task<Void, Never>] = [:]
 
     /// Creates a registry.
     ///
@@ -192,7 +192,7 @@ final class AgentChatSessionRegistry {
     /// Ignores a stale fire (the session may have resumed under a new pid;
     /// `claude --resume`). `ended` is retained (the GUI stays shown, the input
     /// bar disables); only the watcher is torn down.
-    private func handleProcessExit(sessionID: String, pid: Int, retryAttempt: Int = 0) {
+    func handleProcessExit(sessionID: String, pid: Int, retryAttempt: Int = 0) {
         guard let record = records[sessionID], record.pid == pid, record.state != .ended else {
             return
         }

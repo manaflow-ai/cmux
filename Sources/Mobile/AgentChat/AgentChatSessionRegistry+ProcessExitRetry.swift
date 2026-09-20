@@ -11,7 +11,7 @@ extension AgentChatSessionRegistry {
                 return
             }
             guard let self,
-                  let record = self.records[sessionID],
+                  let record = self.record(sessionID: sessionID),
                   record.pid == pid,
                   record.state != .ended else { return }
             self.handleProcessExit(sessionID: sessionID, pid: pid, retryAttempt: attempt)
