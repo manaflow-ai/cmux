@@ -17,6 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "detect_ci_change_areas.py"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+GUARD_JOBS = (
+    "workflow-guard-tests",
+    "workflow-guard-history",
+    "workflow-guard-cli-scripts",
+    "workflow-guard-source-lints",
+)
 CI_STATUS_FALLBACK_WORKFLOW = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
 PERF_ACTIVATION_WORKFLOW = ROOT / ".github" / "workflows" / "perf-activation.yml"
 
@@ -535,6 +541,9 @@ def linux_preflight_needs(
     job_results = {
         "changes": "success",
         "workflow-guard-tests": "success",
+        "workflow-guard-history": "success",
+        "workflow-guard-cli-scripts": "success",
+        "workflow-guard-source-lints": "success",
         "ghosttykit-release-check": "success",
         "web-typecheck": "success",
         "react-apps-check": "success",
@@ -902,7 +911,7 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
     for job_name in [
         "changes",
-        "workflow-guard-tests",
+        *GUARD_JOBS,
         "web-typecheck",
         "react-apps-check",
         "diff-sidecar-check",
@@ -1015,7 +1024,8 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
 
     assert "name: linux-preflight" in block
     assert "      - changes" in block
-    assert "      - workflow-guard-tests" in block
+    for guard_job in GUARD_JOBS:
+        assert f"      - {guard_job}" in block
     assert "      - ghosttykit-release-check" in block
     assert "      - web-typecheck" in block
     assert "      - react-apps-check" in block
@@ -1023,10 +1033,26 @@ def test_linux_preflight_blocks_macos_on_cheap_layer_failure() -> None:
     assert "      - web-db-migrations" in block
     assert "      - agent-session-web-resources" in block
     assert "if: ${{ always() }}" in block
-    assert 'required = ("changes", "workflow-guard-tests", "ghosttykit-release-check")' in block
     assert 'allowed_routed = {' in block
     assert 'routed_outputs = {' in block
     assert 'bad[name] = f"{result} (route {route}=true)"' in block
+
+
+def test_linux_preflight_requires_every_guard_job() -> None:
+    assert run_linux_preflight(linux_preflight_needs()).returncode == 0
+
+    for guard_job in GUARD_JOBS:
+        for outcome in ("failure", "cancelled", "skipped"):
+            result = run_linux_preflight(linux_preflight_needs(results={guard_job: outcome}))
+
+            assert result.returncode != 0, (guard_job, outcome)
+            assert f"{guard_job}: {outcome}" in result.stderr
+
+
+def test_only_the_history_guard_job_fetches_full_history() -> None:
+    for guard_job in GUARD_JOBS:
+        fetches_history = "fetch-depth: 0" in workflow_job_block(guard_job)
+        assert fetches_history == (guard_job == "workflow-guard-history"), guard_job
 
 
 def test_linux_preflight_fails_when_routed_job_skips() -> None:
