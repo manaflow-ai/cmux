@@ -2569,10 +2569,6 @@ actor MachineUsageClient {
             let response = try await readRequests.read(key, deadline: deadline) {
                 try await CloudOperationContext.$current.withValue(context) {
                     let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
-                    if http.statusCode == 429 {
-                        let seconds = TimeInterval(CmxRetryAfterPolicy.seconds(from: http) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds)
-                        _ = await self.readRequests.noteRetryAfter(key, seconds: seconds, response: .init(data: data, http: http))
-                    }
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }
             }
@@ -2711,6 +2707,10 @@ actor MachineUsageClient {
             }
             guard let http = response as? HTTPURLResponse else {
                 throw MachineUsageClientError.malformedResponse("non-HTTP response")
+            }
+            if http.statusCode == 429, let read = CloudReadRequestCoordinator.current, let owner = read.owner {
+                let seconds = TimeInterval(CmxRetryAfterPolicy.seconds(from: http) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds)
+                _ = await owner.noteRetryAfter(read.key, seconds: seconds, response: .init(data: data, http: http))
             }
             guard (200...299).contains(http.statusCode) else {
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
