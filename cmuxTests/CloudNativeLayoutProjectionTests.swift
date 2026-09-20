@@ -20,6 +20,7 @@ struct CloudNativeLayoutProjectionTests {
         ))
         let catalog = SurfaceCatalog(cloudWorkspaceRenameService: service)
         let machine = SurfaceMachineID.device(SurfaceDeviceInstanceID(deviceID: UUID().uuidString, tag: "default"))
+        catalog.register(CloudPlacementTestProvider(machine: machine))
         let remote = SurfaceRemoteWorkspace(id: "source-workspace", name: "Source project", index: 0, focused: true)
         var resource = SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: "terminal"),
             title: "Build logs", detail: "/remote/project", lifecycle: .running, agent: nil, remoteWorkspace: remote,
