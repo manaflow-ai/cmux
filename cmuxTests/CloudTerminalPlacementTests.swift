@@ -213,7 +213,7 @@ struct CloudTerminalPlacementTests {
                 #expect(workspace.terminalPanel(for: pendingID)?.surface.ioMode == .manualMirror)
                 #expect(workspace.cloudPendingCreations[pendingID] != nil)
             }
-            #expect(provider.materialized.count == (kind == "creationWorkspace" ? 0 : 1))
+            #expect(provider.materialized.count == (kind == "creationWorkspace" || kind == "contradictoryWorkspaceView" ? 0 : 1))
         }
     }
 
