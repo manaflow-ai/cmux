@@ -78,6 +78,7 @@ extension CmuxTuiSurfaceProvider {
         browser.showCloudAddress(privateURL)
         model.connect()
         browser.cloudAccess.routeDidConfigure()
+        materializedPanels.insert(browser.id)
     }
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {

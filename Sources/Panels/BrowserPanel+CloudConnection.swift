@@ -3,8 +3,12 @@ import WebKit
 
 extension BrowserPanel {
     var cloudResourceForSession: SurfaceResourceID? {
+        guard cloudAccess.retainsCloudResourceForDuplication else { return nil }
+        if let resource = cloudAccess.resourceID, !resource.machine.isLocal {
+            return resource
+        }
         let resource = SurfaceCatalog.shared.projectionRecord(forPanel: id)?.resource
-        return resource?.machine.isLocal == false ? resource : cloudAccess.resourceID
+        return resource?.machine.isLocal == false ? resource : nil
     }
 
     /// Restore by stable resource identity before loading any saved address.

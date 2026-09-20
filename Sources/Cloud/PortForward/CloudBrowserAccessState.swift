@@ -184,6 +184,10 @@ final class CloudBrowserAccessState {
         startDeadline()
         attempt += 1
         trace("configured")
+        // Reconfiguration invalidates the previous observation generation.
+        // Re-arm it even when the same access model is reused by a WebView
+        // replacement that is still waiting for its route to become ready.
+        observeRoute()
     }
 
     func nextURL() -> URL? {
