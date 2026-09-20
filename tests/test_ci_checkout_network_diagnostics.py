@@ -24,10 +24,22 @@ class CheckoutDiagnosticsTests(unittest.TestCase):
                     executable.chmod(0o755)
                 step = next(s for s in workflow['jobs'][job]['steps']
                             if s['name'] == 'Diagnose checkout network failure')
+                checkout = next(s for s in workflow['jobs'][job]['steps']
+                                if s.get('id') == 'checkout')
+                retry = next(s for s in workflow['jobs'][job]['steps']
+                             if s.get('id') == 'checkout-retry')
+                self.assertTrue(checkout['continue-on-error'])
+                self.assertEqual(retry['if'], "steps.checkout.outcome == 'failure'")
+                self.assertTrue(retry['continue-on-error'])
+                self.assertEqual(
+                    step['if'],
+                    "steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'",
+                )
+                self.assertEqual(step['timeout-minutes'], 1)
                 env = dict(os.environ, PATH=str(commands), RUNNER_NAME='warp-test')
                 result = subprocess.run(['/bin/bash', '-e', '-c', step['run']],
                                         cwd=root, env=env, capture_output=True,
-                                        text=True, timeout=5)
+                                        text=True)
                 self.assertEqual(result.returncode, 1)
                 output = result.stdout + result.stderr
                 for command in ('scutil', 'route', 'ifconfig', 'dscacheutil', 'curl'):
