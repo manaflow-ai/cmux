@@ -94,7 +94,7 @@ final class CloudPortsStatusContent: NSView {
         let contentWidth = max(1, width - 4)
         let title = textHeight(presentation.title, font: titleFont, width: contentWidth)
         let message = textHeight(presentation.message, font: messageFont, width: contentWidth)
-        let button = presentation.action == .none ? 0 : 26
+        let button: CGFloat = presentation.action == .none ? 0 : 26
         return ceil(title + message + button + 10)
     }
 
