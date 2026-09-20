@@ -183,44 +183,57 @@ jobs:
       - name: Run CMUXMobileCore package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CMUXMobileCore' }}
         run: |
+          set -euo pipefail
           args=(--package-path Packages/Shared/CMUXMobileCore)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
-          swift test "${args[@]}"
+          log_path="$RUNNER_TEMP/CMUXMobileCore-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
 
       - name: Run CmuxSyncStore package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxSyncStore' }}
         run: |
+          set -euo pipefail
           # Local-first sync store (raw SQLite3). Headless SwiftPM, no GhosttyKit
           # or app-target dependency, so it runs as a real CI gate here.
           args=(--package-path Packages/Shared/CmuxSyncStore)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
-          swift test "${args[@]}"
+          log_path="$RUNNER_TEMP/CmuxSyncStore-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
       - name: Run CmuxMobilePairedMac package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobilePairedMac' }}
         run: |
+          set -euo pipefail
           args=(--package-path Packages/iOS/CmuxMobilePairedMac)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
-          swift test "${args[@]}"
+          log_path="$RUNNER_TEMP/CmuxMobilePairedMac-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
 
       - name: Run CmuxMobileChanges package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileChanges' }}
         run: |
+          set -euo pipefail
           args=(--package-path Packages/iOS/CmuxMobileChanges)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
-          swift test "${args[@]}"
+          log_path="$RUNNER_TEMP/CmuxMobileChanges-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
 
       - name: Run CmuxMobileShell package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShell' }}
         run: |
+          set -euo pipefail
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
@@ -228,18 +241,23 @@ jobs:
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
-          swift test "${args[@]}"
+          log_path="$RUNNER_TEMP/CmuxMobileShell-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShell}"
 
       - name: Run CmuxMobileShellModel package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CmuxMobileShellModel' }}
         run: |
+          set -euo pipefail
           # Pure shell-model queue and ordering regressions live in this package.
           # Keep them beside the shell package gate so input framing stays covered.
           args=(--package-path Packages/iOS/CmuxMobileShellModel)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
-          swift test "${args[@]}"
+          log_path="$RUNNER_TEMP/CmuxMobileShellModel-tests.log"
+          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
   ios-simulator:
     needs: detect-ios-changes
