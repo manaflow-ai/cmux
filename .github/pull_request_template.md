@@ -1,4 +1,4 @@
-<!-- Writing guidance: ../STYLE.md. Lead with the concrete problem and resulting behavior; keep supporting detail proportional to the change. -->
+<!-- Before drafting or revising this description, read ../STYLE.md. State the change and relevant validation; link supporting detail. -->
 
 ## Summary
 

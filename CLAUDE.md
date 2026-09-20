@@ -123,7 +123,7 @@ Rules that only matter in one part of the tree live next to that code. Read the 
 
 ## Public writing
 
-Follow [STYLE.md](STYLE.md) for issues, RFCs, PR descriptions, and progress updates. Lead with the concrete problem and resulting behavior, keep the explanation proportional, and distinguish proposed, implemented, and verified work.
+Before drafting or revising a top-level issue or PR description, read [STYLE.md](STYLE.md). It also covers RFCs and progress updates.
 
 ## Regression test commits
 
