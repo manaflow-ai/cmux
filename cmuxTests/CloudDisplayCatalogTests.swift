@@ -65,6 +65,44 @@ struct CloudDisplayCatalogTests {
         #expect(!service.canCreate && service.snapshot == nil)
     }
 
+    @Test("A failed refresh invalidates the cached guest catalog")
+    func failedRefreshClearsSnapshot() async {
+        var shouldFail = false
+        let service = CloudDisplayCoordinator { command, _ in
+            guard command.contains(" list") else { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if shouldFail { throw URLError(.networkConnectionLost) }
+            return .init(exitCode: 0, stdout: initial, stderr: "")
+        }
+        await service.refresh()
+        #expect(service.snapshot != nil && service.canCreate)
+        shouldFail = true
+        await service.refresh()
+        #expect(service.snapshot == nil && !service.canCreate)
+    }
+
+    @Test("Cancelling display creation cancels the guest exec")
+    func cancelledCreationCancelsGuestExec() async {
+        let started = CloudLinkFirstValue<Bool>()
+        let cancelled = CloudLinkFirstValue<Bool>()
+        let service = CloudDisplayCoordinator { command, _ in
+            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            started.resolve(true)
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch {
+                cancelled.resolve(true)
+                throw error
+            }
+            return .init(exitCode: 0, stdout: created, stderr: "")
+        }
+        await service.refresh()
+        let operation = Task { try await service.create() }
+        _ = await started.result
+        operation.cancel()
+        #expect(await cancelled.result == true)
+        do { _ = try await operation.value } catch {}
+    }
+
     @Test("The existing Desktop cannot be reported as a newly created display")
     func rejectsDesktopCreationReceipt() {
         let raw = #"{"version":1,"canCreate":true,"displays":[{"id":"display:1","number":1,"port":6901,"state":"running"}],"created":"display:1"}"#
