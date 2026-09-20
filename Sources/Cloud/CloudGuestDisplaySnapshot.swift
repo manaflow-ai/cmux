@@ -3,27 +3,9 @@ import Foundation
 /// A guest-issued catalog. Connection targets are derived from validated guest
 /// slots and the authenticated provider's VM address, never from a guest URL.
 struct CloudGuestDisplaySnapshot: Decodable, Sendable {
-    struct Display: Decodable, Sendable {
-        let id: String
-        let number: Int
-        let port: Int
-        let state: SurfaceLifecycle
-
-        func resource(on machine: SurfaceMachineID, address: String?) -> SurfaceResource {
-            SurfaceResource(
-                id: SurfaceResourceID(machine: machine, kind: .display, key: id),
-                title: number == 1
-                    ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
-                    : String(format: String(localized: "cloud.display.numberedTitle", defaultValue: "Desktop %d"), number),
-                detail: "noVNC", lifecycle: state, agent: nil, remoteWorkspace: nil,
-                port: port, url: address.map { CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: $0, port: port) }
-            )
-        }
-    }
-
     let version: Int
     let canCreate: Bool
-    let displays: [Display]
+    let displays: [CloudGuestDisplay]
     let created: String?
     let error: String?
 

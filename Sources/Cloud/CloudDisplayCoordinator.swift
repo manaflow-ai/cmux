@@ -31,6 +31,7 @@ final class CloudDisplayCoordinator {
             isAvailable = response.exitCode == 0
         } catch {
             guard token == generation else { return }
+            snapshot = nil
             isAvailable = false
         }
     }

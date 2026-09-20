@@ -22,7 +22,7 @@ extension CmuxTuiSurfaceProvider {
         let generation = currentLifecycleGeneration
         let refresh = refreshGeneration
         await displayCoordinator.refresh()
-        guard isCurrentRefresh(lifecycle: generation, refresh: refresh) else { return }
+        guard isCurrentRefresh(lifecycle: generation, refresh: refresh), displayCoordinator.isAvailable else { return }
         publishDisplays()
     }
 

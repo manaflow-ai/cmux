@@ -3,360 +3,170 @@ import Foundation
 /// Installs and invokes the VM-scoped display helper through the existing authorized exec route.
 @MainActor
 enum CloudGuestDisplayScript {
-    private static let source = #"""
-#!/usr/bin/env python3
-"""Guest-owned display catalog and supervisor; invoked by the desktop service.
-
-The existing :1 desktop remains owned by start-vnc.sh. Additional records each
-own an X server, session bus, window manager and noVNC listener. The control
-socket is local to this guest and only accessible to its work user.
+    private static let encodedSource = """
+IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwoiIiJHdWVzdC1vd25lZCBkaXNwbGF5IGNhdGFsb2cgYW5kIHN1cGVydmlzb3I7IGludm9rZWQgYnkgdGhlIGRlc2t0
+b3Agc2VydmljZS4KClRoZSBleGlzdGluZyA6MSBkZXNrdG9wIHJlbWFpbnMgb3duZWQgYnkgc3RhcnQtdm5jLnNoLiBBZGRpdGlvbmFsIHJlY29yZHMgZWFj
+aApvd24gYW4gWCBzZXJ2ZXIsIHNlc3Npb24gYnVzLCB3aW5kb3cgbWFuYWdlciBhbmQgbm9WTkMgbGlzdGVuZXIuIFRoZSBjb250cm9sCnNvY2tldCBpcyBs
+b2NhbCB0byB0aGlzIGd1ZXN0IGFuZCBvbmx5IGFjY2Vzc2libGUgdG8gaXRzIHdvcmsgdXNlci4KIiIiCmltcG9ydCBhcmdwYXJzZQppbXBvcnQgZmNudGwK
+aW1wb3J0IGh0dHAuY2xpZW50CmltcG9ydCBqc29uCmltcG9ydCBvcwpmcm9tIHBhdGhsaWIgaW1wb3J0IFBhdGgKaW1wb3J0IHNodXRpbAppbXBvcnQgc29j
+a2V0CmltcG9ydCBzb2NrZXRzZXJ2ZXIKaW1wb3J0IHN1YnByb2Nlc3MKaW1wb3J0IHRlbXBmaWxlCmltcG9ydCB0aHJlYWRpbmcKaW1wb3J0IHRpbWUKaW1w
+b3J0IHV1aWQKCk1BWF9ESVNQTEFZUyA9IDE2ClNUQVJURVIgPSAiL3Vzci9sb2NhbC9iaW4vc3RhcnQtdm5jLnNoIgoKCmRlZiBkZXNjcmlwdG9yKG51bWJl
+ciwgc3RhdGU9InJ1bm5pbmciKToKICAgIHJldHVybiB7ImlkIjogZiJkaXNwbGF5OntudW1iZXJ9IiwgIm51bWJlciI6IG51bWJlciwKICAgICAgICAgICAg
+InBvcnQiOiA2OTAwICsgbnVtYmVyLCAic3RhdGUiOiBzdGF0ZX0KCgpkZWYgbGlzdGVuaW5nKHBvcnQpOgogICAgdHJ5OgogICAgICAgIHdpdGggc29ja2V0
+LmNyZWF0ZV9jb25uZWN0aW9uKCgiMTI3LjAuMC4xIiwgcG9ydCksIHRpbWVvdXQ9MC4zKToKICAgICAgICAgICAgcmV0dXJuIFRydWUKICAgIGV4Y2VwdCBP
+U0Vycm9yOgogICAgICAgIHJldHVybiBGYWxzZQoKCmRlZiByZWFkeShudW1iZXIpOgogICAgIiIiQSBib3VuZCBIVFRQIHBvcnQgYWxvbmUgZG9lcyBub3Qg
+cHJvdmUgdGhhdCBhbiBYL1JGQiBzZXJ2ZXIgZXhpc3RzLiIiIgogICAgdHJ5OgogICAgICAgIHdpdGggc29ja2V0LmNyZWF0ZV9jb25uZWN0aW9uKCgiMTI3
+LjAuMC4xIiwgNTkwMCArIG51bWJlciksIHRpbWVvdXQ9MC41KSBhcyByZmI6CiAgICAgICAgICAgIHZlcnNpb24gPSBiIiIKICAgICAgICAgICAgd2hpbGUg
+bGVuKHZlcnNpb24pIDwgMTI6CiAgICAgICAgICAgICAgICBwYXJ0ID0gcmZiLnJlY3YoMTIgLSBsZW4odmVyc2lvbikpCiAgICAgICAgICAgICAgICBpZiBu
+b3QgcGFydDoKICAgICAgICAgICAgICAgICAgICByZXR1cm4gRmFsc2UKICAgICAgICAgICAgICAgIHZlcnNpb24gKz0gcGFydAogICAgICAgICAgICBpZiBu
+b3QgdmVyc2lvbi5zdGFydHN3aXRoKGIiUkZCICIpOgogICAgICAgICAgICAgICAgcmV0dXJuIEZhbHNlCiAgICAgICAgY29ubmVjdGlvbiA9IGh0dHAuY2xp
+ZW50LkhUVFBDb25uZWN0aW9uKCIxMjcuMC4wLjEiLCA2OTAwICsgbnVtYmVyLCB0aW1lb3V0PTAuNSkKICAgICAgICB0cnk6CiAgICAgICAgICAgIGNvbm5l
+Y3Rpb24ucmVxdWVzdCgiSEVBRCIsICIvdm5jLmh0bWwiKQogICAgICAgICAgICByZXR1cm4gY29ubmVjdGlvbi5nZXRyZXNwb25zZSgpLnN0YXR1cyA9PSAy
+MDAKICAgICAgICBmaW5hbGx5OgogICAgICAgICAgICBjb25uZWN0aW9uLmNsb3NlKCkKICAgIGV4Y2VwdCAoT1NFcnJvciwgaHR0cC5jbGllbnQuSFRUUEV4
+Y2VwdGlvbik6CiAgICAgICAgcmV0dXJuIEZhbHNlCgoKY2xhc3MgRGlzcGxheUNhdGFsb2c6CiAgICAiIiJTZXJpYWxpemVzIGFsbG9jYXRpb24gYW5kIHBl
+cnNpc3RzIHJlcXVlc3QgcmVjZWlwdHMgYmVmb3JlIHN0YXJ0aW5nIHdvcmsuIiIiCgogICAgZGVmIF9faW5pdF9fKHNlbGYsIGRpcmVjdG9yeSwgb2NjdXBp
+ZWQ9Tm9uZSk6CiAgICAgICAgc2VsZi5kaXJlY3RvcnkgPSBQYXRoKGRpcmVjdG9yeSkKICAgICAgICBzZWxmLmRpcmVjdG9yeS5ta2Rpcihtb2RlPTBvNzAw
+LCBwYXJlbnRzPVRydWUsIGV4aXN0X29rPVRydWUpCiAgICAgICAgc2VsZi5wYXRoID0gc2VsZi5kaXJlY3RvcnkgLyAiY2F0YWxvZy5qc29uIgogICAgICAg
+IHNlbGYubG9jayA9IHRocmVhZGluZy5STG9jaygpCiAgICAgICAgc2VsZi5vY2N1cGllZCA9IG9jY3VwaWVkIG9yIChsYW1iZGEgbjogUGF0aChmIi90bXAv
+LlgxMS11bml4L1h7bn0iKS5leGlzdHMoKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgb3IgbGlzdGVuaW5nKDU5MDAgKyBuKSBvciBs
+aXN0ZW5pbmcoNjkwMCArIG4pKQogICAgICAgIHNlbGYucmVjb3JkcyA9IFtdCiAgICAgICAgaWYgc2VsZi5wYXRoLmV4aXN0cygpOgogICAgICAgICAgICBk
+YXRhID0ganNvbi5sb2FkcyhzZWxmLnBhdGgucmVhZF90ZXh0KCkpCiAgICAgICAgICAgIGlmIGRhdGEuZ2V0KCJ2ZXJzaW9uIikgIT0gMToKICAgICAgICAg
+ICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoInVuc3VwcG9ydGVkIGRpc3BsYXkgY2F0YWxvZyB2ZXJzaW9uIikKICAgICAgICAgICAgc2Vlbl9udW1iZXJzLCBz
+ZWVuX3JlcXVlc3RzID0gc2V0KCksIHNldCgpCiAgICAgICAgICAgIGZvciByZWNvcmQgaW4gZGF0YVsiZGlzcGxheXMiXToKICAgICAgICAgICAgICAgIG51
+bWJlciwgcmVxdWVzdCA9IHJlY29yZFsibnVtYmVyIl0sIHJlY29yZFsicmVxdWVzdCJdCiAgICAgICAgICAgICAgICBpZiB0eXBlKG51bWJlcikgaXMgbm90
+IGludCBvciBub3QgMiA8PSBudW1iZXIgPD0gTUFYX0RJU1BMQVlTOgogICAgICAgICAgICAgICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoImludmFsaWQgZGlz
+cGxheSBudW1iZXIiKQogICAgICAgICAgICAgICAgaWYgc3RyKHV1aWQuVVVJRChyZXF1ZXN0KSkgIT0gcmVxdWVzdCBvciBudW1iZXIgaW4gc2Vlbl9udW1i
+ZXJzIG9yIHJlcXVlc3QgaW4gc2Vlbl9yZXF1ZXN0czoKICAgICAgICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJpbnZhbGlkIGRpc3BsYXkgaWRl
+bnRpdHkiKQogICAgICAgICAgICAgICAgc2Vlbl9udW1iZXJzLmFkZChudW1iZXIpCiAgICAgICAgICAgICAgICBzZWVuX3JlcXVlc3RzLmFkZChyZXF1ZXN0
+KQogICAgICAgICAgICAgICAgc2VsZi5yZWNvcmRzLmFwcGVuZCh7Im51bWJlciI6IG51bWJlciwgInJlcXVlc3QiOiByZXF1ZXN0fSkKCiAgICBkZWYgbnVt
+YmVycyhzZWxmKToKICAgICAgICB3aXRoIHNlbGYubG9jazoKICAgICAgICAgICAgcmV0dXJuIHNvcnRlZChyZWNvcmRbIm51bWJlciJdIGZvciByZWNvcmQg
+aW4gc2VsZi5yZWNvcmRzKQoKICAgIGRlZiBhbGxvY2F0ZShzZWxmLCByZXF1ZXN0KToKICAgICAgICBpZiBub3QgaXNpbnN0YW5jZShyZXF1ZXN0LCBzdHIp
+IG9yIHN0cih1dWlkLlVVSUQocmVxdWVzdCkpICE9IHJlcXVlc3Q6CiAgICAgICAgICAgIHJhaXNlIFZhbHVlRXJyb3IoImludmFsaWQgcmVxdWVzdCBpZGVu
+dGl0eSIpCiAgICAgICAgd2l0aCBzZWxmLmxvY2s6CiAgICAgICAgICAgIGZvciByZWNvcmQgaW4gc2VsZi5yZWNvcmRzOgogICAgICAgICAgICAgICAgaWYg
+cmVjb3JkWyJyZXF1ZXN0Il0gPT0gcmVxdWVzdDoKICAgICAgICAgICAgICAgICAgICByZXR1cm4gcmVjb3JkWyJudW1iZXIiXQogICAgICAgICAgICB1c2Vk
+ID0gc2V0KHNlbGYubnVtYmVycygpKQogICAgICAgICAgICBudW1iZXIgPSBuZXh0KChuIGZvciBuIGluIHJhbmdlKDIsIE1BWF9ESVNQTEFZUyArIDEpCiAg
+ICAgICAgICAgICAgICAgICAgICAgICAgIGlmIG4gbm90IGluIHVzZWQgYW5kIG5vdCBzZWxmLm9jY3VwaWVkKG4pKSwgTm9uZSkKICAgICAgICAgICAgaWYg
+bnVtYmVyIGlzIE5vbmU6CiAgICAgICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJkaXNwbGF5IGNhcGFjaXR5IGV4aGF1c3RlZCIpCiAgICAgICAgICAg
+IHJlY29yZHMgPSBzZWxmLnJlY29yZHMgKyBbeyJudW1iZXIiOiBudW1iZXIsICJyZXF1ZXN0IjogcmVxdWVzdH1dCiAgICAgICAgICAgIGZkLCB0ZW1wb3Jh
+cnkgPSB0ZW1wZmlsZS5ta3N0ZW1wKHByZWZpeD0iY2F0YWxvZy0iLCBkaXI9c2VsZi5kaXJlY3RvcnkpCiAgICAgICAgICAgIHRyeToKICAgICAgICAgICAg
+ICAgIHdpdGggb3MuZmRvcGVuKGZkLCAidyIpIGFzIG91dHB1dDoKICAgICAgICAgICAgICAgICAgICBqc29uLmR1bXAoeyJ2ZXJzaW9uIjogMSwgImRpc3Bs
+YXlzIjogcmVjb3Jkc30sIG91dHB1dCkKICAgICAgICAgICAgICAgICAgICBvdXRwdXQuZmx1c2goKQogICAgICAgICAgICAgICAgICAgIG9zLmZzeW5jKG91
+dHB1dC5maWxlbm8oKSkKICAgICAgICAgICAgICAgIG9zLnJlcGxhY2UodGVtcG9yYXJ5LCBzZWxmLnBhdGgpCiAgICAgICAgICAgIGZpbmFsbHk6CiAgICAg
+ICAgICAgICAgICBpZiBvcy5wYXRoLmV4aXN0cyh0ZW1wb3JhcnkpOgogICAgICAgICAgICAgICAgICAgIG9zLnVubGluayh0ZW1wb3JhcnkpCiAgICAgICAg
+ICAgIHNlbGYucmVjb3JkcyA9IHJlY29yZHMKICAgICAgICAgICAgcmV0dXJuIG51bWJlcgoKCmNsYXNzIE93bmVkUHJvY2VzczoKICAgICIiIkEgaGFuZGxl
+IGZvciBhIGRhZW1vbiBzdGFydGVkIGJ5IGRidXMtbGF1bmNoIHJhdGhlciB0aGFuIGJ5IFBvcGVuLiIiIgoKICAgIGRlZiBfX2luaXRfXyhzZWxmLCBwaWQp
+OgogICAgICAgIHNlbGYucGlkID0gcGlkCgogICAgZGVmIHRlcm1pbmF0ZShzZWxmKToKICAgICAgICB0cnk6CiAgICAgICAgICAgIG9zLmtpbGwoc2VsZi5w
+aWQsIDE1KQogICAgICAgIGV4Y2VwdCBPU0Vycm9yOgogICAgICAgICAgICBwYXNzCgogICAgZGVmIHBvbGwoc2VsZik6CiAgICAgICAgdHJ5OgogICAgICAg
+ICAgICBvcy5raWxsKHNlbGYucGlkLCAwKQogICAgICAgICAgICByZXR1cm4gTm9uZQogICAgICAgIGV4Y2VwdCBPU0Vycm9yOgogICAgICAgICAgICByZXR1
+cm4gMAoKCmNsYXNzIERpc3BsYXlTZXJ2aWNlOgogICAgZGVmIF9faW5pdF9fKHNlbGYsIGNhdGFsb2csIHJ1bnRpbWUsIHN0YXJ0ZXI9U1RBUlRFUik6CiAg
+ICAgICAgc2VsZi5jYXRhbG9nID0gY2F0YWxvZwogICAgICAgIHNlbGYucnVudGltZSA9IFBhdGgocnVudGltZSkKICAgICAgICBzZWxmLnN0YXJ0ZXIgPSBz
+dGFydGVyCiAgICAgICAgc2VsZi5sb2NrID0gdGhyZWFkaW5nLkxvY2soKQogICAgICAgIHNlbGYuam9icyA9IHt9CiAgICAgICAgc2VsZi5zdGF0ZXMgPSB7
+fQogICAgICAgIHNlbGYucHJvY2Vzc2VzID0ge30KICAgICAgICBzZWxmLnNodXRkb3duID0gdGhyZWFkaW5nLkV2ZW50KCkKCiAgICBkZWYgc3RhcnQoc2Vs
+ZiwgbnVtYmVyKToKICAgICAgICB3aXRoIHNlbGYubG9jazoKICAgICAgICAgICAgaWYgbnVtYmVyIGluIHNlbGYuam9iczoKICAgICAgICAgICAgICAgIHJl
+dHVybiBzZWxmLmpvYnNbbnVtYmVyXQogICAgICAgICAgICBmaW5pc2hlZCA9IHRocmVhZGluZy5FdmVudCgpCiAgICAgICAgICAgIHNlbGYuam9ic1tudW1i
+ZXJdID0gZmluaXNoZWQKICAgICAgICAgICAgc2VsZi5zdGF0ZXNbbnVtYmVyXSA9ICJsYXVuY2hpbmciCiAgICAgICAgICAgIHRocmVhZGluZy5UaHJlYWQo
+dGFyZ2V0PXNlbGYuc3VwZXJ2aXNlLCBhcmdzPShudW1iZXIsIGZpbmlzaGVkKSwgZGFlbW9uPVRydWUpLnN0YXJ0KCkKICAgICAgICAgICAgcmV0dXJuIGZp
+bmlzaGVkCgogICAgZGVmIHRlcm1pbmF0ZShzZWxmLCBudW1iZXIpOgogICAgICAgIGZvciBwcm9jZXNzIGluIHNlbGYucHJvY2Vzc2VzLnBvcChudW1iZXIs
+IFtdKToKICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgcHJvY2Vzcy50ZXJtaW5hdGUoKQogICAgICAgICAgICBleGNlcHQgT1NFcnJvcjoKICAg
+ICAgICAgICAgICAgIHBhc3MKCiAgICBAc3RhdGljbWV0aG9kCiAgICBkZWYgd2FpdF9mb3JfcG9ydChwb3J0LCB0aW1lb3V0PTIwKToKICAgICAgICBkZWFk
+bGluZSA9IHRpbWUubW9ub3RvbmljKCkgKyB0aW1lb3V0CiAgICAgICAgd2hpbGUgdGltZS5tb25vdG9uaWMoKSA8IGRlYWRsaW5lOgogICAgICAgICAgICBp
+ZiBsaXN0ZW5pbmcocG9ydCk6CiAgICAgICAgICAgICAgICByZXR1cm4gVHJ1ZQogICAgICAgICAgICB0aW1lLnNsZWVwKDAuMSkKICAgICAgICByZXR1cm4g
+RmFsc2UKCiAgICBkZWYgc3RhcnRfY29tcG9uZW50cyhzZWxmLCBudW1iZXIsIGVudmlyb25tZW50LCBydW50aW1lKToKICAgICAgICBpZiByZWFkeShudW1i
+ZXIpOgogICAgICAgICAgICByZXR1cm4KICAgICAgICBzZWxmLnRlcm1pbmF0ZShudW1iZXIpCiAgICAgICAgdm5jID0gc2h1dGlsLndoaWNoKCJYdm5jIikg
+b3Igc2h1dGlsLndoaWNoKCJYdGlnZXJ2bmMiKQogICAgICAgIHdlYnNvY2tpZnkgPSBzaHV0aWwud2hpY2goIndlYnNvY2tpZnkiKQogICAgICAgIGlmIG5v
+dCB2bmMgb3Igbm90IHdlYnNvY2tpZnk6CiAgICAgICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcigiZGlzcGxheSBydW50aW1lIHVuYXZhaWxhYmxlIikKICAg
+ICAgICByZmJfcG9ydCwgbm92bmNfcG9ydCA9IDU5MDAgKyBudW1iZXIsIDY5MDAgKyBudW1iZXIKICAgICAgICBwcm9jZXNzZXMgPSBbXQogICAgICAgIHBy
+b2Nlc3Nlcy5hcHBlbmQoc3VicHJvY2Vzcy5Qb3BlbigKICAgICAgICAgICAgW3ZuYywgZiI6e251bWJlcn0iLCAiLWdlb21ldHJ5Iiwgb3MuZW52aXJvbi5n
+ZXQoIkNNVVhfVk5DX0dFT01FVFJZIiwgIjE0NDB4OTAwIiksCiAgICAgICAgICAgICAiLWRlcHRoIiwgIjI0IiwgIi1yZmJwb3J0Iiwgc3RyKHJmYl9wb3J0
+KSwgIi1sb2NhbGhvc3QiLAogICAgICAgICAgICAgIi1TZWN1cml0eVR5cGVzIiwgIk5vbmUiLCAiLUFsd2F5c1NoYXJlZCJdLAogICAgICAgICAgICBlbnY9
+ZW52aXJvbm1lbnQsIHN0ZGluPXN1YnByb2Nlc3MuREVWTlVMTCwKICAgICAgICAgICAgc3Rkb3V0PXN1YnByb2Nlc3MuREVWTlVMTCwgc3RkZXJyPXN1YnBy
+b2Nlc3MuREVWTlVMTCkpCiAgICAgICAgc2VsZi5wcm9jZXNzZXNbbnVtYmVyXSA9IHByb2Nlc3NlcwogICAgICAgIGlmIG5vdCBzZWxmLndhaXRfZm9yX3Bv
+cnQocmZiX3BvcnQpOgogICAgICAgICAgICByYWlzZSBSdW50aW1lRXJyb3IoIlh2bmMgZGlkIG5vdCBiZWNvbWUgcmVhZHkiKQogICAgICAgIGJ1cyA9IHN1
+YnByb2Nlc3MucnVuKFsiZGJ1cy1sYXVuY2giLCAiLS1zaC1zeW50YXgiXSwgZW52PWVudmlyb25tZW50LAogICAgICAgICAgICAgICAgICAgICAgICAgICAg
+IGNhcHR1cmVfb3V0cHV0PVRydWUsIHRleHQ9VHJ1ZSwgY2hlY2s9VHJ1ZSkuc3Rkb3V0CiAgICAgICAgZm9yIGxpbmUgaW4gYnVzLnNwbGl0bGluZXMoKToK
+ICAgICAgICAgICAgaWYgIj0iIG5vdCBpbiBsaW5lOgogICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAga2V5LCB2YWx1ZSA9IGxpbmUuc3Bs
+aXQoIj0iLCAxKQogICAgICAgICAgICBlbnZpcm9ubWVudFtrZXldID0gdmFsdWUuc3RyaXAoKS5zdHJpcCgiJyIpCiAgICAgICAgdHJ5OgogICAgICAgICAg
+ICBkYnVzX3BpZCA9IGludChlbnZpcm9ubWVudC5nZXQoIkRCVVNfU0VTU0lPTl9CVVNfUElEIiwgIjAiKSkKICAgICAgICBleGNlcHQgVmFsdWVFcnJvcjoK
+ICAgICAgICAgICAgZGJ1c19waWQgPSAwCiAgICAgICAgaWYgZGJ1c19waWQgPiAxOgogICAgICAgICAgICBwcm9jZXNzZXMuYXBwZW5kKE93bmVkUHJvY2Vz
+cyhkYnVzX3BpZCkpCiAgICAgICAgZm9yIGV4ZWN1dGFibGUsIGFyZ3MgaW4gWwogICAgICAgICAgICAoIm9wZW5ib3giLCBbXSksICgidGludDIiLCBbIi1j
+IiwgIi9ldGMvY211eC90aW50MnJjIl0pLAogICAgICAgICAgICAoInZuY2NvbmZpZyIsIFsiLW5vd2luIl0pLAogICAgICAgICAgICAod2Vic29ja2lmeSwg
+WyItLXdlYiIsICIvdXNyL3NoYXJlL25vdm5jIiwgIi0taGVhcnRiZWF0IiwgIjMwIiwKICAgICAgICAgICAgICAgICAgICAgICAgICBmIls6Ol06e25vdm5j
+X3BvcnR9IiwgZiIxMjcuMC4wLjE6e3JmYl9wb3J0fSJdKSwKICAgICAgICBdOgogICAgICAgICAgICBwYXRoID0gZXhlY3V0YWJsZSBpZiAiLyIgaW4gZXhl
+Y3V0YWJsZSBlbHNlIHNodXRpbC53aGljaChleGVjdXRhYmxlKQogICAgICAgICAgICBpZiBub3QgcGF0aDoKICAgICAgICAgICAgICAgIGlmIGV4ZWN1dGFi
+bGUgPT0gInZuY2NvbmZpZyI6CiAgICAgICAgICAgICAgICAgICAgY29udGludWUKICAgICAgICAgICAgICAgIHJhaXNlIFJ1bnRpbWVFcnJvcihmIm1pc3Np
+bmcgZGlzcGxheSBjb21wb25lbnQ6IHtleGVjdXRhYmxlfSIpCiAgICAgICAgICAgIHByb2Nlc3MgPSBzdWJwcm9jZXNzLlBvcGVuKFtwYXRoXSArIGFyZ3Ms
+IGVudj1lbnZpcm9ubWVudCwKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgc3RkaW49c3VicHJvY2Vzcy5ERVZOVUxMLAogICAgICAg
+ICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBzdGRvdXQ9c3VicHJvY2Vzcy5ERVZOVUxMLCBzdGRlcnI9c3VicHJvY2Vzcy5ERVZOVUxMKQogICAg
+ICAgICAgICBwcm9jZXNzZXMuYXBwZW5kKHByb2Nlc3MpCiAgICAgICAgaWYgbm90IHNlbGYud2FpdF9mb3JfcG9ydChub3ZuY19wb3J0LCB0aW1lb3V0PTEw
+KToKICAgICAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKCJub1ZOQyBkaWQgbm90IGJlY29tZSByZWFkeSIpCiAgICAgICAgKHJ1bnRpbWUgLyAiZW52Iiku
+d3JpdGVfdGV4dChmImV4cG9ydCBESVNQTEFZPTp7bnVtYmVyfVxuIikKCiAgICBkZWYgc3VwZXJ2aXNlKHNlbGYsIG51bWJlciwgZmluaXNoZWQpOgogICAg
+ICAgIHJ1bnRpbWUgPSBzZWxmLnJ1bnRpbWUgLyBzdHIobnVtYmVyKQogICAgICAgIHJ1bnRpbWUubWtkaXIobW9kZT0wbzcwMCwgcGFyZW50cz1UcnVlLCBl
+eGlzdF9vaz1UcnVlKQogICAgICAgIGVudmlyb25tZW50ID0gZGljdChvcy5lbnZpcm9uLCBESVNQTEFZPWYiOntudW1iZXJ9IiwgQ01VWF9ERVNLVE9QX1JV
+TlRJTUVfRElSPXN0cihydW50aW1lKSkKICAgICAgICBmb3Iga2V5IGluICgiTk9USUZZX1NPQ0tFVCIsICJEQlVTX1NFU1NJT05fQlVTX0FERFJFU1MiLCAi
+REJVU19TRVNTSU9OX0JVU19QSUQiLAogICAgICAgICAgICAgICAgICAgICJBVF9TUElfQlVTX0FERFJFU1MiLCAiQVRfU1BJX0JVUyIpOgogICAgICAgICAg
+ICBlbnZpcm9ubWVudC5wb3Aoa2V5LCBOb25lKQogICAgICAgIHdoaWxlIG5vdCBzZWxmLnNodXRkb3duLmlzX3NldCgpOgogICAgICAgICAgICB0cnk6CiAg
+ICAgICAgICAgICAgICAjIFRoZSBzdXBlcnZpc29yIGlzIGEgaGVhbHRoIGNoZWNrLCBub3QgYSB0aW1lci1kcml2ZW4gcmVzdGFydC4KICAgICAgICAgICAg
+ICAgICMgUHJlc2VydmUgYW4gYWN0aXZlIFJGQi9ub1ZOQyBzZXNzaW9uIHVudGlsIGl0cyBvd25lZCBlbmRwb2ludHMgZmFpbC4KICAgICAgICAgICAgICAg
+IGlmIG5vdCBzZWxmLnByb2Nlc3Nlcy5nZXQobnVtYmVyKSBvciBub3QgcmVhZHkobnVtYmVyKToKICAgICAgICAgICAgICAgICAgICBzZWxmLnN0YXJ0X2Nv
+bXBvbmVudHMobnVtYmVyLCBlbnZpcm9ubWVudCwgcnVudGltZSkKICAgICAgICAgICAgICAgIHN0YXRlID0gInJ1bm5pbmciIGlmIHJlYWR5KG51bWJlcikg
+ZWxzZSAidW5hdmFpbGFibGUiCiAgICAgICAgICAgIGV4Y2VwdCAoT1NFcnJvciwgUnVudGltZUVycm9yLCBzdWJwcm9jZXNzLlN1YnByb2Nlc3NFcnJvcik6
+CiAgICAgICAgICAgICAgICBzZWxmLnRlcm1pbmF0ZShudW1iZXIpCiAgICAgICAgICAgICAgICBzdGF0ZSA9ICJ1bmF2YWlsYWJsZSIKICAgICAgICAgICAg
+d2l0aCBzZWxmLmxvY2s6CiAgICAgICAgICAgICAgICBzZWxmLnN0YXRlc1tudW1iZXJdID0gc3RhdGUKICAgICAgICAgICAgZmluaXNoZWQuc2V0KCkKICAg
+ICAgICAgICAgc2VsZi5zaHV0ZG93bi53YWl0KDMwKQogICAgICAgIHNlbGYudGVybWluYXRlKG51bWJlcikKCiAgICBkZWYgc25hcHNob3Qoc2VsZik6CiAg
+ICAgICAgd2l0aCBzZWxmLmxvY2s6CiAgICAgICAgICAgIHJldHVybiB7InZlcnNpb24iOiAxLCAiY2FuQ3JlYXRlIjogbGVuKHNlbGYuam9icykgPCBNQVhf
+RElTUExBWVMgLSAxLAogICAgICAgICAgICAgICAgICAgICJkaXNwbGF5cyI6IFtkZXNjcmlwdG9yKDEsICJydW5uaW5nIiBpZiByZWFkeSgxKSBlbHNlICJ1
+bmF2YWlsYWJsZSIpXQogICAgICAgICAgICAgICAgICAgICsgW2Rlc2NyaXB0b3Iobiwgc2VsZi5zdGF0ZXMuZ2V0KG4sICJsYXVuY2hpbmciKSkgZm9yIG4g
+aW4gc2VsZi5jYXRhbG9nLm51bWJlcnMoKV19CgogICAgZGVmIGhhbmRsZShzZWxmLCByZXF1ZXN0KToKICAgICAgICBpZiByZXF1ZXN0LmdldCgiYWN0aW9u
+IikgPT0gImxpc3QiOgogICAgICAgICAgICByZXR1cm4gc2VsZi5zbmFwc2hvdCgpCiAgICAgICAgaWYgcmVxdWVzdC5nZXQoImFjdGlvbiIpICE9ICJjcmVh
+dGUiOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJ1bnN1cHBvcnRlZCBkaXNwbGF5IGFjdGlvbiIpCiAgICAgICAgbnVtYmVyID0gc2VsZi5jYXRh
+bG9nLmFsbG9jYXRlKHJlcXVlc3QuZ2V0KCJyZXF1ZXN0IikpCiAgICAgICAgc2VsZi5zdGFydChudW1iZXIpLndhaXQoNTUpCiAgICAgICAgcmVzdWx0ID0g
+c2VsZi5zbmFwc2hvdCgpCiAgICAgICAgcmVzdWx0WyJjcmVhdGVkIl0gPSBmImRpc3BsYXk6e251bWJlcn0iCiAgICAgICAgaWYgc2VsZi5zdGF0ZXMuZ2V0
+KG51bWJlcikgIT0gInJ1bm5pbmciOgogICAgICAgICAgICByZXN1bHRbImVycm9yIl0gPSAiZGlzcGxheV9zdGFydF9mYWlsZWQiCiAgICAgICAgcmV0dXJu
+IHJlc3VsdAoKCmRlZiBzZXJ2ZShydW50aW1lKToKICAgIHJ1bnRpbWUgPSBQYXRoKHJ1bnRpbWUpCiAgICBydW50aW1lLm1rZGlyKG1vZGU9MG83MDAsIHBh
+cmVudHM9VHJ1ZSwgZXhpc3Rfb2s9VHJ1ZSkKICAgIHdpdGggKHJ1bnRpbWUgLyAiZGlzcGxheS1jb250cm9sLmxvY2siKS5vcGVuKCJ3IikgYXMgbG9jazoK
+ICAgICAgICB0cnk6CiAgICAgICAgICAgIGZjbnRsLmZsb2NrKGxvY2ssIGZjbnRsLkxPQ0tfRVggfCBmY250bC5MT0NLX05CKQogICAgICAgIGV4Y2VwdCBC
+bG9ja2luZ0lPRXJyb3I6CiAgICAgICAgICAgIHJldHVybgogICAgICAgIGlmIG5vdCBhbGwoc2h1dGlsLndoaWNoKG5hbWUpIGZvciBuYW1lIGluICgid2Vi
+c29ja2lmeSIsICJvcGVuYm94IiwgImRidXMtbGF1bmNoIikpOgogICAgICAgICAgICByYWlzZSBWYWx1ZUVycm9yKCJkaXNwbGF5IHJ1bnRpbWUgdW5hdmFp
+bGFibGUiKQogICAgICAgIGlmIG5vdCAoc2h1dGlsLndoaWNoKCJYdm5jIikgb3Igc2h1dGlsLndoaWNoKCJYdGlnZXJ2bmMiKSk6CiAgICAgICAgICAgIHJh
+aXNlIFZhbHVlRXJyb3IoImRpc3BsYXkgcnVudGltZSB1bmF2YWlsYWJsZSIpCiAgICAgICAgc2VydmljZSA9IERpc3BsYXlTZXJ2aWNlKERpc3BsYXlDYXRh
+bG9nKFBhdGguaG9tZSgpIC8gIi5jbXV4IiAvICJkaXNwbGF5cyIpLCBydW50aW1lIC8gImRpc3BsYXlzIikKICAgICAgICBmb3IgbnVtYmVyIGluIHNlcnZp
+Y2UuY2F0YWxvZy5udW1iZXJzKCk6CiAgICAgICAgICAgIHNlcnZpY2Uuc3RhcnQobnVtYmVyKQogICAgICAgIHBhdGggPSBydW50aW1lIC8gImRpc3BsYXkt
+Y29udHJvbC5zb2NrIgogICAgICAgIGlmIHBhdGguZXhpc3RzKCk6CiAgICAgICAgICAgIHBhdGgudW5saW5rKCkKCiAgICAgICAgY2xhc3MgSGFuZGxlcihz
+b2NrZXRzZXJ2ZXIuU3RyZWFtUmVxdWVzdEhhbmRsZXIpOgogICAgICAgICAgICBkZWYgaGFuZGxlKHNlbGYpOgogICAgICAgICAgICAgICAgc2VsZi5jb25u
+ZWN0aW9uLnNldHRpbWVvdXQoNjApCiAgICAgICAgICAgICAgICB0cnk6CiAgICAgICAgICAgICAgICAgICAgcmF3ID0gc2VsZi5yZmlsZS5yZWFkbGluZSg0
+MDk3KQogICAgICAgICAgICAgICAgICAgIGlmIGxlbihyYXcpID4gNDA5NjoKICAgICAgICAgICAgICAgICAgICAgICAgcmFpc2UgVmFsdWVFcnJvcigiZGlz
+cGxheSByZXF1ZXN0IHRvbyBsYXJnZSIpCiAgICAgICAgICAgICAgICAgICAgcmVzdWx0ID0gc2VydmljZS5oYW5kbGUoanNvbi5sb2FkcyhyYXcpKQogICAg
+ICAgICAgICAgICAgZXhjZXB0IChWYWx1ZUVycm9yLCBLZXlFcnJvciwgVHlwZUVycm9yLCBPU0Vycm9yKToKICAgICAgICAgICAgICAgICAgICByZXN1bHQg
+PSB7ImVycm9yIjogImRpc3BsYXlfcmVxdWVzdF9mYWlsZWQifQogICAgICAgICAgICAgICAgdHJ5OgogICAgICAgICAgICAgICAgICAgIHNlbGYud2ZpbGUu
+d3JpdGUoanNvbi5kdW1wcyhyZXN1bHQpLmVuY29kZSgpICsgYiJcbiIpCiAgICAgICAgICAgICAgICBleGNlcHQgT1NFcnJvcjoKICAgICAgICAgICAgICAg
+ICAgICBwYXNzICAjIFRoZSBwZXJzaXN0ZWQgcmVjZWlwdCByZW1haW5zIHJlcGxheWFibGUgYWZ0ZXIgZGlzY29ubmVjdC4KCiAgICAgICAgY2xhc3MgU2Vy
+dmVyKHNvY2tldHNlcnZlci5UaHJlYWRpbmdVbml4U3RyZWFtU2VydmVyKToKICAgICAgICAgICAgZGFlbW9uX3RocmVhZHMgPSBUcnVlCgogICAgICAgIHBy
+ZXZpb3VzX3VtYXNrID0gb3MudW1hc2soMG8wNzcpCiAgICAgICAgdHJ5OgogICAgICAgICAgICB3aXRoIFNlcnZlcihzdHIocGF0aCksIEhhbmRsZXIpIGFz
+IHNlcnZlcjoKICAgICAgICAgICAgICAgIG9zLnVtYXNrKHByZXZpb3VzX3VtYXNrKQogICAgICAgICAgICAgICAgc2VydmVyLnNlcnZlX2ZvcmV2ZXIoKQog
+ICAgICAgIGZpbmFsbHk6CiAgICAgICAgICAgIG9zLnVtYXNrKHByZXZpb3VzX3VtYXNrKQogICAgICAgICAgICBzZXJ2aWNlLnNodXRkb3duLnNldCgpCiAg
+ICAgICAgICAgIHBhdGgudW5saW5rKG1pc3Npbmdfb2s9VHJ1ZSkKCgpkZWYgbWFpbigpOgogICAgcGFyc2VyID0gYXJncGFyc2UuQXJndW1lbnRQYXJzZXIo
+ZGVzY3JpcHRpb249X19kb2NfXykKICAgIHBhcnNlci5hZGRfYXJndW1lbnQoImFjdGlvbiIsIGNob2ljZXM9WyJsaXN0IiwgImNyZWF0ZSIsICJzZXJ2ZSJd
+KQogICAgcGFyc2VyLmFkZF9hcmd1bWVudCgiLS1yZXF1ZXN0LWlkIikKICAgIGFyZ3MgPSBwYXJzZXIucGFyc2VfYXJncygpCiAgICBydW50aW1lID0gb3Mu
+ZW52aXJvbi5nZXQoIkNNVVhfREVTS1RPUF9SVU5USU1FX0RJUiIsICIvcnVuL2NtdXgtZGVza3RvcCIpCiAgICBpZiBhcmdzLmFjdGlvbiA9PSAic2VydmUi
+OgogICAgICAgIHNlcnZlKHJ1bnRpbWUpCiAgICAgICAgcmV0dXJuIDAKICAgIGlmIGFyZ3MuYWN0aW9uID09ICJjcmVhdGUiIGFuZCBub3QgYXJncy5yZXF1
+ZXN0X2lkOgogICAgICAgIHBhcnNlci5lcnJvcigiY3JlYXRlIHJlcXVpcmVzIC0tcmVxdWVzdC1pZCAocmV0YWluIGl0IHdoZW4gcmV0cnlpbmcpIikKICAg
+IHRyeToKICAgICAgICB3aXRoIHNvY2tldC5zb2NrZXQoc29ja2V0LkFGX1VOSVgsIHNvY2tldC5TT0NLX1NUUkVBTSkgYXMgY2xpZW50OgogICAgICAgICAg
+ICBjbGllbnQuc2V0dGltZW91dCg2MCkKICAgICAgICAgICAgY2xpZW50LmNvbm5lY3Qoc3RyKFBhdGgocnVudGltZSkgLyAiZGlzcGxheS1jb250cm9sLnNv
+Y2siKSkKICAgICAgICAgICAgY2xpZW50LnNlbmRhbGwoanNvbi5kdW1wcyh7ImFjdGlvbiI6IGFyZ3MuYWN0aW9uLCAicmVxdWVzdCI6IGFyZ3MucmVxdWVz
+dF9pZH0pLmVuY29kZSgpICsgYiJcbiIpCiAgICAgICAgICAgIHdpdGggY2xpZW50Lm1ha2VmaWxlKCJyYiIpIGFzIHN0cmVhbToKICAgICAgICAgICAgICAg
+IHJlc3VsdCA9IGpzb24ubG9hZHMoc3RyZWFtLnJlYWRsaW5lKDY1NTM2KSkKICAgIGV4Y2VwdCAoT1NFcnJvciwgVmFsdWVFcnJvcik6CiAgICAgICAgcmVz
+dWx0ID0geyJlcnJvciI6ICJkaXNwbGF5X3J1bnRpbWVfdW5hdmFpbGFibGUifQogICAgcHJpbnQoanNvbi5kdW1wcyhyZXN1bHQpKQogICAgcmV0dXJuIDEg
+aWYgImVycm9yIiBpbiByZXN1bHQgZWxzZSAwCgoKaWYgX19uYW1lX18gPT0gIl9fbWFpbl9fIjoKICAgIHJhaXNlIFN5c3RlbUV4aXQobWFpbigpKQo=
 """
-import argparse
-import fcntl
-import http.client
-import json
-import os
-from pathlib import Path
-import shutil
-import socket
-import socketserver
-import subprocess
-import tempfile
-import threading
-import time
-import uuid
-
-MAX_DISPLAYS = 16
-STARTER = "/usr/local/bin/start-vnc.sh"
-
-
-def descriptor(number, state="running"):
-    return {"id": f"display:{number}", "number": number,
-            "port": 6900 + number, "state": state}
-
-
-def listening(port):
-    try:
-        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
-            return True
-    except OSError:
-        return False
-
-
-def ready(number):
-    """A bound HTTP port alone does not prove that an X/RFB server exists."""
-    try:
-        with socket.create_connection(("127.0.0.1", 5900 + number), timeout=0.5) as rfb:
-            version = b""
-            while len(version) < 12:
-                part = rfb.recv(12 - len(version))
-                if not part:
-                    return False
-                version += part
-            if not version.startswith(b"RFB "):
-                return False
-        connection = http.client.HTTPConnection("127.0.0.1", 6900 + number, timeout=0.5)
-        try:
-            connection.request("HEAD", "/vnc.html")
-            return connection.getresponse().status == 200
-        finally:
-            connection.close()
-    except (OSError, http.client.HTTPException):
-        return False
-
-
-class DisplayCatalog:
-    """Serializes allocation and persists request receipts before starting work."""
-
-    def __init__(self, directory, occupied=None):
-        self.directory = Path(directory)
-        self.directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.path = self.directory / "catalog.json"
-        self.lock = threading.RLock()
-        self.occupied = occupied or (lambda n: Path(f"/tmp/.X11-unix/X{n}").exists()
-                                     or listening(5900 + n) or listening(6900 + n))
-        self.records = []
-        if self.path.exists():
-            data = json.loads(self.path.read_text())
-            if data.get("version") != 1:
-                raise ValueError("unsupported display catalog version")
-            seen_numbers, seen_requests = set(), set()
-            for record in data["displays"]:
-                number, request = record["number"], record["request"]
-                if type(number) is not int or not 2 <= number <= MAX_DISPLAYS:
-                    raise ValueError("invalid display number")
-                if str(uuid.UUID(request)) != request or number in seen_numbers or request in seen_requests:
-                    raise ValueError("invalid display identity")
-                seen_numbers.add(number)
-                seen_requests.add(request)
-                self.records.append({"number": number, "request": request})
-
-    def numbers(self):
-        with self.lock:
-            return sorted(record["number"] for record in self.records)
-
-    def allocate(self, request):
-        if not isinstance(request, str) or str(uuid.UUID(request)) != request:
-            raise ValueError("invalid request identity")
-        with self.lock:
-            for record in self.records:
-                if record["request"] == request:
-                    return record["number"]
-            used = set(self.numbers())
-            number = next((n for n in range(2, MAX_DISPLAYS + 1)
-                           if n not in used and not self.occupied(n)), None)
-            if number is None:
-                raise ValueError("display capacity exhausted")
-            records = self.records + [{"number": number, "request": request}]
-            fd, temporary = tempfile.mkstemp(prefix="catalog-", dir=self.directory)
-            try:
-                with os.fdopen(fd, "w") as output:
-                    json.dump({"version": 1, "displays": records}, output)
-                    output.flush()
-                    os.fsync(output.fileno())
-                os.replace(temporary, self.path)
-            finally:
-                if os.path.exists(temporary):
-                    os.unlink(temporary)
-            self.records = records
-            return number
-
-
-class OwnedProcess:
-    """A handle for a daemon started by dbus-launch rather than by Popen."""
-
-    def __init__(self, pid):
-        self.pid = pid
-
-    def terminate(self):
-        try:
-            os.kill(self.pid, 15)
-        except OSError:
-            pass
-
-    def poll(self):
-        try:
-            os.kill(self.pid, 0)
-            return None
-        except OSError:
-            return 0
-
-
-class DisplayService:
-    def __init__(self, catalog, runtime, starter=STARTER):
-        self.catalog = catalog
-        self.runtime = Path(runtime)
-        self.starter = starter
-        self.lock = threading.Lock()
-        self.jobs = {}
-        self.states = {}
-        self.processes = {}
-        self.shutdown = threading.Event()
-
-    def start(self, number):
-        with self.lock:
-            if number in self.jobs:
-                return self.jobs[number]
-            finished = threading.Event()
-            self.jobs[number] = finished
-            self.states[number] = "launching"
-            threading.Thread(target=self.supervise, args=(number, finished), daemon=True).start()
-            return finished
-
-    def terminate(self, number):
-        for process in self.processes.pop(number, []):
-            try:
-                process.terminate()
-            except OSError:
-                pass
-
-    @staticmethod
-    def wait_for_port(port, timeout=20):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if listening(port):
-                return True
-            time.sleep(0.1)
-        return False
-
-    def start_components(self, number, environment, runtime):
-        self.terminate(number)
-        vnc = shutil.which("Xvnc") or shutil.which("Xtigervnc")
-        websockify = shutil.which("websockify")
-        if not vnc or not websockify:
-            raise RuntimeError("display runtime unavailable")
-        rfb_port, novnc_port = 5900 + number, 6900 + number
-        processes = []
-        processes.append(subprocess.Popen(
-            [vnc, f":{number}", "-geometry", os.environ.get("CMUX_VNC_GEOMETRY", "1440x900"),
-             "-depth", "24", "-rfbport", str(rfb_port), "-localhost",
-             "-SecurityTypes", "None", "-AlwaysShared"],
-            env=environment, stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        self.processes[number] = processes
-        if not self.wait_for_port(rfb_port):
-            raise RuntimeError("Xvnc did not become ready")
-        bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
-                             capture_output=True, text=True, check=True).stdout
-        for line in bus.splitlines():
-            if "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            environment[key] = value.strip().strip("'")
-        try:
-            dbus_pid = int(environment.get("DBUS_SESSION_BUS_PID", "0"))
-        except ValueError:
-            dbus_pid = 0
-        if dbus_pid > 1:
-            processes.append(OwnedProcess(dbus_pid))
-        for executable, args in [
-            ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
-            ("vncconfig", ["-nowin"]),
-            (websockify, ["--web", "/usr/share/novnc", "--heartbeat", "30",
-                          f"[::]:{novnc_port}", f"127.0.0.1:{rfb_port}"]),
-        ]:
-            path = executable if "/" in executable else shutil.which(executable)
-            if not path:
-                if executable == "vncconfig":
-                    continue
-                raise RuntimeError(f"missing display component: {executable}")
-            process = subprocess.Popen([path] + args, env=environment,
-                                       stdin=subprocess.DEVNULL,
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            processes.append(process)
-        if not self.wait_for_port(novnc_port, timeout=10):
-            raise RuntimeError("noVNC did not become ready")
-        (runtime / "env").write_text(f"export DISPLAY=:{number}\n")
-
-    def supervise(self, number, finished):
-        runtime = self.runtime / str(number)
-        runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-        environment = dict(os.environ, DISPLAY=f":{number}", CMUX_DESKTOP_RUNTIME_DIR=str(runtime))
-        for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
-                    "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
-            environment.pop(key, None)
-        while not self.shutdown.is_set():
-            try:
-                # The supervisor is a health check, not a timer-driven restart.
-                # Preserve an active RFB/noVNC session until its owned endpoints fail.
-                if not self.processes.get(number) or not ready(number):
-                    self.start_components(number, environment, runtime)
-                state = "running" if ready(number) else "unavailable"
-            except (OSError, RuntimeError, subprocess.SubprocessError):
-                self.terminate(number)
-                state = "unavailable"
-            with self.lock:
-                self.states[number] = state
-            finished.set()
-            self.shutdown.wait(30)
-        self.terminate(number)
-
-    def snapshot(self):
-        with self.lock:
-            return {"version": 1, "canCreate": len(self.jobs) < MAX_DISPLAYS - 1,
-                    "displays": [descriptor(1, "running" if ready(1) else "unavailable")]
-                    + [descriptor(n, self.states.get(n, "launching")) for n in self.catalog.numbers()]}
-
-    def handle(self, request):
-        if request.get("action") == "list":
-            return self.snapshot()
-        if request.get("action") != "create":
-            raise ValueError("unsupported display action")
-        number = self.catalog.allocate(request.get("request"))
-        self.start(number).wait(55)
-        result = self.snapshot()
-        result["created"] = f"display:{number}"
-        if self.states.get(number) != "running":
-            result["error"] = "display_start_failed"
-        return result
-
-
-def serve(runtime):
-    runtime = Path(runtime)
-    runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with (runtime / "display-control.lock").open("w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return
-        if not all(shutil.which(name) for name in ("websockify", "openbox", "dbus-launch")):
-            raise ValueError("display runtime unavailable")
-        if not (shutil.which("Xvnc") or shutil.which("Xtigervnc")):
-            raise ValueError("display runtime unavailable")
-        service = DisplayService(DisplayCatalog(Path.home() / ".cmux" / "displays"), runtime / "displays")
-        for number in service.catalog.numbers():
-            service.start(number)
-        path = runtime / "display-control.sock"
-        if path.exists():
-            path.unlink()
-
-        class Handler(socketserver.StreamRequestHandler):
-            def handle(self):
-                self.connection.settimeout(60)
-                try:
-                    raw = self.rfile.readline(4097)
-                    if len(raw) > 4096:
-                        raise ValueError("display request too large")
-                    result = service.handle(json.loads(raw))
-                except (ValueError, KeyError, TypeError, OSError):
-                    result = {"error": "display_request_failed"}
-                try:
-                    self.wfile.write(json.dumps(result).encode() + b"\n")
-                except OSError:
-                    pass  # The persisted receipt remains replayable after disconnect.
-
-        class Server(socketserver.ThreadingUnixStreamServer):
-            daemon_threads = True
-
-        previous_umask = os.umask(0o077)
-        try:
-            with Server(str(path), Handler) as server:
-                os.umask(previous_umask)
-                server.serve_forever()
-        finally:
-            os.umask(previous_umask)
-            service.shutdown.set()
-            path.unlink(missing_ok=True)
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["list", "create", "serve"])
-    parser.add_argument("--request-id")
-    args = parser.parse_args()
-    runtime = os.environ.get("CMUX_DESKTOP_RUNTIME_DIR", "/run/cmux-desktop")
-    if args.action == "serve":
-        serve(runtime)
-        return 0
-    if args.action == "create" and not args.request_id:
-        parser.error("create requires --request-id (retain it when retrying)")
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(60)
-            client.connect(str(Path(runtime) / "display-control.sock"))
-            client.sendall(json.dumps({"action": args.action, "request": args.request_id}).encode() + b"\n")
-            with client.makefile("rb") as stream:
-                result = json.loads(stream.readline(65536))
-    except (OSError, ValueError):
-        result = {"error": "display_runtime_unavailable"}
-    print(json.dumps(result))
-    return 1 if "error" in result else 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-"""#
     private static let path = "$HOME/.cmux/cmux-display"
 
     static func command(action: String, requestID: UUID? = nil) -> String {
-        let encoded = Data(source.utf8).base64EncodedString()
         let argument = requestID.map { " --request-id \($0.uuidString.lowercased())" } ?? ""
         return """
         set -eu
         path=\"\(path)\"
         mkdir -p \"$HOME/.cmux\"
-        if [ ! -x \"$path\" ]; then printf '%s' \"\(encoded)\" | base64 -d > \"$path\"; chmod 700 \"$path\"; fi
+        if [ ! -x \"$path\" ]; then printf '%s' \"\(encodedSource)\" | base64 -d > \"$path\"; chmod 700 \"$path\"; fi
         if ! pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1; then
           nohup \"$path\" serve > \"$HOME/.cmux/display-service.log\" 2>&1 &
           for i in $(seq 1 100); do [ -S /run/cmux-desktop/display-control.sock ] && break; sleep 0.1; done

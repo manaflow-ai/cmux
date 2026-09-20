@@ -17,7 +17,7 @@ struct CloudDisplayCatalogTests {
     func embeddedGuestScriptIsExecutableText() {
         let command = CloudGuestDisplayScript.command(action: "list")
         #expect(!command.contains(#"\"\"\""#))
-        #expect(command.contains("DisplayService"))
+        #expect(command.contains("base64 -d"))
     }
 
     @Test("A lost creation reply replays its receipt rather than allocating another display")
@@ -64,6 +64,7 @@ struct CloudDisplayCatalogTests {
         await service.refresh()
         #expect(!service.canCreate && service.snapshot == nil)
     }
+
 
     @Test("Display IDs and connection targets are scoped to the authenticated VM")
     func independentTargets() throws {
