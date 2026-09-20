@@ -43,7 +43,8 @@ struct SidebarAccountTeamPickerRow: View {
             ) {
                 SidebarAccountTeamPicker(accountFlow: accountFlow)
             }
-            .frame(width: 1, height: 1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .allowsHitTesting(false)
         }
         .accessibilityLabel(teamPickerAccessibilityLabel)
         .accessibilityHint(String(

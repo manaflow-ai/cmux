@@ -158,8 +158,6 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
                 preferredEdge: preferredEdge
             )
             if popover.isShown {
-                anchorView.window?.acceptsMouseMovedEvents = true
-                popover.contentViewController?.view.window?.acceptsMouseMovedEvents = true
                 groupMemberID = group?.register(popover: popover, anchor: anchorView)
             }
         }

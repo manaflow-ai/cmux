@@ -63,31 +63,55 @@ struct CmuxPopoverGroupTests {
         #expect(closed == [parent])
     }
 
-    @Test func pointerLeavingBothMenusClosesTheGroup() {
+    @Test func hoverKeepsSourceAndSubmenuOpenThenClosesOnlySubmenu() {
         let group = CmuxPopoverGroup()
         let parent = UUID()
         let child = UUID()
         var closed: [UUID] = []
+        let region = CmuxSubmenuHoverRegion(
+            source: CGRect(x: 12, y: 100, width: 196, height: 26),
+            submenu: CGRect(x: 224, y: 50, width: 220, height: 180)
+        )
         group.register(
             id: parent,
             parent: nil,
             contains: { _, point in CGRect(x: 0, y: 0, width: 220, height: 240).contains(point) },
-            containsPointer: { _, point in CGRect(x: -14, y: -14, width: 248, height: 268).contains(point) },
             close: { closed.append(parent) }
         )
         group.register(
             id: child,
             parent: parent,
             contains: { _, point in CGRect(x: 224, y: 50, width: 220, height: 180).contains(point) },
-            containsPointer: { _, point in CGRect(x: 210, y: 36, width: 248, height: 208).contains(point) },
-            close: { closed.append(child) }
+            containsPointer: { _, point in region.contains(point) },
+            close: {
+                closed.append(child)
+                group.unregister(child)
+            }
         )
-        group.handleMove(windowNumber: nil, point: CGPoint(x: 220, y: 50))
+        group.handleMove(windowNumber: 1, point: CGPoint(x: 80, y: 113))
+        group.handleMove(windowNumber: 2, point: CGPoint(x: 250, y: 80))
+        group.handleMove(windowNumber: 1, point: CGPoint(x: 216, y: 90))
         #expect(closed.isEmpty)
+        // Settings is inside the account popover, outside the team row.
+        group.handleMove(windowNumber: 1, point: CGPoint(x: 80, y: 160))
+        #expect(closed == [child])
         group.handleMove(windowNumber: nil, point: CGPoint(x: 700, y: 500))
         #expect(closed == [child])
         group.handleClick(windowNumber: nil, point: CGPoint(x: 700, y: 500))
         #expect(closed == [child, parent])
+    }
+
+    @Test func hoverRegionSupportsLeftAndRightSubmenusWithoutExtraPadding() {
+        let row = CGRect(x: 230, y: 100, width: 196, height: 26)
+        let right = CmuxSubmenuHoverRegion(source: row, submenu: CGRect(x: 442, y: 50, width: 220, height: 180))
+        let left = CmuxSubmenuHoverRegion(source: row, submenu: CGRect(x: -6, y: 50, width: 220, height: 180))
+        #expect(right.contains(CGPoint(x: 434, y: 90)))
+        #expect(left.contains(CGPoint(x: 222, y: 90)))
+        #expect(!right.contains(CGPoint(x: 300, y: 160)))
+        #expect(!left.contains(CGPoint(x: 300, y: 160)))
+        #expect(!right.contains(CGPoint(x: 670, y: 160)))
+        #expect(!left.contains(CGPoint(x: -10, y: 160)))
+        #expect(!right.contains(CGPoint(x: 434, y: 240)))
     }
 
     @Test func mouseMovementSubscriptionRestoresTheWindowSetting() {
