@@ -113,6 +113,28 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
+    @Test("relay notifications require an explicit owned surface")
+    func notificationRequiresOwnedSurface() {
+        let policy = RemoteRelayAuthorizationPolicy()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        #expect(policy.validate(
+            method: "notification.create",
+            parameters: ["workspace_id": workspaceID.uuidString, "surface_id": surfaceID.uuidString],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .allowed)
+        #expect(policy.validate(
+            method: "notification.create",
+            parameters: ["workspace_id": workspaceID.uuidString],
+            ownerWorkspaceID: workspaceID,
+            surfaceIDs: [surfaceID]
+        ) == .denied(
+            code: "remote_relay_surface_denied",
+            message: "Relay method requires an explicit surface selector"
+        ))
+    }
+
     @Test("respawn planner quotes remote directories and classifies transports")
     func planner() {
         let planner = RemotePTYRespawnPlanner()

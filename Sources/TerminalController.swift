@@ -5566,6 +5566,17 @@ class TerminalController {
                         data: ["surface_id": dockSurfaceId.uuidString]
                     ))
                 }
+                guard self.remoteRelayDockReadIsCurrent(
+                    routing: routing,
+                    dock: dock,
+                    surfaceID: dockSurfaceId
+                ) else {
+                    return .finished(.err(
+                        code: "not_found",
+                        message: "Surface not found for the given surface_id",
+                        data: nil
+                    ))
+                }
                 guard let terminalTarget = dock.controlSocketTerminalTarget(for: dockSurfaceId) else {
                     return .finished(.err(
                         code: "surface_unavailable",
