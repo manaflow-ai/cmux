@@ -42,6 +42,7 @@ struct ComputerUseWatchTargetRuntimeTests {
         let driverSessionID = ComputerUseSessionScope.driverSessionID(
             surfaceID: surfaceID
         )
+        let proxySessionID = "\(driverSessionID)-mcp-73-2000"
         let liveSession = ComputerUseLiveDriverSession(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
@@ -85,7 +86,7 @@ struct ComputerUseWatchTargetRuntimeTests {
                 writerPID: Int(writerIdentity.pid),
                 writerStartSeconds: writerIdentity.startSeconds,
                 writerStartMicroseconds: writerIdentity.startMicroseconds,
-                session: driverSessionID,
+                session: proxySessionID,
                 targetApp: targetName,
                 targetPID: Int(target.processIdentifier),
                 targetWindowID: 7,
