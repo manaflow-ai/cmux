@@ -114,8 +114,9 @@ actor CloudTuiPersistentResourceConnection {
                     continuation: continuation, request: request, deadline: deadline,
                     isExpired: { clock.now >= expiresAt }, sendTask: nil
                 )
-                let sendTask = Task { [weak self, connection] in
-                    await self?.sendIfPending(id, connection: connection, line: encoded + Data([0x0A]))
+                let sendTask: Task<Void, Never> = Task { [weak self, connection] in
+                    guard let self else { return }
+                    await self.sendIfPending(id, connection: connection, line: encoded + Data([0x0A]))
                 }
                 pending[id]?.sendTask = sendTask
             }
