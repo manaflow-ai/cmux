@@ -329,7 +329,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "oversikt",
       "team": "team",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile enheter"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -374,23 +374,25 @@
         "loading": "Laster…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile enheter",
+      "description": "Administrer tilgang til tilkoblede datamaskiner, telefoner og nettbrett.",
       "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
+      "teamSwitchError": "Kunne ikke bytte team. Prøv igjen.",
+      "loading": "Laster inn enheter…",
+      "empty": "Ingen enheter er registrert for dette teamet.",
+      "unavailable": "Kunne ikke laste inn enhetene dine. Oppdater siden og prøv igjen.",
+      "retry": "Prøv igjen",
+      "mutationError": "Enhetsendringen kunne ikke fullføres.",
+      "revoke": "Tilbakekall tilgang",
+      "deviceId": "Enhet",
+      "revision": "Revisjon",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktiv",
+      "revoked": "Tilbakekalt",
+      "relaySettings": "Relay-innstillinger",
+      "relaySettingsDescription": "Velg relay-serverne som dette teamet bruker. Skriv inn én URL per linje.",
+      "saveRelaySettings": "Lagre relay-innstillinger"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Del med teamet",

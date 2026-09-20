@@ -6,6 +6,21 @@ import Testing
 @Suite
 struct CmxIrohDeferredByteTransportTests {
     @Test
+    func forwardsNativeConnectionSnapshotOnlyWhileConnected() async throws {
+        let underlying = ContinuityTransport(continuityID: 47)
+        let transport = CmxIrohDeferredByteTransport(
+            request: try request(), provider: DeferredProvider(transport: underlying)
+        )
+        let erased: any CmxByteTransport = transport
+        let inspecting = try #require(erased as? any CmxByteTransportConnectionInspecting)
+        #expect(await inspecting.transportConnectionObservation() == nil)
+        try await transport.connect()
+        #expect(await inspecting.transportConnectionObservation() == .init(continuityID: 47, pathKind: .relay))
+        await transport.close()
+        #expect(await inspecting.transportConnectionObservation() == nil)
+    }
+
+    @Test
     func forwardsConnectedTransportContinuityAndClosureObservation() async throws {
         let underlying = ContinuityTransport(continuityID: 47)
         let transport = CmxIrohDeferredByteTransport(
@@ -59,7 +74,8 @@ private struct DeferredProvider: CmxIrohDeferredTransportProviding {
 private actor ContinuityTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
-    CmxByteTransportContinuityIdentifying
+    CmxByteTransportContinuityIdentifying,
+    CmxByteTransportConnectionInspecting
 {
     private let continuityID: UInt64
     private var connected = false
@@ -100,6 +116,11 @@ private actor ContinuityTransport:
     func transportContinuityID() -> UInt64? {
         guard connected, !closed else { return nil }
         return continuityID
+    }
+
+    func transportConnectionObservation() -> CmxTransportConnectionObservation? {
+        guard connected, !closed else { return nil }
+        return .init(continuityID: continuityID, pathKind: .relay)
     }
 
     func transportClosureObservation() -> CmxTransportClosureObservation? {

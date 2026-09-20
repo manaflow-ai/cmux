@@ -329,7 +329,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "visão geral",
       "team": "equipe",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Dispositivos móveis"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -374,23 +374,25 @@
         "loading": "Carregando…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
+    "mobileDevices": {
+      "title": "Dispositivos móveis",
+      "description": "Gerencie o acesso aos computadores, telefones e tablets conectados.",
+      "team": "Equipe",
+      "teamSwitchError": "Não foi possível trocar de equipe. Tente novamente.",
+      "loading": "Carregando dispositivos…",
+      "empty": "Não há dispositivos registrados para esta equipe.",
+      "unavailable": "Não foi possível carregar seus dispositivos. Atualize a página e tente novamente.",
+      "retry": "Tentar novamente",
+      "mutationError": "Não foi possível concluir a alteração do dispositivo.",
+      "revoke": "Revogar acesso",
+      "deviceId": "Dispositivo",
+      "revision": "Revisão",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Ativo",
+      "revoked": "Revogado",
+      "relaySettings": "Configurações de relay",
+      "relaySettingsDescription": "Escolha os servidores de relay usados por esta equipe. Insira uma URL por linha.",
+      "saveRelaySettings": "Salvar configurações de relay"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Compartilhar com a equipe",

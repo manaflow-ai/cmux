@@ -333,7 +333,7 @@
       "billing": "billing",
       "team": "team",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile devices"
     },
     "home": {
       "title": "dashboard",
@@ -608,13 +608,15 @@
         "leave": "Leave TestFlight"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile devices",
+      "description": "Manage access to your connected computers, phones, and tablets.",
       "team": "Team",
+      "teamSwitchError": "Could not switch teams. Try again.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
+      "empty": "No devices are registered for this team.",
+      "unavailable": "Could not load your devices. Refresh the page to try again.",
+      "retry": "Try again",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
       "deviceId": "Device",

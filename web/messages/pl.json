@@ -329,7 +329,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "przegląd",
       "team": "zespół",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Urządzenia mobilne"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -374,23 +374,25 @@
         "loading": "Ładowanie…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "Urządzenia mobilne",
+      "description": "Zarządzaj dostępem do połączonych komputerów, telefonów i tabletów.",
+      "team": "Zespół",
+      "teamSwitchError": "Nie można przełączyć zespołu. Spróbuj ponownie.",
+      "loading": "Ładowanie urządzeń…",
+      "empty": "Brak urządzeń zarejestrowanych dla tego zespołu.",
+      "unavailable": "Nie można załadować urządzeń. Odśwież stronę i spróbuj ponownie.",
+      "retry": "Spróbuj ponownie",
+      "mutationError": "Nie udało się ukończyć zmiany urządzenia.",
+      "revoke": "Odbierz dostęp",
+      "deviceId": "Urządzenie",
+      "revision": "Wersja",
+      "status": "Stan",
+      "active": "Aktywne",
+      "revoked": "Unieważnione",
+      "relaySettings": "Ustawienia przekaźnika",
+      "relaySettingsDescription": "Wybierz serwery przekaźnikowe używane przez ten zespół. Wpisz jeden URL w wierszu.",
+      "saveRelaySettings": "Zapisz ustawienia przekaźnika"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Udostępnij zespołowi",
