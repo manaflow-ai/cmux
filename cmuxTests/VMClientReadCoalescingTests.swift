@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CmuxAuthRuntime
 import Foundation
 import Testing
+import os
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -160,6 +161,74 @@ struct VMClientReadCoalescingTests {
         #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 2)
     }
 
+    @Test("Disabled Cloud rejects cached throttles before reuse", arguments: ["/api/vm", "/api/vm/fixture-0/stats"], [false, true])
+    func gateClosesDuringCooldown(path: String, managedPolicy: Bool) async throws {
+        // Injected flags are synchronous across actors; this lock protects only test state.
+        let blocked = OSAllocatedUnfairLock(initialState: false)
+        let fixture = try await CloudRefreshFixture.make(
+            isDisabledByManagedPolicy: { managedPolicy && blocked.withLock { $0 } },
+            isCloudEnabled: { managedPolicy || !blocked.withLock { $0 } }
+        )
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        await CloudRefreshURLProtocol.configure(.throttled)
+        let first = try await fixture.client.request("GET", path: path)
+        #expect(first.1.statusCode == 429)
+        blocked.withLock { $0 = true }
+        do {
+            _ = try await fixture.client.request("GET", path: path)
+            Issue.record("Disabled Cloud reused a cached response")
+        } catch VMClientError.disabledByManagedPolicy where managedPolicy {
+        } catch VMClientError.cloudMachinesDisabled where !managedPolicy {
+        } catch { Issue.record("Unexpected gate error: \(error)") }
+        #expect(await CloudRefreshURLProtocol.requestCounts().values.reduce(0, +) == 1)
+    }
+
+    @Test("A joined read cannot publish after its Cloud gate closes", arguments: ["/api/vm", "/api/vm/fixture-0/stats"], [false, true])
+    func gateClosesDuringJoinedRead(path: String, managedPolicy: Bool) async throws {
+        // Injected flags are synchronous across actors; this lock protects only test state.
+        let blocked = OSAllocatedUnfairLock(initialState: false)
+        let fixture = try await CloudRefreshFixture.make(
+            isDisabledByManagedPolicy: { managedPolicy && blocked.withLock { $0 } },
+            isCloudEnabled: { managedPolicy || !blocked.withLock { $0 } }
+        )
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        let identity = try #require(fixture.auth.authenticatedSessionIdentity)
+        let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
+            generation: identity.generation, teamID: fixture.auth.resolvedTeamID)
+        let gate = CloudReadResponseGate()
+        // Hold an already-admitted response at the shared owner boundary, after
+        // its transport's gate check, so the joining caller must enforce its own gate.
+        let existing = Task { try await fixture.readRequests.read(key) {
+            await gate.read(.init(data: Data(), http: HTTPURLResponse(
+                url: URL(string: "https://fixture.invalid")!, statusCode: 200, httpVersion: nil, headerFields: nil
+            )!))
+        } }
+        try await eventually { await gate.requests == 1 }
+        let joined = Task { try await fixture.client.request("GET", path: path) }
+        try await eventually { await fixture.readRequests.entries[key]?.waiters.count == 2 }
+        blocked.withLock { $0 = true }
+        await gate.release()
+        _ = try await existing.value
+        do {
+            _ = try await joined.value
+            Issue.record("Disabled Cloud published an in-flight response")
+        } catch VMClientError.disabledByManagedPolicy where managedPolicy {
+        } catch VMClientError.cloudMachinesDisabled where !managedPolicy {
+        } catch { Issue.record("Unexpected gate error: \(error)") }
+        #expect(await CloudRefreshURLProtocol.requestCounts().isEmpty)
+    }
+
+    @Test("Cloud access revocation remains available with both gates closed")
+    func revocationBypassesClosedGates() async throws {
+        let fixture = try await CloudRefreshFixture.make(isDisabledByManagedPolicy: { true }, isCloudEnabled: { false })
+        defer { fixture.session.invalidateAndCancel() }
+        await CloudRefreshURLProtocol.reset()
+        try await fixture.client.revokeCloudAccess(deviceID: "fixture-device")
+        #expect(await CloudRefreshURLProtocol.requestCounts() == ["/api/vm/tunnel": 1])
+    }
+
     @Test("A list delayed beyond a polling interval stays owned and stops when hidden")
     func delayedListAcrossPoll() async throws {
         let clock = CloudReadManualClock()
@@ -271,7 +340,11 @@ struct CloudRefreshFixture {
     let session: URLSession
     let readRequests: CloudReadRequestCoordinator
 
-    static func make(readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator()) async throws -> Self {
+    static func make(
+        readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
+        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true }
+    ) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
         let auth = AuthCoordinator(
             client: CloudRefreshAuthClient(),
@@ -297,7 +370,8 @@ struct CloudRefreshFixture {
         let session = URLSession(configuration: configuration)
         return Self(client: VMClient(
             session: session, auth: auth, resourceStats: VMResourceStatsStore(), checkpointRenames: CloudRenameCoordinator(),
-            machineCache: CloudMachineCache(defaults: defaults), readRequests: readRequests
+            machineCache: CloudMachineCache(defaults: defaults), isDisabledByManagedPolicy: isDisabledByManagedPolicy,
+            readRequests: readRequests, isCloudEnabled: isCloudEnabled
         ), auth: auth, session: session, readRequests: readRequests)
     }
 }
