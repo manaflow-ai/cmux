@@ -105,8 +105,8 @@ extension AgentNotificationRegressionTests {
         )
     }
 
-    @Test("Relay TTY resolution follows a freshly reported surface into another workspace")
-    func relayTTYResolutionFollowsFreshReportIntoWorkspace() throws {
+    @Test("Relay TTY resolution does not disclose a surface moved from another owner")
+    func relayTTYResolutionRejectsMovedSurfaceForNewOwner() throws {
         let fixture = try makeFixture()
         defer { fixture.restore() }
         let configuration = deliveryTargetRemoteConfiguration(relayPort: 64_007)
@@ -117,11 +117,9 @@ extension AgentNotificationRegressionTests {
 
         try movePanel(fixture)
 
-        assertRelayTTYTarget(
+        assertNoRelayTTYTarget(
             authenticatedWorkspaceID: fixture.destination.id,
             ttyName: "pts/4",
-            expectedWorkspaceID: fixture.destination.id,
-            expectedSurfaceID: fixture.panelId
         )
     }
 
