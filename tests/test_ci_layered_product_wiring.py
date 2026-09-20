@@ -12,6 +12,25 @@ ROOT = Path(__file__).resolve().parents[1]
 NAMES = ("app-cli", "runtime", "tests", "diagnostics")
 
 
+class UniqueKeyLoader(yaml.SafeLoader):
+    """Match GitHub's rejection of duplicate keys instead of silently winning."""
+    def construct_mapping(self, node, deep=False):
+        self.flatten_mapping(node)
+        result = {}
+        for key_node, value_node in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in result:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping", node.start_mark,
+                    f"duplicate mapping key: {key}", key_node.start_mark)
+            result[key] = self.construct_object(value_node, deep=deep)
+        return result
+
+
+def load_workflow(source):
+    return yaml.load(source, Loader=UniqueKeyLoader)
+
+
 def condition(expression, values):
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = re.sub(r"(?:steps|needs|github|inputs)(?:\.[\w*-]+)+",
@@ -23,9 +42,19 @@ def condition(expression, values):
 class LayeredWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+        cls.workflow = load_workflow((ROOT / ".github/workflows/ci.yml").read_text())
         cls.job = cls.workflow["jobs"]["macos-compile-admission"]
         cls.steps = {s["id"]: s for s in cls.job["steps"] if "id" in s}
+
+    def test_workflow_loader_rejects_duplicate_job_permissions(self):
+        source = "jobs:\n  tests:\n    permissions: {contents: read, actions: read}\n    permissions: {contents: read, actions: read}\n"
+        with self.assertRaisesRegex(yaml.constructor.ConstructorError, "duplicate mapping key: permissions"):
+            load_workflow(source)
+
+    def test_workflow_loader_rejects_duplicates_at_every_mapping_depth(self):
+        for source in ("jobs: {}\njobs: {}\n", "jobs: {tests: {permissions: {actions: read, actions: read}}}\n"):
+            with self.subTest(source=source), self.assertRaisesRegex(yaml.constructor.ConstructorError, "duplicate mapping key"):
+                load_workflow(source)
 
     def test_actual_gate_requires_explicit_full_suite_opt_in_and_pr_origin(self):
         values = {"steps.upload-products.outcome": "success", "needs.changes.outputs.full_suite": "true",
