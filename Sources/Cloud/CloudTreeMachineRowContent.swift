@@ -12,11 +12,13 @@ struct CloudTreeMachineRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                Image(systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: scaled(style.machineNameLineHeight))
+            HStack(alignment: .top, spacing: style.iconGap) {
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
+                    tint: CloudTreeIconPalette.machine
+                )
+                .frame(height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {

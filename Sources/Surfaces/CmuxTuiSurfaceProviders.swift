@@ -227,7 +227,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // The backend's explicit kind is authoritative. Inferring a desktop from
         // an image name would misclassify the shared shell-only Freestyle image.
         let hasDesktop = summary.resolvedKind.hasDesktop
-        let previousResources = catalog.snapshot.resources(on: machine)
+        let previousResources = catalog.authoritativeSnapshot.resources(on: machine)
         let preservedNonPortResources = previousResources.filter { !$0.id.isForwardedPort }
         let vmClient = VMClient.shared
         let privateAddress = summary.preferredPrivateAddress
@@ -283,7 +283,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // Publish the display before the terminal link is ready: a slow or hanging
         // connect must not leave the desktop unopenable. Opening it forwards the
         // private noVNC port over the user-space hub (`materializeBrowserPane`).
-        if hasDesktop, catalog.snapshot.resources(on: machine).isEmpty {
+        if hasDesktop, catalog.authoritativeSnapshot.resources(on: machine).isEmpty {
             catalog.replaceResources([desktopDisplayResource()], on: machine, info: info, from: self)
         }
         async let stats = try? client.stats(id: machineID)
@@ -617,7 +617,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             )
         }
         info.remoteWorkspaces = remoteWorkspaces(for: state)
-        let previousIDs = Set(catalog.snapshot.resources(on: machine).map(\.id))
+        let previousIDs = Set(catalog.authoritativeSnapshot.resources(on: machine).map(\.id))
         let acceptedObservation = observationWithPendingWrites()
         let changed = catalog.applyCloudStateResourcePatch(
             state,
@@ -676,7 +676,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private func closePanesForVanishedRemoteTerminals(observation: CloudVMStateObservation) {
         guard !manualMirrorSessions.isEmpty else { return }
         let live = Set(
-            catalog.snapshot.resources(on: machine)
+            catalog.authoritativeSnapshot.resources(on: machine)
                 .filter { $0.id.kind == .terminal }
                 .map(\.id.key)
         )
@@ -735,7 +735,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         Self.portResources(
             machine: machine,
             scannedPorts: ports,
-            previousResources: catalog.snapshot.resources(on: machine),
+            previousResources: catalog.authoritativeSnapshot.resources(on: machine),
             privateAddress: summary.preferredPrivateAddress
         )
     }
@@ -1556,7 +1556,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private func reprojectRestoredPanes(generation: UInt64) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         reprojectRestoredBrowserPanes(generation: generation)
-        let terminals = catalog.snapshot.resources(on: machine).filter { $0.kind == .terminal }
+        let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
                 guard cloudState.map({ catalog.cloudWorkspaceProjectionCoordinator.retainsProjection(projection, in: $0) }) != false,
