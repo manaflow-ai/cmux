@@ -8,7 +8,8 @@ import WebKit
 @testable import cmux
 #endif
 
-extension BrowserDesignModeScreenshotEvaluatorTests {
+@Suite
+struct BrowserDesignModeSmoothScrollingTests {
     @MainActor
     @Test func smoothScrollingPageCapturesRequestedRegionAndRestoresOffset() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
@@ -37,7 +38,7 @@ extension BrowserDesignModeScreenshotEvaluatorTests {
             """,
             baseURL: nil
         )
-        let didLoad = await Self.awaitPageLoad(loaded)
+        let didLoad = await BrowserDesignModeScreenshotEvaluatorTests.awaitPageLoad(loaded)
         #expect(didLoad, "WebKit never finished loading the test page")
         guard didLoad else { return }
 

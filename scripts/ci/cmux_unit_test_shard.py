@@ -45,6 +45,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/AgentNotificationRegressionTests",
     "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
     "cmuxTests/BackgroundPrimeStartableSurfaceTests",
+    "cmuxTests/BrowserDesignModeSmoothScrollingTests",
     "cmuxTests/BrowserOmnibarSuggestionClickRoutingTests",
     "cmuxTests/BrowserPanelViewIdentityTests",
     "cmuxTests/BrowserSystemProxyMirrorTests",

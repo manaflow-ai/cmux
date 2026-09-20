@@ -28,7 +28,7 @@ struct ComputerUseWatchTargetRuntimeTests {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let targetFixture = try await ComputerUseExternalApplicationFixture(
-            applicationURL: URL(fileURLWithPath: "/System/Applications/TextEdit.app")
+            applicationURL: URL(fileURLWithPath: "/System/Applications/Calculator.app")
         )
         defer { targetFixture.terminate() }
         let target = targetFixture.application

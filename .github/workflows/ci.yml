@@ -1187,7 +1187,7 @@ jobs:
             CloudPortAccessLateCoordinatorTests \
             KeyboardShortcutSpaceKeyTests \
             ComputerUseWatchTargetRuntimeTests \
-            BrowserDesignModeScreenshotEvaluatorTests/smoothScrollingPageCapturesRequestedRegionAndRestoresOffset \
+            BrowserDesignModeSmoothScrollingTests \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasUsesCmuxRemoteWhenProviderSSHIsUnmanaged \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasPreservesProviderFailureThatMentionsUnsupportedSSH \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasDoesNotFallbackForGenericHTTP404
