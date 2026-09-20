@@ -157,9 +157,12 @@ import Testing
         #expect(detached.lifecycle == .running)
     }
 
-    @Test func providerAwareAgentFieldResolvesCodexMark() throws {
+    @Test(arguments: [false, true]) func providerAwareAgentFieldResolvesCodexMark(extensionMetadata: Bool) throws {
         var snapshot = Self.sessionSnapshot
-        snapshot["agents"] = [["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "hook", "agent": "codex"]]
+        var agent: [String: Any] = ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "hook"]
+        if extensionMetadata { agent["extra"] = ["agent": "codex"] }
+        else { agent["agent"] = "codex" }
+        snapshot["agents"] = [agent]
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
         let terminal = try #require(resources.first { $0.id.key == "term_build" })
         #expect(terminal.agent?.agent == "codex")

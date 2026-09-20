@@ -9733,6 +9733,7 @@ impl Mux {
         self.report_agent_with_sequence_lock(surface, state, source, session, false, None, None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,
