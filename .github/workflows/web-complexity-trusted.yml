@@ -47,7 +47,7 @@ jobs:
           repository: ${{ github.repository }}
           ref: ${{ env.TRUSTED_SHA }}
           path: trusted
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Require GitHub-hosted runner
@@ -64,6 +64,15 @@ jobs:
           [[ "$(git -C trusted rev-parse HEAD)" == "$TRUSTED_SHA" ]]
           [[ -f trusted/web/scripts/check-complexity.mjs ]]
           [[ -f trusted/web/oxlint-complexity-baseline.txt ]]
+
+      # PRs and merge groups compare to the trusted baseline file directly.
+      # Only main pushes need another commit, even if the push spans many commits.
+      - name: Fetch main push comparison revision
+        if: github.event_name == 'push'
+        working-directory: trusted
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: bash scripts/ci/fetch-complexity-base.sh "$BEFORE_SHA"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

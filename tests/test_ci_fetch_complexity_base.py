@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Exercise comparison-commit fetching against actual shallow Git repositories."""
 
-import os
 from pathlib import Path
 import subprocess
 import tempfile

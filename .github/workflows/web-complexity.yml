@@ -29,8 +29,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
+
+      - name: Validate shallow comparison fetching
+        run: python3 tests/test_ci_fetch_complexity_base.py
+
+      - name: Fetch comparison revision
+        env:
+          COMPARISON_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: bash scripts/ci/fetch-complexity-base.sh "$COMPARISON_SHA"
 
       - name: Detect web changes
         id: scope
