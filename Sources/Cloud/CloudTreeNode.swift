@@ -546,6 +546,9 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
+        /// Pin state supplied by the account-scoped machine store for rows that
+        /// are present only in the catalog during a fleet refresh.
+        pinnedMachineIDs: Set<String> = [],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         now: Date = .now
     ) -> [CloudTreeNode] {
@@ -591,7 +594,7 @@ enum CloudTreeNodeBuilder {
                 ),
                 // A machine pin is explicit sidebar priority, stamped by the panel;
                 // organization only pins the organizable rows below a machine.
-                isPinned: machine.isPinned
+                isPinned: machine.isPinned || pinnedMachineIDs.contains(machine.id)
             ))
         }
         // Include catalog-only machines so their surfaces remain reachable during fleet refresh.
@@ -618,7 +621,8 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
                     now: now
-                )
+                ),
+                isPinned: pinnedMachineIDs.contains(id)
             ))
         }
         return nodes

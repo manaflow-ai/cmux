@@ -65,7 +65,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             pendingCreates: pendingCreates, adoptedOperationIDs: adoptedOperationIDs,
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
-            unreadTerminalIDs: unreadTerminalIDs
+            unreadTerminalIDs: unreadTerminalIDs,
+            pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id))
         ))
     }
     // MARK: - Coordinator

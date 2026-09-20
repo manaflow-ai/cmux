@@ -279,6 +279,19 @@ struct CloudMachineOrderingTests {
         #expect(cell.accessibilityCustomActions()?.count == 2)
     }
 
+    @Test("Catalog-only machine roots retain the account pin tier")
+    func catalogOnlyRootsKeepPinnedState() throws {
+        let fixture = CloudMachineOrderingFixture(ids: ["a"])
+        defer { fixture.close() }
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: fixture.input.snapshot, localWorkspaces: [],
+            includeLocalMachine: false, pinnedMachineIDs: ["a"]
+        )
+        let machine = try #require(nodes.first)
+        #expect(machine.machineOrderID == "a")
+        #expect(machine.isPinned)
+    }
+
     @Test("Both panels observe moves through the existing pin/order store")
     func sharedOrderObservation() async throws {
         let fixture = CloudMachineOrderingFixture()
