@@ -74,7 +74,12 @@ try:
     latest = migrations[-1].get("tag") if migrations else None
     current = version.get("migration_tag")
     if current is None:
-        current = version.get("resources", {}).get("script", {}).get("migration_tag")
+        resources = version.get("resources", {})
+        for resource_name in ("script", "script_runtime"):
+            resource = resources.get(resource_name, {})
+            if isinstance(resource, dict) and resource.get("migration_tag") is not None:
+                current = resource["migration_tag"]
+                break
     if latest is not None and current != latest:
         raise ValueError("pending Durable Object migration")
 except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError, IndexError):

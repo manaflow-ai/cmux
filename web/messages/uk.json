@@ -86,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Підтвердьте електронну пошту, щоб продовжити",
     "emailUnverifiedBody": "Увійдіть способом, який ви використовували спочатку, а потім підтвердьте електронну пошту перед використанням цього способу входу.",
+    "signupPendingBody": "Якщо у вас уже є обліковий запис, увійдіть способом, яким ви користувалися раніше. Якщо ви щойно створили обліковий запис, підтвердьте електронну пошту перед входом.",
     "genericTitle": "Не вдалося увійти",
     "genericBody": "Спробуйте ще раз. Якщо проблема не зникне, зверніться до служби підтримки.",
     "backToSignIn": "Повернутися до входу"
@@ -323,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "огляд",
       "team": "команда",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Мобільні пристрої"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -368,23 +369,25 @@
         "loading": "Завантаження…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "Мобільні пристрої",
+      "description": "Керуйте доступом до підключених комп’ютерів, телефонів і планшетів.",
+      "team": "Команда",
+      "teamSwitchError": "Не вдалося змінити команду. Повторіть спробу.",
+      "loading": "Завантаження пристроїв…",
+      "empty": "Для цієї команди немає зареєстрованих пристроїв.",
+      "unavailable": "Не вдалося завантажити пристрої. Оновіть сторінку й повторіть спробу.",
+      "retry": "Повторити",
+      "mutationError": "Не вдалося завершити зміну пристрою.",
+      "revoke": "Відкликати доступ",
+      "deviceId": "Пристрій",
+      "revision": "Версія",
+      "status": "Стан",
+      "active": "Активний",
+      "revoked": "Відкликано",
+      "relaySettings": "Налаштування ретрансляції",
+      "relaySettingsDescription": "Виберіть сервери ретрансляції для цієї команди. Вводьте по одному URL у рядку.",
+      "saveRelaySettings": "Зберегти налаштування ретрансляції"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Поділитися з командою",

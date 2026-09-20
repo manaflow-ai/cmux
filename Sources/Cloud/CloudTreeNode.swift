@@ -179,7 +179,7 @@ final class CloudTreeNode: NSObject {
 
     /// What dragging this row into the main view projects: a single resource wrapped as a
     /// one-element group, or a workspace's whole collection (terminals, then browsers).
-    /// Machine rows and group headers only organize and are not draggable.
+    /// Machine rows reorder only inside the sidebar and never project panes.
     var dragGroup: SurfaceResourceGroup? {
         if let explicitDragGroup { return explicitDragGroup.isEmpty ? nil : explicitDragGroup }
         if case .terminal(let row) = kind,
@@ -212,7 +212,7 @@ final class CloudTreeNode: NSObject {
     }
 
     /// Whether a native drag may export a pane projection. Only terminals and
-    /// displays leave the tree; `canOrganize` also admits internal-only row
+    /// displays leave the tree; machine and descendant ordering admit internal-only row
     /// drags without granting an external projection capability.
     var isDragSource: Bool {
         switch kind {
@@ -546,6 +546,9 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
+        /// Pin state supplied by the account-scoped machine store for rows that
+        /// are present only in the catalog during a fleet refresh.
+        pinnedMachineIDs: Set<String> = [],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         now: Date = .now
     ) -> [CloudTreeNode] {
@@ -591,7 +594,7 @@ enum CloudTreeNodeBuilder {
                 ),
                 // A machine pin is explicit sidebar priority, stamped by the panel;
                 // organization only pins the organizable rows below a machine.
-                isPinned: machine.isPinned
+                isPinned: machine.isPinned || pinnedMachineIDs.contains(machine.id)
             ))
         }
         // Include catalog-only machines so their surfaces remain reachable during fleet refresh.
@@ -618,7 +621,8 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
                     now: now
-                )
+                ),
+                isPinned: pinnedMachineIDs.contains(id)
             ))
         }
         return nodes
@@ -897,9 +901,11 @@ enum CloudTreeNodeBuilder {
                 byWorkspace[placement.workspace.id] = rows
             }
         }
-        for member in SurfaceProjection.localDisplayMembers(resources: resources, projections: snapshot.projections) {
+        for member in SurfaceProjection.localWorkspaceMembers(resources: resources, projections: snapshot.projections) {
             guard var rows = byWorkspace[member.workspaceID] else { continue }
-            rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
+            let placement = RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil)
+            if member.resource.kind == .browser { rows.browsers.append(placement) }
+            else { rows.displays.append(placement) }
             byWorkspace[member.workspaceID] = rows
         }
         let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty }.sorted { lhs, rhs in
