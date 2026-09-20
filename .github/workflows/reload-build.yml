@@ -32,7 +32,7 @@ on:
       runner:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
-          our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
+          our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), or Warp.
           This is the dev-build offload path (reload-cloud), not required CI, so
           targeting the fleet for a build is intentional.
         required: false
@@ -71,7 +71,8 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ${{ inputs.runner }}
+    # Depot is retired for cmux builds. Legacy Depot requests use Blacksmith.
+    runs-on: ${{ startsWith(inputs.runner, 'depot-') && 'blacksmith-6vcpu-macos-26' || inputs.runner }}
     timeout-minutes: 60
     env:
       # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
