@@ -93,6 +93,44 @@ class ReuseProducts(TestProductHandoff):
             self.restore_reuse()
         self.assertFalse(self.consumer.exists())
 
+    def test_invalid_candidate_does_not_hide_later_valid_archive(self):
+        original_download = self.api.download
+        for failure in ('download', 'archive', 'receipt'):
+            with self.subTest(failure=failure):
+                bad = {**self.api.artifact, 'id': 41}
+                if failure == 'archive':
+                    bad['digest'] = 'sha256:' + hashlib.sha256(b'corrupt').hexdigest()
+                bad_run = {**self.api.run, 'id': 99} if failure == 'receipt' else self.api.run
+                def download(artifact_id, target):
+                    if artifact_id == 41 and failure == 'download':
+                        raise OSError('candidate unavailable')
+                    if artifact_id == 41 and failure == 'archive':
+                        target.write_bytes(b'corrupt')
+                    else:
+                        original_download(42, target)
+                with mock.patch.object(reuse, 'select', return_value=[
+                        (bad, bad_run), (self.api.artifact, self.api.run)]), \
+                        mock.patch.object(self.api, 'download', side_effect=download) as calls:
+                    self.assertTrue(self.restore_reuse())
+                    self.assertEqual([call.args[0] for call in calls.call_args_list], [41, 42])
+                provenance = json.loads((self.consumer / 'Build/Products/cmux-original-producer.json').read_text())
+                self.assertEqual(provenance['artifact_id'], 42)
+                shutil.rmtree(self.consumer)
+
+    def test_failure_after_relocation_aborts_without_trying_another_candidate(self):
+        original_restore = reuse.products.restore
+        def restore(derived, identity):
+            if derived == self.consumer:
+                raise ValueError('consumer relocation failed')
+            return original_restore(derived, identity)
+        with mock.patch.object(reuse, 'select', return_value=[
+                (self.api.artifact, self.api.run), (self.api.artifact, self.api.run)]), \
+                mock.patch.object(reuse.products, 'restore', side_effect=restore), \
+                mock.patch.object(self.api, 'download', wraps=self.api.download) as download:
+            with self.assertRaisesRegex(ValueError, 'consumer relocation failed'):
+                self.restore_reuse()
+            self.assertEqual(download.call_count, 1)
+
     def test_attempt_suffixed_artifact_remains_discoverable(self):
         self.assertTrue(self.api.artifact['name'].endswith('-1'))
         self.assertTrue(self.restore_reuse())
