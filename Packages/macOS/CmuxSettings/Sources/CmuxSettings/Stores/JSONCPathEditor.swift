@@ -13,7 +13,10 @@ struct JSONCPathEditor: Sendable {
         let properties: [PropertyRange]
 
         func property(named key: String) -> PropertyRange? {
-            return properties.last { $0.key == key }
+            // JSONConfigStore decodes with Foundation JSONSerialization,
+            // which retains the first duplicate member on macOS. Mutate that
+            // same occurrence so a fresh read agrees with the published cache.
+            return properties.first { $0.key == key }
         }
     }
 
@@ -35,12 +38,12 @@ struct JSONCPathEditor: Sendable {
         guard !path.isEmpty, rootObject(in: source) != nil else {
             throw EditError.malformedObject
         }
-        guard parentAndPropertyIndex(at: path, in: source, selectingLast: false) != nil else { return source }
+        guard parentAndPropertyIndex(at: path, in: source, searchingAllAncestors: true) != nil else { return source }
 
         var updated = source
-        // A parsed JSON object resolves duplicate keys to the last occurrence.
-        // Remove every duplicate leaf so reset cannot expose a shadowed value.
-        while parentAndPropertyIndex(at: path, in: updated, selectingLast: false) != nil {
+        // Remove every duplicate leaf, including under shadowed ancestors,
+        // so reset cannot expose a value through a different duplicate branch.
+        while parentAndPropertyIndex(at: path, in: updated, searchingAllAncestors: true) != nil {
             let next = try removingProperty(at: path, in: updated)
             guard next != updated else { break }
             updated = next
@@ -213,7 +216,7 @@ struct JSONCPathEditor: Sendable {
     }
 
     private func removingProperty(at path: [String], in source: String) throws -> String {
-        guard let (parent, childIndex) = parentAndPropertyIndex(at: path, in: source, selectingLast: false) else {
+        guard let (parent, childIndex) = parentAndPropertyIndex(at: path, in: source, searchingAllAncestors: true) else {
             return source
         }
         let child = parent.properties[childIndex]
@@ -263,20 +266,20 @@ struct JSONCPathEditor: Sendable {
     private func parentAndPropertyIndex(
         at path: [String],
         in source: String,
-        selectingLast: Bool = true
+        searchingAllAncestors: Bool = false
     ) -> (ObjectRange, Int)? {
         guard !path.isEmpty, let root = rootObject(in: source) else { return nil }
         func find(in object: ObjectRange, components: ArraySlice<String>) -> (ObjectRange, Int)? {
             guard let component = components.first else { return nil }
             let indices = object.properties.indices.filter { object.properties[$0].key == component }
             if components.count == 1 {
-                guard let index = selectingLast ? indices.last : indices.first else { return nil }
+                guard let index = indices.first else { return nil }
                 return (object, index)
             }
             // Reset visits every duplicate ancestor, including ones shadowed
             // by another object or a scalar. It must not leave a leaf that a
             // decoder with different duplicate-key behavior can expose later.
-            let candidates = selectingLast ? Array(indices.suffix(1)) : indices
+            let candidates = searchingAllAncestors ? indices : Array(indices.prefix(1))
             for index in candidates {
                 let property = object.properties[index]
                 let start = skipWhitespaceAndComments(in: source, from: property.valueStart)
