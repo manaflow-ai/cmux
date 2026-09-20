@@ -119,6 +119,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self.expansionStore = expansionStore
             self.organization = organization ?? CloudSidebarOrganizationStore()
             self.tabDragTransferRegistry = tabDragTransferRegistry
+            super.init()
             organizationObserver = NotificationCenter.default.addObserver(
                 forName: CloudSidebarOrganizationStore.didChangeNotification,
                 object: self.organization,
