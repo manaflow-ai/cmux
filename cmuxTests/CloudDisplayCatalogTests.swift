@@ -65,6 +65,17 @@ struct CloudDisplayCatalogTests {
         #expect(!service.canCreate && service.snapshot == nil)
     }
 
+    @Test("Provider invalidation clears a previously discovered guest catalog")
+    func invalidationClearsSnapshot() async {
+        let service = CloudDisplayCoordinator { _, _ in
+            .init(exitCode: 0, stdout: initial, stderr: "")
+        }
+        await service.refresh()
+        #expect(service.snapshot != nil)
+        service.invalidate()
+        #expect(service.snapshot == nil && !service.isAvailable)
+    }
+
 
     @Test("Display IDs and connection targets are scoped to the authenticated VM")
     func independentTargets() throws {

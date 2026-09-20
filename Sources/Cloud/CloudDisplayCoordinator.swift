@@ -65,9 +65,16 @@ final class CloudDisplayCoordinator {
     }
 
     func stop() {
+        invalidate()
+    }
+
+    /// Drops guest state when the provider identity or account scope changes.
+    func invalidate() {
         generation &+= 1
         creation?.cancel()
         creation = nil
+        snapshot = nil
+        requestID = nil
         isAvailable = false
     }
 }

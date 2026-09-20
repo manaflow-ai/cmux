@@ -151,6 +151,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let previousPrivateAddress = info.privateAddress
         refreshGeneration &+= 1
         refreshCoordinator.invalidate()
+        displayCoordinator.invalidate()
         self.summary = summary
         if !supportsPortPreviews {
             portsCache = nil
