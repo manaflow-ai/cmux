@@ -7055,8 +7055,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.displayIfNeeded()
         terminalPanel.hostedView.setVisibleInUI(true)
         terminalPanel.hostedView.setActive(true)
-        terminalPanel.hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitFor(timeout: 1.0, until: { terminalView.window === window })
+        XCTAssertTrue(terminalView.window === window, "Expected terminal surface to mount in the test window")
+        XCTAssertTrue(window.makeFirstResponder(terminalView), "Expected initial terminal focus to be accepted")
 
         XCTAssertTrue(
             terminalPanel.hostedView.isSurfaceViewFirstResponder(),

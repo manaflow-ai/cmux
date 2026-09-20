@@ -28,8 +28,11 @@ struct CloudMachinesBetaSettingActionTests {
             center.removeObserver(observer)
             changes.continuation.finish()
         }
-        // Give the store actor its own non-Sendable UserDefaults handle.
-        let storeDefaults = try #require(UserDefaults(suiteName: suite))
+        // Transfer a fresh handle directly; #require captures non-Sendable values on MainActor.
+        guard let storeDefaults = UserDefaults(suiteName: suite) else {
+            Issue.record("Could not create the isolated settings store defaults")
+            return
+        }
         let store = UserDefaultsSettingsStore(defaults: storeDefaults)
         let model = DefaultsValueModel(store: store, key: key)
         let action = CloudMachinesBetaSettingAction(model: model, notificationCenter: center)
