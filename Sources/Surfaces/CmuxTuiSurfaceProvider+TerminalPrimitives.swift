@@ -13,10 +13,16 @@ extension CmuxTuiSurfaceProvider {
         do {
             _ = try await links.connected(machineID: machineID)
         } catch {
+            relay.remoteBindingFailed()
             return false
         }
-        guard let link = await links.link(machineID: machineID) else { return false }
-        return relay.bindRemoteTerminal(terminalID: terminalID, sender: link)
+        guard let link = await links.link(machineID: machineID) else {
+            relay.remoteBindingFailed()
+            return false
+        }
+        let bound = relay.bindRemoteTerminal(terminalID: terminalID, sender: link)
+        if !bound { relay.remoteBindingFailed() }
+        return bound
     }
 
     // MARK: Headless terminal I/O (agent primitives; no pane involved)

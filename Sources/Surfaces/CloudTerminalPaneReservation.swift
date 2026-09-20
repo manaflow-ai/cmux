@@ -66,6 +66,17 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
         }
     }
 
+    /// Ends a binding attempt before any remote input was handed to the PTY.
+    /// The native mirror is the safe fallback for this pre-send failure.
+    func remoteBindingFailed() {
+        state.withLock { state in
+            guard !state.discarded else { return }
+            state.remoteBindingPending = false
+            state.remoteSink = nil
+            promoteRequestedRouterIfReadyLocked(&state)
+        }
+    }
+
     /// Starts routing input to the remote terminal as soon as its stable id is known.
     @discardableResult
     func bindRemoteTerminal(
