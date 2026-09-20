@@ -24,8 +24,8 @@ Cloud loopback link-detection branch (`46428d790` bare localhost port links,
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
 #221, merged as `3869e81a0`; its branch tip `370f08cf1` is `4a0e9e185` merged
 into the Hangul commits), the targeted upstream picks of fork PR #224 (input
-encoding, erase/scroll state, termio lifetime), the write-pool FIFO fix of
-fork PR #223, and the `clear_screen` scrollback change of fork PR #213. It
+encoding, erase/scroll state, termio lifetime), the write-pool FIFO fix of fork
+PR #223, and the `clear_screen` scrollback change of fork PR #213. It
 includes the incremental embedded configuration propagation and Fish SSH
 feature-gating fixes described below, plus the renderer/API compatibility pin
 and the repeated word-selection drag anchor fix. Its tree includes the prior

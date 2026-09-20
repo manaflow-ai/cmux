@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import CmuxCloudMachines
 import AppKit
 import CmuxAppKitSupportUI
