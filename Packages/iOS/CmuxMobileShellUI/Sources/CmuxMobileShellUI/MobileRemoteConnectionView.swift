@@ -5,9 +5,8 @@ import SwiftUI
 /// Form and lightweight terminal surface for the first direct SSH flow.
 ///
 /// The connection service owns account checks, host trust, and credential
-/// ordering. This view deliberately keeps terminal bytes in a scrollable text
-/// surface until it is replaced by the existing Ghostty surface host; it is a
-/// functional connection path, not a second SSH implementation.
+/// ordering. The connected session reuses the app's existing Ghostty surface
+/// host rather than introducing a second terminal renderer.
 struct MobileRemoteConnectionView: View {
     let controller: any MobileRemoteConnectionServing
     @State private var host = ""
@@ -15,10 +14,7 @@ struct MobileRemoteConnectionView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var backend: MobileRemoteSessionBackend = .shell
-    @State private var output = ""
-    @State private var input = ""
     @State private var session: (any MobileRemoteSSHSession)?
-    @State private var outputTask: Task<Void, Never>?
     @State private var isConnecting = false
     @State private var errorMessage: String?
     @State private var approval = MobileRemoteHostApprovalState()
@@ -60,23 +56,10 @@ struct MobileRemoteConnectionView: View {
                 }
             }
 
-            if !output.isEmpty || session != nil {
+            if let session {
                 Section(L10n.string("mobile.remote.terminal", defaultValue: "Terminal")) {
-                    ScrollView {
-                        Text(output.isEmpty ? L10n.string("mobile.remote.connected", defaultValue: "Connected") : output)
-                            .font(.system(.footnote, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    HStack {
-                        TextField(L10n.string("mobile.remote.input", defaultValue: "Input"), text: $input)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                        Button(L10n.string("mobile.remote.send", defaultValue: "Send")) {
-                            Task { await sendInput() }
-                        }
-                        .disabled(input.isEmpty || session == nil)
-                    }
+                    RemoteGhosttySurfaceRepresentable(session: session)
+                        .frame(minHeight: 320)
                 }
             }
 
@@ -104,7 +87,6 @@ struct MobileRemoteConnectionView: View {
             }
         }
         .onDisappear {
-            outputTask?.cancel()
             Task { await session?.close() }
             approval.cancel()
         }
@@ -128,33 +110,13 @@ struct MobileRemoteConnectionView: View {
                 approveUnknownHost: { challenge in await approval.request(challenge) }
             )
             session = connected
-            outputTask = Task { @MainActor in
-                do {
-                    for try await data in connected.output() {
-                        guard let text = String(data: data, encoding: .utf8) else { continue }
-                        output.append(text)
-                    }
-                } catch {
-                    errorMessage = L10n.string("mobile.remote.outputStopped", defaultValue: "Remote output stopped.")
-                }
-            }
         } catch {
             errorMessage = String(describing: error)
         }
         isConnecting = false
     }
 
-    private func sendInput() async {
-        guard let session, !input.isEmpty else { return }
-        let data = Data((input + "\n").utf8)
-        input = ""
-        do { try await session.sendInput(data) }
-        catch { errorMessage = L10n.string("mobile.remote.sendFailed", defaultValue: "Could not send input.") }
-    }
-
     private func disconnect() async {
-        outputTask?.cancel()
-        outputTask = nil
         await session?.close()
         session = nil
     }
