@@ -34,11 +34,15 @@ class AgentPRReviewGateTests(unittest.TestCase):
 
     def test_current_head_requires_each_configured_bot(self):
         import os
+        previous = os.environ.get("REQUIRE_BOT_REVIEW_COVERAGE")
         os.environ["REQUIRE_BOT_REVIEW_COVERAGE"] = "1"
         try:
             passed, reasons, _ = gate.evaluate(make_pr(reviews=[review("coderabbitai")]))
         finally:
-            os.environ.pop("REQUIRE_BOT_REVIEW_COVERAGE", None)
+            if previous is None:
+                os.environ.pop("REQUIRE_BOT_REVIEW_COVERAGE", None)
+            else:
+                os.environ["REQUIRE_BOT_REVIEW_COVERAGE"] = previous
         self.assertFalse(passed)
         self.assertTrue(any("greptile-apps" in reason for reason in reasons))
 

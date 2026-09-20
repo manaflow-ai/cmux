@@ -35,4 +35,5 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
 
-<!-- Agent-authored PRs may opt into the current-head bot-thread gate by adding the marker agent-pr-review-required to the PR body. -->
+<!-- Agent-authored PRs may opt into the current-head bot-thread gate by adding this exact marker to the PR body: -->
+<!-- agent-pr-review-required -->

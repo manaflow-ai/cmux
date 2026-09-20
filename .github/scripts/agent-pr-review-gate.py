@@ -129,15 +129,15 @@ def fetch_pr() -> dict[str, Any]:
         with urllib.request.urlopen(request) as response:
             payload = json.load(response)
         if payload.get("errors"):
-            raise RuntimeError(json.dumps(payload["errors"]))
+            raise RuntimeError("GitHub review data request failed")
         return payload["data"]
 
-    variables = {"owner": repository[0], "repo": repository[1], "number": int(number), "after": None}
-    base_query = """query($owner:String!, $repo:String!, $number:Int!, $after:String) {
+    variables = {"owner": repository[0], "repo": repository[1], "number": int(number), "reviewsAfter": None, "threadsAfter": None}
+    base_query = """query($owner:String!, $repo:String!, $number:Int!, $reviewsAfter:String, $threadsAfter:String) {
       repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
         body headRefOid author { login }
-        reviews(first:100, after:$after) { nodes { author { login } state submittedAt commit { oid } } pageInfo { hasNextPage endCursor } }
-        reviewThreads(first:100, after:$after) { nodes { id isResolved isOutdated path line comments(first:100) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } }
+        reviews(first:100, after:$reviewsAfter) { nodes { author { login } state submittedAt commit { oid } } pageInfo { hasNextPage endCursor } }
+        reviewThreads(first:100, after:$threadsAfter) { nodes { id isResolved isOutdated path line comments(first:100) { nodes { author { login } body createdAt } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } }
       } }
     }"""
     first = graphql(base_query, variables)["repository"]["pullRequest"]
@@ -146,7 +146,7 @@ def fetch_pr() -> dict[str, Any]:
     for connection in ("reviews", "reviewThreads"):
         page = first[connection]["pageInfo"]
         while page["hasNextPage"]:
-            variables["after"] = page["endCursor"]
+            variables["reviewsAfter" if connection == "reviews" else "threadsAfter"] = page["endCursor"]
             next_pr = graphql(base_query, variables)["repository"]["pullRequest"]
             target = reviews if connection == "reviews" else threads
             target.extend(next_pr[connection]["nodes"])
@@ -175,13 +175,17 @@ def main() -> int:
         bots = tuple(filter(None, (os.environ.get("REVIEW_BOTS", ",".join(DEFAULT_REVIEW_BOTS)).split(","))))
         passed, reasons, items = evaluate(pr, required_bots=bots)
         print("agent-pr-review-complete: " + ("PASS" if passed else "FAIL"))
-        for reason in reasons:
-            print("- " + reason)
-        print(f"- head: {pr.get('headRefOid', '?')}")
+        if passed:
+            print("- all current actionable review threads have author responses")
+        else:
+            if any(reason.startswith("review pending") for reason in reasons):
+                print("- review from a configured provider is pending")
+            if any(reason.startswith("unanswered") for reason in reasons):
+                print("- an actionable review thread is unanswered")
         print(f"- actionable current threads: {len(items)}")
         return 0 if passed else 1
-    except Exception as error:
-        print(f"agent-pr-review-complete: ERROR: {error}", file=sys.stderr)
+    except Exception:
+        print("agent-pr-review-complete: ERROR: unable to read GitHub review data", file=sys.stderr)
         return 1
 
 
