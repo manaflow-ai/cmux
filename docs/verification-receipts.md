@@ -28,17 +28,42 @@ python3 scripts/verify-local.py --only localization
 python3 scripts/verify-local.py --receipt /tmp/cmux-preflight.json
 ```
 
-For a Swift edit, add the files you changed to catch syntax errors before a native
-build. Paths are relative to the checkout; this includes dirty and untracked files:
+For a Swift edit, let Git select the files to parse before a native build:
 
 ```sh
-# The default static checks, plus parsing these files:
-python3 scripts/verify-local.py --swift Sources/MyFile.swift cmuxTests/MyTests.swift
-# Just parsing while fixing a syntax error:
-python3 scripts/verify-local.py --only swift-syntax --swift cmuxTests/MyTests.swift
+# Default static checks plus staged, unstaged and nonignored untracked Swift:
+python3 scripts/verify-local.py --swift-changed
+# Also include committed branch changes since the merge-base with a local ref:
+python3 scripts/verify-local.py --swift-changed origin/main
+# Just parsing during the edit loop:
+python3 scripts/verify-local.py --only swift-syntax --swift-changed
 ```
 
-Replace the example paths with existing files. This opt-in check needs `swiftc`
+The default base is HEAD, so supply a base ref when checking already-committed
+work. Base refs must exist locally; the command does not fetch or guess a remote.
+It parses the **current working-tree contents**, including dirty edits, rather
+than extracting an immutable version from that ref. Deleted files are excluded;
+renamed destinations are included. Git-ignored files and untracked files in the
+managed `.glaeda/apple-build/` cache are excluded. `--swift FILE ...` still accepts an explicit
+selection, and selectors can be combined (duplicate paths run once).
+
+For shell composition, paths are checkout-relative and stdin is NUL-delimited,
+so spaces, quotes and newlines in filenames survive. Non-Swift paths are ignored:
+
+```sh
+set -o pipefail
+git diff --name-only -z --diff-filter=ACMR HEAD -- |
+  python3 scripts/verify-local.py --only swift-syntax --swift-stdin0 --receipt - |
+  jq '{outcome, selection: .evidence.swift_selection}'
+```
+
+Use your own producer for a different scope: the pipeline above selects tracked
+changes only. `git ls-files --others --exclude-standard -z` selects untracked files;
+`--swift-changed` includes both without constructing a pipeline. `--receipt -`
+writes only JSON to stdout and sends diagnostics to stderr. Keep `pipefail` so a
+producer or verification failure is not hidden by a successful final consumer.
+
+This opt-in check needs `swiftc`
 on PATH and runs `-frontend -parse -swift-version 5 -D DEBUG -enable-bare-slash-regex`.
 It does not resolve imports, expand macros, typecheck, compile, execute tests, or
 validate every conditional-compilation configuration. Use the intended toolchain;
@@ -46,8 +71,11 @@ parsing with a newer compiler does not prove compatibility with an older one.
 The default Linux CI recipe remains the eight portable checks below.
 
 Receipts record the parser version, exact argv, selected-file hashes before and
-after, and a separate `parsing` result. Missing `swiftc` is `unsupported`; an empty
-selection is rejected. Selected-file content drift interrupts the result, including
+after, selection origin/resolved base, and a separate `parsing` result. Missing
+`swiftc` with selected files is `unsupported`. An empty changed/stream selection
+reports `skipped` with `reason: no_swift_inputs` and exits 0; it never claims parsing
+passed. Other selected checks still run. Missing explicit files, malformed stdin,
+or an unresolved base are errors. Selected-file content drift interrupts the result, including
 untracked files whose Git status stays unchanged. These observations still do not
 establish an isolated snapshot of the entire checkout.
 
@@ -77,7 +105,8 @@ infer affected tests from a diff. `--repo` targets another checkout. Each check
 has a 60-second deadline, adjustable with `--timeout`; Ctrl-C stops the active
 process group and marks the remaining checks skipped.
 
-Exit 0 means the selected static checks passed. Failure, missing tools,
+Exit 0 means the selected checks passed or only an empty Swift selection was
+skipped; inspect the receipt's status to distinguish them. Failure, missing tools,
 interruption, or observed source drift returns nonzero. Unchanged dirty-source
 observations retain their qualification. A zero-test unittest success is a failed
 test claim, including when assessing a previously supplied receipt.

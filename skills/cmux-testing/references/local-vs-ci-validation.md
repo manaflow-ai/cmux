@@ -6,9 +6,11 @@ full command before a native build or push when those checks apply. A passing
 preflight establishes only its named scope. See the [command guide](../../../docs/verification-receipts.md)
 for focused reruns and evidence receipts.
 
-For edited Swift, use `python3 scripts/verify-local.py --swift <files...>` before
-the native build. While repairing syntax, rerun with `--only swift-syntax --swift
-<files...>`. This parses only the selected files with the installed compiler;
+For edited Swift, use `python3 scripts/verify-local.py --swift-changed` before
+the native build; add a base ref to include committed branch changes. While
+repairing syntax, rerun with `--only swift-syntax --swift-changed`. Use
+`--swift-stdin0` for piped selections and `--receipt -` for JSON stdout. This
+parses only the selected files with the installed compiler;
 it does not typecheck imports or execute tests. Contributor-wide setup and
 verification guidance belongs in [CONTRIBUTING.md](../../../CONTRIBUTING.md);
 the notes here cover the native evidence distinctions needed by this skill.

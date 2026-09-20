@@ -1,0 +1,224 @@
+{
+  "artifacts": {
+    "launched": null,
+    "produced": null
+  },
+  "assessment": {
+    "exact_verification": false,
+    "launched_matches_produced": false,
+    "qualifications": [
+      "exact_snapshot_not_established",
+      "dirty_or_unknown_source"
+    ],
+    "review_current": false
+  },
+  "authority": "evidence_only",
+  "checks": [
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "preparation",
+      "status": "skipped"
+    },
+    {
+      "evidence": "evidence.executions",
+      "executed": true,
+      "phase": "parsing",
+      "status": "passed"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "typechecking",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "tests",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "packaging",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "live",
+      "status": "skipped"
+    },
+    {
+      "evidence": null,
+      "executed": false,
+      "phase": "static_analysis",
+      "status": "skipped"
+    }
+  ],
+  "environment": {
+    "architecture": "arm64",
+    "build_input_identity": null,
+    "configuration": "static preflight",
+    "platform": "Darwin",
+    "toolchain": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0"
+  },
+  "evidence": {
+    "executions": [
+      {
+        "argv": [
+          "/usr/bin/swiftc",
+          "-frontend",
+          "-parse",
+          "-swift-version",
+          "5",
+          "-D",
+          "DEBUG",
+          "-enable-bare-slash-regex",
+          "/Users/leoli/Projects/cmux/Sources/AppDelegate+RecoverableMainWindowRoutes.swift",
+          "/Users/leoli/Projects/cmux/Sources/Surfaces/SurfaceCatalogQueryService.swift",
+          "/Users/leoli/Projects/cmux/Sources/Surfaces/SurfaceProjectionIdentity+Workspace.swift",
+          "/Users/leoli/Projects/cmux/Sources/Surfaces/SurfaceSocketCommands.swift",
+          "/Users/leoli/Projects/cmux/cmuxTests/SurfaceProjectionIdentityTests.swift"
+        ],
+        "cancelled": false,
+        "elapsed_seconds": 0.091,
+        "executed": true,
+        "exit_code": 0,
+        "id": "swift-syntax",
+        "label": "Swift syntax (5 selected files)",
+        "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "phase": "parsing",
+        "script_sha256": null,
+        "status": "passed",
+        "tests": null
+      }
+    ],
+    "kind": "local_static_preflight",
+    "swift_inputs": {
+      "after": [
+        {
+          "path": "Sources/AppDelegate+RecoverableMainWindowRoutes.swift",
+          "sha256": "2745681909690d86aba72d5f8a79ee43ee23fbd3b47000083db27a600e510b07"
+        },
+        {
+          "path": "Sources/Surfaces/SurfaceCatalogQueryService.swift",
+          "sha256": "fd91e5ebb0607159dcf42ea3cbef094d7a9970f7aed241c868da32d619b11e36"
+        },
+        {
+          "path": "Sources/Surfaces/SurfaceProjectionIdentity+Workspace.swift",
+          "sha256": "89eac372815f360f95f0672c94c30e4008205ad36a8b8439451be49166b0c628"
+        },
+        {
+          "path": "Sources/Surfaces/SurfaceSocketCommands.swift",
+          "sha256": "9ea518f486954a7ae78869edf8cbf3b41d7169e072abbb62c3d99365c93d8976"
+        },
+        {
+          "path": "cmuxTests/SurfaceProjectionIdentityTests.swift",
+          "sha256": "450aa98fc53ddaa58802737acedf0715a70f34ae31b404e3e22ab18dd3d42a07"
+        }
+      ],
+      "before": [
+        {
+          "path": "Sources/AppDelegate+RecoverableMainWindowRoutes.swift",
+          "sha256": "2745681909690d86aba72d5f8a79ee43ee23fbd3b47000083db27a600e510b07"
+        },
+        {
+          "path": "Sources/Surfaces/SurfaceCatalogQueryService.swift",
+          "sha256": "fd91e5ebb0607159dcf42ea3cbef094d7a9970f7aed241c868da32d619b11e36"
+        },
+        {
+          "path": "Sources/Surfaces/SurfaceProjectionIdentity+Workspace.swift",
+          "sha256": "89eac372815f360f95f0672c94c30e4008205ad36a8b8439451be49166b0c628"
+        },
+        {
+          "path": "Sources/Surfaces/SurfaceSocketCommands.swift",
+          "sha256": "9ea518f486954a7ae78869edf8cbf3b41d7169e072abbb62c3d99365c93d8976"
+        },
+        {
+          "path": "cmuxTests/SurfaceProjectionIdentityTests.swift",
+          "sha256": "450aa98fc53ddaa58802737acedf0715a70f34ae31b404e3e22ab18dd3d42a07"
+        }
+      ]
+    },
+    "swift_selection": {
+      "explicit": false,
+      "paths": [
+        "Sources/AppDelegate+RecoverableMainWindowRoutes.swift",
+        "Sources/Surfaces/SurfaceCatalogQueryService.swift",
+        "Sources/Surfaces/SurfaceProjectionIdentity+Workspace.swift",
+        "Sources/Surfaces/SurfaceSocketCommands.swift",
+        "cmuxTests/SurfaceProjectionIdentityTests.swift"
+      ],
+      "stdin0_sha256": "e772858b3b78f8264c404a609aad016cd957f275079b0066e9e84a68fa97b0a9"
+    }
+  },
+  "integrations": {
+    "glaeda_request_id": null,
+    "glaeda_run_id": null,
+    "stensibly_run_id": null,
+    "stensibly_settlement_id": null
+  },
+  "outcome": {
+    "scope": "selected preflight checks",
+    "status": "passed"
+  },
+  "recipe": {
+    "argv": [
+      "python3",
+      "scripts/verify-local.py",
+      "--only",
+      "swift-syntax",
+      "--swift",
+      "Sources/AppDelegate+RecoverableMainWindowRoutes.swift",
+      "Sources/Surfaces/SurfaceCatalogQueryService.swift",
+      "Sources/Surfaces/SurfaceProjectionIdentity+Workspace.swift",
+      "Sources/Surfaces/SurfaceSocketCommands.swift",
+      "cmuxTests/SurfaceProjectionIdentityTests.swift"
+    ],
+    "claim_class": "pre_build_static_sanity",
+    "id": "cmux-fast-static-checks/v1",
+    "revision": "2be026ee63bbd8224f426e21d1f26bfbf8f3ace8d46fbba0305b5fd1315f668a"
+  },
+  "review": {
+    "current_head": null,
+    "evidence": null,
+    "reviewed_head": null,
+    "status": "unsupported"
+  },
+  "schema_version": "cmux-verification/v1",
+  "source": {
+    "after": {
+      "clean": false,
+      "commit": "89116fba0e529543841be58894a39d9705d40a28",
+      "status_sha256": "d8946e80d5b0748c76eb48b63ab4b9dd227fc29046db3104fa886efb6928b1eb",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "ccc2544c946eaf1918ce00d020da81cf84881ea2"
+    },
+    "base_sha": null,
+    "before": {
+      "clean": false,
+      "commit": "89116fba0e529543841be58894a39d9705d40a28",
+      "status_sha256": "d8946e80d5b0748c76eb48b63ab4b9dd227fc29046db3104fa886efb6928b1eb",
+      "tracked_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "tree": "ccc2544c946eaf1918ce00d020da81cf84881ea2"
+    },
+    "checkout_sha": "89116fba0e529543841be58894a39d9705d40a28",
+    "exact_snapshot": null,
+    "head_sha": "89116fba0e529543841be58894a39d9705d40a28",
+    "merge_sha": null,
+    "repository": "cmux (caller-supplied checkout)",
+    "semantics": "latest_checkout_at_execution",
+    "tree": "ccc2544c946eaf1918ce00d020da81cf84881ea2"
+  },
+  "tests": {
+    "accepted_baselines": [],
+    "discovered": null,
+    "executed": null,
+    "runner_reported": null,
+    "selected": null,
+    "selection": [],
+    "skipped": null
+  }
+}

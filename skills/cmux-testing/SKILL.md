@@ -7,11 +7,21 @@ description: "Choose scoped cmux verification, add behavioral tests, and validat
 
 ## Choose scope first
 
-Use [the validation guide](references/local-vs-ci-validation.md) to choose portable,
-native, web or UI verification. `python3 scripts/verify-local.py` runs the shared
-fast CI static checks; `--list` and `--only <check>` support focused iteration.
-Static success is not compilation, test execution or UI verification. Docs and
-portable-tooling changes do not automatically need a native build.
+Start with the cheapest check relevant to the change:
+
+```sh
+python3 scripts/verify-local.py --help           # quick start and composition
+python3 scripts/verify-local.py --swift-changed  # static checks + current Swift edits
+python3 scripts/verify-local.py --list           # discover focused checks
+```
+
+For already-committed Swift changes, supply a base ref with `--swift-changed
+origin/main`. For a focused edit loop, add `--only swift-syntax`. The
+[command guide](../../docs/verification-receipts.md) covers piped selections and
+JSON output; read it when composing commands or handing off evidence. Use
+[the validation guide](references/local-vs-ci-validation.md) when deciding what
+native, web or runtime checks are still needed. Parsing does not establish
+typechecking or test execution. Docs and portable tooling need their own scoped checks.
 
 ## Regression commits
 

@@ -115,13 +115,52 @@ def observe_swift_inputs(repo, paths):
     return inputs
 
 
-def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
-    paths = swift_paths(repo, swift_files or [])
+def changed_swift_files(repo, base):
+    """Select the current working-tree contents, including nonignored new files."""
+    def git(*args):
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                              check=True, timeout=15).stdout
+    try:
+        base_sha = git("rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}").decode().strip()
+        merge_base = git("merge-base", base_sha, "HEAD").decode().strip()
+        changed = git("diff", "--name-only", "-z", "--diff-filter=ACMR", "--no-renames",
+                      merge_base, "--")
+        # Managed native caches may predate the checkout's ignore rules. Do not
+        # select generated test runners there as contributor source edits.
+        untracked = git("ls-files", "--others", "--exclude-standard", "-z", "--",
+                        ".", ":(top,exclude).glaeda/apple-build/**")
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError(f"Cannot select changed Swift files against {base!r}; "
+                         "check the Git checkout and local base ref") from error
+    names = sorted({os.fsdecode(p) for p in (changed + untracked).split(b"\0") if p.endswith(b".swift")})
+    return names, {"base_ref": base, "base_sha": base_sha, "merge_base_sha": merge_base,
+                   "excluded_untracked_prefixes": [".glaeda/apple-build/"],
+                   "contents": "current working tree, including staged/unstaged and nonignored untracked files"}
+
+
+def stdin_swift_files(data):
+    if data and not data.endswith(b"\0"):
+        raise ValueError("--swift-stdin0 requires NUL-terminated paths; use git ... -z")
+    return [os.fsdecode(p) for p in data.split(b"\0") if p.endswith(b".swift")]
+
+
+def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_changed=None, swift_stdin0=None):
+    before = receipt.observe(repo)
+    names = list(swift_files or [])
+    selection = {"explicit": bool(names)}
+    if swift_changed is not None:
+        changed, selection["changed"] = changed_swift_files(repo, swift_changed)
+        names += changed
+    if swift_stdin0 is not None:
+        names += stdin_swift_files(swift_stdin0)
+        selection["stdin0_sha256"] = receipt.digest(swift_stdin0)
+    paths = swift_paths(repo, names)
+    swift_requested = bool(paths) or swift_changed is not None or swift_stdin0 is not None
     selected = list(selected)
-    if paths and "swift-syntax" not in selected:
+    if swift_requested and "swift-syntax" not in selected:
         selected.append("swift-syntax")
-    if "swift-syntax" in selected and not paths:
-        raise ValueError("swift-syntax requires --swift with at least one file")
+    if "swift-syntax" in selected and not swift_requested:
+        raise ValueError("swift-syntax requires --swift FILE ..., --swift-changed [BASE], or --swift-stdin0")
     result = receipt.envelope()
     result["recipe"] = {"id": "cmux-fast-static-checks/v1", "revision": receipt.digest(Path(__file__).read_bytes()),
                         "claim_class": "pre_build_static_sanity",
@@ -129,8 +168,11 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
                         [arg for name in selected for arg in ("--only", name)]}
     if paths:
         result["recipe"]["argv"] += ["--swift"] + [str(p.relative_to(repo.resolve())) for p in paths]
+    elif swift_changed is not None:
+        result["recipe"]["argv"] += ["--swift-changed", swift_changed]
+    elif swift_stdin0 is not None:
+        result["recipe"]["argv"] += ["--swift-stdin0"]
     result["source"]["repository"] = "cmux (caller-supplied checkout)"
-    before = receipt.observe(repo)
     result["source"].update(before=before, head_sha=before["commit"], checkout_sha=before["commit"],
                              tree=before.get("tree"))
     result["environment"].update(platform=platform.system(), architecture=platform.machine(),
@@ -140,7 +182,7 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
     swift_before = observe_swift_inputs(repo, paths)
     compiler = shutil.which("swiftc") if paths else None
     cancelled = False
-    if paths:
+    if swift_requested:
         items.insert(0, ("swift-syntax", "parsing", f"Swift syntax ({len(paths)} selected files)",
                         [compiler or "swiftc", "-frontend", "-parse", "-swift-version", "5",
                          "-D", "DEBUG", "-enable-bare-slash-regex"] + [str(p) for p in paths]))
@@ -163,7 +205,12 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
                                "status": "skipped", "executed": False, "tests": None})
             continue
         print(f"RUN {item[0]}: {item[2]}", file=stream, flush=True)
-        if item[0] == "swift-syntax" and compiler is None:
+        if item[0] == "swift-syntax" and not paths:
+            execution = {"id": item[0], "phase": item[1], "argv": [], "tests": None,
+                         "status": "skipped", "reason": "no_swift_inputs", "executed": False,
+                         "cancelled": False, "elapsed_seconds": 0}
+            output = "No Swift files selected; parsing skipped."
+        elif item[0] == "swift-syntax" and compiler is None:
             execution = {"id": item[0], "phase": item[1], "argv": item[3], "tests": None,
                          "status": "unsupported", "executed": False, "cancelled": False,
                          "elapsed_seconds": 0}
@@ -177,6 +224,7 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
         print(f'{execution["status"].upper()} {item[0]} ({execution["elapsed_seconds"]:.2f}s{details})', file=stream)
         if execution["status"] != "passed":
             print(output[-8192:].rstrip(), file=stream)
+        if execution["status"] not in ("passed", "skipped"):
             rerun = ["python3", "scripts/verify-local.py", "--only", item[0]]
             if item[0] == "swift-syntax":
                 rerun += ["--swift"] + [str(p.relative_to(repo.resolve())) for p in paths]
@@ -184,8 +232,10 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
     result["source"]["after"] = receipt.observe(repo)
     result["evidence"] = {"kind": "local_static_preflight", "executions": executions}
     swift_after = observe_swift_inputs(repo, paths)
-    if paths:
+    if swift_requested:
         result["evidence"]["swift_inputs"] = {"before": swift_before, "after": swift_after}
+        selection["paths"] = [str(p.relative_to(repo.resolve())) for p in paths]
+        result["evidence"]["swift_selection"] = selection
     result["checks"].append({"phase": "static_analysis", "status": "skipped", "executed": False, "evidence": None})
     for phase in ("parsing", "tests", "static_analysis"):
         matching = [e for e in executions if e["phase"] == phase]
@@ -201,10 +251,11 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
         for key in ("executed", "runner_reported", "skipped"):
             result["tests"][key] = sum(e["tests"][key] for e in tests)
     result = receipt.assess(result)
-    states = {e["status"] for e in executions}
+    states = {e["status"] for e in executions if e.get("reason") != "no_swift_inputs"}
     if cancelled:
         states.add("interrupted")
-    status = next((s for s in ("interrupted", "unsupported", "failed", "skipped") if s in states), "passed")
+    status = next((s for s in ("interrupted", "unsupported", "failed", "skipped") if s in states),
+                  "passed" if states else "skipped")
     qualifications = result["assessment"]["qualifications"]
     if paths and (swift_before != swift_after or any(p["sha256"] is None for p in swift_before + swift_after)):
         status = "interrupted"
@@ -217,6 +268,8 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
         status = "unsupported"
         print("Git source observations unavailable; run from a CMUX Git checkout.", file=stream)
     result["outcome"] = {"status": status, "scope": "selected preflight checks"}
+    if status == "skipped" and not states:
+        result["outcome"]["reason"] = "no_swift_inputs"
     print(f'{status.upper()}: {sum(e["executed"] for e in executions)}/{len(items)} selected checks ran. '
           'Native compilation, app tests and app launch were not checked.', file=stream)
     print("Next for Swift changes: use the normal native build/test workflow in CONTRIBUTING.md.", file=stream)
@@ -224,31 +277,64 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
-    parser.add_argument("--only", action="append", choices=[c[0] for c in CHECKS] + ["swift-syntax"],
+    parser = argparse.ArgumentParser(
+        description="Fast pre-build checks: shared CI sanity checks, with optional Swift syntax parsing.",
+        usage="%(prog)s [--swift-changed [BASE]] [--only CHECK] [options]",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""Start here:
+  python3 scripts/verify-local.py                         Shared CI static checks
+  python3 scripts/verify-local.py --swift-changed          Also parse local Swift edits
+  python3 scripts/verify-local.py --swift-changed origin/main  Include committed branch edits
+  python3 scripts/verify-local.py --list                   Discover focused check names
+
+Compose (use shell pipefail to preserve producer/check failures):
+  git diff --name-only -z --diff-filter=ACMR HEAD -- |
+    python3 scripts/verify-local.py --only swift-syntax --swift-stdin0 --receipt -
+
+Parsing is not typechecking or test execution. Empty Swift selections are skipped
+(exit 0); a failed, interrupted or unsupported check exits nonzero.
+Details and examples: docs/verification-receipts.md""")
+    selection = parser.add_argument_group("check selection")
+    selection.add_argument("--only", action="append", metavar="CHECK", choices=[c[0] for c in CHECKS] + ["swift-syntax"],
                         help="Run this named check only; repeat to select several")
-    parser.add_argument("--swift", nargs="+", action="extend", default=[], metavar="FILE",
+    selection.add_argument("--swift-changed", nargs="?", const="HEAD", metavar="BASE",
+                        help="Parse dirty/new Swift files; with BASE, also include branch changes since its merge-base")
+    selection.add_argument("--list", action="store_true", help="List check names and underlying commands without executing")
+    composition = parser.add_argument_group("explicit selection and pipelines")
+    composition.add_argument("--swift", nargs="+", action="extend", default=[], metavar="FILE",
                         help="Also parse these checkout-relative Swift files with the installed swiftc (no typecheck/build)")
-    parser.add_argument("--list", action="store_true", help="List checks without executing")
-    parser.add_argument("--receipt", type=Path, help="Write a JSON evidence receipt; keep outside the source tree")
-    parser.add_argument("--timeout", type=float, default=60, help="Seconds per check (default 60)")
+    composition.add_argument("--swift-stdin0", action="store_true",
+                        help="Read NUL-delimited checkout-relative paths from stdin, selecting only .swift files")
+    composition.add_argument("--receipt", type=Path, help="Write JSON to this file (outside the source tree), or - for stdout")
+    execution = parser.add_argument_group("execution")
+    execution.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1],
+                           help="Target checkout (default: the checkout containing this script)")
+    execution.add_argument("--timeout", type=float, default=60, help="Seconds per check (default 60)")
     args = parser.parse_args()
     if args.list:
         for name, phase, label, argv in CHECKS:
             print(f"{name}: {label} [{phase}]\n  {' '.join(argv)}")
-        print("swift-syntax: Parse explicitly selected Swift files [parsing; opt in with --swift FILE ...]")
+        print("swift-syntax: Parse Swift files [parsing; --swift-changed [BASE], --swift-stdin0, or --swift FILE ...]")
         return 0
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be a finite positive number")
     selected = args.only or [c[0] for c in CHECKS]
+    json_stdout = args.receipt == Path("-")
     try:
-        result = run(args.repo.resolve(), selected, args.timeout, swift_files=args.swift)
+        result = run(args.repo.resolve(), selected, args.timeout,
+                     stream=sys.stderr if json_stdout else sys.stdout, swift_files=args.swift,
+                     swift_changed=args.swift_changed,
+                     swift_stdin0=sys.stdin.buffer.read() if args.swift_stdin0 else None)
     except ValueError as error:
         parser.error(str(error))
     if args.receipt:
-        args.receipt.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    return 0 if result["outcome"]["status"] == "passed" else 1
+        encoded = json.dumps(result, indent=2, sort_keys=True) + "\n"
+        if json_stdout:
+            sys.stdout.write(encoded)
+        else:
+            args.receipt.write_text(encoded)
+    return 0 if (result["outcome"]["status"] == "passed" or
+                 result["outcome"].get("reason") == "no_swift_inputs") else 1
 
 
 if __name__ == "__main__":

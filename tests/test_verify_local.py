@@ -254,6 +254,9 @@ class SwiftSelectionTests(unittest.TestCase):
             (repo / "Deleted.swift").unlink()
             for name in ("New with spaces\nand newline.swift", "Ignored.swift", "note.md"):
                 (repo / name).write_text("let value = 4\n")
+            cache = repo / ".glaeda/apple-build/pkg.derived/runner.swift"
+            cache.parent.mkdir(parents=True)
+            cache.write_text("let generated = true\n")
             names, evidence = verify.changed_swift_files(repo, "HEAD")
             self.assertEqual(set(names), {"Staged.swift", "Unstaged.swift", "Renamed.swift",
                                           "New with spaces\nand newline.swift"})
@@ -261,13 +264,22 @@ class SwiftSelectionTests(unittest.TestCase):
 
     def test_base_includes_committed_branch_changes_and_working_tree(self):
         with repo_fixture() as repo:
+            (repo / "OnlyBaseEdits.swift").write_text("let value = 1\n")
+            self.commit(repo)
+            common = self.git(repo, "rev-parse", "HEAD")
             self.git(repo, "branch", "base")
             (repo / "Committed.swift").write_text("let value = 1\n")
             self.commit(repo)
+            feature = self.git(repo, "rev-parse", "HEAD")
+            self.git(repo, "checkout", "-q", "base")
+            (repo / "OnlyBaseEdits.swift").write_text("let value = 2\n")
+            self.commit(repo)
+            self.git(repo, "checkout", "-q", "--detach", feature)
             (repo / "Dirty.swift").write_text("let value = 2\n")
             names, evidence = verify.changed_swift_files(repo, "base")
             self.assertEqual(set(names), {"Committed.swift", "Dirty.swift"})
             self.assertEqual(evidence["base_sha"], self.git(repo, "rev-parse", "base"))
+            self.assertEqual(evidence["merge_base_sha"], common)
             self.assertNotEqual(evidence["base_sha"], self.git(repo, "rev-parse", "HEAD"))
             self.assertEqual(verify.changed_swift_files(repo, "HEAD")[0], ["Dirty.swift"])
 
@@ -299,6 +311,9 @@ class SwiftSelectionTests(unittest.TestCase):
             bad = subprocess.run(argv, input=b"File.swift\n", capture_output=True)
             self.assertEqual(bad.returncode, 2)
             self.assertIn(b"NUL-terminated", bad.stderr)
+            missing = subprocess.run(argv, input=b"Missing.swift\0", capture_output=True)
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn(b"existing .swift file inside", missing.stderr)
 
     def test_empty_swift_selection_does_not_skip_other_selected_checks(self):
         with repo_fixture() as repo:
@@ -309,6 +324,15 @@ class SwiftSelectionTests(unittest.TestCase):
             self.assertEqual(evidence["outcome"]["status"], "passed")
             self.assertEqual(verify.receipt.check(evidence, "parsing")["status"], "skipped")
             self.assertEqual([e["status"] for e in evidence["evidence"]["executions"]], ["skipped", "passed"])
+
+    def test_json_stdout_preserves_failed_check_exit_and_stderr_diagnostic(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/lint-xcstrings.py").write_text('print("fixture diagnostic"); raise SystemExit(1)\n')
+            result = cli(repo, "--only", "xcstrings", "--receipt", "-")
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(json.loads(result.stdout)["outcome"]["status"], "failed")
+            self.assertIn("fixture diagnostic", result.stderr)
+            self.assertNotIn("fixture diagnostic", result.stdout)
 
     @unittest.skipUnless(shutil.which("swiftc"), "Swift parser unavailable")
     def test_real_nul_pipeline_preserves_filename_and_json_stdout(self):
