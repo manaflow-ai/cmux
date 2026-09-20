@@ -12,14 +12,14 @@ struct CloudTreeMachineRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: style.iconGap) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 CloudTreeRowIcon(
                     style: style,
                     systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
                     tint: CloudTreeIconPalette.machine
                 )
                 .frame(height: scaled(style.machineNameLineHeight))
-                VStack(alignment: .leading, spacing: scaled(CloudTreeRowGrid.machineLineSpacing)) {
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     nameRow
                     if style.machineRowLayout == .twoLine {
                         Text(subtitle)
@@ -39,8 +39,8 @@ struct CloudTreeMachineRowContent: View {
 
     /// Machine identity retains its own line at every sidebar width.
     private var nameRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-            HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+        HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+            HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
                 Text(machine.displayName)
                     .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
                     .foregroundStyle(.primary)
