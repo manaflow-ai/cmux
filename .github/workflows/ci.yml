@@ -236,6 +236,9 @@ jobs:
       - name: Validate required checks report for the merge queue
         run: python3 tests/test_ci_merge_queue_required_checks.py
 
+      - name: Validate package test selection
+        run: python3 tests/test_ci_select_package_tests.py
+
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
 
@@ -1886,6 +1889,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
+          # Depth 2 reaches the parent this commit was built on, which is what
+          # "Select package tests" diffs against.
+          fetch-depth: 2
 
       - name: Select helper Xcode
         run: |
@@ -1976,7 +1982,31 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      # A package's tests can change outcome only when it, a package it depends
+      # on by path, or this job changes, so only those run. HEAD is the pull
+      # request's merge commit or the merge group's commit; its first parent is
+      # the base or the queue entry ahead of it, which its own run already
+      # validated. Without that parent, or on a dispatch, everything runs.
+      - name: Select package tests
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          changed="$RUNNER_TEMP/changed-files.txt"
+          if { [ "$EVENT_NAME" = "pull_request" ] || [ "$EVENT_NAME" = "merge_group" ]; } \
+            && git diff --name-only HEAD^1 HEAD > "$changed" 2>/dev/null; then
+            echo "changed_files=$changed" >> "$GITHUB_OUTPUT"
+            if grep -q '^vendor/bonsplit/' "$changed" || grep -qxF '.github/workflows/ci.yml' "$changed"; then
+              echo "bonsplit=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Diff unavailable; running every package."
+            echo "bonsplit=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run Bonsplit package tests
+        if: ${{ steps.select.outputs.bonsplit == 'true' }}
         run: |
           set -euo pipefail
           # Blacksmith macOS runners intermittently abort a package's test
@@ -2000,13 +2030,10 @@ jobs:
           fi
 
       - name: Run Swift package unit tests
+        env:
+          CHANGED_FILES: ${{ steps.select.outputs.changed_files }}
         run: |
           set -euo pipefail
-          # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
-          # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
-          # to keep the FFI parity suite a real gate).
-          cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
-          export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
           # The cmux-unit scheme only runs the cmuxTests app-host suite; it does
           # not execute the SPM package test targets. Run them here so package
           # tests (settings stores, secret-file migration, socket-control
@@ -2031,7 +2058,6 @@ jobs:
             CmuxAgentChat
             CmuxAgentSessionStore
             CmuxAuthRuntime
-            CmuxBrowser
             CmuxIrohTransport
             CmuxCommandPalette
             CmuxControlSocket
@@ -2062,7 +2088,20 @@ jobs:
           # is present, no test failures are reported, and the only error
           # lines are that known diagnostic. Everything else (compile errors,
           # test failures, crashes) still fails the job.
+          selected="$RUNNER_TEMP/selected-packages.txt"
+          python3 scripts/ci/select_package_tests.py ${CHANGED_FILES:+--changed-files "$CHANGED_FILES"} "${PACKAGES[@]}" > "$selected"
+          echo "Testing $(wc -l < "$selected" | tr -d ' ') of ${#PACKAGES[@]} packages."
+          if grep -qxF CmuxCommandPalette "$selected"; then
+            # CmuxCommandPalette's nucleo FFI tests load the Rust dylib through
+            # CMUX_NUCLEO_FFI_LIB (they skip when it is absent, so build it here
+            # to keep the FFI parity suite a real gate).
+            cargo build --manifest-path Native/CommandPaletteNucleoFFI/Cargo.toml --release
+            export CMUX_NUCLEO_FFI_LIB="$PWD/Native/CommandPaletteNucleoFFI/target/release/libcmux_command_palette_nucleo_ffi.dylib"
+          fi
           for pkg in "${PACKAGES[@]}"; do
+            if ! grep -qxF "$pkg" "$selected"; then
+              continue
+            fi
             # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
             # resolve the actual directory so this list stays group-agnostic.
             pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
