@@ -2,6 +2,7 @@
 """Guard app-host XCTest against persistent console-user configuration."""
 
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -232,11 +233,55 @@ def main() -> int:
     )
     if cleanup_step.get("if") != "${{ always() }}":
         raise SystemExit("FAIL: app-host home cleanup must run after failures")
-    if cleanup_step.get("run") != (
-        "scripts/ci/run-in-console-session.sh "
-        "scripts/ci/cleanup-app-host-home.sh"
-    ):
-        raise SystemExit("FAIL: app-host home cleanup must run as the console user")
+    # Execute the workflow body with no checkout, as on a failed checkout job.
+    # Once preparation starts, the console-user cleanup must still run even if
+    # preparation fails or is cancelled, and its failures must remain visible.
+    with tempfile.TemporaryDirectory() as workspace:
+        for outcome in ("skipped", ""):
+            result = subprocess.run(
+                ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_step["run"]],
+                cwd=workspace,
+                env={**os.environ, "CMUX_APP_HOST_PREPARATION_OUTCOME": outcome},
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise SystemExit(
+                    f"FAIL: cleanup with preparation {outcome!r} must skip an "
+                    f"empty checkout: {result.stderr}"
+                )
+
+        wrapper = Path(workspace) / "scripts/ci/run-in-console-session.sh"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_text(
+            '#!/bin/bash\n'
+            'printf "%s\\n" "$@" > cleanup-invocation\n'
+            'exit "${CLEANUP_TEST_EXIT_CODE:-0}"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        invocation = Path(workspace) / "cleanup-invocation"
+        for outcome in ("success", "failure", "cancelled"):
+            for exit_code in (0, 23):
+                invocation.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_step["run"]],
+                    cwd=workspace,
+                    env={
+                        **os.environ,
+                        "CMUX_APP_HOST_PREPARATION_OUTCOME": outcome,
+                        "CLEANUP_TEST_EXIT_CODE": str(exit_code),
+                    },
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != exit_code or not invocation.is_file():
+                    raise SystemExit(
+                        f"FAIL: cleanup after preparation {outcome} must run "
+                        f"and preserve exit {exit_code}: {result.stderr}"
+                    )
+                if invocation.read_text() != "scripts/ci/cleanup-app-host-home.sh\n":
+                    raise SystemExit("FAIL: cleanup must run as the console user")
 
     # Resolve the real shell identity format, then rebase its system-temp-relative
     # suffix under macOS /private/tmp when this guard runs on Linux.
