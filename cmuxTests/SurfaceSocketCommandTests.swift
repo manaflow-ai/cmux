@@ -135,7 +135,10 @@ struct SurfaceSocketCommandTests {
 
         func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
             mutations.append("workspace create \(name ?? "-")")
-            return SurfaceRemoteWorkspace(id: "ws_created", name: name ?? "main", index: info.remoteWorkspaces?.count ?? 0, focused: false)
+            let workspace = SurfaceRemoteWorkspace(id: "ws_created", name: name ?? "main", index: info.remoteWorkspaces?.count ?? 0, focused: false)
+            info.remoteWorkspaces = (info.remoteWorkspaces ?? []) + [workspace]
+            catalog.updateMachine(info, from: self)
+            return workspace
         }
 
         func closeRemoteWorkspace(id: String) async throws {
@@ -530,13 +533,9 @@ struct SurfaceSocketCommandTests {
     @Test func workspaceNewCreatesAWorkspaceThenAStarterTerminal() async throws {
         try await Self.withFixture { fixture in
 
-            // The shared ⌘N path: `workspace create`, re-sync, then a starter terminal in the
-            // new workspace, then a new local workspace showing it. (The local workspace needs
-            // the app's window; without one the open step reports its failure, but the
-            // machine-side order is what the row and the CLI share.)
             let response = try await Self.call("vm.workspace_new", ["id": fixture.machineID, "name": "feature"])
             #expect(fixture.provider.mutations.first == "workspace create feature")
-            #expect(fixture.provider.refreshes == 1)
+            #expect(fixture.provider.refreshes == 0, "creation consumes its receipt without a blocking snapshot")
             try #require(fixture.provider.createdTerminals.count == 1)
             #expect(fixture.provider.createdTerminals[0].remoteWorkspaceID == "ws_created")
             if response["ok"] as? Bool == true {
