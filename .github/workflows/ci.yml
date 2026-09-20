@@ -396,6 +396,9 @@ jobs:
       - name: Validate xcodebuild failure diagnostics
         run: ./tests/test_ci_xcodebuild_with_diagnostics.sh
 
+      - name: Validate focused test launcher
+        run: python3 tests/test_run_e2e.py
+
       - name: Validate app-host xcodebuild retry guard
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
 
