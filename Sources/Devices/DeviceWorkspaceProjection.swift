@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxCore
 import Foundation
 
 /// Maps another Mac's synced workspace records onto the surface catalog: one
@@ -34,11 +35,12 @@ struct DeviceWorkspaceProjection: Sendable {
         records.map(Self.remoteWorkspace)
     }
 
-    func resources(_ records: [WorkspaceSyncRecord]) -> [SurfaceResource] {
+    func resources(_ records: [WorkspaceSyncRecord], layouts: [String: DeviceWorkspaceLayoutNode] = [:]) -> [SurfaceResource] {
         var resources: [SurfaceResource] = []
         var seen = Set<SurfaceResourceID>()
         for record in records {
             let workspace = Self.remoteWorkspace(record)
+            let locations = layoutLocations(layouts[record.id])
             for (index, terminal) in record.terminals.enumerated() {
                 let id = SurfaceResourceID(machine: machine, kind: .terminal, key: terminal.id)
                 guard seen.insert(id).inserted else { continue }
@@ -52,9 +54,13 @@ struct DeviceWorkspaceProjection: Sendable {
                     remoteViews: [SurfaceRemoteView(
                         tabID: terminal.id,
                         workspace: workspace,
+                        screenID: locations[terminal.id] == nil ? nil : record.id,
+                        paneID: locations[terminal.id]?.paneID,
                         name: nil,
-                        index: index,
-                        focused: terminal.isFocused
+                        index: locations[terminal.id]?.tabIndex ?? index,
+                        focused: locations[terminal.id]?.isSelected ?? terminal.isFocused,
+                        screenIndex: locations[terminal.id] == nil ? nil : 0,
+                        paneIndex: locations[terminal.id]?.paneIndex
                     )],
                     port: nil,
                     url: nil
@@ -73,9 +79,13 @@ struct DeviceWorkspaceProjection: Sendable {
                     remoteViews: [SurfaceRemoteView(
                         tabID: surface.surfaceID,
                         workspace: workspace,
+                        screenID: locations[surface.surfaceID] == nil ? nil : record.id,
+                        paneID: locations[surface.surfaceID]?.paneID,
                         name: nil,
-                        index: index,
-                        focused: surface.isFocused
+                        index: locations[surface.surfaceID]?.tabIndex ?? index,
+                        focused: locations[surface.surfaceID]?.isSelected ?? surface.isFocused,
+                        screenIndex: locations[surface.surfaceID] == nil ? nil : 0,
+                        paneIndex: locations[surface.surfaceID]?.paneIndex
                     )],
                     port: nil,
                     url: nil

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxCore
 import Foundation
 import Testing
 
@@ -35,6 +36,37 @@ struct DeviceWorkspaceProjectionTests {
             groupID: nil, preview: nil, previewAt: nil, lastActivityAt: 0, hasUnread: hasUnread, unreadCount: unreadCount,
             sortIndex: index, terminals: terminals, surfaces: surfaces
         )
+    }
+
+    @Test("A device workspace supplies its real nested splits and pane selections")
+    func nativePaneLayout() throws {
+        let projection = DeviceWorkspaceProjection(machine: machine, isLive: true)
+        let workspace = record("w1", title: "layout", index: 0, terminals: [
+            terminal("t1", title: "first"), terminal("t2", title: "selected"),
+            terminal("t3", title: "top"), terminal("t4", title: "bottom")
+        ])
+        let nativeLayout = DeviceWorkspaceLayoutNode.split(direction: .horizontal, ratio: 0.65,
+            first: .pane(id: "left", surfaceIDs: ["t1", "t2"], selectedSurfaceID: "t2"),
+            second: .split(direction: .vertical, ratio: 0.3,
+                first: .pane(id: "top", surfaceIDs: ["t3"], selectedSurfaceID: "t3"),
+                second: .pane(id: "bottom", surfaceIDs: ["t4"], selectedSurfaceID: "t4")))
+        let resources = projection.resources([workspace], layouts: [workspace.id: nativeLayout])
+        #expect(resources.map { $0.remoteViews?.first?.paneID } == ["left", "left", "top", "bottom"])
+        #expect(resources.map { $0.remoteViews?.first?.paneIndex } == [0, 0, 1, 2])
+        #expect(resources.map { $0.remoteViews?.first?.focused } == [false, true, true, true])
+        let layout = try #require(projection.projectionLayout(workspace, layout: nativeLayout))
+        let placements = resources.map { SurfaceResourcePlacement(resource: $0.id, remoteView: $0.remoteViews?.first) }
+        #expect(layout == .split(direction: .right, ratio: 0.65,
+            first: .leaf(placements: Array(placements[0...1])),
+            second: .split(direction: .down, ratio: 0.3,
+                first: .leaf(placements: [placements[2]]), second: .leaf(placements: [placements[3]]))))
+    }
+
+    @Test("Older device records do not claim to know the source layout")
+    func absentLayout() {
+        let projection = DeviceWorkspaceProjection(machine: machine, isLive: true)
+        let workspace = record("w1", title: "legacy", index: 0, terminals: [terminal("t1", title: "shell")])
+        #expect(projection.resources([workspace]).first?.remoteViews?.first?.paneID == nil)
     }
 
     private func terminal(

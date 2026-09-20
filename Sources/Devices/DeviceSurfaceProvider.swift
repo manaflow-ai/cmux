@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxCore
 import CmuxTerminal
 import Foundation
 
@@ -16,6 +17,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
     private(set) var record: DeviceDirectoryRecord
     /// Live projections keyed by the local panel that shows them.
     var sessions: [UUID: DeviceTerminalMirrorSession] = [:]
+    var workspaceLayouts: [String: DeviceWorkspaceLayoutNode] = [:]
     private var restoreTasks: [UUID: Task<Void, Never>] = [:]
 
     var machine: SurfaceMachineID { .device(instance) }
@@ -47,6 +49,7 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         restoreTasks.removeAll()
         for session in sessions.values { session.stop() }
         sessions.removeAll()
+        workspaceLayouts.removeAll()
         link.stop()
     }
 
@@ -127,7 +130,10 @@ final class DeviceSurfaceProvider: SurfaceProvider {
 
     func publish() {
         let projection = DeviceWorkspaceProjection(machine: machine, isLive: link.isConnected)
-        let resources = projection.resources(link.mirror.workspaces.orderedRecords)
+        let records = link.mirror.workspaces.orderedRecords
+        let workspaceIDs = Set(records.map(\.id))
+        workspaceLayouts = workspaceLayouts.filter { workspaceIDs.contains($0.key) }
+        let resources = projection.resources(records, layouts: workspaceLayouts)
         catalog.replaceResources(resources, on: machine, info: info, from: self)
         if link.isConnected { reconnectRestoredPanes(resources: resources) }
     }

@@ -1665,12 +1665,15 @@
 				B4E31E6EB2DF2BB3E11C81CE /* DevicesPreferencesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93F4913B51A207BA657F0241 /* DevicesPreferencesModel.swift */; };
 				428D61BE1D1B92287FC560D3 /* DevicesSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4681424F883829B8E87F5B0B /* DevicesSidebarControls.swift */; };
 				DEC1CE00000000000000004C /* DevicesSidebarModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000004B /* DevicesSidebarModeTests.swift */; };
+				2CA890B9EF5C412A91FB8B78 /* DeviceSurfaceProvider+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05B1B19084F540728A49CB46 /* DeviceSurfaceProvider+Layout.swift */; };
 				DEC1CE000000000000000024 /* DeviceSurfaceProvider+Mutations.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000023 /* DeviceSurfaceProvider+Mutations.swift */; };
 				DEC1CE000000000000000022 /* DeviceSurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000021 /* DeviceSurfaceProvider.swift */; };
 				DEC1CE000000000000000026 /* DeviceSurfaceProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */; };
 				DEC1CE00000000000000001E /* DeviceTerminalInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */; };
 				DEC1CE000000000000000020 /* DeviceTerminalMirrorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */; };
 				DEC1CE00000000000000004E /* DeviceTerminalMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */; };
+				A0D5BC9F193C40288ABB4F9F /* DeviceWorkspaceLayoutRPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7316115589C94B73B66DB412 /* DeviceWorkspaceLayoutRPC.swift */; };
+				572E9A30BC51409DAF8C0FBA /* DeviceWorkspaceProjection+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3BF9B59531142A19AB7929A /* DeviceWorkspaceProjection+Layout.swift */; };
 				DEC1CE00000000000000001C /* DeviceWorkspaceProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001B /* DeviceWorkspaceProjection.swift */; };
 				DEC1CE000000000000000048 /* DeviceWorkspaceProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */; };
 		DE000A020000000000000001 /* DevWindowDisplayDebugWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */; };
@@ -3783,6 +3786,7 @@
 		9FC97DA1B422776BB1EEC821 /* Workspace+CustomSidebarPullRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */; };
 		C7268001000000000000001 /* Workspace+CustomSidebarSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */; };
 		D7AB00000000000000000015 /* Workspace+DetachedSurfaceTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */; };
+				DE798F1143F44A3291B209B4 /* Workspace+DeviceLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */; };
 		DCDC1000000000000000B013 /* Workspace+DockBrowserLookup.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */; };
 		D86840000000000000000013 /* Workspace+DockSessionRestore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000014 /* Workspace+DockSessionRestore.swift */; };
 		E3309A05 /* Workspace+EqualizeSplitsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3309A06 /* Workspace+EqualizeSplitsSupport.swift */; };
@@ -5631,12 +5635,15 @@
 				93F4913B51A207BA657F0241 /* DevicesPreferencesModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DevicesPreferencesModel.swift"; sourceTree = "<group>"; };
 				4681424F883829B8E87F5B0B /* DevicesSidebarControls.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DevicesSidebarControls.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000004B /* DevicesSidebarModeTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DevicesSidebarModeTests.swift; sourceTree = "<group>"; };
+				05B1B19084F540728A49CB46 /* DeviceSurfaceProvider+Layout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider+Layout.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000023 /* DeviceSurfaceProvider+Mutations.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider+Mutations.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000021 /* DeviceSurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProviderRegistry.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalInputRouter.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalMirrorSession.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceTerminalMirrorTests.swift; sourceTree = "<group>"; };
+				7316115589C94B73B66DB412 /* DeviceWorkspaceLayoutRPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceLayoutRPC.swift"; sourceTree = "<group>"; };
+				A3BF9B59531142A19AB7929A /* DeviceWorkspaceProjection+Layout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceProjection+Layout.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001B /* DeviceWorkspaceProjection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceWorkspaceProjection.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000047 /* DeviceWorkspaceProjectionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceWorkspaceProjectionTests.swift; sourceTree = "<group>"; };
 		DE000A020000000000000002 /* DevWindowDisplayDebugWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevWindowDisplayDebugWindow.swift; sourceTree = "<group>"; };
@@ -7722,6 +7729,7 @@
 		42C2726A34F27E7A43B77368 /* Workspace+CustomSidebarPullRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarPullRequests.swift"; sourceTree = "<group>"; };
 		C7268001000000000000002 /* Workspace+CustomSidebarSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+CustomSidebarSnapshot.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000016 /* Workspace+DetachedSurfaceTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DetachedSurfaceTransfer.swift"; sourceTree = "<group>"; };
+				2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/Workspace+DeviceLayout.swift"; sourceTree = "<group>"; };
 		DCDC1000000000000000B014 /* Workspace+DockBrowserLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DockBrowserLookup.swift"; sourceTree = "<group>"; };
 		D86840000000000000000014 /* Workspace+DockSessionRestore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+DockSessionRestore.swift"; sourceTree = "<group>"; };
 		E3309A06 /* Workspace+EqualizeSplitsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+EqualizeSplitsSupport.swift"; sourceTree = "<group>"; };
@@ -10722,6 +10730,10 @@
 				DEC1CE000000000000000017 /* DeviceLink.swift */,
 				DEC1CE000000000000000019 /* DeviceLinkAuthorization.swift */,
 				DEC1CE00000000000000001B /* DeviceWorkspaceProjection.swift */,
+				2D524BAA8EBB49159808F6FA /* Workspace+DeviceLayout.swift */,
+				A3BF9B59531142A19AB7929A /* DeviceWorkspaceProjection+Layout.swift */,
+				05B1B19084F540728A49CB46 /* DeviceSurfaceProvider+Layout.swift */,
+				7316115589C94B73B66DB412 /* DeviceWorkspaceLayoutRPC.swift */,
 				DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */,
 				DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */,
 				DEC1CE000000000000000021 /* DeviceSurfaceProvider.swift */,
@@ -13238,6 +13250,10 @@
 				DEC1CE000000000000000028 /* DevicesPanelViewModel.swift in Sources */,
 				DEC1CE000000000000000002 /* DevicesFeature.swift in Sources */,
 				DEC1CE00000000000000001C /* DeviceWorkspaceProjection.swift in Sources */,
+				DE798F1143F44A3291B209B4 /* Workspace+DeviceLayout.swift in Sources */,
+				572E9A30BC51409DAF8C0FBA /* DeviceWorkspaceProjection+Layout.swift in Sources */,
+				2CA890B9EF5C412A91FB8B78 /* DeviceSurfaceProvider+Layout.swift in Sources */,
+				A0D5BC9F193C40288ABB4F9F /* DeviceWorkspaceLayoutRPC.swift in Sources */,
 				DEC1CE000000000000000020 /* DeviceTerminalMirrorSession.swift in Sources */,
 				DEC1CE00000000000000001E /* DeviceTerminalInputRouter.swift in Sources */,
 				DEC1CE000000000000000026 /* DeviceSurfaceProviderRegistry.swift in Sources */,

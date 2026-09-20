@@ -853,6 +853,7 @@ final class MobileHostService {
         remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
             MobileRemoteControlPolicy.isDisabled
         },
+        peerRequestHandler: (@Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?)? = nil,
         isCurrent: @escaping @Sendable () async -> Bool
     ) async -> CmxIrohAdmittedConnectionExit {
         let expectedExit = CmxIrohAdmittedConnectionExit(
@@ -919,6 +920,7 @@ final class MobileHostService {
                 return true
             },
             handleRequest: { request in
+                if let result = await peerRequestHandler?(request) { return result }
                 if request.method == "mobile.host.status" {
                     return await Self.connectionStatusResult(
                         for: request,

@@ -1,3 +1,4 @@
+import CmuxCore
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -9,6 +10,64 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test func macLayoutRequestReadsOnlyTheRequestedWorkspace() throws {
+        let id = UUID()
+        let layout = DeviceWorkspaceLayoutNode.pane(id: "pane", surfaceIDs: ["first", "second"], selectedSurfaceID: "second")
+        var reads: [UUID] = []
+        let rpc = DeviceWorkspaceLayoutRPC(snapshot: { requested in
+            reads.append(requested)
+            return requested == id ? layout : nil
+        })
+        let request = MobileHostRPCRequest(id: "layout", method: "device.workspace.layout", params: ["workspace_id": id.uuidString], auth: nil)
+        guard case .ok(let payload) = rpc.handle(request) else {
+            Issue.record("Expected a Mac layout snapshot"); return
+        }
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        #expect(try JSONDecoder().decode(DeviceWorkspaceLayoutSnapshot.self, from: data) ==
+            DeviceWorkspaceLayoutSnapshot(workspaceID: id.uuidString, layout: layout))
+        #expect(reads == [id])
+        #expect(rpc.handle(MobileHostRPCRequest(id: nil, method: "mobile.sync.fetch", params: [:], auth: nil)) == nil)
+        #expect(reads == [id], "Mobile sync does not enter the Mac layout handler")
+    }
+
+    @Test func deviceLayoutCapturesNativeTabGroupsAndDividers() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer { for panel in workspace.panels.values { panel.close() }; manager.tabs = [] }
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let first = try #require(workspace.focusedPanelId)
+        var panels = [first]
+        for _ in 0..<3 { panels.append(try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)) }
+        let machine = SurfaceMachineID.cloud("layout-capture")
+        let projections = panels.enumerated().map { index, panel in
+            SurfaceProjection(resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "t\(index)"),
+                workspaceID: workspace.id, panelID: panel, remoteWorkspaceID: "remote", remoteTabID: "tab\(index)")
+        }
+        let placements = projections.map {
+            SurfaceResourcePlacement(resource: $0.resource, remoteWorkspaceID: $0.remoteWorkspaceID, remoteTabID: $0.remoteTabID)
+        }
+        workspace.applyCloudWorkspaceLayout(.split(direction: .right, ratio: 0.65,
+            first: .leaf(placements: Array(placements[0...1])),
+            second: .split(direction: .down, ratio: 0.3,
+                first: .leaf(placements: [placements[2]]), second: .leaf(placements: [placements[3]]))), projections: projections)
+        workspace.bonsplitController.selectTab(try #require(workspace.surfaceIdFromPanelId(panels[1])))
+
+        let captured = try #require(workspace.deviceWorkspaceLayoutSnapshot())
+        guard case .split(let direction, let ratio, let left, let right) = captured,
+              case .pane(_, let leftSurfaces, let selected) = left,
+              case .split(let nestedDirection, let nestedRatio, let top, let bottom) = right,
+              case .pane(_, let topSurfaces, _) = top,
+              case .pane(_, let bottomSurfaces, _) = bottom else {
+            Issue.record("The Mac layout tree must preserve the native nested splits"); return
+        }
+        #expect(direction == .horizontal && abs(ratio - 0.65) < 0.001)
+        #expect(nestedDirection == .vertical && abs(nestedRatio - 0.3) < 0.001)
+        #expect(leftSurfaces == Array(panels[0...1]).map(\.uuidString))
+        #expect(selected == panels[1].uuidString)
+        #expect(topSurfaces == [panels[2].uuidString])
+        #expect(bottomSurfaces == [panels[3].uuidString])
+    }
+
     @Test func topologyReusesPanelsAndPreservesSelectedTerminal() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

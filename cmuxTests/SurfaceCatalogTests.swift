@@ -1402,7 +1402,7 @@ extension SurfaceCatalogTests {
         #expect(reserved.map(\.0) == [
             .workspace(id: newWorkspace, placement: .split),
             .split(workspaceID: newWorkspace, paneID: "pane-1", direction: .right),
-            .tab(workspaceID: newWorkspace, paneID: "pane-1", index: nil),
+            .tab(workspaceID: newWorkspace, paneID: "pane-1", index: 1),
             .split(workspaceID: newWorkspace, paneID: "pane-2", direction: .down),
         ])
         #expect(reserved.map(\.1) == [true, false, false, false])
