@@ -1,4 +1,5 @@
 import Darwin
+import Dispatch
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -20,6 +21,27 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
 }
 
 @Suite struct ReftableGitMetadataTests {
+    @Test func expiredReferenceDeadlineRemainsUnreadable() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let reader = SystemGitReferenceReader(
+            runner: FakeWorkspaceChangesGitRunner(results: [:], beforeRun: { _, _ in
+                Issue.record("An expired reference read must not start Git")
+            })
+        )
+
+        let snapshot = reader.snapshot(
+            repository: repository,
+            deadline: DispatchTime(uptimeNanoseconds: 1)
+        )
+
+        #expect(snapshot.checkedOutBranch == .unreadable)
+        #expect(snapshot.currentCommit == nil)
+    }
+
     @Test func referenceResolverRetainsAbsoluteUserPathGitCandidates() {
         let userGitDirectory = "/Users/cmux-tests/.local/bin"
         let resolver = SystemGitExecutableResolver(
