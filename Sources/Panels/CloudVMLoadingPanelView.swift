@@ -110,10 +110,15 @@ struct CloudVMLoadingPanelView: View {
         }
         panel.resetLoading()
         let socketPath = TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath())
+        let arguments: [String] = if workspace.cloudVMBinding?.isBase == true {
+            ["vm", "base", "open", "--workspace", workspace.id.uuidString, "--focus", "false"]
+        } else {
+            ["vm", "open", machineID, "--workspace", workspace.id.uuidString, "--focus", "false"]
+        }
         let didStart = CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: nil,
-            arguments: ["vm", "open", machineID, "--workspace", workspace.id.uuidString, "--focus", "false"],
+            arguments: arguments,
             presentsFailureAlert: false,
             onCompletion: { completion in
                 if !completion.succeeded {
