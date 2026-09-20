@@ -95,6 +95,38 @@ class ReuseProducts(TestProductHandoff):
             self.restore_reuse()
         self.assertFalse(self.consumer.exists())
 
+    def test_attempt_suffixed_artifact_remains_discoverable(self):
+        self.api.artifact['name'] += '-1'
+        self.assertTrue(self.restore_reuse())
+
+    def test_valid_digest_with_corrupt_tar_is_rejected(self):
+        with zipfile.ZipFile(self.api.archive, 'w') as z:
+            z.writestr('app-host-products.tar.gz', b'corrupt')
+        self.api.artifact['digest'] = 'sha256:' + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
+        with self.assertRaises(tarfile.TarError):
+            self.restore_reuse()
+        self.assertFalse(self.consumer.exists())
+
+    def test_archive_expansion_is_bounded(self):
+        for limit in ('MAX_ARCHIVE_BYTES', 'MAX_MEMBER_BYTES', 'MAX_EXPANDED_BYTES', 'MAX_MEMBERS'):
+            with self.subTest(limit=limit), mock.patch.object(reuse, limit, 1, create=True):
+                with self.assertRaises((ValueError, tarfile.TarError)):
+                    self.restore_reuse()
+                self.assertFalse(self.consumer.exists())
+
+    def test_unrelated_producer_tree_rejected_before_download(self):
+        self.api.tree = 'different-tree'
+        with mock.patch.object(self.api, 'download', wraps=self.api.download) as download:
+            try:
+                self.restore_reuse()
+            except ValueError:
+                pass
+            download.assert_not_called()
+
+    def test_completed_compile_can_be_used_while_other_tests_run(self):
+        self.api.run['status'] = 'in_progress'
+        self.assertTrue(self.restore_reuse())
+
     def test_api_failure_cli_falls_back_to_compile(self):
         output = self.producer.parent / 'github-output'
         env = {'GITHUB_OUTPUT': str(output), 'GITHUB_EVENT_NAME': 'merge_group',
