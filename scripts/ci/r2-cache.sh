@@ -43,7 +43,9 @@ fetch() { # <relative object path> <destination file>
 
 unpack() { # <extension> <archive>
   if [[ "$1" == "tar.zst" ]]; then
-    zstd -dc "$2" | tar -xf - -C "$dir"
+    # Consume padding through EOF, otherwise bsdtar exits early and zstd
+    # receives SIGPIPE, turning a valid restore into a miss under pipefail.
+    zstd -dc "$2" | tar -ixf - -C "$dir"
   else
     tar -xzf "$2" -C "$dir"
   fi
