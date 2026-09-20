@@ -474,7 +474,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let titleLineLimit = settings.wrapsWorkspaceTitles ? 8 : 1
         titleView.maximumNumberOfLines = titleLineLimit
         titleView.lineBreakMode = titleLineLimit == 1 ? .byTruncatingTail : .byWordWrapping
-        let boundedTitle = snapshot.title.sidebarBoundedDisplayString(
+        let boundedTitle = snapshot.displayTitle.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: 2048
         )

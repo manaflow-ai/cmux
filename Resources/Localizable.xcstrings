@@ -4899,6 +4899,242 @@
         }
       }
     },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أسماء المضيفين البعيدين في العناوين المكررة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Hostnamen bei doppelten Titeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host names on duplicate titles"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombres de hosts remotos en títulos duplicados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noms des hôtes distants dans les titres en double"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複したタイトルにリモートホスト名を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복된 제목에 원격 호스트 이름 표시"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重复标题中显示远程主机名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在重複標題中顯示遠端主機名稱"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى عناوين مساحات العمل المكررة كما هي حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppelte Arbeitsbereichstitel bleiben unverändert, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves duplicate workspace titles as they are until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los títulos duplicados de los espacios de trabajo se mantienen igual hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les titres d’espaces de travail en double restent tels quels tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、重複したワークスペースのタイトルはそのまま表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 중복된 작업 공간 제목은 그대로 표시됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，重复的工作区标题保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，重複的工作區標題維持不變。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginHostTitles.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عندما تتشارك مساحات العمل عنوانًا واحدًا، يُعرض اسم مضيف كل مساحة بعيدة بعد العنوان دون النطاق المشترك بين المضيفين."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn Arbeitsbereiche denselben Titel haben, wird bei jedem Remote-Arbeitsbereich der Host nach dem Titel angezeigt, ohne die gemeinsame Domain der Hosts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When workspaces share a title, shows each remote one's host after the title, leaving off the domain the hosts share."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando varios espacios de trabajo comparten título, muestra el host de cada espacio remoto después del título, sin el dominio que comparten los hosts."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsque des espaces de travail portent le même titre, affiche l’hôte de chaque espace distant après le titre, sans le domaine que les hôtes partagent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルが重複している場合、各リモートワークスペースのタイトルの後にホスト名を表示します。ホストに共通するドメインは省略します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간의 제목이 같으면 각 원격 작업 공간의 제목 뒤에 호스트 이름을 표시하며, 호스트에 공통된 도메인은 생략합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当多个工作区标题相同时，在每个远程工作区的标题后显示主机名，并省略这些主机共有的域名。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當多個工作區標題相同時，在每個遠端工作區的標題後顯示主機名稱，並省略這些主機共用的網域。"
+          }
+        }
+      }
+    },
+    "sidebar.workspace.titleWithHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "socket.agentHook.error.barrierTimeout": {
       "extractionState": "manual",
       "localizations": {
@@ -317904,6 +318140,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "ssh tmux -CC를 통해 원격 호스트의 tmux 세션을 사이드바에 미러링합니다. 세션은 작업 공간이 되고 창은 탭이 됩니다. cmux를 종료해도 원격 tmux 서버는 계속 실행 중인 상태로 유지됩니다."
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ألوان المضيفين البعيدين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Farben für Remote-Hosts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote host colors"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colores de hosts remotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleurs des hôtes distants"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストの色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트 색상"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机颜色"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遠端主機顏色"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات العمل البعيدة بلا لون للمصدر حتى تفعّل هذا الخيار هنا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote-Arbeitsbereiche erhalten keine Herkunftsfarbe, bis du diese Option hier aktivierst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leaves remote workspaces without an origin color until you enable it here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo remotos no tienen color de origen hasta que lo actives aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail distants restent sans couleur d’origine tant que vous ne l’activez pas ici."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここで有効にするまで、リモートワークスペースにオリジンカラーを表示しません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에서 활성화하기 전까지 원격 작업 공간에는 출처 색상이 표시되지 않습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此处启用之前，远程工作区不会显示来源颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此處啟用之前，遠端工作區不會顯示來源顏色。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxOriginColors.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُلوّن صف كل مساحة عمل بعيدة في الشريط الجانبي وعلامة تبويبها بلون ثابت خاص بكل مضيف لتسهيل التمييز بين الخوادم. يبقى اللون الذي تختاره يدويًا لمساحة العمل هو المُعتمد دائمًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Färbt die Seitenleistenzeile und den Tab jedes Remote-Arbeitsbereichs mit einer festen Farbe pro Host, damit sich Server leicht unterscheiden lassen. Eine manuell gewählte Arbeitsbereichsfarbe hat immer Vorrang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tints each remote workspace's sidebar row and tab with a stable per-host color so servers are easy to tell apart. Your manual workspace color always wins."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiñe la fila de la barra lateral y la pestaña de cada espacio de trabajo remoto con un color estable por host para distinguir fácilmente los servidores. El color que asignes manualmente al espacio de trabajo siempre tiene prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinte la ligne de la barre latérale et l’onglet de chaque espace de travail distant avec une couleur stable par hôte, pour distinguer facilement les serveurs. La couleur choisie manuellement pour un espace de travail l’emporte toujours."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各リモートワークスペースのサイドバー行とタブを、ホストごとに固定された色で色付けし、サーバーを見分けやすくします。手動で設定したワークスペースの色が常に優先されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 원격 작업 공간의 사이드바 행과 탭에 호스트별 고정 색상을 입혀 서버를 쉽게 구분할 수 있습니다. 직접 지정한 작업 공간 색상이 항상 우선합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个远程工作区的侧边栏行和标签页添加按主机固定的颜色，便于区分服务器。你手动设置的工作区颜色始终优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個遠端工作區的側邊欄列和分頁加上依主機固定的顏色，方便區分伺服器。你手動設定的工作區顏色一律優先。"
           }
         }
       }
