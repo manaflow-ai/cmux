@@ -6,7 +6,8 @@ extension DockSplitStore {
     }
 
     func acceptsUnownedBrowserURL(_ url: URL?) -> Bool {
-        url?.path != "/vnc.html" || surfaceOwnershipPolicy.rejection(for: nil) == nil
+        guard url?.path == "/vnc.html" else { return true }
+        return scope != .global && surfaceOwnershipPolicy.rejection(for: nil) == nil
     }
 
     func surfaceDropRejection(_ transfer: PaneDragTransfer, source: PaneTransferSourceResolver.Source) -> SurfaceTransferRejection? {
@@ -33,7 +34,7 @@ extension DockSplitStore {
             return surfaceOwnershipPolicy.rejection(for: resource.machine) == nil
         }
         if let raw = snapshot.browser?.urlString, URL(string: raw)?.path == "/vnc.html" {
-            return surfaceOwnershipPolicy.rejection(for: nil) == nil
+            return scope != .global && surfaceOwnershipPolicy.rejection(for: nil) == nil
         }
         return true
     }

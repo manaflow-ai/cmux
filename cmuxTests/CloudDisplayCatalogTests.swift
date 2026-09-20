@@ -13,6 +13,13 @@ struct CloudDisplayCatalogTests {
     private let initial = #"{"version":1,"canCreate":true,"displays":[{"id":"display:1","number":1,"port":6901,"state":"running"}]}"#
     private let created = #"{"version":1,"canCreate":true,"displays":[{"id":"display:1","number":1,"port":6901,"state":"running"},{"id":"display:2","number":2,"port":6902,"state":"running"}],"created":"display:2"}"#
 
+    @Test("The installed helper keeps Python docstrings valid in the command payload")
+    func embeddedGuestScriptIsExecutableText() {
+        let command = CloudGuestDisplayScript.command(action: "list")
+        #expect(!command.contains(#"\"\"\""#))
+        #expect(command.contains("DisplayService"))
+    }
+
     @Test("A lost creation reply replays its receipt rather than allocating another display")
     func creationRetryKeepsRequestIdentity() async throws {
         var creates: [String] = []

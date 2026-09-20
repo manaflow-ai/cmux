@@ -5,12 +5,12 @@ import Foundation
 enum CloudGuestDisplayScript {
     private static let source = #"""
 #!/usr/bin/env python3
-\"\"\"Guest-owned display catalog and supervisor; invoked by the desktop service.
+"""Guest-owned display catalog and supervisor; invoked by the desktop service.
 
 The existing :1 desktop remains owned by start-vnc.sh. Additional records each
 own an X server, session bus, window manager and noVNC listener. The control
 socket is local to this guest and only accessible to its work user.
-\"\"\"
+"""
 import argparse
 import fcntl
 import http.client
@@ -44,7 +44,7 @@ def listening(port):
 
 
 def ready(number):
-    \"\"\"A bound HTTP port alone does not prove that an X/RFB server exists.\"\"\"
+    """A bound HTTP port alone does not prove that an X/RFB server exists."""
     try:
         with socket.create_connection(("127.0.0.1", 5900 + number), timeout=0.5) as rfb:
             version = b""
@@ -66,7 +66,7 @@ def ready(number):
 
 
 class DisplayCatalog:
-    \"\"\"Serializes allocation and persists request receipts before starting work.\"\"\"
+    """Serializes allocation and persists request receipts before starting work."""
 
     def __init__(self, directory, occupied=None):
         self.directory = Path(directory)
