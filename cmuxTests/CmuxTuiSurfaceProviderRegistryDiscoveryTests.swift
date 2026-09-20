@@ -1,12 +1,10 @@
 import Foundation
 import Testing
-
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 @MainActor
 @Suite
 struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
@@ -62,7 +60,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return page
             },
-            refreshProvider: { _, _ in }
+            refreshProvider: { _, _ in true }
         )
         registry.start(catalog: catalog)
         registry.recordCreatedMachine(created, scope: registry.creationScope)
@@ -99,7 +97,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 _ = await release.result
                 return VMListPage(vms: [machine("vm-a")], limits: nil)
             },
-            refreshProvider: { _, _ in }
+            refreshProvider: { _, _ in true }
         )
         registry.start(catalog: catalog)
         let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "vm-a") }
@@ -191,7 +189,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return VMListPage(vms: [summary], limits: nil)
             },
-            refreshProvider: { _, _ in refreshes += 1 }
+            refreshProvider: { _, _ in refreshes += 1; return true }
         )
         registry.start(catalog: catalog)
 
@@ -229,6 +227,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                     olderRefreshStarted.resolve(true)
                     _ = await releaseOlderRefresh.result
                 }
+                return true
             }
         )
         registry.start(catalog: catalog)
@@ -270,7 +269,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return VMListPage(vms: [machine("vm-known")], limits: nil)
             },
-            refreshProvider: { _, _ in refreshes += 1 }
+            refreshProvider: { _, _ in refreshes += 1; return true }
         )
         registry.start(catalog: catalog)
         _ = await registry.providerRefreshingIfMissing(machineID: "vm-known")
@@ -293,7 +292,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             wireGuardHub: nil,
             allowsBackgroundWork: { false },
             listPage: { page },
-            refreshProvider: { _, _ in refreshes += 1 }
+            refreshProvider: { _, _ in refreshes += 1; return true }
         )
         registry.start(catalog: catalog)
         _ = await registry.providerRefreshingIfMissing(machineID: "vm-known")
@@ -325,7 +324,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return VMListPage(vms: [machine("vm-known")], limits: nil)
             },
-            refreshProvider: { _, _ in }
+            refreshProvider: { _, _ in true }
         )
         registry.start(catalog: catalog)
         _ = await registry.providerRefreshingIfMissing(machineID: "vm-known")
@@ -368,7 +367,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 }
                 return VMListPage(vms: [machine("vm-new")], limits: nil)
             },
-            refreshProvider: { _, _ in }
+            refreshProvider: { _, _ in true }
         )
         registry.start(catalog: catalog)
         let background = Task { await registry.refresh(force: false) }
@@ -402,7 +401,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 lists += 1
                 return VMListPage(vms: [machine("vm-next-account")], limits: nil)
             },
-            refreshProvider: { _, _ in },
+            refreshProvider: { _, _ in true },
             closeTransports: {
                 closing.resolve(true)
                 _ = await release.result
@@ -444,7 +443,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 _ = await release.result
                 return VMListPage(vms: [machine("vm-late")], limits: nil)
             },
-            refreshProvider: { _, _ in Issue.record("Retired discovery must not refresh a provider") }
+            refreshProvider: { _, _ in Issue.record("Retired discovery must not refresh a provider"); return true }
         )
         registry.start(catalog: catalog)
         let discovery = Task { await registry.providerRefreshingIfMissing(machineID: "vm-late") }
@@ -476,7 +475,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
                 _ = await release.result
                 return VMListPage(vms: [machine("vm-retired")], limits: nil)
             },
-            refreshProvider: { _, _ in Issue.record("Sign-out must retire waiting refreshes") }
+            refreshProvider: { _, _ in Issue.record("Sign-out must retire waiting refreshes"); return true }
         )
         registry.start(catalog: catalog)
         let first = Task { await registry.refresh(force: false) }
@@ -516,6 +515,7 @@ struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
             refreshProvider: { _, _ in
                 started.resolve(true)
                 _ = await release.result
+                return true
             }
         )
         registry.start(catalog: catalog)

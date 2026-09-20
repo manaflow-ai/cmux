@@ -35,7 +35,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private let isCloudEnabled: @MainActor () -> Bool
     private let allowsBackgroundWork: @MainActor () -> Bool
     private let listPage: @MainActor () async -> VMListPage?
-    private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void
+    private let refreshProvider: @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool
     private let closeTransports: @MainActor () async -> Void
     private var refreshInFlight: Task<Bool, Never>?
     private var discoveryInFlight: Task<[CmuxTuiSurfaceProvider]?, Never>?
@@ -74,8 +74,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         isCloudEnabled: @escaping @MainActor () -> Bool = { true },
         allowsBackgroundWork: @escaping @MainActor () -> Bool = { true },
         listPage: @escaping @MainActor () async -> VMListPage? = { nil },
-        refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Void = { provider, force in
-            await provider.refresh(force: force)
+        refreshProvider: @escaping @MainActor (CmuxTuiSurfaceProvider, Bool) async -> Bool = { provider, force in
+            await provider.refreshCurrentGraph(force: force)
         },
         closeTransports: (@MainActor () async -> Void)? = nil,
         notificationCenter: NotificationCenter = .default
@@ -282,7 +282,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                     for provider in discovered where activeMachines.contains(provider.machine) {
                         group.addTask { @MainActor in
                             guard access == self.accessEpoch, !Task.isCancelled else { return }
-                            let before = provider.refreshGeneration; await self.refreshProvider(provider, force); if provider.isRegisteredInCatalog(), (provider.refreshGeneration == before || provider.info.linkState == .connected) { self.refreshedMachineIDs.insert(provider.machine) }
+                            let succeeded = await self.refreshProvider(provider, force); if succeeded, provider.isRegisteredInCatalog() { self.refreshedMachineIDs.insert(provider.machine) }
                         }
                     }
                 }
