@@ -118,7 +118,9 @@ extension CloudTreeNodeActions {
             hostName: resolvedMachineName(machine, snapshot: catalog.snapshot),
             group: group
         )
-        if let manager = AppDelegate.shared?.tabManagerFor(tabId: reservation.workspaceID) {
+        if let loadingWorkspace = Workspace.liveWorkspace(id: reservation.workspaceID),
+           loadingWorkspace.effectiveCustomTitleSource != .user,
+           let manager = AppDelegate.shared?.tabManagerFor(tabId: reservation.workspaceID) {
             _ = manager.setCustomTitle(
                 tabId: reservation.workspaceID,
                 title: generatedTitle,
@@ -177,7 +179,10 @@ extension CloudTreeNodeActions {
     @MainActor
     private static func rollbackLocalWorkspace(_ reservation: LocalWorkspaceReservation) {
         guard let manager = AppDelegate.shared?.tabManagerFor(tabId: reservation.workspaceID),
-              let workspace = manager.tabs.first(where: { $0.id == reservation.workspaceID }) else { return }
+              let workspace = manager.tabs.first(where: { $0.id == reservation.workspaceID }),
+              workspace.effectiveCustomTitleSource != .user,
+              workspace.panels.count == 1,
+              workspace.panels[reservation.loadingPanelID] is CloudVMLoadingPanel else { return }
         manager.closeWorkspace(workspace, recordHistory: false)
     }
 
