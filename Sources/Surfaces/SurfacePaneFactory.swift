@@ -37,8 +37,8 @@ enum SurfacePaneFactory {
     }
 
     /// A browser pane loading `url` at the destination.
-    static func makeBrowserPane(url: URL, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "browser", url: url.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
+    static func makeBrowserPane(url: URL?, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
+        try create(typeRaw: "browser", url: url?.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
     }
 
     /// The URL a browser pane opens with when its real URL is still being resolved; the
