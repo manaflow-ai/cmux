@@ -14,9 +14,11 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
         splitDirection: SurfaceSplitDirection?,
         request: CloudTerminalCreationRequest
     ) async throws -> SurfaceResource {
-        try await terminalMutationQueue.run {
+        let lifecycle = lifecycleGeneration
+        try validateTerminalMutationLifecycle(lifecycle)
+        return try await terminalMutationQueue.run {
             try await self.createTerminalInMutationTurn(
-                nearTabID: nearTabID, splitDirection: splitDirection, request: request
+                nearTabID: nearTabID, splitDirection: splitDirection, request: request, lifecycle: lifecycle
             )
         }
     }
@@ -24,19 +26,27 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
     private func createTerminalInMutationTurn(
         nearTabID: String,
         splitDirection: SurfaceSplitDirection?,
-        request: CloudTerminalCreationRequest
+        request: CloudTerminalCreationRequest,
+        lifecycle: UInt64
     ) async throws -> SurfaceResource {
-        guard !isFeatureSuspended else { throw ProviderError.machineAsleep(machineID) }
+        try validateTerminalMutationLifecycle(lifecycle)
         let connected = try await links.connected(machineID: machineID)
+        try validateTerminalMutationLifecycle(lifecycle)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        if let created = try await request.prepare(using: link, socketPath: connected.socketPath) {
+        try validateTerminalMutationLifecycle(lifecycle)
+        let commands = CloudTerminalMutationCommandRunner(base: link) {
+            try self.validateTerminalMutationLifecycle(lifecycle)
+        }
+        let recovered = try await request.prepare(using: commands, socketPath: connected.socketPath)
+        try validateTerminalMutationLifecycle(lifecycle)
+        if let created = recovered {
             guard let workspaceID = created.workspaceID else { throw ProviderError.invalidSnapshot(machineID) }
             return recordCreatedTerminal(created, workspaceID: workspaceID, name: nil, cwd: nil)
         }
         let result = try await CloudTerminalLayoutCreation(
             machine: machine,
             socketPath: connected.socketPath,
-            commandRunner: link,
+            commandRunner: commands,
             initialState: cloudState
         ).run(
             nearTabID: nearTabID,
@@ -45,6 +55,7 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             correlationKey: request.correlationArgument,
             expectedWorkspaceID: request.remoteWorkspaceID
         )
+        try validateTerminalMutationLifecycle(lifecycle)
         return recordCreatedTerminal(result.created, workspaceID: result.workspaceID, name: nil, cwd: nil)
     }
 }
