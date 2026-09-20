@@ -405,6 +405,9 @@ jobs:
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
+      - name: Validate notification semantics gates
+        run: python3 tests/test_ci_notification_semantics.py
+
       - name: Validate app-host test failure classification
         run: python3 tests/test_ci_app_host_test_output.py
 
@@ -1197,7 +1200,6 @@ jobs:
             -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
             -destination "platform=macOS" \
             CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/AgentNotificationRegressionTests \
             -only-testing:cmuxTests/DockNotificationAttentionTests \
             -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
             -only-testing:cmuxTests/ClaudeHookLiveDeliveryTargetTests \
@@ -1858,6 +1860,35 @@ jobs:
         with:
           bun-version: "1.3.6"
 
+      - name: Run agent notification semantics
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          set -euo pipefail
+          # Reuse compile admission's product instead of rebuilding the app in
+          # agent-notification-tests.yml. Keep each suite in a fresh host and
+          # require positive execution, outside the tolerant broad batches.
+          command -v node
+          bun_path="$(command -v bun)"
+          bun_install="$(dirname "$(dirname "$bun_path")")"
+          for suite in \
+            AgentNotificationRegressionTests \
+            AgentJournalLifecycleCenterTests \
+            FeedWaiterRegistryTests \
+            ClaudeBackgroundWorkNotifyTests \
+            OpenCodeHookRegressionTests
+          do
+            test_log="$RUNNER_TEMP/cmux-notification-${suite}.txt"
+            scripts/ci/run-in-console-session.sh \
+              env "TEST_RUNNER_PATH=$PATH" "TEST_RUNNER_BUN_INSTALL=$bun_install" \
+              scripts/ci/run-app-host-xcodebuild.sh \
+              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+              -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
+              -only-testing:"cmuxTests/$suite" \
+              test-without-building 2>&1 | tee "$test_log"
+            scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$suite"
+          done
+
       - name: Install pinned nushell (shell-integration tests)
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
@@ -2369,6 +2400,14 @@ jobs:
               exit 1
             fi
             echo "::group::swift test $pkgdir"
+            swift_test_args=(--package-path "$pkgdir")
+            # Preserve the notification workflow's warning gate without a
+            # second package build or changing the existing startup retry.
+            case "$pkg" in
+              CMUXAgentLaunch|CmuxAgentJournal)
+                swift_test_args+=(-Xswiftc -warnings-as-errors)
+                ;;
+            esac
             case "$pkg" in
             # CmuxFoundation has several process-tree suites whose child
             # fixtures share global process resources; run each suite in its
@@ -2378,7 +2417,7 @@ jobs:
               ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0
-              output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
+              output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ]; then
                 if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
@@ -2397,7 +2436,7 @@ jobs:
               # test failure: retry exactly once, and only when no test
               # output was emitted.
               test_status=0
-              output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
+              output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
               if [ "$test_status" -ne 0 ] \
                 && printf '%s\n' "$output" | grep -Fq 'Build complete!' \
@@ -2405,7 +2444,7 @@ jobs:
                 && ! printf '%s\n' "$output" | grep -Eq '^(Test Suite|Test Case|◇ |↳ |✔ |✘ )'; then
                 echo "Test runner crashed at startup (runner flake); retrying $pkg once."
                 test_status=0
-                output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
+                output="$(swift test "${swift_test_args[@]}" 2>&1)" || test_status=$?
                 printf '%s\n' "$output"
               fi
               if [ "$test_status" -ne 0 ]; then

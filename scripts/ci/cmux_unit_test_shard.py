@@ -40,6 +40,7 @@ FALLBACK_TEST_MS = 200
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/AgentChatFallbackTranscriptResolutionCoordinatorTests",
     "cmuxTests/AgentChatSessionRegistryLifecycleReviewRegressionTests",
+    "cmuxTests/AgentJournalLifecycleCenterTests",
     "cmuxTests/AgentNotificationRegressionTests",
     "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
     "cmuxTests/BackgroundPrimeStartableSurfaceTests",
@@ -49,6 +50,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserViewportRuntimeTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",
     "cmuxTests/CLISendQueuedOutputTests",
+    "cmuxTests/ClaudeBackgroundWorkNotifyTests",
     "cmuxTests/ClaudeHookLifecycleCleanupTests",
     "cmuxTests/ClaudeHookLiveDeliveryTargetTests",
     "cmuxTests/ClaudeHookPIDAuthenticationTests",
@@ -59,6 +61,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/CmuxBundledBinPathIntegrationTests",
     "cmuxTests/DockNotificationAttentionTests",
     "cmuxTests/FeedCoordinatorTests",
+    "cmuxTests/FeedWaiterRegistryTests",
     "cmuxTests/GhosttyNumericLocaleTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
@@ -69,6 +72,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/NotificationRowSnapshotBoundaryTests",
     "cmuxTests/NotificationScrollRestoreLifecycleTests",
     "cmuxTests/NotificationScrollRestoreRecoveryTests",
+    "cmuxTests/OpenCodeHookRegressionTests",
     "cmuxTests/PhonePushPresenceGateTests",
     "cmuxTests/PiFeedDockOwnershipTests",
     "cmuxTests/PiFeedOwnershipTests",
@@ -82,6 +86,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
     "cmuxTests/SocketACLReloadRegressionTests",
     "cmuxTests/SurfaceResumeAgentHookDowngradeTests",
+
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
 # app host on CI runners (its detached-inspector tests kill the host mid-run;
