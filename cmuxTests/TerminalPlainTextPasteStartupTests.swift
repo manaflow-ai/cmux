@@ -9,7 +9,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("Plain text paste startup")
+@Suite("Plain text paste startup", .serialized, .timeLimit(.minutes(2)))
 struct TerminalPlainTextPasteStartupTests {
     @MainActor
     @Test("plain text completes without launching the full app worker", arguments: [
@@ -68,6 +68,66 @@ struct TerminalPlainTextPasteStartupTests {
                 destination: .terminal
             ))
         }
+    }
+
+    @MainActor
+    @Test("A changed clipboard generation is rejected before reading replacement bytes")
+    func staleGeneration() async throws {
+        let board = NSPasteboard(name: .init("cmux-stale-\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.setString("original", forType: .string)
+        let request = TerminalPasteboardReadRequest(pasteboard: board)
+        board.clearContents()
+        board.setString("replacement", forType: .string)
+        let client = TerminalPastePreparationWorkerClient(
+            executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+            pasteboardService: TerminalPasteboardService(), plainTextExecutableURL: try bundledHelper()
+        )
+        let result = try await client.prepare(.init(pasteboard: request, mode: .paste, destination: .terminal))
+        guard case .terminal(.reject) = result else {
+            Issue.record("A stale request must reject, not paste replacement content")
+            return
+        }
+        #expect(board.string(forType: .string) == "replacement")
+    }
+
+    @MainActor
+    @Test("Absent optional helper preserves the isolated full-worker fallback")
+    func missingHelperFallback() async throws {
+        let board = NSPasteboard(name: .init("cmux-no-helper-\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.setString("fallback\n日本語", forType: .string)
+        let client = TerminalPastePreparationWorkerClient(
+            executableURL: try #require(Bundle.main.executableURL),
+            pasteboardService: TerminalPasteboardService(), plainTextExecutableURL: nil
+        )
+        let result = try await client.prepare(.init(
+            pasteboard: TerminalPasteboardReadRequest(pasteboard: board), mode: .paste, destination: .terminal
+        ))
+        guard case .terminal(.insertText(let text)) = result else {
+            Issue.record("Expected the isolated full-worker fallback")
+            return
+        }
+        #expect(text == "fallback\n日本語")
+    }
+
+    @Test("Cancelled preparation does not launch a replacement worker")
+    func alreadyCancelled() async throws {
+        let client = TerminalPastePreparationWorkerClient(
+            executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+            pasteboardService: TerminalPasteboardService(), plainTextExecutableURL: try bundledHelper()
+        )
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        let task = Task {
+            for await _ in stream { break }
+            return try await client.prepare(.init(
+                pasteboard: .init(pasteboardName: "cmux-cancelled-\(UUID())", changeCount: -1),
+                mode: .paste, destination: .terminal
+            ))
+        }
+        task.cancel()
+        continuation.finish()
+        await #expect(throws: CancellationError.self) { try await task.value }
     }
 
     private func bundledHelper() throws -> URL {

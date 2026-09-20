@@ -13,24 +13,26 @@ struct TerminalPastePreparationWorkerClient: Sendable {
 
     private let executableURL: URL
     private let pasteboardService: TerminalPasteboardService?
-    private let plainTextWorker: TerminalPlainTextPasteWorkerClient?
+    private let plainTextExecutableURL: URL?
 
     init(
         executableURL: URL,
         pasteboardService: TerminalPasteboardService,
-        plainTextExecutableURL: URL? = nil
+        plainTextExecutableURL: URL? = Bundle.main.url(
+            forResource: "cmux-paste-text-worker",
+            withExtension: nil,
+            subdirectory: "bin"
+        )
     ) {
         self.executableURL = executableURL
         self.pasteboardService = pasteboardService
-        self.plainTextWorker = plainTextExecutableURL.map(
-            TerminalPlainTextPasteWorkerClient.init(executableURL:)
-        )
+        self.plainTextExecutableURL = plainTextExecutableURL
     }
 
     private init(executableURL: URL) {
         self.executableURL = executableURL
         pasteboardService = nil
-        plainTextWorker = nil
+        plainTextExecutableURL = nil
     }
 
     static func reexecingCurrentBinary(
@@ -57,7 +59,11 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         return TerminalPastePreparationWorkerClient(executableURL: binary)
     }
 
+#if compiler(>=6.2)
     @concurrent
+#else
+    nonisolated
+#endif
     func captureSnapshot(
         _ request: TerminalPasteboardContentsCaptureRequest
     ) async throws -> TerminalPasteboardContentsSnapshot? {
@@ -70,27 +76,15 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         return snapshot
     }
 
+#if compiler(>=6.2)
     @concurrent
+#else
+    nonisolated
+#endif
     func prepare(
         _ request: TerminalPastePreparationRequest
     ) async throws -> TerminalPastePreparationResult {
-        if let plainTextWorker {
-            do {
-                switch try await plainTextWorker.prepare(request) {
-                case .prepared(let text):
-                    return .terminal(.insertText(text))
-                case .rejected:
-                    return .terminal(.reject)
-                case .fallBackToFullPreparation:
-                    break
-                }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                // A missing or failed lightweight helper must not change paste
-                // behavior. The full worker remains the killable fallback.
-            }
-        }
+        try Task.checkCancellation()
         let workingDirectory = try makeWorkingDirectory()
         defer {
             try? FileManager.default.removeItem(at: workingDirectory)
@@ -104,17 +98,27 @@ struct TerminalPastePreparationWorkerClient: Sendable {
             to: requestURL
         )
 
-        let process = TerminalPastePreparationProcess(
-            executableURL: executableURL,
-            arguments: [
-                Self.workerModeArgument,
-                Self.workingDirectoryArgument,
-                workingDirectory.path,
-            ],
-            environment: ProcessInfo.processInfo.environment
-        )
-        let status = try await process.run()
-        try Task.checkCancellation()
+        // Providers (even plain-text providers) remain killable. Only the
+        // helper inspects pasteboard flavors; no provider read enters the app.
+        // An explicit ineligible result is the only reason to retry in the full
+        // worker. A stalled/crashed provider must fail locally, not run twice.
+        var status: Int32 = 73
+        if case .paste? = request.mode,
+           case .terminal? = request.destination,
+           let plainTextExecutableURL {
+            status = try await runWorker(
+                executable: plainTextExecutableURL,
+                modeArgument: "--cmux-plain-text-paste-worker",
+                workingDirectory: workingDirectory
+            )
+        }
+        if status == 73 {
+            status = try await runWorker(
+                executable: executableURL,
+                modeArgument: Self.workerModeArgument,
+                workingDirectory: workingDirectory
+            )
+        }
         guard status == 0 else {
             throw TerminalPastePreparationWorkerError.workerExited(status)
         }
@@ -166,6 +170,22 @@ struct TerminalPastePreparationWorkerClient: Sendable {
             workingDirectory: workingDirectory,
             pasteboardService: pasteboardService
         )
+    }
+
+    private nonisolated func runWorker(
+        executable: URL,
+        modeArgument: String,
+        workingDirectory: URL
+    ) async throws -> Int32 {
+        try Task.checkCancellation()
+        let process = TerminalPastePreparationProcess(
+            executableURL: executable,
+            arguments: [modeArgument, Self.workingDirectoryArgument, workingDirectory.path],
+            environment: ProcessInfo.processInfo.environment
+        )
+        let status = try await process.run()
+        try Task.checkCancellation()
+        return status
     }
 
     private nonisolated func makeWorkingDirectory() throws -> URL {

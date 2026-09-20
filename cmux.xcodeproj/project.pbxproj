@@ -2435,6 +2435,7 @@
 		8672F0018672F0018672F001 /* PiFeedOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672F0028672F0028672F002 /* PiFeedOwnershipTests.swift */; };
 		8672F0068672F0068672F006 /* PiFeedV2CallResultBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672F0058672F0058672F005 /* PiFeedV2CallResultBox.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
+		C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000009 /* PlainPastePTYFixture.swift */; };
 		5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */; };
 		B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */; };
 		D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */; };
@@ -3469,10 +3470,11 @@
 		B88358000000000000000003 /* TerminalPastePreparationWorkerResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */; };
 		B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */; };
 		2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */; };
+		C12758000000000000000010 /* TerminalPasteWorkerStartupBenchmark.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000011 /* TerminalPasteWorkerStartupBenchmark.swift */; };
 		C13519000000000000000013 /* TerminalPathEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000014 /* TerminalPathEnvironmentTests.swift */; };
 		F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */; };
+		C12758000000000000000006 /* TerminalPlainTextPastePTYTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */; };
 		C12758000000000000000001 /* TerminalPlainTextPasteStartupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000002 /* TerminalPlainTextPasteStartupTests.swift */; };
-		C12758000000000000000003 /* TerminalPlainTextPasteWorkerClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000004 /* TerminalPlainTextPasteWorkerClient.swift */; };
         C12681010000000000000001 /* TerminalPortalGeometryFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */; };
 		9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9612B0010000000000000001 /* TerminalPortalReconciliation.swift */; };
 		126570000000000000000004 /* TerminalPortalTestWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = 126570000000000000000003 /* TerminalPortalTestWorkspace.swift */; };
@@ -6331,6 +6333,7 @@
 		8672F0028672F0028672F002 /* PiFeedOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiFeedOwnershipTests.swift; sourceTree = "<group>"; };
 		8672F0058672F0058672F005 /* PiFeedV2CallResultBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiFeedV2CallResultBox.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
+		C12758000000000000000009 /* PlainPastePTYFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainPastePTYFixture.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerCursorOcclusionTests.swift; sourceTree = "<group>"; };
 		4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalHitTestingPerformanceTests.swift; sourceTree = "<group>"; };
 		D0C658660000000000000003 /* PortalSplitDividerCacheInvalidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSplitDividerCacheInvalidator.swift; sourceTree = "<group>"; };
@@ -7351,10 +7354,11 @@
 		B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerResponse.swift; sourceTree = "<group>"; };
 		B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerSupervisor.swift; sourceTree = "<group>"; };
 		B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerTextPayload.swift; sourceTree = "<group>"; };
+		C12758000000000000000011 /* TerminalPasteWorkerStartupBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPasteWorkerStartupBenchmark.swift; sourceTree = "<group>"; };
 		C13519000000000000000014 /* TerminalPathEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPathEnvironmentTests.swift; sourceTree = "<group>"; };
 		F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPendingConfigurationReload.swift; sourceTree = "<group>"; };
+		C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPlainTextPastePTYTests.swift; sourceTree = "<group>"; };
 		C12758000000000000000002 /* TerminalPlainTextPasteStartupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPlainTextPasteStartupTests.swift; sourceTree = "<group>"; };
-		C12758000000000000000004 /* TerminalPlainTextPasteWorkerClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPlainTextPasteWorkerClient.swift; sourceTree = "<group>"; };
         C12681010000000000000002 /* TerminalPortalGeometryFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalGeometryFixture.swift; sourceTree = "<group>"; };
 		9612B0010000000000000001 /* TerminalPortalReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliation.swift; sourceTree = "<group>"; };
 		126570000000000000000003 /* TerminalPortalTestWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalPortalTestWorkspace.swift"; sourceTree = "<group>"; };
@@ -9698,7 +9702,6 @@
 				B8835800000000000000000A /* TerminalPastePreparationProcess.swift */,
 				B8835800000000000000000E /* TerminalPastePreparationWorker.swift */,
 				B8835800000000000000000C /* TerminalPastePreparationWorkerClient.swift */,
-				C12758000000000000000004 /* TerminalPlainTextPasteWorkerClient.swift */,
 				B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */,
 				B88358000000000000000006 /* TerminalPastePreparationWorkerError.swift */,
 				B88358000000000000000004 /* TerminalPastePreparationWorkerResponse.swift */,
@@ -11159,6 +11162,9 @@
 				C44550000000000000000002 /* PanelOwnedNativeViewSessionTests.swift */,
 				3069F1D10000000000000004 /* GhosttyPasteboardFidelityTests.swift */,
 				C12758000000000000000002 /* TerminalPlainTextPasteStartupTests.swift */,
+				C12758000000000000000011 /* TerminalPasteWorkerStartupBenchmark.swift */,
+				C12758000000000000000009 /* PlainPastePTYFixture.swift */,
+				C12758000000000000000007 /* TerminalPlainTextPastePTYTests.swift */,
 				D7AB34400000000000000004 /* GhosttyTerminalViewVisibilityPolicyTests.swift */,
 				D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */,
 				804100000000000000000004 /* ReorderShortcutActionTests.swift */,
@@ -11924,6 +11930,7 @@
 				D1FF50000000000000000001 /* Build Diff Sidecar */,
 				C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */,
 				A5001300A1B2C3D4E5F60719 /* ShellScript */,
+				C12758000000000000000005 /* Build Plain Text Paste Worker */,
 				A9E030000000000000000009 /* Reject Bundled Provider Binaries */,
 
 			);
@@ -12350,17 +12357,14 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(SRCROOT)/scripts/build-plain-text-paste-worker.sh",
-				"$(SRCROOT)/workers/cmux-paste-text/main.m",
 			);
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-paste-text-worker",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nLIBEXEC_DEST=\"${DEST}/libexec\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nGHOSTTY_SHELL_SRC=\"${SRCROOT}/ghostty/src/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nBUILD_CMUX_CUA=\"${SRCROOT}/scripts/build-cmux-cua.sh\"\nCMUX_CUA_DEST=\"${BIN_DEST}/cmux-cua\"\nBUILD_PLAIN_TEXT_WORKER=\"${SRCROOT}/scripts/build-plain-text-paste-worker.sh\"\nPLAIN_TEXT_WORKER_DEST=\"${BIN_DEST}/cmux-paste-text-worker\"\nmkdir -p \"$BIN_DEST\" \"$LIBEXEC_DEST\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ ! -d \"$GHOSTTY_SHELL_SRC\" ]; then\n  echo \"error: missing Ghostty shell integration resources at $GHOSTTY_SHELL_SRC\" >&2\n  exit 1\nfi\nmkdir -p \"$GHOSTTY_DEST/shell-integration\"\nrsync -a --delete \"$GHOSTTY_SHELL_SRC/\" \"$GHOSTTY_DEST/shell-integration/\"\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nif [ ! -x \"$BUILD_CMUX_CUA\" ]; then\n  echo \"error: missing cmux-cua build script at $BUILD_CMUX_CUA\" >&2\n  exit 1\nfi\n\"$BUILD_CMUX_CUA\" --output \"$CMUX_CUA_DEST\" --archs \"${ARCHS:-}\"\nif [ ! -x \"$CMUX_CUA_DEST\" ]; then\n  echo \"error: cmux-cua was not created at $CMUX_CUA_DEST\" >&2\n  exit 1\nfi\nif [ ! -x \"$BUILD_PLAIN_TEXT_WORKER\" ]; then\n  echo \"error: missing plain-text paste worker build script at $BUILD_PLAIN_TEXT_WORKER\" >&2\n  exit 1\nfi\n\"$BUILD_PLAIN_TEXT_WORKER\" \"$PLAIN_TEXT_WORKER_DEST\" \"${ARCHS:-}\"\nif [ ! -x \"$PLAIN_TEXT_WORKER_DEST\" ]; then\n  echo \"error: plain-text paste worker was not created at $PLAIN_TEXT_WORKER_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
+			shellScript = "set -euo pipefail\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nGHOSTTY_DEST=\"${DEST}/ghostty\"\nTERMINFO_DEST=\"${DEST}/terminfo\"\nCMUX_SHELL_DEST=\"${DEST}/shell-integration\"\nBIN_DEST=\"${DEST}/bin\"\nLIBEXEC_DEST=\"${DEST}/libexec\"\nSRC_SHARE=\"${SRCROOT}/ghostty/zig-out/share\"\nGHOSTTY_SRC=\"${SRC_SHARE}/ghostty\"\nTERMINFO_SRC=\"${SRC_SHARE}/terminfo\"\nFALLBACK_GHOSTTY=\"${SRCROOT}/Resources/ghostty\"\nFALLBACK_TERMINFO=\"${SRCROOT}/Resources/ghostty/terminfo\"\nTERMINFO_OVERLAY=\"${SRCROOT}/Resources/terminfo-overlay\"\nCMUX_SHELL_SRC=\"${SRCROOT}/Resources/shell-integration\"\nGHOSTTY_SHELL_SRC=\"${SRCROOT}/ghostty/src/shell-integration\"\nCMUX_GHOSTTY_ZSH_SRC=\"${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integration\"\nBUILD_GHOSTTY_HELPER=\"${SRCROOT}/scripts/build-ghostty-cli-helper.sh\"\nGHOSTTY_HELPER_DEST=\"${BIN_DEST}/ghostty\"\nBUILD_CMUX_CUA=\"${SRCROOT}/scripts/build-cmux-cua.sh\"\nCMUX_CUA_DEST=\"${BIN_DEST}/cmux-cua\"\nmkdir -p \"$BIN_DEST\" \"$LIBEXEC_DEST\"\nif [ -d \"$GHOSTTY_SRC\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$GHOSTTY_SRC/\" \"$GHOSTTY_DEST/\"\nelif [ -d \"$FALLBACK_GHOSTTY\" ]; then\n  mkdir -p \"$GHOSTTY_DEST\"\n  rsync -a --delete \"$FALLBACK_GHOSTTY/\" \"$GHOSTTY_DEST/\"\nfi\nif [ ! -d \"$GHOSTTY_SHELL_SRC\" ]; then\n  echo \"error: missing Ghostty shell integration resources at $GHOSTTY_SHELL_SRC\" >&2\n  exit 1\nfi\nmkdir -p \"$GHOSTTY_DEST/shell-integration\"\nrsync -a --delete \"$GHOSTTY_SHELL_SRC/\" \"$GHOSTTY_DEST/shell-integration/\"\nif [ -d \"$TERMINFO_SRC\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$TERMINFO_SRC/\" \"$TERMINFO_DEST/\"\nelif [ -d \"$FALLBACK_TERMINFO\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a --delete \"$FALLBACK_TERMINFO/\" \"$TERMINFO_DEST/\"\nfi\n# Overlay any cmux-specific terminfo adjustments.\n# This intentionally does not use --delete so we only patch specific entries.\nif [ -d \"$TERMINFO_OVERLAY\" ]; then\n  mkdir -p \"$TERMINFO_DEST\"\n  rsync -a \"$TERMINFO_OVERLAY/\" \"$TERMINFO_DEST/\"\nfi\nif [ -d \"$CMUX_SHELL_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  # Use '/.' so dotfiles like .zshenv/.zprofile are copied too.\n  rsync -a \"$CMUX_SHELL_SRC/.\" \"$CMUX_SHELL_DEST/\"\nfi\nif [ -f \"$CMUX_GHOSTTY_ZSH_SRC\" ]; then\n  mkdir -p \"$CMUX_SHELL_DEST\"\n  rsync -a \"$CMUX_GHOSTTY_ZSH_SRC\" \"$CMUX_SHELL_DEST/ghostty-integration.zsh\"\nfi\nif [ ! -x \"$BUILD_GHOSTTY_HELPER\" ]; then\n  echo \"error: missing Ghostty CLI helper build script at $BUILD_GHOSTTY_HELPER\" >&2\n  exit 1\nfi\nARCHS_LIST=\" ${ARCHS:-} \"\nHAS_ARM64=0\nHAS_X86_64=0\nGHOSTTY_HELPER_TARGET=\"\"\ncase \"$ARCHS_LIST\" in\n  *\" arm64 \"*) HAS_ARM64=1 ;;\nesac\ncase \"$ARCHS_LIST\" in\n  *\" x86_64 \"*) HAS_X86_64=1 ;;\nesac\nif [ \"$HAS_ARM64\" -eq 1 ] && [ \"$HAS_X86_64\" -eq 1 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --universal --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"aarch64-macos\"\nelif [ \"$HAS_X86_64\" -eq 1 ]; then\n  GHOSTTY_HELPER_TARGET=\"x86_64-macos\"\nfi\nif [ -n \"$GHOSTTY_HELPER_TARGET\" ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --target \"$GHOSTTY_HELPER_TARGET\" --output \"$GHOSTTY_HELPER_DEST\"\nelif [ \"$HAS_ARM64\" -eq 0 ] || [ \"$HAS_X86_64\" -eq 0 ]; then\n  \"$BUILD_GHOSTTY_HELPER\" --output \"$GHOSTTY_HELPER_DEST\"\nfi\nif [ ! -x \"$GHOSTTY_HELPER_DEST\" ]; then\n  echo \"error: Ghostty CLI helper was not created at $GHOSTTY_HELPER_DEST\" >&2\n  exit 1\nfi\nif [ ! -x \"$BUILD_CMUX_CUA\" ]; then\n  echo \"error: missing cmux-cua build script at $BUILD_CMUX_CUA\" >&2\n  exit 1\nfi\n\"$BUILD_CMUX_CUA\" --output \"$CMUX_CUA_DEST\" --archs \"${ARCHS:-}\"\nif [ ! -x \"$CMUX_CUA_DEST\" ]; then\n  echo \"error: cmux-cua was not created at $CMUX_CUA_DEST\" >&2\n  exit 1\nfi\nINFO_PLIST=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\nCOMMIT=\"$(git -C \"${SRCROOT}\" rev-parse --short=9 HEAD 2>/dev/null || true)\"\nif [ -n \"$COMMIT\" ] && [ -f \"$INFO_PLIST\" ]; then\n  /usr/libexec/PlistBuddy -c \"Set :CMUXCommit $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || /usr/libexec/PlistBuddy -c \"Add :CMUXCommit string $COMMIT\" \"$INFO_PLIST\" >/dev/null 2>&1 || true\nfi\n";
 		};
 		C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -12479,6 +12483,22 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/build-wireguard-go.sh\"";
+		};
+		C12758000000000000000005 /* Build Plain Text Paste Worker */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = (
+				"$(SRCROOT)/scripts/build-plain-text-paste-worker.sh",
+				"$(SRCROOT)/workers/cmux-paste-text/main.m",
+			);
+			name = "Build Plain Text Paste Worker";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/cmux-paste-text-worker",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/build-plain-text-paste-worker.sh\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux-paste-text-worker\" \"${ARCHS}\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -14663,7 +14683,6 @@
 				B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */,
 				2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */,
 				F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */,
-				C12758000000000000000003 /* TerminalPlainTextPasteWorkerClient.swift in Sources */,
 				9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */,
 				D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */,
 				862C77A9D235803A22B715B5 /* TerminalSearchNavigation.swift in Sources */,
@@ -15920,6 +15939,7 @@
 				8672F0018672F0018672F001 /* PiFeedOwnershipTests.swift in Sources */,
 				8672F0068672F0068672F006 /* PiFeedV2CallResultBox.swift in Sources */,
 				B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,
+				C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */,
 				5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */,
 					B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */,
 					D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */,
@@ -16174,7 +16194,9 @@
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
+				C12758000000000000000010 /* TerminalPasteWorkerStartupBenchmark.swift in Sources */,
 				C13519000000000000000013 /* TerminalPathEnvironmentTests.swift in Sources */,
+				C12758000000000000000006 /* TerminalPlainTextPastePTYTests.swift in Sources */,
 				C12758000000000000000001 /* TerminalPlainTextPasteStartupTests.swift in Sources */,
 				C12681010000000000000001 /* TerminalPortalGeometryFixture.swift in Sources */,
 				126570000000000000000004 /* TerminalPortalTestWorkspace.swift in Sources */,

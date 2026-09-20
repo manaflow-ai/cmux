@@ -16,6 +16,8 @@ static NSString * const kPayloadFilename = @"text-payload.txt";
 static NSString * const kUTF8PlainTextType = @"public.utf8-plain-text";
 static const NSUInteger kMaximumTextByteCount = 16 * 1024 * 1024;
 static const int kIneligibleStatus = 73;
+// Retained for this one-shot process. The parent owns reaping; neither source
+// closes stdin before process exit. Supervision must run while a provider blocks.
 static dispatch_source_t gParentSource;
 static dispatch_source_t gDeadlineSource;
 
@@ -42,7 +44,8 @@ static BOOL isSafeWorkingDirectory(NSString *path) {
     BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDirectory];
     struct stat metadata = {0};
     BOOL isSymlink = lstat(path.fileSystemRepresentation, &metadata) == 0 && S_ISLNK(metadata.st_mode);
-    return uuid != nil && exists && isDirectory && !isSymlink;
+    return uuid != nil && exists && isDirectory && !isSymlink &&
+        metadata.st_uid == getuid() && (metadata.st_mode & 0777) == 0700;
 }
 
 static void terminateWorker(NSString *workingDirectory, int status) {
@@ -131,12 +134,19 @@ static BOOL hasDisallowedType(NSString *typeIdentifier) {
     return NO;
 }
 
-static void writeResponse(NSString *workingDirectory, NSString *status, NSString *filename) {
-    NSMutableDictionary *response = [@{ @"status": status } mutableCopy];
-    if (filename != nil) {
-        response[@"filename"] = filename;
-        response[@"destination"] = @"terminal";
-    }
+// Emit the same Codable envelope as TerminalPastePreparationWorker. Both
+// workers use the existing validator, byte cap and file-ownership boundary.
+static void writeResponse(NSString *workingDirectory, BOOL hasText) {
+    NSDictionary *response = hasText ? @{
+        @"textPayload": @{
+            @"destination": @{ @"terminal": @{} },
+            @"filename": kPayloadFilename
+        },
+        @"ownedTemporaryImageNames": @[]
+    } : @{
+        @"result": @{ @"terminal": @{ @"_0": @{ @"reject": @{} } } },
+        @"ownedTemporaryImageNames": @[]
+    };
     NSData *data = [NSJSONSerialization dataWithJSONObject:response options:0 error:nil];
     if (data == nil) {
         terminateWorker(workingDirectory, 74);
@@ -164,9 +174,17 @@ static int runWorker(NSArray<NSString *> *arguments) {
         return 65;
     }
 
+    if (![request[@"mode"] isKindOfClass:NSDictionary.class] ||
+        request[@"mode"][@"paste"] == nil ||
+        ![request[@"destination"] isKindOfClass:NSDictionary.class] ||
+        request[@"destination"][@"terminal"] == nil ||
+        request[@"snapshotMaximumByteCount"] != nil) {
+        return kIneligibleStatus;
+    }
+
     NSPasteboard *pasteboard = [NSPasteboard pasteboardWithName:pasteboardName];
     if (pasteboard == nil || pasteboard.changeCount != expectedChangeCount.integerValue) {
-        writeResponse(workingDirectory, @"stale", nil);
+        writeResponse(workingDirectory, NO);
         return 0;
     }
 
@@ -174,13 +192,11 @@ static int runWorker(NSArray<NSString *> *arguments) {
     BOOL hasPlainText = NO;
     for (NSPasteboardType type in types) {
         if (hasDisallowedType(type)) {
-            writeResponse(workingDirectory, @"ineligible", nil);
             return kIneligibleStatus;
         }
         hasPlainText = hasPlainText || isPlainTextType(type);
     }
     if (!hasPlainText) {
-        writeResponse(workingDirectory, @"ineligible", nil);
         return kIneligibleStatus;
     }
 
@@ -191,7 +207,7 @@ static int runWorker(NSArray<NSString *> *arguments) {
     [preferredTypes addObjectsFromArray:types];
     NSString *text = nil;
     for (NSPasteboardType type in preferredTypes) {
-        if (!isPlainTextType(type)) {
+        if (![types containsObject:type] || !isPlainTextType(type)) {
             continue;
         }
         NSString *candidate = [pasteboard stringForType:type];
@@ -201,24 +217,23 @@ static int runWorker(NSArray<NSString *> *arguments) {
         }
     }
     if (pasteboard.changeCount != expectedChangeCount.integerValue) {
-        writeResponse(workingDirectory, @"stale", nil);
+        writeResponse(workingDirectory, NO);
         return 0;
     }
     if (text == nil) {
-        writeResponse(workingDirectory, @"empty", nil);
+        writeResponse(workingDirectory, NO);
         return 0;
     }
 
     NSData *payload = [text dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
     if (payload == nil || payload.length > kMaximumTextByteCount) {
-        writeResponse(workingDirectory, @"ineligible", nil);
-        return kIneligibleStatus;
+        return 74;
     }
     NSString *payloadPath = [workingDirectory stringByAppendingPathComponent:kPayloadFilename];
     if (![payload writeToFile:payloadPath options:NSDataWritingAtomic error:nil] || chmod(payloadPath.fileSystemRepresentation, 0600) != 0) {
         return 74;
     }
-    writeResponse(workingDirectory, @"text", kPayloadFilename);
+    writeResponse(workingDirectory, YES);
     return 0;
 }
 
