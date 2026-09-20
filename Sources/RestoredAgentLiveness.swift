@@ -55,7 +55,8 @@ struct RestoredAgentLiveness {
         liveIndex: RestorableAgentSessionIndex?,
         foregroundProcessID: Int?,
         currentProcessIdentity: ((pid_t) -> AgentPIDProcessIdentity?)? = nil,
-        foregroundProcessArguments: ((Int) -> CmuxTopProcessArguments?)? = nil
+        foregroundProcessArguments: ((Int) -> CmuxTopProcessArguments?)? = nil,
+        foregroundProcessIdentity: ((pid_t) -> AgentPIDProcessIdentity?)? = nil
     ) -> Bool {
         if agent.kind != .claude,
            let recordedProcess,
@@ -78,7 +79,8 @@ struct RestoredAgentLiveness {
         return RestoredAgentForegroundProcess.matches(
             agent,
             foregroundProcessID: foregroundProcessID,
-            processArguments: foregroundProcessArguments ?? self.foregroundProcessArguments
+            processArguments: foregroundProcessArguments ?? self.foregroundProcessArguments,
+            processIdentity: foregroundProcessIdentity
         )
     }
 }
