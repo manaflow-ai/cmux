@@ -151,6 +151,39 @@ esac
     expect(fallback.stderr).toContain("unknown option --invalid");
   });
 
+  test.each([
+    ["en_US.UTF-8", "Welcome to cmux Cloud"],
+    ["ja_JP.UTF-8", "cmux Cloud へようこそ"],
+    ["zh_CN.UTF-8", "欢迎使用 cmux Cloud"],
+    ["zh_TW.UTF-8", "歡迎使用 cmux Cloud"],
+    ["ko_KR.UTF-8", "cmux Cloud에 오신 것을 환영합니다"],
+    ["de_DE.UTF-8", "Willkommen bei cmux Cloud"],
+    ["es_ES.UTF-8", "Te damos la bienvenida a cmux Cloud"],
+    ["fr_FR.UTF-8", "Bienvenue sur cmux Cloud"],
+    ["it_IT.UTF-8", "Benvenuto in cmux Cloud"],
+    ["da_DK.UTF-8", "Velkommen til cmux Cloud"],
+    ["pl_PL.UTF-8", "Witaj w cmux Cloud"],
+    ["ru_RU.UTF-8", "Добро пожаловать в cmux Cloud"],
+    ["bs_BA.UTF-8", "Dobro došli u cmux Cloud"],
+    ["ar_SA.UTF-8", "مرحبًا بك في cmux Cloud"],
+    ["nb_NO.UTF-8", "Velkommen til cmux Cloud"],
+    ["pt_BR.UTF-8", "Boas-vindas ao cmux Cloud"],
+    ["th_TH.UTF-8", "ยินดีต้อนรับสู่ cmux Cloud"],
+    ["tr_TR.UTF-8", "cmux Cloud’a hoş geldiniz"],
+    ["km_KH.UTF-8", "សូមស្វាគមន៍មកកាន់ cmux Cloud"],
+    ["uk_UA.UTF-8", "Ласкаво просимо до cmux Cloud"],
+  ])("renders the Cloud guide in %s with unchanged copyable commands", (locale, title) => {
+    const guide = runShim(["welcome"], { LC_ALL: locale, COLUMNS: "80", NO_COLOR: "1" });
+    expect(guide.status).toBe(0);
+    expect(guide.stdout).toContain(title);
+    expect(guide.stdout).toContain("cmux cr add codex");
+    expect(guide.stdout).toContain("cmux cr accounts");
+    expect(guide.stdout).toContain("cmux vm push <machine> ./project work/project");
+    const invalid = runShim(["welcome", "--bad-option"], { LC_ALL: locale });
+    expect(invalid.status).toBe(2);
+    expect(invalid.stderr).toContain("--bad-option");
+  });
+
   test.each([true, false])("peer connection consumes readiness or process exit (ready=%s)", (ready) => {
     let fixtureDirectory = "";
     try {

@@ -1,4 +1,17 @@
 {
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeUsage": "Uso: cmux welcome\n\nMostra di nuovo la guida di cmux Cloud.",
+    "welcomeOption": "cmux welcome: opzione sconosciuta %s\n\nUso: cmux welcome",
+    "welcomeIntro": "Benvenuto in cmux Cloud\nLa tua macchina per gli agenti di programmazione",
+    "welcomeCodeRouter": "\nAgenti\ncodex\tAvvia Codex normalmente con i tuoi account CodeRouter.\nclaude\tAvvia Claude Code normalmente tramite CodeRouter.\ncmux cr accounts\tAccount collegati\ncmux cr models\tModelli disponibili\n\nAggiungi account dal tuo Mac\ncmux cr add codex\tCollega un account ChatGPT\ncmux cr add claude\tCollega un account Claude",
+    "welcomeWorkspaces": "\nLa tua macchina\nSpazi di lavoro\tUna macchina, tanti spazi di lavoro e terminali. Chiudere un pannello sul Mac lascia attivi i terminali remoti.\nSospensione e archiviazione\tLa sospensione ferma il calcolo; riconnettiti per riprendere. I limiti di esecuzione e conservazione dipendono dal piano. Esegui un backup prima di eliminare.",
+    "welcomeDisplays": "Displays → Desktop\tApri app grafiche e browser dal tuo Mac.",
+    "welcomeNoDisplays": "Displays → Desktop\tApp grafiche e browser dal tuo Mac, quando disponibili.",
+    "welcomePorts": "Ports\tApri un server di sviluppo in anteprima privata sul Mac. Usa Share esplicitamente per dare accesso ad altri.",
+    "welcomeFiles": "\nProgetti\ngit clone <repo-url>\tClona il tuo progetto e lavora qui.\n\nTrasferisci file dal tuo Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nGuida\tcmux welcome\nAiuto\tcmux --help\nDocumentazione\thttps://cmux.com/docs"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",

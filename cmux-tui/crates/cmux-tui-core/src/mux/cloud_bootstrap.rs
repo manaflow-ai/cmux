@@ -3,6 +3,9 @@
 
 use super::*;
 
+#[cfg(unix)]
+mod renderer;
+
 impl Mux {
     /// Returns false for a pre-existing registry, whose sessions keep the
     /// existing bootstrap behavior. A fresh Cloud workspace has a durable key
@@ -86,8 +89,15 @@ impl Mux {
             // terminal. Once prepared, retries use exactly the same bytes.
             let output = if welcome { render()? } else { Vec::new() };
             anyhow::ensure!(output.len() <= 16 * 1024, "Cloud welcome exceeds its output budget");
+            reservation.prepared_instance = if !output.is_empty() {
+                Some(
+                    cloud_instance(&options)
+                        .context("Cloud welcome platform identity is not ready")?,
+                )
+            } else {
+                cloud_instance(&options)
+            };
             reservation.prepared_output = Some(output);
-            reservation.prepared_instance = cloud_instance(&options);
             self.workspace_registry.lock().unwrap().save_cloud_bootstrap(&reservation)?;
         }
         // A copied pending registry must not transfer the original machine's
@@ -185,19 +195,19 @@ pub(super) fn cloud_welcome_output_allowed(options: &SurfaceOptions, instance: &
     cloud_welcome_enabled(options)
         && identity.is_some()
         && identity == grant
+        && instance.as_str().is_some_and(|identity| !identity.is_empty())
         && cloud_instance(options).as_deref() == instance.as_str()
 }
 
+#[cfg(unix)]
 fn render_cloud_welcome(options: &SurfaceOptions) -> anyhow::Result<Vec<u8>> {
-    use std::process::{Command, Stdio};
-    let output = match Command::new("/usr/local/bin/cmux")
+    use std::process::Command;
+    let mut command = Command::new("/usr/local/bin/cmux");
+    command
         .args(["welcome", "--bootstrap"])
         .envs(options.extra_env.iter().map(|(key, value)| (key, value)))
-        .env("COLUMNS", options.cols.to_string())
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-    {
+        .env("COLUMNS", options.cols.to_string());
+    let output = match renderer::capture(&mut command, Duration::from_secs(2)) {
         Ok(output) => output,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),
@@ -212,6 +222,11 @@ fn render_cloud_welcome(options: &SurfaceOptions) -> anyhow::Result<Vec<u8>> {
     // This output enters the terminal parser directly, before PTY output, so
     // apply the newline translation a normal PTY would otherwise provide.
     Ok(text.replace("\n", "\r\n").into_bytes())
+}
+
+#[cfg(not(unix))]
+fn render_cloud_welcome(_options: &SurfaceOptions) -> anyhow::Result<Vec<u8>> {
+    Ok(Vec::new())
 }
 
 #[cfg(test)]

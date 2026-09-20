@@ -1,4 +1,17 @@
 {
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeUsage": "Bruk: cmux welcome\n\nVis cmux Cloud-veiledningen på nytt.",
+    "welcomeOption": "cmux welcome: ukjent valg %s\n\nBruk: cmux welcome",
+    "welcomeIntro": "Velkommen til cmux Cloud\nMaskinen din for kodeagenter",
+    "welcomeCodeRouter": "\nAgenter\ncodex\tKjør Codex som vanlig med CodeRouter-kontoene dine.\nclaude\tKjør Claude Code som vanlig gjennom CodeRouter.\ncmux cr accounts\tTilknyttede kontoer\ncmux cr models\tTilgjengelige modeller\n\nLegg til kontoer på Macen\ncmux cr add codex\tKoble til en ChatGPT-konto\ncmux cr add claude\tKoble til en Claude-konto",
+    "welcomeWorkspaces": "\nMaskinen din\nArbeidsområder\tÉn maskin, mange arbeidsområder og terminaler. Hvis du lukker et panel på Macen, fortsetter de eksterne terminalene.\nDvale og lagring\tDvale setter beregning på pause; koble til igjen for å vekke maskinen. Grenser for kjøretid og lagring følger abonnementet. Ta sikkerhetskopi før sletting.",
+    "welcomeDisplays": "Displays → Desktop\tÅpne grafiske apper og nettlesere fra Macen.",
+    "welcomeNoDisplays": "Displays → Desktop\tGrafiske apper og nettlesere fra Macen, når tilgjengelig.",
+    "welcomePorts": "Ports\tÅpne en privat forhåndsvisning av en utviklingsserver på Macen. Bruk Share uttrykkelig for å gi andre tilgang.",
+    "welcomeFiles": "\nProsjekter\ngit clone <repo-url>\tKlon prosjektet og jobb her.\n\nOverfør filer fra Macen\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nVeiledning\tcmux welcome\nHjelp\tcmux --help\nDokumentasjon\thttps://cmux.com/docs"
+  },
   "vmErrors": {
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",

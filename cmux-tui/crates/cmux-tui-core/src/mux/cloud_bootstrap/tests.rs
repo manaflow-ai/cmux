@@ -318,6 +318,32 @@ fn cloud_bootstrap_rechecks_grant_and_suppression_for_prepared_output() {
         );
     }
 }
+
+#[test]
+fn cloud_bootstrap_rejects_missing_platform_identity_even_with_a_copied_grant() {
+    let mux = mux();
+    mux.reserve_cloud_initial_workspace().unwrap();
+    let options = mux.surface_options.lock().unwrap().clone();
+    let path = &options
+        .extra_env
+        .iter()
+        .find(|(key, _)| key == "CMUX_CLOUD_WELCOME_INSTANCE_PATH")
+        .unwrap()
+        .1;
+    std::fs::remove_file(path).unwrap();
+    assert!(!cloud_welcome_output_allowed(&options, &Value::Null));
+    assert!(!cloud_welcome_output_allowed(&options, &Value::String(String::new())));
+    assert!(!cloud_welcome_output_allowed(&options, &Value::String("original-instance".into())));
+    assert!(
+        mux.start_cloud_initial_terminal_with_renderer(true, || Ok(b"CLOUD-GUIDE\r\n".to_vec()))
+            .is_err()
+    );
+    assert!(mux.with_state(|state| state.surfaces.is_empty()));
+    assert!(!mux.workspace_registry.lock().unwrap().cloud_bootstrap().unwrap().unwrap().finished);
+    std::fs::write(path, "original-instance").unwrap();
+    mux.start_cloud_initial_terminal_with_renderer(true, || Ok(b"CLOUD-GUIDE\r\n".to_vec()))
+        .unwrap();
+}
 #[test]
 fn cloud_bootstrap_targets_the_reserved_workspace_without_changing_focus() {
     let mux = mux();
