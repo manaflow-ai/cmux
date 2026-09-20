@@ -3,11 +3,6 @@ import Foundation
 /// The team-wide usage payload. `kind == .unavailable` means the backend has no
 /// usage store for this team (no rows are rendered, no error is surfaced).
 struct TeamMachineUsage: Equatable, Sendable {
-    enum Kind: String, Sendable {
-        case ready
-        case unavailable
-    }
-
     let teamID: String
     let periodDays: Int
     let kind: Kind

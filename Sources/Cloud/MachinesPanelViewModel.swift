@@ -11,21 +11,21 @@ extension Notification.Name {
 /// through this store.
 @MainActor
 final class MachinesPanelViewModel: ObservableObject {
-    @Published var machines: [MachineSnapshot] = []
-    @Published var plan: MachinePlanSnapshot?
-    @Published var isLoading = false
-    @Published var hasLoadedOnce = false
-    @Published var lastErrorDescription: String?
+    @Published private(set) var machines: [MachineSnapshot] = []
+    @Published private(set) var plan: MachinePlanSnapshot?
+    @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedOnce = false
+    @Published private(set) var lastErrorDescription: String?
     /// Why the machine list could not load, classified so the empty state can
     /// say the true thing: a server-rejected session needs a fresh sign-in, a
     /// plan gate needs an upgrade, and only genuinely transient failures get
     /// the retry-first "unreachable" presentation.
-    @Published var listProblem: CloudListProblem?
+    @Published private(set) var listProblem: CloudListProblem?
     /// Per-machine coderouter spend from the last successful usage fetch,
     /// keyed by machine id. Refreshed with every machine-list refresh (the
     /// slow poll and the explicit Refresh verb), never more often. Empty on
     /// backends without the usage route; a failed fetch keeps the last value.
-    @Published var usageByMachineID: [String: MachineUsageSnapshot] = [:]
+    @Published private(set) var usageByMachineID: [String: MachineUsageSnapshot] = [:]
 
     enum CloudListProblem: Equatable {
         /// HTTP 401: the Cloud service no longer accepts this session.
@@ -53,7 +53,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Human-readable label of the Cloud VM action currently running from this
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
     /// header while set — the in-app substitute for a floating progress HUD.
-    @Published var activeOperation: String?
+    @Published private(set) var activeOperation: String?
     /// The surface catalog as one value: machines (this Mac first), their
     /// terminals/screens/browsers, and which local panes project them.
     @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
@@ -95,7 +95,7 @@ final class MachinesPanelViewModel: ObservableObject {
 
     func endOperation() {
         activeOperation = nil
-        refresh()
+        if wantsPolling { refresh() }
     }
 
     func noteTreeFailure(_ description: String) {
@@ -295,7 +295,7 @@ final class MachinesPanelViewModel: ObservableObject {
             )
             treeErrorDescription = String(format: format, machineID, MachineCreateOperation.headline(ofOutput: output) ?? output)
         }
-        refresh()
+        if wantsPolling { refresh() }
     }
     /// Publishes the catalog's current value and the local workspace list. Cheap
     /// (a value read), so every change notification may call it.
@@ -462,5 +462,128 @@ final class MachinesPanelViewModel: ObservableObject {
         return scoped
     }
 
+    /// Read the current shared resource owner, retaining its resize and list fences.
+    func applyResourceStats(machineIDs: Set<String>?) {
+        guard isCloudEnabled(), let resourceStats else { return }
+        for id in machineIDs ?? Set(machineIndexByID.keys) {
+            guard let index = machineIndexByID[id], machines.indices.contains(index),
+                  machines[index].id == id, machines[index].capabilities.stats else { continue }
+            let stats = resourceStats.stats(for: id)
+            if machines[index].stats != stats { machines[index].stats = stats }
+        }
+    }
 
+    func refresh() {
+        guard isCloudEnabled(), let client = client ?? VMClient.shared else { return }
+        guard refreshTask == nil else { refreshRequestedWhileLoading = true; return }
+        isLoading = true
+        let generation = refreshGeneration
+        let scope = machinePinStore?.scopeIdentifier
+        refreshTask = Task { [weak self] in
+            let result: Result<VMListPage, Error>
+            do { result = .success(try await client.listPage()) }
+            catch { result = .failure(error) }
+            guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
+            self.applyRefreshResult(result, generation: generation, scope: scope)
+            self.refreshTask = nil
+            if self.refreshRequestedWhileLoading {
+                self.refreshRequestedWhileLoading = false
+                self.refresh()
+            }
+        }
+    }
+
+    func pausePolling() {
+        pollTask?.cancel(); pollTask = nil
+        refreshTask?.cancel(); refreshTask = nil
+        refreshRequestedWhileLoading = false
+        refreshGeneration &+= 1
+        isLoading = false
+        statsTask?.cancel(); statsTask = nil; statsID = nil
+        usageTask?.cancel(); usageTask = nil
+        usageFailureCount = 0
+        usageRetryNotBefore = nil
+        treeTask?.cancel(); treeTask = nil
+        machineRefreshes.cancelAll()
+        freeAccessTransitionTask?.cancel(); freeAccessTransitionTask = nil
+    }
+
+    func clearUnavailableMetrics() {
+        if let resourceStats {
+            for id in machineIndexByID.keys {
+                _ = resourceStats.finishRead(resourceStats.beginRead(machineID: id), stats: nil)
+            }
+            applyResourceStats(machineIDs: nil)
+        }
+        usageByMachineID = [:]
+        machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: [:])
+    }
+
+    func applyRefreshResult(_ result: Result<VMListPage, Error>, generation: UInt64, scope: String?) {
+        guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier, isCloudEnabled() else { return }
+        do {
+            let page = try result.get()
+            try Task.checkCancellation()
+            guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier,
+                  isCloudEnabled() else { return }
+            let previous = resourceStats?.snapshot ?? [:]
+            let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
+            self.freeAccessWindowDays = freeAccessWindowDays
+            var snapshots = page.vms.map {
+                MachineSnapshotBuilder.snapshot(
+                    from: $0,
+                    freeAccessWindowDays: freeAccessWindowDays,
+                    previousStats: previous[$0.id]
+                )
+            }
+            snapshots = MachineSnapshotBuilder.applyingUsage(to: snapshots, usage: usageByMachineID)
+            let defaultMachineID = defaultMachineStore?.resolveMachineID(
+                from: snapshots.map { CloudMachineDescriptor(id: $0.id, isDesktop: $0.isDesktop) },
+                isComplete: true
+            )
+            snapshots = snapshots.map { snapshot in
+                var next = snapshot
+                next.isDefault = snapshot.id == defaultMachineID
+                return next
+            }
+            // The authoritative fleet plus catalog-only rows is the complete
+            // visible set: a pin whose machine is gone from both is pruned.
+            machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
+            machineIndexByID = Dictionary(uniqueKeysWithValues: snapshots.enumerated().map { ($0.element.id, $0.offset) })
+            machines = snapshots
+            lastLimits = page.limits
+            scheduleFreeAccessTransition()
+            refreshStats()
+            refreshUsage()
+            readCatalog()
+            plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
+            lastErrorDescription = nil
+            listProblem = nil
+        } catch is CancellationError {
+            return
+        } catch let error as VMClientError {
+            guard !Task.isCancelled, generation == refreshGeneration,
+                  scope == machinePinStore?.scopeIdentifier else { return }
+            if case .notSignedIn = error {
+                machines = []
+                machineIndexByID.removeAll()
+                plan = nil
+                activeOperation = nil
+                lastErrorDescription = nil
+                listProblem = nil
+                hasLoadedOnce = false
+                isLoading = false
+                return
+            }
+            lastErrorDescription = String(describing: error)
+            listProblem = Self.classifyListFailure(error)
+        } catch {
+            guard !Task.isCancelled, generation == refreshGeneration,
+                  scope == machinePinStore?.scopeIdentifier else { return }
+            lastErrorDescription = String(describing: error)
+            listProblem = .unreachable
+        }
+        isLoading = false
+        hasLoadedOnce = true
+    }
 }

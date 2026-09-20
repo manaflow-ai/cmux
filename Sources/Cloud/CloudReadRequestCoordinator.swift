@@ -4,53 +4,7 @@ import Foundation
 /// only that waiter; the last waiter cancels the transport. A cancelled request
 /// keeps its slot until teardown completes, preventing replacement amplification.
 actor CloudReadRequestCoordinator {
-    struct Key: Hashable, Sendable {
-        let path: String
-        let accountID: String?
-        let generation: UInt64?
-        let teamID: String?
-    }
-
-    struct Response: Sendable {
-        let data: Data
-        let http: HTTPURLResponse
-    }
-
-    struct Context: Sendable {
-        weak var owner: CloudReadRequestCoordinator?
-        let key: Key
-    }
-
     @TaskLocal static var current: Context?
-
-    struct Waiter: Sendable {
-        let deadline: Duration
-        let continuation: CheckedContinuation<Response, Error>
-    }
-
-    struct Entry: Sendable {
-        let id: UUID
-        let deadline: Duration
-        var waiters: [UUID: Waiter]
-        var work: Task<Void, Never>?
-        var timer: Task<Void, Never>?
-        var terminalError: URLError?
-        var invalidated = false
-        let operation: @Sendable () async throws -> Response
-        var pending: Pending?
-    }
-
-    struct Pending: Sendable {
-        let id: UUID
-        var waiters: [UUID: Waiter]
-        let operation: @Sendable () async throws -> Response
-        var timer: Task<Void, Never>?
-    }
-
-    private struct Cooldown {
-        let until: TimeInterval
-        let response: Response
-    }
 
     private nonisolated let clock: CloudRequestClock
     private nonisolated let budget: Duration
@@ -58,8 +12,7 @@ actor CloudReadRequestCoordinator {
     private(set) var entries: [Key: Entry] = [:]
     private var networkTask: Task<Void, Never>?
     private var isOnline: Bool?
-    private var cooldowns: [Key: Cooldown] = [:]
-    private var nextCooldownExpiry: TimeInterval?
+    private var cooldowns = CloudReadCooldownStore()
 
     init(clock: CloudRequestClock = CloudRequestClock(ContinuousClock()), budget: Duration = .seconds(30),
          onNetworkChange: @escaping @Sendable (Bool) async -> Void = { _ in }) {
@@ -90,6 +43,7 @@ actor CloudReadRequestCoordinator {
         _ key: Key, waiter: UUID, deadline: Duration, continuation: CheckedContinuation<Response, Error>,
         operation: @escaping @Sendable () async throws -> Response
     ) {
+        cooldowns.activateSession(for: key)
         if clock.now() >= deadline {
             continuation.resume(throwing: URLError(.timedOut))
             return
@@ -110,13 +64,8 @@ actor CloudReadRequestCoordinator {
             }
             return
         }
-        let now = seconds(clock.now())
-        if let nextCooldownExpiry, now >= nextCooldownExpiry {
-            cooldowns = cooldowns.filter { $0.value.until > now }
-            self.nextCooldownExpiry = cooldowns.values.map(\.until).min()
-        }
-        if let cooldown = cooldowns[key] {
-            continuation.resume(returning: cooldown.response)
+        if let response = cooldowns.response(for: key, now: seconds(clock.now())) {
+            continuation.resume(returning: response)
             return
         }
         startEntry(key, id: UUID(), deadline: deadline,
@@ -134,8 +83,8 @@ actor CloudReadRequestCoordinator {
             for waiter in waiters.values { waiter.continuation.resume(throwing: error) }
             return
         }
-        if let cooldown = cooldowns[key], cooldown.until > seconds(clock.now()) {
-            for waiter in waiters.values { waiter.continuation.resume(returning: cooldown.response) }
+        if let response = cooldowns.response(for: key, now: seconds(clock.now())) {
+            for waiter in waiters.values { waiter.continuation.resume(returning: response) }
             return
         }
         entries[key] = Entry(id: id, deadline: deadline, waiters: waiters, operation: operation)
@@ -222,23 +171,24 @@ actor CloudReadRequestCoordinator {
         }
     }
 
-    /// A completed mutation invalidates any read that started before it. Its
-    /// readers share one trailing pass, within the original operation budget.
-    func invalidate() {
-        for key in entries.keys { entries[key]?.invalidated = true }
+    /// A completed mutation invalidates affected reads from the captured auth
+    /// and team scope. Its readers share a trailing pass in the original budget.
+    func invalidate(_ mutation: CloudReadMutation) {
+        for path in mutation.affectedPaths {
+            let key = Key(path: path, accountID: mutation.scope.accountID,
+                          generation: mutation.scope.generation, teamID: mutation.scope.teamID)
+            entries[key]?.invalidated = true
+        }
     }
 
     /// Retains the server's minimum retry time across cancellation and later
     /// polls. When it exceeds this operation's remaining budget, return the
-    /// original 429 now; future reads receive that response until retry is legal.
+    /// original 429 now; future reads receive a compact 429 until retry is legal.
     func noteRetryAfter(_ key: Key, seconds: TimeInterval, response: Response) -> Bool {
         // Retry-After can contain Int.max seconds. Keep that distant deadline
         // as a monotonic floating-point instant rather than overflowing Duration.
         let until = self.seconds(clock.now()) + seconds
-        if until > (cooldowns[key]?.until ?? 0) {
-            cooldowns[key] = Cooldown(until: until, response: response)
-            nextCooldownExpiry = min(nextCooldownExpiry ?? until, until)
-        }
+        cooldowns.record(key, until: until, now: self.seconds(clock.now()), response: response)
         guard let entry = entries[key], entry.terminalError == nil else { return false }
         return until < self.seconds(entry.deadline)
     }

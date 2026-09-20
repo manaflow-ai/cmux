@@ -31,10 +31,13 @@ struct CloudOperationRecorderTests {
         let operation = recorder.begin(.open)
         await recorder.finish(operation, error: CmuxTuiSurfaceProvider.ProviderError.remotePlacementUnavailable("fixture-machine"))
         let persisted = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: queueURL)) as? [[String: Any]])
-        let span = try #require(persisted.first?["span"] as? [String: Any])
-        #expect(span["failure"] as? String == "placement")
-        #expect(span["traceId"] as? String == operation.traceID)
-        #expect(span["operationId"] as? String == operation.operationID.uuidString.lowercased())
+        // The transport may already have acknowledged the record before this
+        // actor resumes; its fixture validates the serialized span either way.
+        if let span = persisted.first?["span"] as? [String: Any] {
+            #expect(span["failure"] as? String == "placement")
+            #expect(span["traceId"] as? String == operation.traceID)
+            #expect(span["operationId"] as? String == operation.operationID.uuidString.lowercased())
+        }
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         var acknowledged = false
         while ContinuousClock.now < deadline {
@@ -300,7 +303,7 @@ private final class PlacementReceiptURLProtocol: URLProtocol, @unchecked Sendabl
                 stream.open()
                 defer { stream.close() }
                 var buffer = [UInt8](repeating: 0, count: 4096)
-                while stream.hasBytesAvailable {
+                while true {
                     let count = stream.read(&buffer, maxLength: buffer.count)
                     if count < 0 { throw URLError(.cannotDecodeContentData) }
                     if count == 0 { break }

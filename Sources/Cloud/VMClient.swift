@@ -2073,7 +2073,6 @@ actor VMClient {
                 errorCode: http.statusCode >= 400 ? Self.cloudVMErrorCode(http: http, data: data) : nil,
                 serverTraceId: Self.cloudVMServerTraceId(http: http, data: data)
             ))
-            if method != "GET", (200...299).contains(http.statusCode) { await readRequests.invalidate() }
             return (data, http)
         } catch let error as VMClientError {
             record(.transportFailure(kind: Self.transportFailureKind(error), detail: Self.transportFailureDetail(error)))
@@ -2283,6 +2282,12 @@ actor VMClient {
                 guard await auth.resolvedTeamID == requestedTeamID else {
                     throw VMClientError.notSignedIn
                 }
+            }
+            if method != "GET", (200...299).contains(http.statusCode) {
+                await readRequests.invalidate(CloudReadMutation(method: method, scope: .init(
+                    path: path, accountID: sessionIdentity?.accountID,
+                    generation: sessionIdentity?.generation, teamID: requestedTeamID
+                ), responseData: data))
             }
             return (data, http)
         }

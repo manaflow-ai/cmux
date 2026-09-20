@@ -841,6 +841,16 @@
 		C12625B00000000000000006 /* CloudReadManualClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000005 /* CloudReadManualClock.swift */; };
 		C12625B00000000000000002 /* CloudReadNetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000001 /* CloudReadNetworkMonitor.swift */; };
 		C12636A00000000000000004 /* CloudReadRecoveryObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12636A00000000000000003 /* CloudReadRecoveryObserver.swift */; };
+		C13151C00000000000000002 /* CloudReadCooldownStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000001 /* CloudReadCooldownStore.swift */; };
+		C13151C00000000000000004 /* CloudReadMutation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000003 /* CloudReadMutation.swift */; };
+		C13151C00000000000000006 /* CloudReadRequestCoordinator+Key.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000005 /* CloudReadRequestCoordinator+Key.swift */; };
+		C13151C00000000000000008 /* CloudReadRequestCoordinator+Response.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000007 /* CloudReadRequestCoordinator+Response.swift */; };
+		C13151C0000000000000000A /* CloudReadRequestCoordinator+Context.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000009 /* CloudReadRequestCoordinator+Context.swift */; };
+		C13151C0000000000000000C /* CloudReadRequestCoordinator+Waiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C0000000000000000B /* CloudReadRequestCoordinator+Waiter.swift */; };
+		C13151C0000000000000000E /* CloudReadRequestCoordinator+Entry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C0000000000000000D /* CloudReadRequestCoordinator+Entry.swift */; };
+		C13151C00000000000000010 /* CloudReadRequestCoordinator+Pending.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C0000000000000000F /* CloudReadRequestCoordinator+Pending.swift */; };
+		C13151C00000000000000012 /* CloudReadCooldownStore+Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000011 /* CloudReadCooldownStore+Session.swift */; };
+		C13151C00000000000000014 /* CloudReadCooldownStore+Cooldown.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000013 /* CloudReadCooldownStore+Cooldown.swift */; };
 		C12625A00000000000000004 /* CloudReadRequestCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */; };
 		C12625B00000000000000004 /* CloudReadRequestCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */; };
 		C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000003 /* CloudRefreshURLProtocol.swift */; };
@@ -3284,6 +3294,7 @@
 		7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */; };
 		B82090010000000000000001 /* TCCUsageDescriptionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */; };
 		C12625C00000000000000002 /* TeamMachineUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625C00000000000000001 /* TeamMachineUsage.swift */; };
+		C13151D00000000000000002 /* TeamMachineUsageKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151D00000000000000001 /* TeamMachineUsageKind.swift */; };
 		0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */; };
 		A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */; };
 		C10190010000000000000002 /* TerminalAgentPanelInitialTitleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */; };
@@ -4904,6 +4915,16 @@
 		C12625B00000000000000005 /* CloudReadManualClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadManualClock.swift; sourceTree = "<group>"; };
 		C12625B00000000000000001 /* CloudReadNetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadNetworkMonitor.swift; sourceTree = "<group>"; };
 		C12636A00000000000000003 /* CloudReadRecoveryObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRecoveryObserver.swift; sourceTree = "<group>"; };
+		C13151C00000000000000001 /* CloudReadCooldownStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadCooldownStore.swift; sourceTree = "<group>"; };
+		C13151C00000000000000003 /* CloudReadMutation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadMutation.swift; sourceTree = "<group>"; };
+		C13151C00000000000000005 /* CloudReadRequestCoordinator+Key.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Key.swift"; sourceTree = "<group>"; };
+		C13151C00000000000000007 /* CloudReadRequestCoordinator+Response.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Response.swift"; sourceTree = "<group>"; };
+		C13151C00000000000000009 /* CloudReadRequestCoordinator+Context.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Context.swift"; sourceTree = "<group>"; };
+		C13151C0000000000000000B /* CloudReadRequestCoordinator+Waiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Waiter.swift"; sourceTree = "<group>"; };
+		C13151C0000000000000000D /* CloudReadRequestCoordinator+Entry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Entry.swift"; sourceTree = "<group>"; };
+		C13151C0000000000000000F /* CloudReadRequestCoordinator+Pending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Pending.swift"; sourceTree = "<group>"; };
+		C13151C00000000000000011 /* CloudReadCooldownStore+Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadCooldownStore+Session.swift"; sourceTree = "<group>"; };
+		C13151C00000000000000013 /* CloudReadCooldownStore+Cooldown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadCooldownStore+Cooldown.swift"; sourceTree = "<group>"; };
 		C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinator.swift; sourceTree = "<group>"; };
 		C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinatorTests.swift; sourceTree = "<group>"; };
 		C12625000000000000000003 /* CloudRefreshURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshURLProtocol.swift; sourceTree = "<group>"; };
@@ -7220,6 +7241,7 @@
 		7490D00F7490D00F7490D00F /* TaskVMInfoMemoryPressureFootprintSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TaskVMInfoMemoryPressureFootprintSampler.swift; sourceTree = "<group>"; };
 		B82090010000000000000002 /* TCCUsageDescriptionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCCUsageDescriptionUITests.swift; sourceTree = "<group>"; };
 		C12625C00000000000000001 /* TeamMachineUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamMachineUsage.swift; sourceTree = "<group>"; };
+		C13151D00000000000000001 /* TeamMachineUsageKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamMachineUsageKind.swift; sourceTree = "<group>"; };
 		257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TelemetrySettings.swift"; sourceTree = "<group>"; };
 		A10199010000000000000002 /* TerminalAdaptiveDefaultThemeSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAdaptiveDefaultThemeSettings.swift; sourceTree = "<group>"; };
 		C10190010000000000000001 /* TerminalAgentPanelInitialTitleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalAgentPanelInitialTitleTests.swift; sourceTree = "<group>"; };
@@ -8517,9 +8539,20 @@
 				65A5357644AB29D74F4AC368 /* VMClient+ResourceStats.swift */,
 				C12625A00000000000000005 /* VMCapabilities.swift */,
 				C12625C00000000000000001 /* TeamMachineUsage.swift */,
+				C13151D00000000000000001 /* TeamMachineUsageKind.swift */,
 				C12625D00000000000000001 /* MachineUsageTotals.swift */,
 				C12625D00000000000000003 /* MachineUsageSnapshot.swift */,
 				C12625A00000000000000001 /* CloudRequestClock.swift */,
+				C13151C00000000000000001 /* CloudReadCooldownStore.swift */,
+				C13151C00000000000000003 /* CloudReadMutation.swift */,
+				C13151C00000000000000005 /* CloudReadRequestCoordinator+Key.swift */,
+				C13151C00000000000000007 /* CloudReadRequestCoordinator+Response.swift */,
+				C13151C00000000000000009 /* CloudReadRequestCoordinator+Context.swift */,
+				C13151C0000000000000000B /* CloudReadRequestCoordinator+Waiter.swift */,
+				C13151C0000000000000000D /* CloudReadRequestCoordinator+Entry.swift */,
+				C13151C0000000000000000F /* CloudReadRequestCoordinator+Pending.swift */,
+				C13151C00000000000000011 /* CloudReadCooldownStore+Session.swift */,
+				C13151C00000000000000013 /* CloudReadCooldownStore+Cooldown.swift */,
 				C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */,
 				C12625B00000000000000001 /* CloudReadNetworkMonitor.swift */,
 				E8DCA0BDC648E6CDCFD3E228 /* MachinesPanelViewModel+Refresh.swift */,
@@ -13183,6 +13216,16 @@
 				D1AC3F6282A94EAEB79D160B /* CloudProviderRefreshCoordinator.swift in Sources */,
 				C12625B00000000000000002 /* CloudReadNetworkMonitor.swift in Sources */,
 				C12636A00000000000000004 /* CloudReadRecoveryObserver.swift in Sources */,
+				C13151C00000000000000002 /* CloudReadCooldownStore.swift in Sources */,
+				C13151C00000000000000004 /* CloudReadMutation.swift in Sources */,
+				C13151C00000000000000006 /* CloudReadRequestCoordinator+Key.swift in Sources */,
+				C13151C00000000000000008 /* CloudReadRequestCoordinator+Response.swift in Sources */,
+				C13151C0000000000000000A /* CloudReadRequestCoordinator+Context.swift in Sources */,
+				C13151C0000000000000000C /* CloudReadRequestCoordinator+Waiter.swift in Sources */,
+				C13151C0000000000000000E /* CloudReadRequestCoordinator+Entry.swift in Sources */,
+				C13151C00000000000000010 /* CloudReadRequestCoordinator+Pending.swift in Sources */,
+				C13151C00000000000000012 /* CloudReadCooldownStore+Session.swift in Sources */,
+				C13151C00000000000000014 /* CloudReadCooldownStore+Cooldown.swift in Sources */,
 				C12625A00000000000000004 /* CloudReadRequestCoordinator.swift in Sources */,
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
@@ -14667,6 +14710,7 @@
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,
 				7490C00F7490C00F7490C00F /* TaskVMInfoMemoryPressureFootprintSampler.swift in Sources */,
 				C12625C00000000000000002 /* TeamMachineUsage.swift in Sources */,
+				C13151D00000000000000002 /* TeamMachineUsageKind.swift in Sources */,
 				0044CBDD567D9CD29E6A6F12 /* TelemetrySettings.swift in Sources */,
 				A10199010000000000000001 /* TerminalAdaptiveDefaultThemeSettings.swift in Sources */,
 				8362A0030000000000000003 /* TerminalCallerTTYBinding.swift in Sources */,
