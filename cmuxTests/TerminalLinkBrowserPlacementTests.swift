@@ -120,6 +120,7 @@ struct TerminalLinkBrowserPlacementTests {
             #expect(workspace.panels.values.filter { $0 is BrowserPanel }.count == 2)
             #expect(workspace.effectiveSelectedPanelId(inPane: pane) == selected.id)
             #expect(workspace.focusedPanelId == selected.id)
+            #expect(selected.webViewLifecycleTopPayload()["visible_in_ui"] as? Bool == true)
         }
     }
 
