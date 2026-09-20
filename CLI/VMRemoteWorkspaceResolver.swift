@@ -2,6 +2,32 @@ import Foundation
 
 /// Pure catalog identity resolution shared by the CLI and its behavior tests.
 struct VMRemoteWorkspaceResolver: Sendable {
+    /// A machine open reattaches its active workspace's terminal. Only an
+    /// authoritative empty graph permits creation; a missing or ambiguous graph
+    /// must not turn a reconnect into another workspace or terminal.
+    func resolveVMMachineTerminal(machine: String, catalog: [String: Any]) -> VMMachineTerminalResolution {
+        guard let machinePayload = vmMachinePayload(machine, from: catalog),
+              let workspaces = machinePayload["remote_workspaces"] as? [[String: Any]],
+              let resources = catalog["resources"] as? [[String: Any]],
+              machinePayload["link_state"] as? String == "connected" else { return .unavailable }
+        guard !workspaces.isEmpty else { return .empty(workspaceID: nil) }
+        let focused = workspaces.filter { ($0["focused"] as? Bool) == true }
+        guard focused.count <= 1 else { return .unavailable }
+        // A single workspace is unambiguous without a focus marker. Several
+        // unfocused workspaces have no authoritative active target, so fail
+        // closed instead of selecting by wire-array order.
+        guard let workspace = focused.first ?? (workspaces.count == 1 ? workspaces[0] : nil),
+              let workspaceID = workspace["id"] as? String, !workspaceID.isEmpty else { return .unavailable }
+        switch resolveVMRemoteWorkspaceTerminal(resources, machine: machine, workspaceID: workspaceID) {
+        case .resolved(let terminalID, let tabID):
+            return .resolved(workspaceID: workspaceID, terminalID: terminalID, tabID: tabID)
+        case .none:
+            return .empty(workspaceID: workspaceID)
+        case .ambiguous, .unavailable:
+            return .unavailable
+        }
+    }
+
     /// Resolution of a remote workspace selector. Workspace ids are identities;
     /// names are mutable labels and are accepted only when they identify one row.
     /// Keeping this result explicit prevents a missing or ambiguous catalog from
@@ -92,7 +118,12 @@ struct VMRemoteWorkspaceResolver: Sendable {
         workspaceID: String
     ) -> VMRemoteWorkspaceTerminalResolution {
         let liveTerminals = resources.filter { resource in
-            (resource["kind"] as? String) == "terminal" && (resource["lifecycle"] as? String) != "exited"
+            guard (resource["kind"] as? String) == "terminal",
+                  (resource["lifecycle"] as? String) != "exited" else { return false }
+            if let resourceMachine = resource["machine"] as? String {
+                return resourceMachine == machine
+            }
+            return (resource["id"] as? String)?.hasPrefix("\(machine)/terminal/") == true
         }
         var candidates: [(terminalID: String, tabID: String?, focused: Bool, sortID: String)] = []
         var ambiguousSelectors: [String] = []
@@ -154,7 +185,17 @@ struct VMRemoteWorkspaceResolver: Sendable {
         in resource: [String: Any],
         workspaceID: String
     ) -> VMRemoteViewResolution {
-        if let views = resource["remote_views"] as? [[String: Any]] {
+        // The catalog contract has three states: absent/null means the provider
+        // uses the legacy workspace edge; an array is authoritative (including
+        // []); any other value is malformed and cannot prove absence.
+        if let rawViews = resource["remote_views"], !(rawViews is NSNull) {
+            guard let views = rawViews as? [[String: Any]], views.allSatisfy({ view in
+                guard let workspace = view["workspace"] as? [String: Any],
+                      let id = workspace["id"] as? String else { return false }
+                return !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) else {
+                return .unavailable
+            }
             let matches = views.filter { view in
                 let workspace = view["workspace"] as? [String: Any]
                 return (workspace?["id"] as? String) == workspaceID
@@ -180,11 +221,11 @@ struct VMRemoteWorkspaceResolver: Sendable {
             }
             return .resolved(candidate)
         }
-        guard let workspace = resource["remote_workspace"] as? [String: Any],
-              (workspace["id"] as? String) == workspaceID else {
-            return .notFound
-        }
-        return .legacy
+        guard let rawWorkspace = resource["remote_workspace"], !(rawWorkspace is NSNull) else { return .notFound }
+        guard let workspace = rawWorkspace as? [String: Any],
+              let id = workspace["id"] as? String,
+              !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .unavailable }
+        return id == workspaceID ? .legacy : .notFound
     }
 
     /// Find a resource's exact view in one remote workspace. The view row is

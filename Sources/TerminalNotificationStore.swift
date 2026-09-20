@@ -23,113 +23,6 @@ extension TerminalNotificationStore {
         phoneForwardingEnabled && categoryAllowsDelivery
     }
 }
-enum NotificationBadgeSettings {
-    static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
-    static let defaultDockBadgeEnabled = true
-
-    static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: dockBadgeEnabledKey) == nil {
-            return defaultDockBadgeEnabled
-        }
-        return defaults.bool(forKey: dockBadgeEnabledKey)
-    }
-}
-
-enum NotificationPaneRingSettings {
-    static let enabledKey = "notificationPaneRingEnabled"
-    static let defaultEnabled = true
-}
-
-enum NotificationPaneFlashSettings {
-    static let enabledKey = "notificationPaneFlashEnabled"
-    static let defaultEnabled = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
-        }
-        return defaults.bool(forKey: enabledKey)
-    }
-}
-
-enum TaggedRunBadgeSettings {
-    static let environmentKey = "CMUX_TAG"
-    private static let maxTagLength = 10
-
-    static func normalizedTag(from env: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        normalizedTag(env[environmentKey])
-    }
-
-    static func normalizedTag(_ rawTag: String?) -> String? {
-        guard var tag = rawTag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty else {
-            return nil
-        }
-        if tag.count > maxTagLength {
-            tag = String(tag.prefix(maxTagLength))
-        }
-        return tag
-    }
-}
-
-enum AppFocusState {
-    static var overrideIsFocused: Bool?
-
-    static func isAppActive() -> Bool {
-        if let overrideIsFocused {
-            return overrideIsFocused
-        }
-        return NSApp.isActive
-    }
-
-    static func isAppFocused() -> Bool {
-        if let overrideIsFocused {
-            return overrideIsFocused
-        }
-        guard NSApp.isActive else { return false }
-        guard let keyWindow = NSApp.keyWindow, keyWindow.isKeyWindow else { return false }
-        // Only treat the app as "focused" for notification suppression when a main terminal window
-        // is key. If Settings/About/debug panels are key, we still want notifications to show.
-        if let raw = keyWindow.identifier?.rawValue {
-            return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-        }
-        return false
-    }
-
-}
-
-enum NotificationAuthorizationState: Equatable, Sendable {
-    case unknown
-    case notDetermined
-    case authorized
-    case denied
-    case provisional
-    case ephemeral
-
-    var statusLabel: String {
-        switch self {
-        case .unknown, .notDetermined:
-            return "Not Requested"
-        case .authorized:
-            return "Allowed"
-        case .denied:
-            return "Denied"
-        case .provisional:
-            return "Deliver Quietly"
-        case .ephemeral:
-            return "Temporary"
-        }
-    }
-
-    var allowsDelivery: Bool {
-        switch self {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .unknown, .notDetermined, .denied:
-            return false
-        }
-    }
-}
-
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -369,6 +262,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// `@Published`) so its updates stay independent of the store's own
     /// `objectWillChange`.
     let sidebarUnread = SidebarUnreadModel()
+    /// Observes every read or clear applied by target, so unread indicators
+    /// keyed by other identities (the Cloud tree's remote terminals) follow the
+    /// dismissal even when no local record exists for what they show.
+    var readTargetObserver: (@MainActor (NotificationReadTarget) -> Void)?
     // Workspace panels own their manual unread state on Workspace. Dock panels
     // have no Workspace owner, so their surface-scoped state lives here beside
     // the cross-container unread projection.
@@ -471,11 +368,7 @@ final class TerminalNotificationStore: ObservableObject {
             )
         }
         indexes = Self.buildIndexes(for: notifications)
-        userDefaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        userDefaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshDockBadge()
             }
@@ -1219,13 +1112,24 @@ final class TerminalNotificationStore: ObservableObject {
         preRegisteredPolicyRequestId: UUID? = nil,
         notificationID: UUID? = nil,
         agent: TerminalNotificationPolicyAgentContext? = nil,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) -> UUID? {
 #if DEBUG
         cmuxDebugLog(
-            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
+            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1) origin=\(origin.kind)"
         )
 #endif
+        // SECURITY: a remote origin (ssh relay, cloud machine) is untrusted text. It gets
+        // display, sound, badge, hooks, and phone forwarding — never a reply affordance
+        // that types into a pane, a click action that opens a local path, agent context
+        // that hooks treat as trusted identity, or a sound override. Clamped here so no
+        // caller can regress it, and hooks are never resolved from a local cwd for it.
+        let replyShape = origin.isRemote ? .none : replyShape
+        let clickAction = origin.isRemote ? nil : clickAction
+        let agent = origin.isRemote ? nil : agent
+        let soundContext = origin.isRemote ? nil : soundContext
+        let resolvedHooks = origin.isRemote ? (resolvedHooks ?? []) : resolvedHooks
         let admissionTabId = notificationMuteAdmissionTabID(
             claimedTabId: tabId,
             surfaceId: surfaceId,
@@ -1277,7 +1181,8 @@ final class TerminalNotificationStore: ObservableObject {
             correlationKey: correlationKey ?? cooldownKey,
             resolvedHooks: resolvedHooks,
             agent: agent,
-            soundContext: soundContext
+            soundContext: soundContext,
+            origin: origin
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
             inFlightPolicyRequests.discardPending(
@@ -1461,7 +1366,8 @@ final class TerminalNotificationStore: ObservableObject {
         correlationKey: String?,
         resolvedHooks: [CmuxResolvedNotificationHook]?,
         agent: TerminalNotificationPolicyAgentContext? = nil,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
@@ -1469,9 +1375,15 @@ final class TerminalNotificationStore: ObservableObject {
         let workspace = focusState.workspace
         let isFocusedPanel = focusState.isActiveTab && focusState.isFocusedSurface
         let isAppFocused = focusState.isAppFocused
-        let cwd = workspace?.surfaceTabBarDirectory
-            ?? workspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        // A remote emitter's text has no local cwd: the pane's directory would name
+        // the wrong project config, so the envelope carries none and hooks are only
+        // ever the caller-resolved (global) set.
+        let cwd: String? = origin.isRemote
+            ? nil
+            : workspace?.surfaceTabBarDirectory
+                ?? workspace?.currentDirectory
+                ?? FileManager.default.homeDirectoryForCurrentUser.path
+        assert(!origin.isRemote || resolvedHooks != nil, "remote-origin notifications must carry pre-resolved hooks")
         let panelId = surfaceId.flatMap {
             workspace?.surfaceOwnershipTarget(for: $0)?.containerPanelID
         }
@@ -1501,12 +1413,13 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel,
                 agent: agent,
-                soundContext: soundContext
+                soundContext: soundContext,
+                origin: origin
             ),
             scrollPosition: scrollPosition,
-            hooks: resolvedHooks ?? cmuxConfigStore?.notificationHooks(
+            hooks: resolvedHooks ?? (origin.isRemote ? [] : cmuxConfigStore?.notificationHooks(
                 startingFrom: workspace?.isRemoteWorkspace == true ? nil : cwd
-            ) ?? [],
+            )) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
     }
@@ -1547,7 +1460,8 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel,
                 agent: request.agent,
-                soundContext: envelope.context.soundContext
+                soundContext: envelope.context.soundContext,
+                origin: request.origin
             ),
             effects: envelope.effects,
             now: now,
@@ -1606,7 +1520,8 @@ final class TerminalNotificationStore: ObservableObject {
             scrollPosition: scrollPosition,
             clickAction: clickAction,
             replyShape: request.replyShape,
-            soundContext: request.soundContext
+            soundContext: request.soundContext,
+            origin: request.origin
         )
         if effects.record {
             recordNotification(
@@ -1624,10 +1539,8 @@ final class TerminalNotificationStore: ObservableObject {
             "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if effects.reorderWorkspace,
-           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
+        effects.applySidebarOrdering(defaults: .standard) {
+            reorderSidebars(for: notification)
         }
         if hasAnyNotificationEffect(effects) {
             commitCooldownReservation(cooldownReservation, at: now)
@@ -1672,10 +1585,8 @@ final class TerminalNotificationStore: ObservableObject {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
-        if effects.reorderWorkspace,
-           UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
-            AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
-                .moveTabToTopForNotification(notification.tabId)
+        effects.applySidebarOrdering(defaults: .standard) {
+            reorderSidebars(for: notification)
         }
 
         updated.insert(notification, at: 0)
@@ -1900,6 +1811,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markRead(forTabId tabId: UUID) {
+        defer { readTargetObserver?(.workspace(tabId)) }
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil)
         notificationFeedHistory.markRead(inWorkspace: tabId)
         var updated = notifications
@@ -1929,6 +1841,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
+        defer { readTargetObserver?(.surface(workspaceID: tabId, surfaceID: surfaceId)) }
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId)
         notificationFeedHistory.markRead(inWorkspace: tabId, surfaceId: surfaceId)
         var updated = notifications
@@ -2072,6 +1985,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markAllRead() {
+        defer { readTargetObserver?(.all) }
         notificationFeedHistory.markAllRead()
         var updated = notifications
         var idsToClear: [String] = []
@@ -2228,6 +2142,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
     func clearAll(discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
+        defer { readTargetObserver?(.all) }
         inFlightPolicyRequests.discardAll(through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
         guard !notifications.isEmpty ||
@@ -2258,6 +2173,7 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID?,
         discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil
     ) {
+        defer { readTargetObserver?(.surface(workspaceID: tabId, surfaceID: surfaceId)) }
         let liveTabId = surfaceId.flatMap { AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: $0)?.tabId } ?? tabId
         let tabIds = Set([tabId, liveTabId])
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId, through: throughNotificationGeneration)
@@ -2346,7 +2262,8 @@ final class TerminalNotificationStore: ObservableObject {
                 scrollPosition: notification.scrollPosition,
                 clickAction: notification.clickAction,
                 replyShape: notification.replyShape,
-                soundContext: notification.soundContext
+                soundContext: notification.soundContext,
+                origin: notification.origin
             )
         }
         if didMoveNotification {
@@ -2364,6 +2281,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
+        defer { readTargetObserver?(.workspace(tabId)) }
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil, through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: tabId, surfaceId: nil) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil
@@ -2426,7 +2344,8 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: notification.subtitle,
                 body: notification.body,
                 effects: effects,
-                soundContext: notification.soundContext
+                soundContext: notification.soundContext,
+                origin: notification.origin
             )
             return
         }
@@ -2435,6 +2354,7 @@ final class TerminalNotificationStore: ObservableObject {
         let notificationTitle = resolvedNotificationTitle(for: notification)
         let notificationSubtitle = notification.subtitle
         let notificationBody = notification.body
+        let notificationOrigin = notification.origin
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
@@ -2571,7 +2491,8 @@ final class TerminalNotificationStore: ObservableObject {
                     nativeDeliveryHooks.runCommand(
                         title: commandTitle,
                         subtitle: commandSubtitle,
-                        body: commandBody
+                        body: commandBody,
+                        origin: notificationOrigin
                     )
                 }
             }
@@ -2590,7 +2511,8 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: notification.subtitle,
             body: notification.body,
             effects: effects,
-            soundContext: notification.soundContext
+            soundContext: notification.soundContext,
+            origin: notification.origin
         )
     }
 
@@ -2599,11 +2521,12 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         effects: TerminalNotificationPolicyEffects,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) {
         let hooks = nativeNotificationDeliveryHooks
         if effects.command {
-            hooks.runCommand(title: title, subtitle: subtitle, body: body)
+            hooks.runCommand(title: title, subtitle: subtitle, body: body, origin: origin)
         }
         guard effects.sound else { return }
         var soundEffects = effects
@@ -2614,7 +2537,8 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: subtitle,
                 body: body,
                 effects: soundEffects,
-                soundContext: soundContext
+                soundContext: soundContext,
+                origin: origin
             )
         }
     }
@@ -2631,7 +2555,8 @@ final class TerminalNotificationStore: ObservableObject {
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool,
         soundContext: NotificationSoundOverrideContext? = nil,
-        playbackAdmission: NativeNotificationDeliveryHooks.PlaybackAdmission? = nil
+        playbackAdmission: NativeNotificationDeliveryHooks.PlaybackAdmission? = nil,
+        origin: TerminalNotificationOrigin = .local
     ) async {
         let hooks = nativeNotificationDeliveryHooks
         let task = enqueueNotificationFeedback(ownerID: ownerID) {
@@ -2643,7 +2568,8 @@ final class TerminalNotificationStore: ObservableObject {
                 effects: effects,
                 runCommand: runCommand,
                 soundContext: soundContext,
-                playbackAdmission: playbackAdmission
+                playbackAdmission: playbackAdmission,
+                origin: origin
             )
         }
         await task.value

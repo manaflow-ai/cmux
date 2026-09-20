@@ -89,11 +89,17 @@ printf "%s" "$padded_key" > "$key_file"
 
 generated_appcast_path="$archives_dir/$(basename "$OUT_PATH")"
 
+# ${arr[@]+"${arr[@]}"} expands to nothing when the array is empty. A bare
+# "${delta_args[@]}" is an "unbound variable" error under `set -u` in bash 3.2
+# (macOS /bin/bash), and with the EXIT trap above bash 3.2 then exits 0, so the
+# stable release lane (no previous archives) silently produced no appcast
+# (release dry run 34227505375, 2026-09-08). Nightly never hit it because it
+# always has previous archives.
 "$generate_appcast" \
   --ed-key-file "$key_file" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   --full-release-notes-url "$RELEASE_NOTES_URL" \
-  "${delta_args[@]}" \
+  ${delta_args[@]+"${delta_args[@]}"} \
   "$archives_dir"
 
 if [[ ! -f "$generated_appcast_path" ]]; then

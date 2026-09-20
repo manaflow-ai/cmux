@@ -190,11 +190,54 @@ struct CloudNotificationSyncTests {
         #expect(CloudNotificationSyncReducer.unreadTerminalIDs(rows: overlaid, clientID: Self.me, state: state) == [Self.row("b").terminalID!])
     }
 
+    @Test func dismissedCompletionStaysReadAcrossStaleSnapshotAndSecondCompletionIsUnread() {
+        let first = Self.row("first", terminal: "term-cloud")
+        var state = CloudNotificationSyncReducer.plan(
+            rows: [first], clientID: Self.me, state: CloudNotificationSyncState()
+        ).state
+        state = CloudNotificationSyncReducer.recordRead(
+            ids: [first.id], rows: [first], clientID: Self.me, state: state, newKey: { "ack-first" }
+        )
+        state = CloudNotificationSyncReducer.ackCompleted(key: "ack-first", state: state)
+
+        // The ack overlay made the live rows read, but the next feed snapshot
+        // is stale and still carries the old unread payload.
+        let staleSnapshot = CloudNotificationSyncReducer.plan(
+            rows: [first], clientID: Self.me, state: state
+        )
+        #expect(
+            CloudNotificationSyncReducer.unreadTerminalIDs(
+                rows: [first], clientID: Self.me, state: staleSnapshot.state
+            ).isEmpty,
+            "a stale snapshot must not resurrect a dismissed Cloud completion"
+        )
+
+        let second = Self.row("second", terminal: "term-cloud", createdAt: 2)
+        let next = CloudNotificationSyncReducer.plan(
+            rows: [first, second], clientID: Self.me, state: staleSnapshot.state
+        )
+        #expect(next.deliver.map(\.id) == [second.id], "a genuinely new completion still delivers")
+        #expect(
+            CloudNotificationSyncReducer.unreadTerminalIDs(
+                rows: [first, second], clientID: Self.me, state: next.state
+            ) == [second.terminalID!]
+        )
+    }
+
     @Test @MainActor func correlationKeysRoundTripThroughTheLocalStore() throws {
         let key = CloudNotificationCorrelation.key(machineID: "vm-1", notificationID: "notification_0000000000000000000000000000000a")
         let parsed = try #require(CloudNotificationCorrelation.parse(key))
         #expect(parsed.machineID == "vm-1")
         #expect(parsed.notificationID == "notification_0000000000000000000000000000000a")
+        let escaped = try #require(CloudNotificationCorrelation.parse(
+            CloudNotificationCorrelation.key(machineID: "m:1", notificationID: "notification:n:2")
+        ))
+        #expect(escaped.machineID == "m:1")
+        #expect(escaped.notificationID == "notification:n:2")
+        let legacy = try #require(CloudNotificationCorrelation.parse("cloud-notification:vm-1:notification-a"))
+        #expect(legacy.machineID == "vm-1")
+        #expect(legacy.notificationID == "notification-a")
+        #expect(CloudNotificationCorrelation.matches("cloud-notification:vm-1:notification-a", machineID: "vm-1", notificationIDs: ["notification-a"]))
         #expect(CloudNotificationCorrelation.parse("cursor-approval:1") == nil)
         #expect(CloudNotificationCorrelation.parse("cloud-notification:") == nil)
 
@@ -338,9 +381,9 @@ struct CloudNotificationSyncTests {
                 newKey: { keyCounter += 1; return "k\(keyCounter)" },
                 resolveTarget: { _ in effects.hasPlacement ? CloudNotificationDeliveryTarget(workspaceID: workspace, panelID: nil) : nil },
                 deliver: { row, _ in
-                    if effects.declineDelivery { return false }
+                    if effects.declineDelivery { return .declined }
                     effects.delivered.append(row.id)
-                    return true
+                    return .delivered
                 },
                 send: { batch in
                     if effects.sendFails { throw CancellationError() }
@@ -436,8 +479,7 @@ struct CloudNotificationSyncTests {
         // Final drain: the link is healthy, everything pending must flush.
         effects.sendFails = false
         effects.declineDelivery = false
-        sync.linkDidConnect()
-        for _ in 0..<20 { await Task.yield() }
+        await sync.flushPendingReads()
         #expect(sync.state.pendingAcks.isEmpty, "pending acks after a healthy flush: \(sync.state.pendingAcks)")
         // No key was ever sent with two different id sets.
         #expect(effects.acked.values.allSatisfy { Set($0).count == $0.count })

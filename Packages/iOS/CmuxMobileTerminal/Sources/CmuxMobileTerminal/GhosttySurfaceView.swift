@@ -6,7 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
-import Synchronization
 import UIKit
 import os
 
@@ -151,6 +150,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let surface: ghostty_surface_t
         let verifiedReplayRead: VerifiedReplaySurfaceRead?
         let presentationRetryCount: UInt8
+        var outputPresentation: (@MainActor @Sendable () -> Void)? = nil
 
         var ticket: TerminalRenderSubmission {
             TerminalRenderSubmission(token: token, generation: generation, kind: kind)
@@ -163,10 +163,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 kind: kind,
                 surface: surface,
                 verifiedReplayRead: verifiedReplayRead,
-                presentationRetryCount: count
+                presentationRetryCount: count,
+                outputPresentation: outputPresentation
             )
         }
     }
+    /// Observation attached to the next ordinary render submission.
+    public var onOutputPresentation: (@MainActor @Sendable () -> Void)?
     var renderPresentationGate = TerminalRenderPresentationGate()
     var renderSubmission: RenderSubmission?
     var pendingRenderSubmission: RenderSubmission?
@@ -1425,7 +1428,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surface, !isDismantled else { return }
         let workQueue = outputQueue
         let generation = surfaceGeneration
-        workQueue.queue.async { [weak self] in
+        workQueue.async { [weak self] in
             workQueue.lastContentBottomTime = CACurrentMediaTime()
             guard let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
                   viewportText.utf8.count <= 131_072 else { return }
@@ -1825,21 +1828,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The surface extends under the bottom safe area (the host applies
     /// `ignoresSafeArea(.container, .bottom)`), so when the keyboard is down the
-    /// always-visible toolbar must clear this much to avoid the home indicator. Reads
-    /// the view's own inset, falling back to the window's, because `safeAreaInsets`
-    /// can be zero before the view is on a window.
+    /// always-visible toolbar must clear this much to avoid the home indicator.
+    /// The window or captured outer inset owns the reservation: this surface
+    /// slides for the keyboard, so its local inset changes with presentation.
     private var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0,
-            capturedInset: capturedBottomSafeAreaInset,
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
             ancestorInsets: safeAreaAncestorBottomInsets
         )
     }
 
     /// Safe-area value captured outside the SwiftUI subtree that intentionally
     /// ignores the terminal's bottom container region. This stays as a
-    /// fallback: a live view or window inset still wins when UIKit provides it.
+    /// fallback for the window, ahead of this moving surface's local inset.
     private var capturedBottomSafeAreaInset: CGFloat = 0
 
     /// Updates the outer safe-area fallback and immediately re-seats the dock
@@ -4315,6 +4318,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // dropping the request here. Ordinary and local-scroll submissions
         // remain pending and become eligible when the frozen replay is
         // revealed.
+        let outputPresentation = onOutputPresentation
+        onOutputPresentation = nil
         return enqueueRenderSubmission(
             RenderSubmission(
                 token: makeSurfaceOperationID(),
@@ -4322,7 +4327,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 kind: .ordinary,
                 surface: surface,
                 verifiedReplayRead: nil,
-                presentationRetryCount: presentationRetryCount
+                presentationRetryCount: presentationRetryCount,
+                outputPresentation: outputPresentation
             )
         )
     }
@@ -4414,7 +4420,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
         let workQueue = outputQueue
-        workQueue.async { [weak self] in
+        let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             switch submission.kind {
@@ -4482,6 +4488,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
             }
+        }, priority: submission.kind == .localScroll)
+        guard accepted else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
         }
         return true
     }
@@ -4606,6 +4616,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 generation: submission.generation
             )
         guard action != .ignored else { return }
+        if presented { submission.outputPresentation?() }
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
@@ -5384,7 +5395,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayRead: current.verifiedReplayRead,
             presentationRetryCount: countsAsRetry
                 ? current.presentationRetryCount &+ 1
-                : current.presentationRetryCount
+                : current.presentationRetryCount,
+            outputPresentation: current.outputPresentation
         )
         let replaced = replaceInFlightRenderSubmission(with: replacement)
         if replaced {
@@ -5838,22 +5850,6 @@ private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
-}
-
-private final class SurfaceOperationCancellationToken: Sendable {
-    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
-    // libghostty work; actor hops would put the serial surface queue back behind
-    // the main actor and defeat the stale-read fast path.
-    private let cancelled: Mutex
-        <Bool> = .init(false)
-
-    var isCancelled: Bool {
-        cancelled.withLock { $0 }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-    }
 }
 
 private class DisplayLinkProxy {
