@@ -328,7 +328,7 @@ extension Workspace {
             // Route reservation input into that PTY immediately so remote shell
             // startup owns echo and line discipline just like a local shell.
             if let cloudProvider = catalog.provider(for: created.machine) as? CmuxTuiSurfaceProvider {
-                _ = await cloudProvider.bindOptimisticTerminalInput(
+                _ = try await cloudProvider.bindOptimisticTerminalInput(
                     reservation.inputRelay,
                     terminalID: created.id.key
                 )

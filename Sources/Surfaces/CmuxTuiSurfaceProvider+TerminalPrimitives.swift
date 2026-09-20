@@ -8,10 +8,10 @@ extension CmuxTuiSurfaceProvider {
     func bindOptimisticTerminalInput(
         _ relay: CloudOptimisticInputRelay,
         terminalID: String
-    ) async -> Bool {
+    ) async throws -> Bool {
         relay.setRemoteRebinder { [weak self, weak relay] in
             guard let self, let relay else { return false }
-            return await self.bindOptimisticTerminalInput(relay, terminalID: terminalID)
+            return (try? await self.bindOptimisticTerminalInput(relay, terminalID: terminalID)) ?? false
         }
         relay.beginRemoteBinding()
         do {
