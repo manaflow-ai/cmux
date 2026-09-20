@@ -74,7 +74,9 @@ final class CloudBrowserAccessState {
     }
 
     func showUnavailable(_ message: String) {
+        let retainedResource = resourceID
         leave()
+        resourceID = retainedResource
         unavailable = message
     }
 
@@ -95,6 +97,14 @@ final class CloudBrowserAccessState {
         if let error = desktopFailure ?? error ?? unavailable { return error }
         if case .failed(let message)? = model?.phase { return message }
         return nil
+    }
+
+    /// A failed Cloud placeholder still owns its resource. A browser that has
+    /// deliberately navigated away has called `leave()` and must duplicate its
+    /// current page as an ordinary browser instead of resurrecting that stale
+    /// Cloud projection.
+    var retainsCloudResourceForDuplication: Bool {
+        model != nil || resourceID?.machine.isLocal == false
     }
 
     var showsFailureAlert: Bool {

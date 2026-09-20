@@ -16,8 +16,11 @@ extension DockSplitStore {
         }
         let tabs = bonsplitController.tabs(inPane: paneId)
         let catalog = SurfaceCatalog.shared
-        let record = catalog.projectionRecord(forPanel: panelId).flatMap { $0.resource.machine.isLocal ? nil : $0 }
-        let resource = record?.resource ?? browser.cloudAccess.resourceID
+        let keepsCloudRoute = browser.cloudAccess.retainsCloudResourceForDuplication
+        let record = keepsCloudRoute
+            ? catalog.projectionRecord(forPanel: panelId).flatMap { $0.resource.machine.isLocal ? nil : $0 }
+            : nil
+        let resource = keepsCloudRoute ? (record?.resource ?? browser.cloudAccess.resourceID) : nil
         let isCloud = resource?.machine.isLocal == false
         guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId)) == nil else { return nil }
         guard let anchorIndex = tabs.firstIndex(where: {

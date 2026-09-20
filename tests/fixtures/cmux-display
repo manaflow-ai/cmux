@@ -37,7 +37,7 @@ def listening(port):
         return False
 
 
-def ready(number):
+def rfb_ready(number):
     """A bound HTTP port alone does not prove that an X/RFB server exists."""
     try:
         with socket.create_connection(("127.0.0.1", 5900 + number), timeout=0.5) as rfb:
@@ -49,6 +49,13 @@ def ready(number):
                 version += part
             if not version.startswith(b"RFB "):
                 return False
+    except (OSError, http.client.HTTPException):
+        return False
+    return True
+
+
+def novnc_ready(number):
+    try:
         connection = http.client.HTTPConnection("127.0.0.1", 6900 + number, timeout=0.5)
         try:
             connection.request("HEAD", "/vnc.html")
@@ -57,6 +64,11 @@ def ready(number):
             connection.close()
     except (OSError, http.client.HTTPException):
         return False
+
+
+def ready(number):
+    """A bound endpoint alone does not prove that the complete desktop exists."""
+    return rfb_ready(number) and novnc_ready(number)
 
 
 class DisplayCatalog:
@@ -136,6 +148,10 @@ class OwnedProcess:
             return 0
 
 
+class NoVNCUnavailable(RuntimeError):
+    """The viewing transport failed while the guest desktop may be healthy."""
+
+
 class DisplayService:
     def __init__(self, catalog, runtime, starter=STARTER):
         self.catalog = catalog
@@ -145,6 +161,7 @@ class DisplayService:
         self.jobs = {}
         self.states = {}
         self.processes = {}
+        self.websockify_processes = {}
         self.shutdown = threading.Event()
 
     def start(self, number):
@@ -163,6 +180,16 @@ class DisplayService:
                 process.terminate()
             except OSError:
                 pass
+        self.terminate_websockify(number)
+
+    def terminate_websockify(self, number):
+        process = self.websockify_processes.pop(number, None)
+        if process is None:
+            return
+        try:
+            process.terminate()
+        except OSError:
+            pass
 
     @staticmethod
     def wait_for_port(port, timeout=20):
@@ -173,57 +200,78 @@ class DisplayService:
             time.sleep(0.1)
         return False
 
+    def start_websockify(self, number, environment, executable):
+        path = executable if "/" in executable else shutil.which(executable)
+        if not path:
+            raise NoVNCUnavailable("missing display component: websockify")
+        self.terminate_websockify(number)
+        rfb_port, novnc_port = 5900 + number, 6900 + number
+        process = subprocess.Popen(
+            [path, "--web", "/usr/share/novnc", "--heartbeat", "30",
+             f"127.0.0.1:{novnc_port}", f"127.0.0.1:{rfb_port}"],
+            env=environment, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.websockify_processes[number] = process
+        if not self.wait_for_port(novnc_port, timeout=10):
+            self.terminate_websockify(number)
+            raise NoVNCUnavailable("noVNC did not become ready")
+
     def start_components(self, number, environment, runtime):
         if ready(number):
             return
-        self.terminate(number)
+        rfb_is_ready = rfb_ready(number)
+        started_desktop = False
+        if not rfb_is_ready:
+            self.terminate(number)
+            started_desktop = True
         vnc = shutil.which("Xvnc") or shutil.which("Xtigervnc")
         websockify = shutil.which("websockify")
-        if not vnc or not websockify:
+        if not websockify:
+            raise NoVNCUnavailable("display runtime unavailable")
+        if not rfb_is_ready and not vnc:
             raise RuntimeError("display runtime unavailable")
-        rfb_port, novnc_port = 5900 + number, 6900 + number
-        processes = []
-        processes.append(subprocess.Popen(
-            [vnc, f":{number}", "-geometry", os.environ.get("CMUX_VNC_GEOMETRY", "1440x900"),
-             "-depth", "24", "-rfbport", str(rfb_port), "-localhost",
-             "-SecurityTypes", "None", "-AlwaysShared"],
-            env=environment, stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        self.processes[number] = processes
-        if not self.wait_for_port(rfb_port):
-            raise RuntimeError("Xvnc did not become ready")
-        bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
-                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                             stderr=subprocess.DEVNULL, text=True, timeout=10,
-                             check=True).stdout
-        for line in bus.splitlines():
-            if "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            environment[key] = value.strip().rstrip(";").strip().strip("'")
-        try:
-            dbus_pid = int(environment.get("DBUS_SESSION_BUS_PID", "0"))
-        except ValueError:
-            dbus_pid = 0
-        if dbus_pid > 1:
-            processes.append(OwnedProcess(dbus_pid))
-        for executable, args in [
-            ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
-            ("vncconfig", ["-nowin"]),
-            (websockify, ["--web", "/usr/share/novnc", "--heartbeat", "30",
-                          f"127.0.0.1:{novnc_port}", f"127.0.0.1:{rfb_port}"]),
-        ]:
-            path = executable if "/" in executable else shutil.which(executable)
-            if not path:
-                if executable == "vncconfig":
+        if started_desktop:
+            rfb_port = 5900 + number
+            processes = []
+            processes.append(subprocess.Popen(
+                [vnc, f":{number}", "-geometry", os.environ.get("CMUX_VNC_GEOMETRY", "1440x900"),
+                 "-depth", "24", "-rfbport", str(rfb_port), "-localhost",
+                 "-SecurityTypes", "None", "-AlwaysShared"],
+                env=environment, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            self.processes[number] = processes
+            if not self.wait_for_port(rfb_port):
+                raise RuntimeError("Xvnc did not become ready")
+            bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
+                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True, timeout=10,
+                                 check=True).stdout
+            for line in bus.splitlines():
+                if "=" not in line:
                     continue
-                raise RuntimeError(f"missing display component: {executable}")
-            process = subprocess.Popen([path] + args, env=environment,
-                                       stdin=subprocess.DEVNULL,
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            processes.append(process)
-        if not self.wait_for_port(novnc_port, timeout=10):
-            raise RuntimeError("noVNC did not become ready")
+                key, value = line.split("=", 1)
+                environment[key] = value.strip().rstrip(";").strip().strip("'")
+            try:
+                dbus_pid = int(environment.get("DBUS_SESSION_BUS_PID", "0"))
+            except ValueError:
+                dbus_pid = 0
+            if dbus_pid > 1:
+                processes.append(OwnedProcess(dbus_pid))
+            for executable, args in [
+                ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
+                ("vncconfig", ["-nowin"]),
+            ]:
+                path = executable if "/" in executable else shutil.which(executable)
+                if not path:
+                    if executable == "vncconfig":
+                        continue
+                    raise RuntimeError(f"missing display component: {executable}")
+                process = subprocess.Popen([path] + args, env=environment,
+                                           stdin=subprocess.DEVNULL,
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                processes.append(process)
+        if started_desktop or not novnc_ready(number):
+            self.start_websockify(number, environment, websockify)
         (runtime / "env").write_text(f"export DISPLAY=:{number}\n")
 
     def supervise(self, number, finished):
@@ -242,6 +290,9 @@ class DisplayService:
                 if not self.processes.get(number) or not ready(number):
                     self.start_components(number, environment, runtime)
                 state = "running" if ready(number) else "unavailable"
+            except NoVNCUnavailable:
+                self.terminate_websockify(number)
+                state = "unavailable"
             except (OSError, RuntimeError, subprocess.SubprocessError):
                 self.terminate(number)
                 state = "unavailable"
