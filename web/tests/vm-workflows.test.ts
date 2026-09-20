@@ -276,6 +276,7 @@ describe("VM Effect workflows", () => {
     const fixture = freestyleGuestFixture({
       exec: async () => Response.json({ statusCode: failInstall ? 1 : 0 }),
       deleteFailure: true,
+      idPrefix: "vm-cleanup-reconcile",
     });
     let destroyCalls = 0;
     const layer = providerLayer({
@@ -312,8 +313,8 @@ describe("VM Effect workflows", () => {
 
     failInstall = false;
     const retry = await Effect.runPromise(createVm(input).pipe(Effect.provide(layer)));
-    expect(retry.providerVmId).toBe("vm-fixture-2");
-    expect(fixture.liveVms).toEqual(new Set(["vm-fixture-2"]));
+    expect(retry.providerVmId).toBe("vm-cleanup-reconcile-2");
+    expect(fixture.liveVms).toEqual(new Set(["vm-cleanup-reconcile-2"]));
   });
 
   dbTest("retains failed cleanup with durable backoff and does not duplicate the provider delete", async () => {

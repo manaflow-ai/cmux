@@ -13,6 +13,7 @@ export function freestyleGuestFixture(options: {
   write?: (path: string, bytes: Uint8Array, signal?: AbortSignal | null) => void | Promise<void>;
   remove?: (path: string, signal?: AbortSignal | null) => void | Promise<void>;
   deleteFailure?: boolean;
+  idPrefix?: string;
 } = {}) {
   const requests: Array<{ method: string; path: string }> = [];
   const writes: string[] = [];
@@ -28,7 +29,7 @@ export function freestyleGuestFixture(options: {
       const method = init?.method ?? "GET";
       requests.push({ method, path: url.pathname });
       if (method === "POST" && url.pathname === "/v5/vms") {
-        const id = `vm-fixture-${++allocations}`;
+        const id = `${options.idPrefix ?? "vm-fixture"}-${++allocations}`;
         liveVms.add(id);
         return Response.json({ id, state: "running", resources: { cpu: 2, memory: 8192, storage: 32768 }, vpcs: [{ ipv4: "192.0.2.10" }] });
       }
@@ -56,7 +57,7 @@ export function freestyleGuestFixture(options: {
       if (url.pathname.endsWith("/resize")) {
         return Response.json({ id: url.pathname.split("/").at(-2), state: "running", resources: JSON.parse(String(init?.body)) });
       }
-      if (method === "DELETE" && /^\/v5\/vms\/vm-fixture-\d+$/.test(url.pathname)) {
+      if (method === "DELETE" && /^\/v5\/vms\/[a-z0-9-]+-\d+$/.test(url.pathname)) {
         if (options.deleteFailure) return Response.json({ code: "UNAVAILABLE", message: "synthetic delete failure" }, { status: 503 });
         liveVms.delete(url.pathname.split("/").at(-1)!);
         return new Response(null, { status: 204 });
