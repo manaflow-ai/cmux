@@ -906,7 +906,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if let starter = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) {
             _ = recordCreatedTerminal(starter, workspaceID: id, name: nil, cwd: nil)
         }
-        _ = await refreshCurrentGraph(force: true)
+        scheduleRefresh()
         return info.remoteWorkspaces?.first(where: { $0.id == id }) ?? provisional
     }
 
