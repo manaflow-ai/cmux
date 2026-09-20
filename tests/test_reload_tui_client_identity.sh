@@ -33,8 +33,8 @@ BUILT_APP="$TEST_DIR/Built.app"
 mkdir -p "$BUILT_APP/Contents/Resources/bin"
 ROLLING_URL="https://files.example.test/cmux-tui/latest/manifest.json"
 
-identity() { # [manifest-url]; env selects the client source
-  PATH="$FAKEBIN:$PATH" reload_incremental_tui_client_identity "$INSTALLER" "$BUILT_APP" "${1:-}"
+identity() { # [manifest-url] [manifest-snapshot]; env selects the client source
+  PATH="$FAKEBIN:$PATH" reload_incremental_tui_client_identity "$INSTALLER" "$BUILT_APP" "${1:-}" "${2:-}"
 }
 
 # A local client that changes in place changes the identity.
@@ -77,5 +77,90 @@ rm "$BUILT_APP/Contents/Resources/bin/cmux-tui"
 if CMUX_SKIP_CMUX_TUI_CLIENT=1 identity "$ROLLING_URL" >/dev/null 2>&1; then
   fail "skip without a bundled client must resolve the manifest"
 fi
+
+# A publication can land between resolving the identity and installing. The install
+# must bundle the client the identity describes, so both use one manifest snapshot.
+cat > "$FAKEBIN/curl" <<SH
+#!/bin/bash
+url=""; out=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -o) out="\$2"; shift ;;
+    https://*) url="\$1" ;;
+  esac
+  shift
+done
+case "\$url" in
+  */latest/manifest.json) cp "$SERVE/manifest.json" "\$out" 2>/dev/null ;;
+  *) cp "$SERVE/\$(basename "\$(dirname "\$url")")/\$(basename "\$url")" "\$out" 2>/dev/null ;;
+esac
+SH
+cat > "$FAKEBIN/lipo" <<'SH'
+#!/bin/bash
+if [ "$1" = -create ]; then
+  out=""; first="$2"
+  while [ $# -gt 0 ]; do [ "$1" = -output ] && out="$2"; shift; done
+  cp "$first" "$out"
+fi
+exit 0
+SH
+GH_EVENTS="$TEST_DIR/gh-events.log"
+cat > "$FAKEBIN/gh" <<SH
+#!/bin/bash
+printf 'gh %s\\n' "\$*" >> "$GH_EVENTS"
+SH
+chmod +x "$FAKEBIN/curl" "$FAKEBIN/lipo" "$FAKEBIN/gh"
+
+publish() { # <name> <commit>; writes $SERVE/<commit>/ slices and $TEST_DIR/manifest-<name>.json
+  local name="$1" commit="$2" slice sha
+  mkdir -p "$SERVE/$commit"
+  for slice in cmux-tui-aarch64-apple-darwin cmux-tui-x86_64-apple-darwin; do
+    cat > "$SERVE/$commit/$slice" <<SH
+#!/bin/sh
+# build $name
+printf '%s\\n' '{"app":"cmux-tui","capabilities":[]}'
+SH
+    chmod +x "$SERVE/$commit/$slice"
+  done
+  sha="$(reload_incremental_sha256_file "$SERVE/$commit/cmux-tui-aarch64-apple-darwin")"
+  printf '{"commit":"%s","binaries":{"cmux-tui-aarch64-apple-darwin":"%s","cmux-tui-x86_64-apple-darwin":"%s"}}\n' \
+    "$commit" "$sha" "$sha" > "$TEST_DIR/manifest-$name.json"
+}
+COMMIT_ONE="$(printf 'a%.0s' $(seq 1 40))"
+COMMIT_TWO="$(printf 'b%.0s' $(seq 1 40))"
+publish one "$COMMIT_ONE"
+publish two "$COMMIT_TWO"
+
+install_snapshot() { # <app> <manifest-snapshot> [installer options]
+  local app="$1" snapshot="$2"; shift 2
+  mkdir -p "$app/Contents"
+  PATH="$FAKEBIN:$PATH" CMUX_TUI_CLIENT_CACHE="$TEST_DIR/cache" /bin/bash "$INSTALLER" "$app" \
+    --manifest-url "$ROLLING_URL" --manifest-file "$snapshot" "$@"
+}
+
+SNAPSHOT="$TEST_DIR/receipts/cmux-tui-manifest.json"
+cp "$TEST_DIR/manifest-one.json" "$SERVE/manifest.json"
+SNAPSHOT_IDENTITY="$(identity "$ROLLING_URL" "$SNAPSHOT")"
+[[ "$SNAPSHOT_IDENTITY" == "$(identity "$ROLLING_URL")" ]] || fail "keeping the manifest changed the identity"
+cmp -s "$SNAPSHOT" "$TEST_DIR/manifest-one.json" || fail "the identity did not keep the manifest it hashed"
+cp "$TEST_DIR/manifest-two.json" "$SERVE/manifest.json"
+RACED_APP="$TEST_DIR/Raced.app"
+install_snapshot "$RACED_APP" "$SNAPSHOT" --allow-unattested > "$TEST_DIR/raced.log" 2>&1 \
+  || fail "install from the manifest snapshot failed: $(cat "$TEST_DIR/raced.log")"
+cmp -s "$RACED_APP/Contents/Resources/bin/cmux-tui" "$SERVE/$COMMIT_ONE/cmux-tui-aarch64-apple-darwin" \
+  || fail "a publication after the identity was resolved changed the bundled client"
+
+# The snapshot is still authenticated before anything it names is trusted.
+: > "$GH_EVENTS"
+install_snapshot "$TEST_DIR/Attested.app" "$SNAPSHOT" > "$TEST_DIR/attested.log" 2>&1 \
+  || fail "attested install from the manifest snapshot failed: $(cat "$TEST_DIR/attested.log")"
+grep -q "^gh attestation verify $SNAPSHOT " "$GH_EVENTS" || fail "the manifest snapshot was not attested"
+
+# An identity that cannot be resolved leaves no stale snapshot for the install.
+rm "$SERVE/manifest.json"
+if identity "$ROLLING_URL" "$SNAPSHOT" >/dev/null 2>&1; then
+  fail "an unreachable manifest resolved to an identity"
+fi
+[[ ! -e "$SNAPSHOT" ]] || fail "a failed identity left a stale manifest snapshot"
 
 echo "PASS: reload cmux-tui client identity follows the client content"
