@@ -6712,6 +6712,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return didFocus
     }
 
+    /// Resizes a main window, keeping its top-left corner fixed: a height change grows or
+    /// shrinks downward, a width change rightward. The dimensions set and returned are
+    /// the window FRAME size (title bar and chrome included), not the content
+    /// rect. Passing nil for both dimensions reads the frame without changing it.
+    ///
+    /// A height change is the input to the terminal's no-reflow resize path, and
+    /// nothing else in the debug surface can produce one: splits change the
+    /// layout inside a fixed window, and driving the real window from a script
+    /// needs Accessibility permission the automation host does not have. Tests
+    /// for resize behavior have to be able to say "make this window shorter".
+    func resizeMainWindow(windowId: UUID, width: CGFloat?, height: CGFloat?) -> CGSize? {
+        guard let window = windowForMainWindowId(windowId) else { return nil }
+        // Both dimensions nil is a read. setFrame is still a mutation even when the frame is
+        // unchanged -- it posts the frame-change notifications observers act on -- so the
+        // read path must not call it.
+        guard width != nil || height != nil else { return window.frame.size }
+        var frame = window.frame
+        let top = frame.maxY
+        // AppKit does not apply minSize to setFrame, only to interactive resizing, so a
+        // caller asking for 1x1 would otherwise get it. Clamp to the same floor a person
+        // dragging the frame would hit.
+        if let width { frame.size.width = max(width, window.minSize.width) }
+        if let height { frame.size.height = max(height, window.minSize.height) }
+        frame.origin.y = top - frame.size.height
+        window.setFrame(frame, display: true)
+        return window.frame.size
+    }
+
     func closeMainWindow(windowId: UUID, recordHistory: Bool = true) -> Bool {
         let didClose: Bool
         if let window = mainWindowForClose(windowId: windowId) {
