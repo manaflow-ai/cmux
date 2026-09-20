@@ -93,15 +93,23 @@ ghostty_cache_install_if_valid() {
   local cache_manifest="$2"
   local metadata="$3"
   local prefix="$4"
-  local cached_metadata cached_sha expected_sha
+  local cached_metadata cached_sha expected_sha tmp_binary
   [[ -x "$cache_bin" && -f "$cache_manifest" ]] || return 1
   cached_metadata="$(sed '/^binary_sha256=/d' "$cache_manifest" 2>/dev/null || true)"
   [[ "$cached_metadata" == "$metadata" ]] || return 1
   cached_sha="$(sed -n 's/^binary_sha256=//p' "$cache_manifest" 2>/dev/null || true)"
-  expected_sha="$(shasum -a 256 "$cache_bin" 2>/dev/null | awk '{print $1}')"
-  [[ -n "$cached_sha" && "$cached_sha" == "$expected_sha" ]] || return 1
-  mkdir -p "$prefix/bin"
-  install -m 755 "$cache_bin" "$prefix/bin/ghostty"
+  [[ -n "$cached_sha" ]] || return 1
+  mkdir -p "$prefix/bin" || return 1
+  tmp_binary="$(mktemp "$prefix/bin/.ghostty.XXXXXX")" || return 1
+  # Validate the copied bytes, then publish that exact file. A concurrent
+  # cache writer must not replace the bytes between validation and install.
+  if ! install -m 755 "$cache_bin" "$tmp_binary" ||
+     ! expected_sha="$(shasum -a 256 "$tmp_binary" 2>/dev/null | awk '{print $1}')" ||
+     [[ "$cached_sha" != "$expected_sha" ]] ||
+     ! mv -f "$tmp_binary" "$prefix/bin/ghostty"; then
+    rm -f "$tmp_binary"
+    return 1
+  fi
   echo "Reusing cached Ghostty CLI helper"
   return 0
 }
@@ -112,15 +120,24 @@ ghostty_cache_publish() {
   local binary="$3"
   local cache_bin="$cache_dir/ghostty"
   local cache_manifest="$cache_dir/manifest"
-  local tmp_binary="$cache_dir/.ghostty.tmp.$$"
-  local tmp_manifest="$cache_dir/.manifest.tmp.$$"
-  local binary_sha
-  mkdir -p "$cache_dir"
-  install -m 755 "$binary" "$tmp_binary"
-  mv -f "$tmp_binary" "$cache_bin"
-  binary_sha="$(shasum -a 256 "$cache_bin" | awk '{print $1}')"
-  printf '%s\nbinary_sha256=%s' "$metadata" "$binary_sha" > "$tmp_manifest"
-  mv -f "$tmp_manifest" "$cache_manifest"
+  local tmp_binary tmp_manifest binary_sha
+  mkdir -p "$cache_dir" || return 1
+  tmp_binary="$(mktemp "$cache_dir/.ghostty.XXXXXX")" || return 1
+  tmp_manifest="$(mktemp "$cache_dir/.manifest.XXXXXX")" || {
+    rm -f "$tmp_binary"
+    return 1
+  }
+  # These functions are called in conditionals, which disable Bash errexit.
+  # Check every operation explicitly; publication remains best effort.
+  if ! install -m 755 "$binary" "$tmp_binary" ||
+     ! binary_sha="$(shasum -a 256 "$tmp_binary" | awk '{print $1}')" ||
+     [[ -z "$binary_sha" ]] ||
+     ! printf '%s\nbinary_sha256=%s' "$metadata" "$binary_sha" > "$tmp_manifest" ||
+     ! mv -f "$tmp_binary" "$cache_bin" ||
+     ! mv -f "$tmp_manifest" "$cache_manifest"; then
+    rm -f "$tmp_binary" "$tmp_manifest"
+    return 1
+  fi
 }
 
 # Real host arch, accounting for Rosetta where `uname -m` reports x86_64 on

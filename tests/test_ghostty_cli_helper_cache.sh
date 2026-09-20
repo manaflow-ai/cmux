@@ -99,6 +99,23 @@ grep -q 'Building Ghostty CLI helper' "$TMP_DIR/fifth.log"
 grep -q 'Building Ghostty CLI helper' "$TMP_DIR/sixth.log"
 cmp -s "$FIFTH" "$SIXTH"
 
+# Cache publication is best effort: an IO failure must warn, but keep the build.
+mkdir -p "$TMP_DIR/shims"
+cat > "$TMP_DIR/shims/mkdir" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"$BLOCK_CACHE"*) exit 1 ;;
+esac
+exec /bin/mkdir "$@"
+EOF
+chmod +x "$TMP_DIR/shims/mkdir"
+PATH="$TMP_DIR/shims:$PATH" BLOCK_CACHE="$TMP_DIR/unwritable-cache" \
+CMUX_ZIG="$FAKE_ZIG" CMUX_GHOSTTY_HELPER_CACHE_DIR="$TMP_DIR/unwritable-cache" \
+  "$FIXTURE_ROOT/scripts/build-ghostty-cli-helper.sh" \
+  --target aarch64-macos --output "$TMP_DIR/publication-failed" >"$TMP_DIR/publication-failed.log" 2>&1
+grep -q 'warning: unable to publish Ghostty CLI helper cache' "$TMP_DIR/publication-failed.log"
+cmp -s "$FIRST" "$TMP_DIR/publication-failed"
+
 echo "PASS: Ghostty CLI helper cache reuses matching builds, rejects tampering, and disables safely"
 
 python3 "$ROOT_DIR/tests/test_ghostty_cli_helper_cache_failures.py"

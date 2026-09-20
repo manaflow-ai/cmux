@@ -7,7 +7,7 @@ description: "View and edit cmux settings in ~/.config/cmux/cmux.json. Use when 
 
 cmux reads user settings from `~/.config/cmux/cmux.json` (JSONC). A file watcher applies changes on save, no restart. Legacy `~/.config/cmux/settings.json` is read only as a fallback for keys absent from `cmux.json`.
 
-Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The authoritative path list is `Sources/CmuxSettingsJSONPathSupport.swift`; the installed skill carries a generated copy in `references/all-keys.md`. Settings sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) share the same file.
+Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json`. The helper uses the schema-generated path list in `references/all-keys.md` in both checkouts and installed skills. If that reference is unavailable, it falls back to paths discoverable in `Sources/CmuxSettingsJSONPathSupport.swift`. Settings sections are `app`, `terminal`, `notifications`, `sidebar`, `sidebarAppearance`, `workspaceColors`, `automation`, `browser`, `shortcuts`. Non-settings sections (`actions`, `ui`, `commands`, `vault`, `rightSidebar`) share the same file.
 
 ## Helper script
 
