@@ -228,13 +228,8 @@ public struct AutomationSection: View {
     /// Refreshes the card from the authoritative config store through the host bridge.
     private func refreshAutomationRulesStatus() async {
         automationRulesStatus = await hostActions.automationRulesStatus()
-        }.task { startSettingsObservation([socketPasswordModel, modeModel, claudeCodeModel, codexModel, claudePathModel, autoNamingModel, autoNamingAgentModel, autoNamingStatusModel, ripgrepPathModel, suppressSubagentModel, ampModel, cursorModel, geminiModel, kiroModel, kiroLevelModel, portBaseModel, portRangeModel]) }
-        .task {
-            for await _ in ManagedDevicePolicy.changeSignals() {
-                socketPolicyResolution = socketPolicyResolver.resolve()
-            }
-        }
     }
+
     @ViewBuilder
     private var socketControlCard: some View {
         let isManaged = socketPolicyResolution.isManaged
