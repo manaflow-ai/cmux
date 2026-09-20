@@ -20,6 +20,7 @@ struct CloudTerminalNavigationTests {
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: { _ in "Machine" },
             run: { _, _ in submissions += 1; return Task {} },
+            host: AppDelegate.makeCloudTerminalNavigationHost(),
             operationController: controller
         )
         let group = SurfaceResourceGroup(
@@ -46,6 +47,7 @@ struct CloudTerminalNavigationTests {
         let navigation = CloudTreeTerminalNavigationCoordinator(
             machineName: { _ in "Friendly machine" },
             run: { label, _ in labels.append(label); return Task {} },
+            host: AppDelegate.makeCloudTerminalNavigationHost(),
             operationController: controller
         )
         for _ in 0..<2 {
@@ -82,6 +84,7 @@ struct CloudTerminalNavigationTests {
                         catch { failures.append(error) }
                     }
                 },
+                host: AppDelegate.makeCloudTerminalNavigationHost(),
                 operationController: controller
             )
             navigation.open(machine: fixture.provider.machine, group: group, resource: resource.id, view: view, openIn: nil)

@@ -7,8 +7,7 @@ extension CloudTreeNodeActions {
     /// machine's raw provider id. `hostName` (the machine's friendly label)
     /// only shows up when the workspace itself has no name to show.
     static func localWorkspaceTitle(hostName: String, group: SurfaceResourceGroup) -> String {
-        let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? hostName : name
+        group.localWorkspaceTitle(hostName: hostName)
     }
     /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
     /// preferred name its own sidebar row shows), never the raw provider VM
