@@ -35,6 +35,10 @@ Current behavior:
   SSH `cmux-tui relay` compatibility command. It negotiates `identify`, checks
   the server identity and protocol version, bounds frames, and exposes ordered
   workspace and render-attach requests. iOS ships no cmux-tui executable.
+- `MobileRemoteHostKeyStore` persists only after explicit approval and accepts
+  an exact profile, algorithm, and fingerprint match. A changed key, foreign
+  account file, corrupt file, or unknown strict key fails closed before
+  credentials are requested.
 
 This is not a complete encrypted vault or remote terminal product. Signed
 membership chains now authenticate personal and team writers, enforce explicit
