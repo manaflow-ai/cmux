@@ -49,10 +49,12 @@ struct CloudMachineLoadingReservation: Sendable {
     }
 
     func validate(materializedPlacement: SurfaceRemotePlacement?) throws {
-        guard let expectedRemoteTabID else { return }
+        guard expectedRemoteWorkspaceID != nil || expectedRemoteTabID != nil else { return }
         guard let materializedPlacement,
               materializedPlacement.workspaceID == expectedRemoteWorkspaceID,
-              materializedPlacement.tabID == expectedRemoteTabID else { throw CloudDiagnosticFailure.placement }
+              expectedRemoteTabID == nil || materializedPlacement.tabID == expectedRemoteTabID else {
+            throw CloudDiagnosticFailure.placement
+        }
     }
 
     @MainActor
