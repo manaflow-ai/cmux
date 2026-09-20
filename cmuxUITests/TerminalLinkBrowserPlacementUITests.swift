@@ -96,7 +96,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         // the terminal. Drive the real pointer with Command held; no fixture
         // poller can raise the terminal over Settings or steal subsequent focus.
         try clickTerminalLink(app: app, state: readState(stateURL))
-        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 1 }, "Browser tabs: \(try browsers(workspace))")
+        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 1 }, "Browser tabs: \(String(describing: try? browsers(workspace)))")
         XCTAssertEqual(try panes(workspace).count, expectedPanes)
         let clickedBrowser = try XCTUnwrap(try browsers(workspace).first)
         if placement == "samePane" {
@@ -131,7 +131,7 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
         let shellCommand = "open https://example.com/terminal-placement > '\(outputPath)' 2>&1"
         _ = try rpc("surface.send_text", ["workspace_id": workspace, "surface_id": source, "text": shellCommand])
         _ = try rpc("surface.send_key", ["workspace_id": workspace, "surface_id": source, "key": "enter"])
-        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 2 }, "Browser tabs: \(try browsers(workspace))")
+        XCTAssertTrue(poll { (try? self.browsers(workspace).count) == 2 }, "Browser tabs: \(String(describing: try? browsers(workspace)))")
         XCTAssertEqual(try panes(workspace).count, expectedCommandPanes)
         if placement == "samePane" {
             XCTAssertTrue(try browsers(workspace).allSatisfy { $0["pane_id"] as? String == sourcePane })
