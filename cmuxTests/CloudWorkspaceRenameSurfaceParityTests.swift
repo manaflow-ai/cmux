@@ -302,7 +302,13 @@ struct CloudWorkspaceRenameSurfaceParityTests {
                 machine: harness.machine, state: oldGraph, catalog: harness.catalog, observation: .current
             )
             #expect(harness.workspace.title == "Chosen during creation")
-            #expect(harness.surfaces().cloudTree == "Same workspace")
+            #expect(harness.surfaces().cloudTree == "Chosen during creation")
+            #expect(
+                harness.catalog.authoritativeSnapshot.machines
+                    .first(where: { $0.id == harness.machine })?
+                    .remoteWorkspaces?
+                    .first(where: { $0.id == "a" })?.name == "Same workspace"
+            )
 
             gate.continuation.yield(())
             gate.continuation.finish()
