@@ -233,7 +233,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             let originalID = try #require(pending.panels.values.first?.id)
             await #expect(throws: (any Error).self) { try await open(pending, provider: provider, catalog: catalog) }
             #expect(pending.panels.count == 1)
-            #expect(pending.panels[originalID] is CloudVMLoadingPanel)
+            #expect((pending.panels[originalID] as? CloudVMLoadingPanel)?.hasFailed == true)
             #expect(catalog.projections.isEmpty)
             provider.returnMismatchedPlacement = false
             let retry = try await open(pending, provider: provider, catalog: catalog)

@@ -584,12 +584,11 @@ final class SurfaceCatalog {
 
     /// The only open path. Reuses an existing projection when `reuseExisting` is set and one
     /// exists (focusing it), otherwise asks the provider to materialize a pane.
-    ///
     /// `reuseInWorkspace` narrows reuse to projections in that local workspace: a pane
     /// showing the resource in ANOTHER workspace neither satisfies the open nor steals
     /// focus — the resource materializes at `destination` instead. A workspace's own
     /// Desktop row uses this so "open this workspace's screen" never teleports to a
-    /// different workspace's VNC pane. Nil keeps the global open-or-focus jump.
+    /// different workspace's VNC pane.
     @discardableResult
     func project(_ id: SurfaceResourceID, into destination: SurfaceDestination, focus: Bool = true, reuseExisting: Bool = true, reuseInWorkspace: UUID? = nil, remoteView: SurfaceRemoteView? = nil, adopting reservation: CloudTerminalPaneReservation? = nil) async throws -> (projection: SurfaceProjection, reused: Bool) {
         if isDeletingCloudResource(id, remoteWorkspaceID: remoteView?.workspace.id) { throw CancellationError() }
@@ -625,6 +624,7 @@ final class SurfaceCatalog {
             // Explicit placements must match their projection; legacy projections
             // without tab ids are not safe to reuse.
             return (resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID)
+                && projectionMatchesMaterializationDestination($0, destination)
                 && $0.panelID != loadingReservation?.panelID
         }) {
             if let loadingReservation, let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID) {
@@ -801,6 +801,7 @@ final class SurfaceCatalog {
                 $0.resource == id
                     && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
                     && (key.workspaceID == nil || $0.workspaceID == key.workspaceID)
+                    && projectionMatchesMaterializationDestination($0, key.destination)
             }) {
                 if existing.panelID != projection.panelID {
                     cleanupMaterialization(projection, from: inFlight.provider)

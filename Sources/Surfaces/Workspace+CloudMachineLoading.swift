@@ -57,10 +57,12 @@ extension Workspace {
     @discardableResult
     func restoreCloudMachineLoadingPanel(panelID: UUID, machineID: String) -> Bool {
         guard let terminal = panels[panelID] as? TerminalPanel,
+              cloudVMBinding?.vmID == machineID,
               terminal.cloudAttachment?.machineID == machineID,
               let tab = surfaceIdFromPanelId(panelID) else { return false }
         let loading = CloudVMLoadingPanel(id: panelID, workspaceId: id)
         loading.adoptStableSurfaceId(terminal.stableSurfaceId)
+        loading.showFailure(String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened."))
         terminal.close()
         panels[panelID] = loading
         panelTitles[panelID] = loading.displayTitle
