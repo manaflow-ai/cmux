@@ -839,11 +839,10 @@ jobs:
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
       - name: Download compiled app-host test product
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: ./.github/actions/download-test-product
         with:
-          artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
-          merge-multiple: true
 
       - name: Restore compiled app-host test product
         env:
