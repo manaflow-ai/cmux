@@ -34,6 +34,7 @@ final class CloudDisplayCoordinator {
                 self.isAvailable = response.exitCode == 0
             } catch {
                 guard let self, token == self.generation else { return }
+                self.snapshot = nil
                 self.isAvailable = false
             }
         }
@@ -43,7 +44,13 @@ final class CloudDisplayCoordinator {
     }
 
     func create() async throws -> CloudGuestDisplaySnapshot {
-        if let creation { return try await creation.value }
+        if let creation {
+            return try await withTaskCancellationHandler {
+                try await creation.value
+            } onCancel: {
+                creation.cancel()
+            }
+        }
         guard isAvailable, snapshot?.canCreate == true || requestID != nil else {
             throw SurfaceCatalogError.unsupported(CloudGuestDisplaySnapshot.unavailableMessage)
         }
@@ -68,7 +75,11 @@ final class CloudDisplayCoordinator {
         }
         creation = task
         defer { if generation == token { creation = nil } }
-        return try await task.value
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     func stop() {
