@@ -49,6 +49,41 @@ def write_catalog(root: Path, strings: dict) -> Path:
 
 
 class LocalizeChangesTests(unittest.TestCase):
+    def test_key_only_call_cannot_steal_next_default(self):
+        messages, attention = MODULE.parse_swift_messages(
+            "Sources/View.swift",
+            'String(localized: "bare")\nString(localized: "other", defaultValue: "Other")',
+        )
+        self.assertEqual({key: value.source for key, value in messages.items()}, {"other": "Other"})
+        self.assertTrue(any("cannot safely prepare" in item for item in attention))
+
+    def test_import_validates_all_catalog_locale_groups_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = write_catalog(root, {"open": {"localizations": {"en": unit("Open %@")}}})
+            original = path.read_bytes()
+            packet = {"entries": [{
+                "catalog": "Resources/Localizable.xcstrings", "key": "open", "source": "Open %@",
+                "locale": locale, "value": value,
+            } for locale, value in [("de", "Öffnen %@"), ("fr", "Ouvrir")]]}
+            with self.assertRaises(ValueError):
+                MODULE.apply_completed(root, packet, {})
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_partial_array_translation_keeps_stale_element_visible(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "web/messages").mkdir(parents=True)
+            (root / "web/messages/en.json").write_text(json.dumps({"items": ["New first", "New second"]}))
+            (root / "web/messages/ja.json").write_text(json.dumps({"items": ["新しい一", "古い二"]}))
+            previous = {"web/messages/en.json": {"items": ["Old first", "Old second"]},
+                        "web/messages/ja.json": {"items": ["古い一", "古い二"]}}
+            with patch.object(MODULE, "base_json", side_effect=lambda root, base, path: previous[path]):
+                rows, attention, _ = MODULE.web_work(root, "base", ["web/messages/en.json"], ("en", "ja"))
+            self.assertEqual(len(rows), 1)
+            self.assertIn("unchanged", rows[0]["issues"][0])
+            self.assertEqual(attention, [])
+
     def test_discovers_locales_from_authoritative_sources(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
