@@ -248,6 +248,29 @@ Example:
 
 The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, protocol 11 before decoding terminal lifecycle creation results or minting terminal renderer credentials, and protocol 12 before decoding lifecycle readiness from `identify`.
 
+### cloud-bootstrap
+
+| Field | Value |
+| --- | --- |
+| name | `cloud-bootstrap` |
+| status | implemented |
+| since | protocol 12 |
+| authority | local-admin |
+
+Completes the daemon-owned first Cloud workspace bootstrap. The trusted local
+carrier may request the offline welcome before the initial terminal is created;
+the daemon owns the reserved workspace, terminal creation, retry receipt, and
+initial output ordering. Remote clients and user-supplied shell input are not
+accepted on this path.
+
+Params:
+
+| Field | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `welcome` | `boolean` | `false` | Render the prepared Cloud guide when the machine grant and suppression policy allow it |
+
+Result: `object{}`.
+
 ### shutdown-daemon
 
 | Field | Value |

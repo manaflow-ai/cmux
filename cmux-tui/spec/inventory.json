@@ -245,6 +245,7 @@
       "url-open-result"
     ],
     "local-admin": [
+      "cloud-bootstrap",
       "server-stats",
       "register-browser-provider",
       "get-browser-provider",

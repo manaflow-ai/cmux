@@ -10168,6 +10168,35 @@
     "Only the calling connection's provider lease is removed."
    ]
   },
+  "cloud-bootstrap": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "welcome": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local daemon control only; remote clients are rejected.",
+    "The daemon owns the reserved initial workspace and creates no shell input from this request."
+   ]
+  },
   "shutdown-daemon": {
    "authority": "local-admin",
    "since": 9,
