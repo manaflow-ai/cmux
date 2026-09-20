@@ -89,8 +89,7 @@ class ReuseProducts(TestProductHandoff):
 
     def test_corrupt_archive_never_populates_consumer(self):
         self.api.archive.write_bytes(b'corrupt')
-        with self.assertRaisesRegex(ValueError, 'digest'):
-            self.restore_reuse()
+        self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
     def test_invalid_candidate_does_not_hide_later_valid_archive(self):
@@ -152,15 +151,13 @@ class ReuseProducts(TestProductHandoff):
         with zipfile.ZipFile(self.api.archive, 'w') as z:
             z.writestr('app-host-products.tar.gz', b'corrupt')
         self.api.artifact['digest'] = 'sha256:' + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
-        with self.assertRaises(tarfile.TarError):
-            self.restore_reuse()
+        self.assertFalse(self.restore_reuse())
         self.assertFalse(self.consumer.exists())
 
     def test_archive_expansion_is_bounded(self):
         for limit in ('MAX_MEMBER_BYTES', 'MAX_EXPANDED_BYTES', 'MAX_MEMBERS', 'MAX_TAR_BYTES'):
             with self.subTest(limit=limit), mock.patch.object(reuse, limit, 1, create=True):
-                with self.assertRaises((ValueError, tarfile.TarError)):
-                    self.restore_reuse()
+                self.assertFalse(self.restore_reuse())
                 self.assertFalse(self.consumer.exists())
 
     def test_unrelated_producer_tree_rejected_before_download(self):
@@ -199,8 +196,7 @@ class ReuseProducts(TestProductHandoff):
         with zipfile.ZipFile(self.api.archive, 'w') as z:
             z.writestr('app-host-products.tar.gz', tarbytes.getvalue())
         self.api.artifact['digest'] = 'sha256:' + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
-        with self.assertRaises(tarfile.TarError):
-            self.restore_reuse()
+        self.assertFalse(self.restore_reuse())
         self.assertFalse((self.producer.parent / 'escape').exists())
 
 

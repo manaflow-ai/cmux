@@ -236,26 +236,32 @@ def restore(api, value, derived, current_run, current_identity):
         with tempfile.TemporaryDirectory(prefix="cmux-reuse-") as tmp:
             staging = Path(tmp)
             archive = staging / "artifact.zip"
-            api.download(artifact["id"], archive)
-            unpack(archive, staging, artifact["digest"])
-            root = staging / "Build/Products"
-            receipt = json.loads((root / RECEIPT).read_text())
-            if receipt["contract"] != value or receipt["run_id"] != str(run["id"]) or receipt["run_attempt"] != str(run["run_attempt"]):
-                raise ValueError("artifact producer contract mismatch")
-            # Verify the actual checkout commit against GitHub, independent of
-            # the artifact name. Internal PR head trees must also match; when a
-            # PR merge includes additional base changes, conservatively rebuild.
-            for revision in (receipt["revision"], run["head_sha"]):
-                if not re.fullmatch(r"[0-9a-f]{6,40}", revision):
-                    raise ValueError("invalid producer revision")
-                if api.get(f"git/commits/{revision}")["tree"]["sha"] != value["tree"]:
-                    raise ValueError("producer source tree mismatch")
-            original = json.loads((root / products.RECEIPT).read_text())
-            if original["revision"] != receipt["revision"]:
-                raise ValueError("producer revision mismatch")
-            products.restore(staging, {**current_identity, "revision": original["revision"]})
-            # Relocate once more from staging into the actual consumer location.
-            products.stamp(staging, current_identity)
+            try:
+                api.download(artifact["id"], archive)
+                unpack(archive, staging, artifact["digest"])
+                root = staging / "Build/Products"
+                receipt = json.loads((root / RECEIPT).read_text())
+                if receipt["contract"] != value or receipt["run_id"] != str(run["id"]) or receipt["run_attempt"] != str(run["run_attempt"]):
+                    raise ValueError("artifact producer contract mismatch")
+                # Verify the actual checkout commit against GitHub, independent of
+                # the artifact name. Internal PR head trees must also match; when a
+                # PR merge includes additional base changes, conservatively rebuild.
+                for revision in (receipt["revision"], run["head_sha"]):
+                    if not re.fullmatch(r"[0-9a-f]{6,40}", revision):
+                        raise ValueError("invalid producer revision")
+                    if api.get(f"git/commits/{revision}")["tree"]["sha"] != value["tree"]:
+                        raise ValueError("producer source tree mismatch")
+                original = json.loads((root / products.RECEIPT).read_text())
+                if original["revision"] != receipt["revision"]:
+                    raise ValueError("producer revision mismatch")
+                products.restore(staging, {**current_identity, "revision": original["revision"]})
+                # Relocate once more from staging into the actual consumer location.
+                products.stamp(staging, current_identity)
+            except (ValueError, KeyError, OSError, subprocess.SubprocessError,
+                    tarfile.TarError, zipfile.BadZipFile) as error:
+                print(f"Skipping build artifact {artifact['id']} ({type(error).__name__}).")
+                continue
+            # After relocation starts, any failure must abort to main's cleanup.
             destination = derived / "Build/Products"
             if destination.exists():
                 raise ValueError("reuse destination must be empty")
