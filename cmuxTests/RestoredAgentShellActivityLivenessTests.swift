@@ -307,6 +307,31 @@ struct RestoredAgentShellActivityLivenessTests {
         ))
     }
 
+    @Test
+    func foregroundArgvReadRejectsPIDReuseDuringRead() {
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .pi,
+            sessionId: Self.sessionID,
+            workingDirectory: Self.projectDirectory,
+            launchCommand: nil
+        )
+        let original = AgentPIDProcessIdentity(pid: 4242, startSeconds: 10, startMicroseconds: 1)
+        let replacement = AgentPIDProcessIdentity(pid: 4242, startSeconds: 11, startMicroseconds: 1)
+        var identityRead = 0
+        let result = RestoredAgentForegroundProcess.matches(
+            agent,
+            foregroundProcessID: 4242,
+            processArguments: { _ in
+                CmuxTopProcessArguments(arguments: ["pi", "--session", Self.sessionID], environment: [:])
+            },
+            processIdentity: { _ in
+                identityRead += 1
+                return identityRead == 1 ? original : replacement
+            }
+        )
+        #expect(!result)
+    }
+
     // MARK: - Shared evaluator
 
     @Test

@@ -1,7 +1,7 @@
 import Foundation
 
 extension AgentChatSessionRegistry {
-    private func scheduleProcessExitRetry(sessionID: String, pid: Int, attempt: Int) {
+    func scheduleProcessExitRetry(sessionID: String, pid: Int, attempt: Int) {
         guard attempt <= 3 else { return }
         processExitRetryTasks[sessionID]?.task.cancel()
         let retryID = UUID()
