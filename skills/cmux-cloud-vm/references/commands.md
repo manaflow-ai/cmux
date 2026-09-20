@@ -1,6 +1,6 @@
 # cmux Cloud CLI reference
 
-Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cmux cloud` is an alias for `cmux vm` (`cmux cloud ls` == `cmux vm self`). Verbs that exist only in an open PR are listed at the end under [In flight](#in-flight) and nowhere else, so nothing above that heading is something you cannot run today. `tests/test_cloud_vm_skill_coverage.py` fails CI when this file and `CLI/cmux.swift` disagree.
+This reference covers the cmux Cloud CLI in this source revision. `cmux cloud` is an alias for `cmux vm` (`cmux cloud ls` == `cmux vm self`). `tests/test_cloud_vm_skill_coverage.py` checks command coverage against the CLI source.
 
 Find the needed section: [machines](#machines), [execution](#execution),
 [files](#files), [routing](#routing), [workspaces/terminals](#workspaces-and-terminals-the-machines-cmux-tui-session),
@@ -651,7 +651,7 @@ Socket `vm.snapshot {id, name?}`. Text `OK snapshot=<snapshot id>`; `--json` the
 cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d] [--json]
 ```
 
-Socket `vm.fork {id, name?, idempotency_key}`: clones a machine as a new tracked machine for a parallel experiment. `--detach` prints `OK <id>` with provider, image, and snapshot (`native fork` when the provider forks without one); otherwise opens the new machine's shell. Sidebar: machine row › Fork. (Not to be confused with `cmux fork`, a local agent-session verb — see In flight.)
+Socket `vm.fork {id, name?, idempotency_key}`: clones a machine as a new tracked machine for a parallel experiment. `--detach` prints `OK <id>` with provider, image, and snapshot (`native fork` when the provider forks without one); otherwise opens the new machine's shell. Sidebar: machine row › Fork.
 
 ### `cmux vm restore`
 

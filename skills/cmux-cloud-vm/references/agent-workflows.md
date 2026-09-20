@@ -230,5 +230,6 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
 ## 8. Cleanup etiquette
 
 - New cmux-created machines normally remain available until explicitly paused or stopped; older/provider-managed machines may sleep. Opening or running a command wakes a sleeper, so leaving one for the user to inspect is fine (say so in your handoff).
-- Delete forks and scratch machines you created once their purpose is served; close the workspaces and terminals you opened on a shared machine (`vm terminal close`, `vm workspace rm`).
+- If you only opened an existing workspace, close your local view. `vm workspace close` changes the remote workspace: it closes the workspace but leaves its terminals running in the Terminals pool.
+- `vm terminal close` ends a terminal; `vm workspace rm` kills every terminal in the workspace. Limit these to resources created for this task, confirm the affected terminals all belong to it, and stay within the authorized cleanup. The same ownership rule applies to deleting scratch machines and forks.
 - Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — `vm rm` deletes it permanently; `vm base reset` creates a new Base generation and retains the old machine.
