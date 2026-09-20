@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import struct CmuxFoundation.AgentPIDProcessIdentity
 
 struct CmuxTopProcessArguments: Sendable {
     let arguments: [String]
