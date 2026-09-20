@@ -14,7 +14,7 @@ export function guestWelcomeEligibilityCommand(machineId: string, eligible: bool
   const value = shellQuote(eligible ? machineId : "");
   return `(mkdir -p /etc/cmux && temporary=$(mktemp '${GUEST_CMUX_WELCOME_PENDING_PATH}.XXXXXX') && `
     + `trap 'rm -f "$temporary"' EXIT && printf '%s\\n' ${value} > "$temporary" && chmod 0644 "$temporary" && `
-    + `mv -f "$temporary" '${GUEST_CMUX_WELCOME_PENDING_PATH}') >/dev/null 2>&1 || :`;
+    + `mv -f "$temporary" '${GUEST_CMUX_WELCOME_PENDING_PATH}') >/dev/null 2>&1`;
 }
 
 export const GUEST_CMUX_WELCOME_SHELL = `guest_welcome_display_available() {

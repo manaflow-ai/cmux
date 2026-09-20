@@ -9,6 +9,7 @@ import { createServer } from "node:net";
 import { join } from "node:path";
 
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliInstallCommand } from "../services/vms/guestCli";
+import { guestWelcomeEligibilityCommand } from "../services/vms/guestWelcome";
 
 /**
  * Runs the shim against a fake cmux-tui binary that prints its argv one word
@@ -78,6 +79,21 @@ const TERMINAL_ID = "term_0123456789abcdef0123456789abcdef";
 // The in-VM `cmux` shim is shipped as driver-written bytes; a syntax error
 // would surface only inside a live machine, so validate it here.
 describe("in-VM cmux shim", () => {
+  test("a failed eligibility write stops attach preparation before the daemon can consume first use", () => {
+    const directory = mkdtempSync(join(tmpdir(), "cmux-welcome-grant-failure-"));
+    try {
+      const mkdir = join(directory, "mkdir");
+      writeFileSync(mkdir, "#!/bin/sh\nexit 23\n");
+      chmodSync(mkdir, 0o755);
+      const result = spawnSync("sh", ["-c", `${guestWelcomeEligibilityCommand("fixture", true)} && printf bootstrap-started`], {
+        encoding: "utf8", env: { NODE_ENV: "test", PATH: `${directory}:${process.env.PATH}` },
+      });
+      expect(result.status).toBe(23);
+      expect(result.stdout).toBe("");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
   test.each(["existing", "create", "create-failed", "missing-id"])("peer exec selects a supported workspace and fails closed (%s)", async (mode) => {
     const directory = mkdtempSync(join(tmpdir(), "cmux-peer-exec-"));
     const socket = join(directory, "peer.sock");

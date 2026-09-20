@@ -1449,7 +1449,7 @@ export class FreestyleProvider implements VMProvider {
           // an invitation unless the caller is enrolled. Exit 3 means the daemon
           // was not ready inside the settle budget; heal, then run it again.
           const fingerprint = options?.deviceFingerprint;
-          const promptSetup = `${guestWelcomeEligibilityCommand(vmId, options?.providerMetadata?.cloudWelcomeEligible === true)}; `
+          const promptSetup = `${guestWelcomeEligibilityCommand(vmId, options?.providerMetadata?.cloudWelcomeEligible === true)} && `
             + (options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "");
           let bundleResult = await this.execResult(
             vm,
@@ -1479,6 +1479,7 @@ export class FreestyleProvider implements VMProvider {
             );
           }
           let bundle = parseCmuxTuiAttachBundle(bundleResult.stdout, "freestyle", vmId, fingerprint);
+          if (bundle.cloudWelcomePending) span.setAttribute("cmux.vm.welcome.pending", "native-image-upgrade");
           if (!bundle.trustedCarrier) {
             // A healthy daemon from an older image can still lack the trusted
             // listener. Install/restart the pinned daemon before retrying.

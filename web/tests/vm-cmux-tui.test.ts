@@ -334,7 +334,11 @@ describe("cmux-tui attach bundle", () => {
   });
 
   test("older daemons remain usable, but failed bootstrap stays retryable", () => {
-    expect(runBundle("exit 0", undefined, "old", true).status).toBe(0);
+    const old = runBundle("exit 0", undefined, "old", true);
+    expect(old.status).toBe(0);
+    expect(parseCmuxTuiAttachBundle(old.stdout, "freestyle", "vm-1").cloudWelcomePending).toBe(true);
+    const ineligible = runBundle("exit 0", undefined, "old", false);
+    expect(parseCmuxTuiAttachBundle(ineligible.stdout, "freestyle", "vm-1").cloudWelcomePending).toBe(false);
     const failed = runBundle("exit 0", undefined, "failed", true);
     expect(failed.status).toBe(1);
     expect(failed.stdout).toBe("");
