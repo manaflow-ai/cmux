@@ -46,6 +46,29 @@ class CmuxSettingsJSONCTests(unittest.TestCase):
             )
         return result
 
+    def test_unset_removes_values_under_all_duplicate_ancestors(self) -> None:
+        cases = [
+            ('{"app":{"appearance":"hidden","keep":1},"app":{"appearance":"dark"}}', "app.appearance"),
+            ('{"app":1,"app":{"appearance":"dark","keep":1}}', "app.appearance"),
+            ('{"app":{"nested":{"appearance":"hidden","keep":1},"nested":{"appearance":"dark"}}}', "app.nested.appearance"),
+        ]
+        for source, key in cases:
+            with self.subTest(source=source), tempfile.TemporaryDirectory() as tmp:
+                config = Path(tmp) / "cmux.json"
+                config.write_text(source, encoding="utf-8")
+                self.run_helper(config, "unset", key)
+                appearances = []
+                kept = []
+
+                def inspect_object(pairs):
+                    appearances.extend(value for name, value in pairs if name == "appearance")
+                    kept.extend(value for name, value in pairs if name == "keep")
+                    return dict(pairs)
+
+                json.loads(self.strip_jsonc_for_test(config.read_text(encoding="utf-8")), object_pairs_hook=inspect_object)
+                self.assertEqual(appearances, [])
+                self.assertEqual(kept, [1])
+
     def test_set_preserves_comments_whitespace_order_and_trailing_commas(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "cmux.json"
