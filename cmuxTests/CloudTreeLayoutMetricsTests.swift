@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
@@ -26,13 +27,38 @@ struct CloudTreeLayoutMetricsTests {
 
     @Test("title width receives space after stable trailing content")
     func titleWidthReservesControls() {
-        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 240)
-        #expect(metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
+        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 244)
+        #expect(metrics.titleWidth(rowWidth: 176, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
 
-    @Test("the content inset matches the former setup entry")
-    func referenceInsetIsTwelvePoints() {
-        #expect(metrics.referenceInset == 12)
-        #expect(CloudTreeRowGrid.trailingPadding == metrics.referenceInset)
+    @Test("the content inset matches the tuned Cloud row default")
+    func referenceInsetIsEightPoints() {
+        #expect(metrics.referenceInset == 8)
+        #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == metrics.referenceInset)
     }
+
+#if DEBUG
+    @MainActor
+    @Test("Tuning snapshots stay independent and survive reopening")
+    func tuningSnapshots() throws {
+        let suite = "CloudSidebarSpacingTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = CloudSidebarDebugSettings(defaults: defaults)
+        settings.metrics.rowHeight = 32
+        settings.metrics.disclosureGap = 9
+        let first = settings.metrics.resolvedStyle(.compact)
+        settings.metrics.disclosureGap = 3
+        let second = settings.metrics.resolvedStyle(.compact)
+        #expect(first.rowGrid.disclosureGap == 9)
+        #expect(second.rowGrid.disclosureGap == 3)
+        #expect(first.rowHeight == second.rowHeight)
+        #expect(first != second)
+        let reopened = CloudSidebarDebugSettings(defaults: defaults)
+        #expect(reopened.metrics == settings.metrics)
+        settings.metrics.disclosureGap = CloudSidebarDebugMetrics.default.disclosureGap
+        #expect(settings.metrics.rowHeight == 32)
+        #expect(settings.metrics.resolvedStyle(.compact).rowGrid.disclosureGap == 2)
+    }
+#endif
 }

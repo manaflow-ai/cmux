@@ -1,12 +1,13 @@
 import AppKit
 
 /// Converts AppKit's hierarchy-relative proposal into a move among displayed
-/// siblings. The action carries stable IDs into the catalog's mutation path.
+/// siblings. Stable IDs route to the existing descendant or machine order owner.
 struct CloudSidebarOrganizationDrop {
     let sourceID: String
-    let parent: CloudTreeNode
+    let parent: CloudTreeNode?
+    let children: [CloudTreeNode]
     let childIndex: Int
-    let action: CloudSidebarOrganizationAction
+    let operation: CloudSidebarDropOperation
 
     init?(
         sourceID: String,
@@ -16,6 +17,18 @@ struct CloudSidebarOrganizationDrop {
         proposedChildIndex: Int,
         dropAfterItem: Bool
     ) {
+        if nodes.contains(where: { $0.id == sourceID && $0.canReorderMachine }) {
+            guard let drop = CloudMachineReorderDrop(
+                sourceID: sourceID, nodes: nodes, proposedItem: proposedItem,
+                proposedChildIndex: proposedChildIndex, dropAfterItem: dropAfterItem
+            ) else { return nil }
+            self.sourceID = sourceID
+            parent = nil
+            children = nodes
+            childIndex = drop.childIndex
+            operation = .machine(drop.machineID, drop.move)
+            return
+        }
         guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: sourceID),
               let proposedItem else { return nil }
         let index: Int
@@ -49,7 +62,8 @@ struct CloudSidebarOrganizationDrop {
               preview.ordered(siblings, parent: parent.id) != state.ordered(siblings, parent: parent.id) else { return nil }
         self.sourceID = sourceID
         self.parent = parent
+        children = parent.children
         self.childIndex = index
-        self.action = action
+        operation = .organization(action)
     }
 }
