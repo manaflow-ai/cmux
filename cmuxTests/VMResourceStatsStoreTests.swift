@@ -153,4 +153,41 @@ struct VMResourceStatsStoreTests {
         #expect(store.snapshot["vm-0"] == nil)
         #expect(store.snapshot["vm-299"] != nil)
     }
+
+    @Test func listedFleetSurvivesConcurrentReadsAndCLIOnlyCacheEviction() {
+        let store = VMResourceStatsStore(now: { self.time })
+        let fleet = Set((0..<300).map { "vm-\($0)" })
+        let reading = stats(memory: 8192, disk: 32768)
+        store.retain(machineIDs: fleet)
+        // The panel starts a read for every machine before the network replies.
+        let reads = fleet.map { store.beginRead(machineID: $0) }
+        for read in reads { store.finishRead(read, stats: reading) }
+        #expect(store.snapshot.count == fleet.count)
+        #expect(fleet.allSatisfy { store.stats(for: $0) == reading })
+
+        for index in 0..<300 {
+            store.finishRead(store.beginRead(machineID: "cli-\(index)"), stats: reading)
+        }
+        #expect(store.snapshot.count == fleet.count + 256)
+        #expect(fleet.allSatisfy { store.stats(for: $0) == reading })
+        #expect(store.stats(for: "cli-0") == nil)
+        #expect(store.stats(for: "cli-299") == reading)
+
+        let removedRead = store.beginRead(machineID: "vm-0")
+        store.retain(machineIDs: fleet.subtracting(["vm-0"]))
+        store.finishRead(removedRead, stats: reading)
+        #expect(store.snapshot.count == fleet.count - 1)
+        #expect(store.stats(for: "vm-0") == nil)
+    }
+
+    @Test func authResetClearsAuthoritativeFleetRetention() {
+        let store = VMResourceStatsStore(now: { self.time })
+        let fleet = Set((0..<300).map { "vm-\($0)" })
+        store.retain(machineIDs: fleet)
+        store.reset()
+        for id in fleet {
+            store.finishRead(store.beginRead(machineID: id), stats: stats(memory: 8192, disk: 32768))
+        }
+        #expect(store.snapshot.count == 256)
+    }
 }
