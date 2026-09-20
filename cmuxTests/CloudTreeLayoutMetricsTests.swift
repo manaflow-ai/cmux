@@ -35,4 +35,5 @@ struct CloudTreeLayoutMetricsTests {
         #expect(metrics.referenceInset == 12)
         #expect(CloudTreeRowGrid.trailingPadding == metrics.referenceInset)
     }
+
 }

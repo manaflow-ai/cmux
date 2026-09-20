@@ -23,6 +23,11 @@
       "message": "Le Cloud VM richiedono un piano cmux Pro.",
       "action": "Passa a cmux Pro su {upgradeUrl} per creare Cloud VM."
     },
+    "displayName": {
+      "title": "Nome macchina non valido",
+      "message": "Il nome della macchina deve essere testo stampabile di al massimo {maxLength} caratteri.",
+      "action": "Usa un nome più corto senza caratteri di controllo, oppure lascialo vuoto per cancellarlo."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Le macchine da {memory} GiB richiedono cmux {plan}. Il tuo piano supporta fino a {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verifica la tua e-mail per continuare",
     "emailUnverifiedBody": "Accedi con il metodo usato inizialmente, poi verifica la tua e-mail prima di usare questo metodo di accesso.",
+    "signupPendingBody": "Se hai già un account, accedi con il metodo usato in precedenza. Se hai appena creato un account, verifica la tua email prima di accedere.",
     "genericTitle": "Accesso non completato",
     "genericBody": "Riprova. Se il problema persiste, contatta l'assistenza.",
     "backToSignIn": "Torna all'accesso"

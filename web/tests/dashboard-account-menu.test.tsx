@@ -10,7 +10,7 @@ const routerPush = mock(() => undefined);
 const routerReplace = mock(() => undefined);
 const routerRefresh = mock(() => undefined);
 
-mock.module("@stackframe/stack", () => ({
+mock.module("@hexclave/next", () => ({
   useStackApp: () => ({ signOut: appSignOut }),
   UserAvatar: ({ size }: { size: number }) => (
     <span data-testid="avatar" data-size={size} />
