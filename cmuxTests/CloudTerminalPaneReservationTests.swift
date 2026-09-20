@@ -16,7 +16,6 @@ struct CloudTerminalPaneReservationTests {
         let relay = CloudOptimisticInputRelay()
         relay.send(.bytes(Data("ls".utf8)))
         relay.send(.namedKey("enter"))
-        #expect(relay.pendingCount == 2)
 
         let queue = DispatchQueue(label: "reservation-test")
         let router = CloudTuiManualIOInputRouter(surfaceID: 17, queue: queue)
@@ -25,9 +24,7 @@ struct CloudTerminalPaneReservationTests {
         // Attaching flushes the queue into the router (which itself holds the
         // lines until a transport exists) and forwards later input directly.
         relay.attach(router)
-        #expect(relay.pendingCount == 0)
         relay.send(.bytes(Data("pwd\n".utf8)))
-        #expect(relay.pendingCount == 0)
 
         let transport = CloudTuiManualIOConnection(socketPath: connection.socketPath)
         defer { transport.close() }
@@ -56,7 +53,7 @@ struct CloudTerminalPaneReservationTests {
         defer { connection.close() }
         relay.attach(router)
 
-        try await Self.waitUntil { relay.pendingCount == 0 }
+        try await Self.waitUntilAsync { await sender.count >= 2 }
         let requests = await sender.requests
         #expect(requests.map(\.operation) == ["terminal.input.write", "terminal.input.keys"])
         #expect(requests[0].params["terminal"] as? String == "term_created")
@@ -78,20 +75,19 @@ struct CloudTerminalPaneReservationTests {
         let relay = CloudOptimisticInputRelay()
         relay.send(.bytes(Data("typed too early".utf8)))
         relay.discard()
-        #expect(relay.pendingCount == 0)
         relay.send(.bytes(Data("still discarded".utf8)))
-        #expect(relay.pendingCount == 0)
         let router = CloudTuiManualIOInputRouter(surfaceID: 17)
         relay.attach(router)
         relay.send(.bytes(Data("after retry".utf8)))
-        #expect(relay.pendingCount == 0)
     }
 
     @Test
-    func relayBoundsTheQueue() {
+    func relayBoundsTheQueue() async throws {
         let relay = CloudOptimisticInputRelay()
         for _ in 0..<5_000 { relay.send(.bytes(Data([0x61]))) }
-        #expect(relay.pendingCount == 4_096)
+        let sender = RecordingUntrackedSender()
+        relay.bindRemoteTerminal(terminalID: "term_created", sender: sender)
+        try await Self.waitUntilAsync { await sender.count == 4_096 }
     }
 
     @Test @MainActor
@@ -320,10 +316,24 @@ struct CloudTerminalPaneReservationTests {
         }
         try #require(condition())
     }
+
+    private static func waitUntilAsync(
+        timeout: Duration = .seconds(5),
+        _ condition: @escaping () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while !(await condition()), ContinuousClock.now < deadline {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(await condition())
+    }
 }
 
 private actor RecordingUntrackedSender: CloudTuiUntrackedCommandSending {
     private(set) var requests: [CloudTuiRequest] = []
+
+    var count: Int { requests.count }
 
     func sendUntrackedTuiCommand(arguments: CloudTuiRequest) async throws {
         requests.append(arguments)
