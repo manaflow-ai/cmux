@@ -71,17 +71,25 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         return try CmxAttachTicketCompactCoder().decode(data)
     }
 
-    @Test func pairingTicketUsesThePublishedV2InstallationIdentity() throws {
+    @Test func pairingTicketUsesThePublishedV2InstallationIdentity() async throws {
         let previous = MobileHostPublicStatusCache.currentV2DeviceID()
-        defer { MobileHostPublicStatusCache.updateV2DeviceID(previous) }
+        let previousRoutes = MobileHostPublicStatusCache.snapshot()
+        defer {
+            MobileHostPublicStatusCache.updateV2DeviceID(previous)
+            MobileHostPublicStatusCache.update(routes: previousRoutes)
+        }
         let deviceID = "123e4567-e89b-42d3-a456-426614174088"
+        MobileHostPublicStatusCache.update(routes: [try irohRoute()])
+        MobileHostPublicStatusCache.updateV2DeviceID(nil)
+        await #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try await MobileHostService.shared.createAttachTicket(
+                workspaceID: "", terminalID: nil, ttl: 60, target: .physicalDevice
+            )
+        }
         MobileHostPublicStatusCache.updateV2DeviceID(deviceID)
-        let store = MobileAttachTicketStore()
-        let ticket = try store.createTicket(
-            workspaceID: "", terminalID: nil, routes: [try irohRoute()], ttl: 60
+        let payload = try await MobileHostService.shared.createAttachTicket(
+            workspaceID: "", terminalID: nil, ttl: 60, target: .physicalDevice
         )
-        #expect(ticket.macDeviceID == deviceID)
-        let payload = try store.payload(for: ticket, target: .physicalDevice)
         let url = try #require(payload["attach_url"] as? String)
         let decoded = try CmxPairingQRCode().decode(try #require(URLComponents(string: url)))
         #expect(decoded.macDeviceID == deviceID)

@@ -18,7 +18,7 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
-    #if DEBUG
+    #if os(iOS) && DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     #endif
     /// A connected session may still have stale output. Offer manual repair

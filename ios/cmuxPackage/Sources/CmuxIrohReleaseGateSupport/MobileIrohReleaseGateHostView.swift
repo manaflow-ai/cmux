@@ -9,6 +9,7 @@ import SwiftUI
 struct MobileIrohReleaseGateHostView: View {
     @State private var store: CMUXMobileShellStore
     @State private var runner: MobileIrohReleaseGateRunner
+    private let snapshotter = MobileReleaseGateUISnapshot()
     private let uiProbe: MobileReleaseGateUIProbe
     private let onboardingStore: MobileOnboardingStore
     private let signOutHook: MobileSignOutHook
@@ -43,8 +44,9 @@ struct MobileIrohReleaseGateHostView: View {
             signOutHook: signOutHook
         )
         .environment(\.releaseGateUIProbe, uiProbe)
+        .environment(\.releaseGateSnapshotter, snapshotter)
         .task {
-            uiProbe.captureTerminalEvidence = { try await MobileReleaseGateUISnapshot.captureTerminal() }
+            uiProbe.captureTerminalEvidence = { try await snapshotter.captureTerminal() }
             await runner.run(store: store)
         }
     }

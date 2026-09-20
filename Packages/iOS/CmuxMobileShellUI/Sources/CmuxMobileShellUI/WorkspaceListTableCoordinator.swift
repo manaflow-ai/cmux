@@ -58,6 +58,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     /// The most recent configuration-update route, exposed to package tests.
     var lastPayloadApplyRoute: PayloadApplyRoute?
     var releaseGateUIProbe: MobileReleaseGateUIProbe?
+    var releaseGateSnapshotter: MobileReleaseGateUISnapshot?
     private var releaseGateRowTask: Task<Void, Never>?
     #endif
     /// The row whose swipe controls UIKit is currently presenting.
@@ -740,7 +741,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                     guard let self, let tableView, tableView.window != nil,
                           tableView.indexPathsForVisibleRows?.contains(indexPath) == true,
                           self.dataSource?.itemIdentifier(for: indexPath)?.workspaceID == id else { return false }
-                    MobileReleaseGateUISnapshot.capture(tableView.window, name: "workspaces")
+                    self.releaseGateSnapshotter?.capture(tableView.window, name: "workspaces")
                     self.tableView(tableView, didSelectRowAt: indexPath)
                     return true
                 }

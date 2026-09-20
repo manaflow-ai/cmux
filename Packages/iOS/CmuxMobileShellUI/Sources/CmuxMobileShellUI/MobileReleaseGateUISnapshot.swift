@@ -4,11 +4,17 @@ import UIKit
 import notify
 
 @MainActor
-public enum MobileReleaseGateUISnapshot {
+public struct MobileReleaseGateUISnapshot {
+    private let timeoutClock: any Clock<Duration>
+
+    public init(timeoutClock: any Clock<Duration> = ContinuousClock()) {
+        self.timeoutClock = timeoutClock
+    }
+
     /// UIKit hierarchy snapshots omit Ghostty's IOSurface pixels. Ask the
     /// simulator driver for a composited screen capture, then allow navigation
     /// back. The latency was already recorded at the presentation boundary.
-    public static func captureTerminal() async throws {
+    public func captureTerminal() async throws {
         let ready = "dev.cmux.ios.iroh-release-gate.ui-terminal-ready"
         let captured = "dev.cmux.ios.iroh-release-gate.ui-terminal-captured"
         let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -26,8 +32,8 @@ public enum MobileReleaseGateUISnapshot {
                 for await _ in stream { return }
                 throw CancellationError()
             }
-            group.addTask {
-                try await ContinuousClock().sleep(for: .seconds(15))
+            group.addTask { [timeoutClock] in
+                try await timeoutClock.sleep(for: .seconds(15))
                 throw MobileReleaseGateUIProbe.Failure.timedOut
             }
             defer { group.cancelAll() }
@@ -37,7 +43,7 @@ public enum MobileReleaseGateUISnapshot {
 
     /// Supporting evidence from the actual isolated app window, captured after
     /// the measured boundary. Each name is overwritten, so storage is bounded.
-    static func capture(_ window: UIWindow?, name: String) {
+    func capture(_ window: UIWindow?, name: String) {
         guard let window, !window.isHidden, !window.bounds.isEmpty else { return }
         let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: false)

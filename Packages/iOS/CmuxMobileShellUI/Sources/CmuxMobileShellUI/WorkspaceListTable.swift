@@ -9,6 +9,7 @@ import UIKit
 struct WorkspaceListTable: UIViewControllerRepresentable {
     #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    @Environment(\.releaseGateSnapshotter) var releaseGateSnapshotter
     #endif
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
@@ -72,6 +73,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         let coordinator = WorkspaceListTableCoordinator(configuration: self)
         #if DEBUG
         coordinator.releaseGateUIProbe = releaseGateUIProbe
+        coordinator.releaseGateSnapshotter = releaseGateSnapshotter
         #endif
         return coordinator
     }
@@ -102,6 +104,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     ) {
         #if DEBUG
         context.coordinator.releaseGateUIProbe = releaseGateUIProbe
+        context.coordinator.releaseGateSnapshotter = releaseGateSnapshotter
         #endif
         context.coordinator.update(
             configuration: self,

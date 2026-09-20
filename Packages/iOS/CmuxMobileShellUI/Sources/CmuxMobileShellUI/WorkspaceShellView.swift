@@ -201,7 +201,7 @@ private struct WorkspaceShellRenderPresentation {
 #endif
 
 struct WorkspaceShellView: View {
-    #if DEBUG
+    #if os(iOS) && DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     #endif
     @Bindable var store: CMUXMobileShellStore

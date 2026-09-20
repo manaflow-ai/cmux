@@ -10,7 +10,7 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
-    #if DEBUG
+    #if os(iOS) && DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     #endif
 #if os(iOS)
