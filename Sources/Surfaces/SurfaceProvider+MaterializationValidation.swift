@@ -12,10 +12,18 @@ extension SurfaceProvider {
         adopting reservation: CloudTerminalPaneReservation?
     ) async throws -> SurfaceProjection {
         if let reservation { try reservation.sourcePlacement.validate(created: resource) }
-        let projection = try await materialize(
+        var projection = try await materialize(
             resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation
         )
         let expectedWorkspace = reservation?.remoteWorkspaceID
+        if projection.remoteWorkspaceID == nil,
+           let expectedWorkspace,
+           resource.remoteWorkspace?.id == expectedWorkspace {
+            // A valid create receipt may carry the authoritative workspace while
+            // the daemon has not assigned a tab view yet. Preserve that identity
+            // on the projection instead of treating it as a local placement.
+            projection.remoteWorkspaceID = expectedWorkspace
+        }
         guard projection.resource == resource.id,
               projection.workspaceID == destination.workspaceID,
               reservation == nil || remoteView == nil || projection.remoteTabID == remoteView?.tabID,

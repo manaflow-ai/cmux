@@ -180,7 +180,7 @@ struct CloudTerminalPlacementTests {
         }
     }
 
-    @Test("Wrong creation or materialization receipts are never accepted", arguments: ["creationWorkspace", "projectionWorkspace", "projectionMachine"])
+    @Test("Wrong creation or materialization receipts are never accepted", arguments: ["creationWorkspace", "projectionWorkspace", "projectionMachine", "workspaceOnlyResource"])
     func mismatchedReceipt(kind: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let app = try VaultPaneAppFixture()
@@ -197,6 +197,7 @@ struct CloudTerminalPlacementTests {
             if kind == "creationWorkspace" { provider.returnedWorkspaceID = "other-workspace" }
             if kind == "projectionWorkspace" { provider.projectedWorkspaceID = "other-workspace" }
             if kind == "projectionMachine" { provider.projectedMachine = .local }
+            if kind == "workspaceOnlyResource" { provider.omitRemoteViews = true }
             #expect(workspace.openCloudTerminalOptimistically(on: provider.machine, remoteWorkspaceID: provider.remote.id))
             let pendingID = try #require(workspace.cloudPendingCreations.keys.first)
             provider.release.resolve(true)
@@ -206,6 +207,9 @@ struct CloudTerminalPlacementTests {
             #expect(workspace.terminalPanel(for: pendingID)?.surface.ioMode == .manualMirror)
             #expect(workspace.cloudPendingCreations[pendingID] != nil)
             #expect(provider.materialized.count == (kind == "creationWorkspace" ? 0 : 1))
+            if kind == "workspaceOnlyResource" {
+                #expect(catalog.projection(forPanel: pendingID)?.remoteWorkspaceID == provider.remote.id)
+            }
         }
     }
 
