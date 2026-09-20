@@ -29,6 +29,8 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
+private func sidebarShortTabId(_ id: UUID?) -> String { id.map { String($0.uuidString.prefix(5)) } ?? "nil" }
+
 struct SidebarResizerAccessibilityModifier: ViewModifier {
     let accessibilityIdentifier: String?
 
