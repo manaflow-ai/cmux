@@ -136,13 +136,6 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  for label in depot-macos-latest depot-macos-14; do
-    if ! grep -Eq "^[[:space:]]+- ${label}$" "$E2E_FILE"; then
-      echo "FAIL: test-e2e.yml must expose runner option ${label}"
-      exit 1
-    fi
-  done
-
   if ! awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
@@ -154,16 +147,6 @@ check_e2e_runner_fallbacks() {
     END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
   ' "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
-    exit 1
-  fi
-
-  if ! grep -Fq 'RUNNER_CONTEXT_NAME: ${{ runner.name }}' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must inspect the actual runner name for Depot runs"
-    exit 1
-  fi
-
-  if ! grep -Fq "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-')" "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must validate all Depot macOS runner choices"
     exit 1
   fi
 
@@ -188,33 +171,12 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! awk '
-    /^[[:space:]]*\*\)$/ {
-      in_reject = 1
-      saw_error = 0
-      saw_exit = 0
-      next
-    }
-    in_reject && /echo "::error::\$REQUESTED_RUNNER resolved outside Depot/ { saw_error = 1 }
-    in_reject && /^[[:space:]]*exit 1$/ { saw_exit = 1 }
-    in_reject && /^[[:space:]]*;;$/ {
-      if (saw_error && saw_exit) {
-        found = 1
-      }
-      in_reject = 0
-    }
-    END { exit(found ? 0 : 1) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must fail fast and explain runner label misrouting clearly"
-    exit 1
-  fi
-
   if grep -Eq "^[[:space:]]*continue-on-error:" "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must not mask E2E setup or test failures with continue-on-error"
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes Depot and Tart runner choices, identity guards, and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml exposes supported Tart runner choices and duplicate-queue cancellation"
 }
 
 check_ios_tart_canary() {
@@ -1149,12 +1111,11 @@ check_no_self_hosted_fleet_runners() {
   # changes and a physical host label cannot bypass the isolated VM pool.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-{6,12}vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
-  #   depot-macos-{latest,14}.
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
   local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
-  local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x|depot-macos-(latest|14)'
+  local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
   # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
@@ -1178,7 +1139,7 @@ check_no_self_hosted_fleet_runners() {
   for probe in "runs-on: \${{ vars.X || 'blacksmith-6vcpu-macos-26' }}" \
                "runs-on: \${{ vars.X || 'blacksmith-12vcpu-macos-26' }}" \
                "runs-on: \${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}" \
-               '- warp-macos-15-arm64-6x' '- depot-macos-latest' '- blacksmith-6vcpu-macos-15' \
+               '- warp-macos-15-arm64-6x' '- blacksmith-6vcpu-macos-15' \
                '- blacksmith-4vcpu-ubuntu-2404'; do
     if printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
@@ -1276,7 +1237,7 @@ check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 # ci-macos-compat.yml (matrix.os routed through the MACOS_RUNNER_* repo vars)
 check_macos_runner "$COMPAT_FILE" "compat-tests"
 
-# test-e2e.yml is manual, so keep the Depot GUI runner choices but cancel
+# test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
 check_ios_tart_canary

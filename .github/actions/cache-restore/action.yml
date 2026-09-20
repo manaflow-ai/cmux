@@ -13,14 +13,14 @@ inputs:
     required: false
     default: ""
   backend:
-    description: "`warp` reads the runner provider store on Warp runners. Anything else reads the GitHub store."
+    description: "`warp` reads the runner provider store on Warp runners, `r2` reads the R2 bucket from any runner. Anything else reads the GitHub store."
     required: false
     default: ""
 
 outputs:
   cache-hit:
     description: "`true` when the exact key was restored."
-    value: ${{ steps.github.outputs.cache-hit || steps.warp.outputs.cache-hit }}
+    value: ${{ steps.github.outputs.cache-hit || steps.warp.outputs.cache-hit || steps.r2.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -29,7 +29,7 @@ runs:
     # anywhere else keeps reading the GitHub store.
     - name: Restore from the GitHub store
       id: github
-      if: ${{ !(inputs.backend == 'warp' && startsWith(runner.name, 'warp-')) }}
+      if: ${{ inputs.backend != 'r2' && !(inputs.backend == 'warp' && startsWith(runner.name, 'warp-')) }}
       uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
       with:
         path: ${{ inputs.path }}
@@ -43,3 +43,19 @@ runs:
         path: ${{ inputs.path }}
         key: ${{ inputs.key }}
         restore-keys: ${{ inputs.restore-keys }}
+    # R2 is reachable from every runner and its restores need no credentials.
+    - name: Restore from the R2 store
+      id: r2
+      if: ${{ inputs.backend == 'r2' }}
+      shell: bash
+      env:
+        CACHE_PATH: ${{ inputs.path }}
+        CACHE_KEY: ${{ inputs.key }}
+        CACHE_RESTORE_KEYS: ${{ inputs.restore-keys }}
+      run: |
+        prefixes=()
+        while IFS= read -r prefix; do
+          prefix="${prefix//[[:space:]]/}"
+          if [ -n "$prefix" ]; then prefixes+=("$prefix"); fi
+        done <<< "$CACHE_RESTORE_KEYS"
+        "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" restore "$CACHE_PATH" "$CACHE_KEY" ${prefixes[@]+"${prefixes[@]}"}
