@@ -26,13 +26,18 @@ class ReuseProducts(TestProductHandoff):
         self.contract = {"tree": "same-tree", "xcode": "same-xcode"}
         self.api = FakeGitHub(self.contract)
         self.api.archive = self.producer.parent / "artifact.zip"
+        (self.producer / "cmux-build.log").write_text("** BUILD SUCCEEDED **\n")
         self.seal()
 
     def seal(self):
         reuse.products.stamp(self.producer, self.identity)
         root = self.producer / "Build/Products"
-        (root / reuse.RECEIPT).write_text(json.dumps({"contract": self.contract,
-            "revision": self.identity["revision"], "run_id": "12", "run_attempt": str(self.api.run["run_attempt"])}))
+        with mock.patch.object(reuse, "contract", return_value=self.contract), \
+                mock.patch.object(reuse, "read", return_value=self.identity["revision"]), \
+                mock.patch.object(sys, "argv", ["reuse", "seal", str(self.producer)]), \
+                mock.patch.dict(os.environ, {"GITHUB_RUN_ID": "12",
+                    "GITHUB_RUN_ATTEMPT": str(self.api.run["run_attempt"])}):
+            reuse.main()
         archive = self.producer.parent / reuse.ARCHIVE
         subprocess.run([str(reuse.ARCHIVER), "pack", str(self.producer), str(archive)], check=True)
         self.publish(archive)
@@ -52,6 +57,83 @@ class ReuseProducts(TestProductHandoff):
     def restore_reuse(self):
         current = {**self.identity, "revision": "def456", "checkout": "/queue/work/cmux"}
         return reuse.restore(self.api, self.contract, self.consumer, "13", current)
+
+    def warning_check(self, log):
+        budget = self.producer.parent / "warning-budget.tsv"
+        budget.write_text("# No warnings allowed in this fixture\n")
+        checker = Path(__file__).resolve().parents[1] / "scripts/swift_warning_budget.py"
+        return subprocess.run([sys.executable, str(checker), "--log", str(log),
+                               "--budget", str(budget)], capture_output=True, text=True)
+
+    def test_reuse_hit_runs_real_warning_check_with_the_producer_log(self):
+        self.assertTrue(self.restore_reuse())
+        log = self.consumer / "cmux-build.log"
+        result = self.warning_check(log)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(log.read_bytes(), (self.producer / "cmux-build.log").read_bytes())
+
+    def test_reused_log_preserves_warnings_and_their_budget_failure(self):
+        log = self.producer / "cmux-build.log"
+        log.write_text("/producer/work/cmux/Sources/Example.swift:17:5: warning: preserved warning\n"
+                       "** BUILD SUCCEEDED **\n")
+        self.seal()
+        self.assertTrue(self.restore_reuse())
+        original = self.warning_check(log)
+        restored = self.warning_check(self.consumer / "cmux-build.log")
+        self.assertEqual(original.returncode, 1, original.stdout + original.stderr)
+        self.assertEqual(restored.returncode, original.returncode, restored.stdout + restored.stderr)
+        self.assertIn("preserved warning", restored.stdout)
+        self.assertEqual((self.consumer / "cmux-build.log").read_bytes(), log.read_bytes())
+
+    def test_missing_archived_log_returns_a_miss_for_normal_compilation(self):
+        (self.producer / "Build/Products/cmux-build.log").unlink(missing_ok=True)
+        self.archive_directly()
+        output = self.producer.parent / "github-output"
+        with mock.patch.object(reuse, "contract", return_value=self.contract), \
+                mock.patch.object(reuse, "GitHub", return_value=self.api), \
+                mock.patch.object(reuse.products, "identity", return_value=self.identity), \
+                mock.patch.object(sys, "argv", ["reuse", "restore", str(self.consumer)]), \
+                mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "merge_group",
+                    "GITHUB_REPOSITORY": self.api.repository, "GITHUB_RUN_ID": "13",
+                    "GITHUB_OUTPUT": str(output)}):
+            reuse.main()
+        self.assertEqual(output.read_text(), "hit=false\n")
+        self.assertFalse(self.consumer.exists())
+
+    def test_old_receipt_without_build_log_digest_is_a_miss(self):
+        receipt = self.producer / "Build/Products" / reuse.RECEIPT
+        value = json.loads(receipt.read_text())
+        value.pop("build_log_sha256", None)
+        receipt.write_text(json.dumps(value))
+        self.archive_directly()
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_changed_or_symlinked_archived_log_is_a_miss(self):
+        log = self.producer / "Build/Products/cmux-build.log"
+        for kind in ("changed", "symlink"):
+            with self.subTest(kind=kind):
+                shutil.rmtree(self.consumer, ignore_errors=True)
+                log.unlink(missing_ok=True)
+                self.seal()
+                if kind == "changed":
+                    log.write_text("modified after sealing\n")
+                else:
+                    log.unlink(missing_ok=True)
+                    log.symlink_to(reuse.products.RECEIPT)
+                self.archive_directly()
+                self.assertFalse(self.restore_reuse())
+                self.assertFalse(self.consumer.exists())
+                log.unlink(missing_ok=True)
+
+    def test_missing_or_empty_producer_log_cannot_be_sealed(self):
+        log = self.producer / "cmux-build.log"
+        log.unlink()
+        with self.assertRaises((OSError, ValueError)):
+            self.seal()
+        log.write_bytes(b"")
+        with self.assertRaises(ValueError):
+            self.seal()
 
     def test_other_commit_same_tree_reuses_and_relocates_without_test_result(self):
         # The full run failed tests, while compilation itself succeeded.
