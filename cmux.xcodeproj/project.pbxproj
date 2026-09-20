@@ -1503,6 +1503,7 @@
 		FBDAF2DF1FC2BDE5F908FA4E /* CmuxTuiSurfaceProvider+TerminalIO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ECA6203F1AB489BDF3F7A05 /* CmuxTuiSurfaceProvider+TerminalIO.swift */; };
 		646ACD2F9B5044B8A2AB6C3A /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift in Sources */ = {isa = PBXBuildFile; fileRef = 122E7DF3DF3044E68322B11C /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift */; };
 		D12439050000000000000001 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439050000000000000002 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift */; };
+		C13234000000000000000019 /* CmuxTuiSurfaceProviderRegistry+PortDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1323400000000000000001A /* CmuxTuiSurfaceProviderRegistry+PortDiscovery.swift */; };
 		175CFE773740410786E08A2B /* CmuxTuiSurfaceProviderRegistry+Production.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95278207545546F08C9A325F /* CmuxTuiSurfaceProviderRegistry+Production.swift */; };
 		7D46CAA4C3C848ACAD2E46A7 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69821B8A79404A3CA4D07699 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift */; };
 		A1B2C3D4E5F6071827364961 /* CmuxTuiSurfaceProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */; };
@@ -5497,6 +5498,7 @@
 		4ECA6203F1AB489BDF3F7A05 /* CmuxTuiSurfaceProvider+TerminalIO.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TerminalIO.swift"; sourceTree = "<group>"; };
 		122E7DF3DF3044E68322B11C /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+TerminalPrimitives.swift"; sourceTree = "<group>"; };
 		D12439050000000000000002 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift"; sourceTree = "<group>"; };
+		C1323400000000000000001A /* CmuxTuiSurfaceProviderRegistry+PortDiscovery.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProviderRegistry+PortDiscovery.swift"; sourceTree = "<group>"; };
 		95278207545546F08C9A325F /* CmuxTuiSurfaceProviderRegistry+Production.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProviderRegistry+Production.swift"; sourceTree = "<group>"; };
 		69821B8A79404A3CA4D07699 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTuiSurfaceProviderRegistry+Teardown.swift"; sourceTree = "<group>"; };
 		A1B2C3D4E5F6071827364960 /* CmuxTuiSurfaceProviderRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CmuxTuiSurfaceProviderRegistry.swift; sourceTree = "<group>"; };
@@ -8483,6 +8485,7 @@
 				C13234000000000000000016 /* CloudPortDiscoveryUnavailableReason.swift */,
 				C13234000000000000000008 /* CloudPortScanResult.swift */,
 				C1323400000000000000000C /* CmuxTuiSurfaceProvider+PortDiscovery.swift */,
+				C1323400000000000000001A /* CmuxTuiSurfaceProviderRegistry+PortDiscovery.swift */,
 				C1323400000000000000000E /* SurfaceMachineInfo+PortDiscovery.swift */,
 				C13234000000000000000018 /* SurfaceCatalog+PortDiscovery.swift */,
 				F11347000000000000000002 /* SurfaceCatalog+CloudPorts.swift */,
@@ -13573,6 +13576,7 @@
 				FBDAF2DF1FC2BDE5F908FA4E /* CmuxTuiSurfaceProvider+TerminalIO.swift in Sources */,
 				646ACD2F9B5044B8A2AB6C3A /* CmuxTuiSurfaceProvider+TerminalPrimitives.swift in Sources */,
 				D12439050000000000000001 /* CmuxTuiSurfaceProvider+WorkspaceLifecycle.swift in Sources */,
+				C13234000000000000000019 /* CmuxTuiSurfaceProviderRegistry+PortDiscovery.swift in Sources */,
 				175CFE773740410786E08A2B /* CmuxTuiSurfaceProviderRegistry+Production.swift in Sources */,
 				7D46CAA4C3C848ACAD2E46A7 /* CmuxTuiSurfaceProviderRegistry+Teardown.swift in Sources */,
 				A1B2C3D4E5F6071827364961 /* CmuxTuiSurfaceProviderRegistry.swift in Sources */,

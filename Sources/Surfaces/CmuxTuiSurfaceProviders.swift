@@ -170,7 +170,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } else if summary.status != "running" {
             portState = .unavailable(.machineAsleep)
         } else {
-            portState = info.portDiscoveryState == .unsupported ? .notRequested : info.portDiscoveryState
+            portState = (info.portDiscoveryState == .unsupported || info.portDiscoveryState == .notRequested) ? .loading : info.portDiscoveryState
         }
         info = Self.info(
             from: summary,
