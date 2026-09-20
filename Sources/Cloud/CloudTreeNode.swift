@@ -1,7 +1,6 @@
 import CmuxCore
 import CmuxFoundation
 import Foundation
-
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
 /// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
 /// (cmux-tui on a machine, or the local workspace that projects a terminal), a
@@ -62,7 +61,6 @@ final class CloudTreeNode: NSObject {
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { if case .portsGroup = self { true } else { false } }
     }
-
     let id: String
     private(set) var kind: Kind
     var children: [CloudTreeNode]
@@ -70,13 +68,13 @@ final class CloudTreeNode: NSObject {
     /// For workspace rows: everything the workspace holds, in the order it opens.
     private var explicitDragGroup: SurfaceResourceGroup?
 
-    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil) {
+    init(id: String, kind: Kind, children: [CloudTreeNode] = [], dragGroup: SurfaceResourceGroup? = nil, isPinned: Bool = false) {
         self.id = id
         self.kind = kind
         self.children = children
         self.explicitDragGroup = dragGroup
+        self.isPinned = isPinned
     }
-
     var isExpandable: Bool { !children.isEmpty }
 
     /// True when this row, or any row beneath it, is a terminal whose machine
@@ -155,7 +153,6 @@ final class CloudTreeNode: NSObject {
         case .browser(let row): return row.resource.machine
         }
     }
-
     var isMachineRow: Bool {
         switch kind {
         case .machine, .localMachine, .pendingMachine: return true
@@ -276,18 +273,16 @@ struct CloudTreeTerminalRow: Equatable {
     let resource: SurfaceResource
     let isOpen: Bool
     var viewBadge: Int?
-    /// The machine holds a notification for this terminal that this Mac has
-    /// not read (per-client read state from the daemon's `read_by`).
+    var directoryIsCurrent = true
+    var machineDisplayName: String? = nil
+    /// Unread remote notification, scoped to this Mac's read state.
     var hasUnreadNotification: Bool = false
     /// The exact daemon tab represented by a workspace pointer row. Pool rows
     /// leave this nil because one terminal may have several placement names.
     var remoteView: SurfaceRemoteView? = nil
-    /// Legacy payload retained for source compatibility; flat projections always set zero.
     var hiddenTabCount: Int = 0
 
-    /// A terminal resource has one process title, but each daemon tab can have
-    /// its own user name. Workspace rows must render the placement name, or a
-    /// rename in one tab appears to change every tab in the tree.
+    /// Placement names override the shared process title only in their own workspace.
     var displayTitle: String {
         if let name = remoteView?.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             return name
@@ -557,6 +552,7 @@ enum CloudTreeNodeBuilder {
     static func nodes(
         machines: [MachineSnapshot],
         pendingCreates: [MachineCreateOperation] = [],
+        adoptedOperationIDs: [String: UUID] = [:],
         snapshot: SurfaceCatalogSnapshot,
         localWorkspaces: [CloudTreeLocalWorkspace],
         unreadTerminalIDs: [String: Set<String>] = [:],
@@ -565,6 +561,12 @@ enum CloudTreeNodeBuilder {
     ) -> [CloudTreeNode] {
         let projectionIndex = LocalProjectionIndex(snapshot: snapshot, unreadTerminalIDs: unreadTerminalIDs)
         let resourceNodeBuilder = CloudTreeMachineResourceNodeBuilder()
+        var identities = adoptedOperationIDs
+        for operation in pendingCreates where !operation.request.isBaseSetup {
+            if let id = operation.createdMachineID ?? operation.reconcilingMachineID, identities[id] == nil {
+                identities[id] = operation.id
+            }
+        }
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
             nodes.append(localMachineNode(
@@ -574,21 +576,19 @@ enum CloudTreeNodeBuilder {
                 projectionIndex: projectionIndex
             ))
         }
-        // Creates the person just started go first: they are what the person is
-        // waiting on, and a failed one must not hide below a long fleet. A
-        // create whose machine the fleet list or the catalog already returned
-        // has a real row now and drops its stand-in (never the same machine
-        // twice while the CLI is still opening it).
         for operation in pendingCreates where !operation.isSuperseded(by: machines, catalogMachines: snapshot.machines) {
             nodes.append(CloudTreeNode(id: nodeID(pendingCreate: operation.id), kind: .pendingMachine(operation)))
         }
         let infoByMachine = Dictionary(snapshot.machines.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        var seen = Set<String>()
-        for machine in machines {
+        let failedIDs = Set(pendingCreates.filter { !$0.request.isBaseSetup && $0.failureOutput != nil }.compactMap(\.createdMachineID))
+        var seen = failedIDs
+        for machine in machines where !failedIDs.contains(machine.id) {
             seen.insert(machine.id)
             let info = infoByMachine[.cloud(machine.id)]
+            let stableID = identities[machine.id].map { nodeID(pendingCreate: $0) }
+                ?? nodeID(machine: .cloud(machine.id))
             nodes.append(CloudTreeNode(
-                id: nodeID(machine: .cloud(machine.id)),
+                id: stableID,
                 kind: .machine(machine, info),
                 children: cloudChildren(
                     machine: .cloud(machine.id),
@@ -598,11 +598,13 @@ enum CloudTreeNodeBuilder {
                     projectionIndex: projectionIndex,
                     resourceNodeBuilder: resourceNodeBuilder,
                     now: now
-                )
+                ),
+                // A machine pin is explicit sidebar priority, stamped by the panel;
+                // organization only pins the organizable rows below a machine.
+                isPinned: machine.isPinned
             ))
         }
-        // Machines the catalog knows but the fleet list has not returned yet (or
-        // returned under another name) still get a row so their surfaces are reachable.
+        // Include catalog-only machines so their surfaces remain reachable during fleet refresh.
         for info in snapshot.machines where !info.id.isLocal {
             guard let id = info.id.cloudMachineID, !seen.contains(id) else { continue }
             let placeholderSnapshot = MachineSnapshot(
@@ -615,7 +617,8 @@ enum CloudTreeNodeBuilder {
                 label: info.name == id ? nil : info.name
             )
             nodes.append(CloudTreeNode(
-                id: nodeID(machine: info.id),
+                id: identities[id].map { nodeID(pendingCreate: $0) }
+                    ?? nodeID(machine: info.id),
                 kind: .machine(placeholderSnapshot, info),
                 children: cloudChildren(
                     machine: info.id,
@@ -1132,23 +1135,13 @@ enum CloudTreeNodeBuilder {
                 resource: resource,
                 isOpen: projectionIndex.isOpen(resource.id, remoteView: remoteView),
                 viewBadge: viewBadge,
+                directoryIsCurrent: !snapshot.staleMachineIDs.contains(resource.machine),
+                machineDisplayName: snapshot.machines.first { $0.id == resource.machine }?.name,
                 hasUnreadNotification: projectionIndex.hasUnreadNotification(resource.id),
                 remoteView: remoteView,
                 hiddenTabCount: hiddenTabCount
             ))
         )
-    }
-
-    /// Returns canonical forwarded-port resources in stable port/key order.
-    ///
-    /// The tree treats any orphan browser resource with a listening port as a
-    /// port row; this narrower helper is retained for callers that need to
-    /// distinguish provider-minted `port:<n>` resources from ordinary daemon
-    /// browser tabs that happen to point at localhost.
-    static func portResources(_ resources: [SurfaceResource]) -> [SurfaceResource] {
-        resources
-            .filter { $0.kind == .browser && $0.port != nil && $0.id.key.hasPrefix("port:") }
-            .sorted { ($0.port ?? 0, $0.id.key) < ($1.port ?? 0, $1.id.key) }
     }
 
     private static func placeholder(

@@ -104,6 +104,7 @@ validate_extension_profile() {
   fi
   if ! python3 - "$plist_path" "$EXPECTED_CERT_SHA256" <<'PY'
 import hashlib
+import os
 import plistlib
 import sys
 from datetime import datetime, timezone
@@ -116,8 +117,18 @@ if entitlements.get("get-task-allow") is not False:
     raise SystemExit("profile is not an App Store distribution profile")
 if profile.get("ProvisionsAllDevices") or "ProvisionedDevices" in profile:
     raise SystemExit("profile is not an App Store distribution profile")
+# Tests inject a fixed instant so a fixture never depends on the real clock;
+# the release lanes leave it unset and validate against now.
+fixed_now = os.environ.get("IOS_APPSTORE_PROFILE_VALIDATION_TIME", "")
+if fixed_now:
+    now = datetime.fromisoformat(fixed_now.replace("Z", "+00:00"))
+    if now.tzinfo is None:
+        raise SystemExit("IOS_APPSTORE_PROFILE_VALIDATION_TIME must carry a timezone offset")
+    now = now.astimezone(timezone.utc)
+else:
+    now = datetime.now(timezone.utc)
 expiration = profile.get("ExpirationDate")
-if not isinstance(expiration, datetime) or expiration.astimezone(timezone.utc) <= datetime.now(timezone.utc):
+if not isinstance(expiration, datetime) or expiration.astimezone(timezone.utc) <= now:
     raise SystemExit("profile is expired")
 if expected_cert:
     fingerprints = {
@@ -197,9 +208,22 @@ try_installed_extension_profile() {
 }
 
 resolve_expected_cert_fingerprint() {
+  # Best effort: an empty fingerprint skips the certificate check in
+  # validate_extension_profile. Read the certificate in two steps so a
+  # missing or unreadable certificate leaves it empty instead of aborting
+  # the script under pipefail or hashing empty input.
+  EXPECTED_CERT_SHA256=""
   [ -n "${IOS_DISTRIBUTION_IDENTITY:-}" ] || return 0
   command -v openssl >/dev/null 2>&1 || return 0
-  EXPECTED_CERT_SHA256="$(security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" 2>/dev/null | openssl x509 -outform DER 2>/dev/null | openssl dgst -sha256 -r 2>/dev/null | awk '{print toupper($1)}')"
+  local cert_der
+  cert_der="$TMP_ROOT/ios-distribution-cert.der"
+  rm -f "$cert_der"
+  if security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" 2>/dev/null |
+    openssl x509 -outform DER -out "$cert_der" 2>/dev/null && [ -s "$cert_der" ]; then
+    EXPECTED_CERT_SHA256="$(openssl dgst -sha256 -r "$cert_der" 2>/dev/null | awk '{print toupper($1)}' || true)"
+  fi
+  rm -f "$cert_der"
+  return 0
 }
 
 json_id_by_bundle_identifier() {

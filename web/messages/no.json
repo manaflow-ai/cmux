@@ -23,6 +23,11 @@
       "message": "Cloud VM-er krever en cmux Pro-plan.",
       "action": "Oppgrader til cmux Pro på {upgradeUrl} for å opprette Cloud VM-er."
     },
+    "displayName": {
+      "title": "Ugyldig maskinnavn",
+      "message": "Maskinnavn må være lesbar tekst på høyst {maxLength} tegn.",
+      "action": "Bruk et kortere navn uten kontrolltegn, eller la det stå tomt for å fjerne det."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maskiner med {memory} GiB krever cmux {plan}. Abonnementet ditt støtter opptil {max} GiB.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Bekreft e-posten din for å fortsette",
     "emailUnverifiedBody": "Logg inn med metoden du brukte opprinnelig, og bekreft deretter e-posten før du bruker denne innloggingsmetoden.",
+    "signupPendingBody": "Hvis du allerede har en konto, logger du inn med metoden du brukte tidligere. Hvis du nettopp opprettet en konto, må du bekrefte e-posten før du logger inn.",
     "genericTitle": "Innloggingen kunne ikke fullføres",
     "genericBody": "Prøv igjen. Kontakt kundestøtte hvis problemet fortsetter.",
     "backToSignIn": "Tilbake til innlogging"
