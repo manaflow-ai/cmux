@@ -10,11 +10,9 @@ nonisolated private let deviceMirrorLog = Logger(subsystem: "dev.cmux", category
 /// The remote Mac's Ghostty surface stays the PTY owner. This session feeds
 /// that surface's raw PTY bytes (`terminal.bytes`, chained by sequence from a
 /// render-grid replay on attach) into a local manual-mirror ``TerminalSurface``,
-/// sends the local surface's keystrokes back as `mobile.terminal.input`, and
-/// keeps both grids equal through the host's shared viewport: it reports the
-/// local pane's grid, the host caps the terminal to the smallest attached
-/// viewport (letterboxing its own pane), and the effective grid the host
-/// answers with pins the local surface. Last writer wins; no roles.
+/// sends local keystrokes back as `mobile.terminal.input`. The source Mac owns
+/// the terminal grid: mirrors follow its replay and resize events, without
+/// reporting a viewport that could resize the original terminal.
 @MainActor
 final class DeviceTerminalMirrorSession {
     enum Phase: Equatable {
@@ -27,7 +25,6 @@ final class DeviceTerminalMirrorSession {
 
     private let isConnected: @MainActor () -> Bool
     private let events: DeviceLinkTerminalEvents
-    private let clientID: String
     private let requestData: @MainActor @Sendable (String, [String: Any]) async throws -> Data
     let remoteWorkspaceID: String
     let remoteSurfaceID: UUID
@@ -38,12 +35,7 @@ final class DeviceTerminalMirrorSession {
     private weak var surface: TerminalSurface?
     private var eventTask: Task<Void, Never>?
     private var attachTask: Task<Void, Never>?
-    private var viewportTask: Task<Void, Never>?
     private var expectedSequence: UInt64?
-    private var viewportGeneration: UInt64 = 0
-    private var reportedGrid: (columns: Int, rows: Int)?
-    private var pendingGrid: (columns: Int, rows: Int)?
-    private var isVisible = true
     private var replayNeeded = false
     private var attachingBytes: [(sequence: UInt64?, data: Data)] = []
     private var attachingByteCount = 0
@@ -51,7 +43,7 @@ final class DeviceTerminalMirrorSession {
     convenience init(link: DeviceLink, remoteWorkspaceID: String, remoteSurfaceID: UUID) {
         self.init(
             remoteWorkspaceID: remoteWorkspaceID, remoteSurfaceID: remoteSurfaceID,
-            events: link.terminalEvents, clientID: link.clientID,
+            events: link.terminalEvents,
             isConnected: { link.isConnected },
             requestData: { method, params in try await link.requestData(method, params: params) }
         )
@@ -61,14 +53,12 @@ final class DeviceTerminalMirrorSession {
         remoteWorkspaceID: String,
         remoteSurfaceID: UUID,
         events: DeviceLinkTerminalEvents,
-        clientID: String,
         isConnected: @escaping @MainActor () -> Bool,
         requestData: @escaping @MainActor @Sendable (String, [String: Any]) async throws -> Data
     ) {
         self.remoteWorkspaceID = remoteWorkspaceID
         self.remoteSurfaceID = remoteSurfaceID
         self.events = events
-        self.clientID = clientID
         self.isConnected = isConnected
         self.requestData = requestData
         inputRouter = DeviceTerminalInputRouter(
@@ -88,11 +78,6 @@ final class DeviceTerminalMirrorSession {
         )
     }
 
-    private func request(_ method: String, params: [String: Any]) async throws -> [String: Any] {
-        let response = try await requestData(method, params)
-        return try Self.responseObject(response, method: method)
-    }
-
     private static func responseObject(_ data: Data, method: String) throws -> [String: Any] {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw DeviceLinkError.malformedResponse(method)
@@ -104,15 +89,12 @@ final class DeviceTerminalMirrorSession {
         ["workspace_id": remoteWorkspaceID, "surface_id": remoteSurfaceID.uuidString]
     }
 
-    /// Binds the local Ghostty surface: size reports drive viewport reports,
-    /// runtime readiness samples the first grid, visibility lifts the cap.
+    /// Applies the source grid to the local renderer without claiming a host viewport.
     func bind(surface: TerminalSurface) {
         self.surface = surface
-        surface.onManualSizeApplied = { [weak self] sample in self?.apply(size: sample) }
-        surface.onRuntimeReady = { [weak self] in self?.runtimeReady() }
-        surface.onManualWindowAttached = { [weak self] in self?.runtimeReady() }
-        surface.onManualVisibilityChanged = { [weak self] visible in self?.visibilityChanged(visible) }
-        surface.flushPendingManualSizeReportIfAttached()
+        if let assigned = assignedGrid {
+            surface.setAssignedGrid(columns: assigned.columns, rows: assigned.rows)
+        }
     }
 
     func start() {
@@ -124,7 +106,6 @@ final class DeviceTerminalMirrorSession {
 
     func stop() {
         guard phase != .stopped else { return }
-        let hadReport = viewportGeneration > 0
         phase = .stopped
         attachingBytes.removeAll()
         attachingByteCount = 0
@@ -132,21 +113,9 @@ final class DeviceTerminalMirrorSession {
         attachTask = nil
         eventTask?.cancel()
         eventTask = nil
-        viewportTask?.cancel()
-        viewportTask = nil
         inputRouter.invalidate()
-        if let surface {
-            surface.onManualSizeApplied = nil
-            surface.onRuntimeReady = nil
-            surface.onManualWindowAttached = nil
-            surface.onManualVisibilityChanged = nil
-            surface.clearAssignedGrid()
-        }
+        surface?.clearAssignedGrid()
         surface = nil
-        if hadReport, isConnected() {
-            let params = clearViewportParams()
-            Task { _ = try? await request("mobile.terminal.viewport", params: params) }
-        }
     }
 
     // MARK: - Attach and bytes
@@ -194,27 +163,23 @@ final class DeviceTerminalMirrorSession {
         case .updated(let columns, let rows):
             guard let columns, let rows, columns > 0, rows > 0 else { return }
             if let assigned = assignedGrid, assigned.columns == columns, assigned.rows == rows { return }
-            // The host's terminal changed size (its pane resized, or another
-            // viewer pinned a smaller grid): repaint at the new geometry.
+            // Repaint at the geometry the source Mac reports.
             pin(columns: columns, rows: rows)
             scheduleAttach()
         case .resyncRequired:
             if isConnected() {
-                reportedGrid = nil
                 scheduleAttach()
             } else if phase == .attached || phase == .attaching {
                 phase = .detached
             }
         case .linkReconnected:
-            reportedGrid = nil
             scheduleAttach()
         case .linkLost:
             if phase == .attached || phase == .attaching { phase = .detached }
         }
     }
 
-    /// Single-flight replay: viewport report, then a full snapshot of the
-    /// remote screen as VT bytes, then live bytes chained from its sequence.
+    /// Single-flight replay of the source screen, followed by sequenced live bytes.
     private func scheduleAttach() {
         guard phase != .stopped, attachTask == nil else {
             replayNeeded = attachTask != nil
@@ -239,9 +204,6 @@ final class DeviceTerminalMirrorSession {
         phase = .attaching
         attachingBytes.removeAll(keepingCapacity: true)
         attachingByteCount = 0
-        if let grid = pendingGrid ?? reportedGrid ?? currentDesiredGrid() {
-            await reportViewport(grid)
-        }
         guard !Task.isCancelled, phase != .stopped else { return }
         do {
             let response = try await requestData("mobile.terminal.replay", surfaceParams)
@@ -309,111 +271,7 @@ final class DeviceTerminalMirrorSession {
     /// replacement, so nothing from before it may survive.
     nonisolated private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
 
-    // MARK: - Geometry
-
-    func runtimeReady() {
-        guard phase != .stopped, let surface, surface.isNativeViewInRealWindow,
-              let sample = surface.rawSizingSample() else { return }
-        apply(size: sample)
-    }
-
-    func visibilityChanged(_ visible: Bool) {
-        guard phase != .stopped else { return }
-        isVisible = visible
-        if visible {
-            runtimeReady()
-        } else if viewportGeneration > 0, isConnected() {
-            // A hidden pane must not keep capping the remote terminal.
-            reportedGrid = nil
-            pendingGrid = nil
-            let params = clearViewportParams()
-            viewportTask?.cancel()
-            viewportTask = Task { [weak self] in
-                _ = try? await self?.request("mobile.terminal.viewport", params: params)
-                guard let self, self.isVisible, self.pendingGrid != nil, self.phase != .stopped else {
-                    self?.viewportTask = nil
-                    return
-                }
-                self.viewportTask = nil
-                self.startViewportTask()
-            }
-        }
-    }
-
-    /// The grid this pane could show at its current size: the view's pixel
-    /// bounds, minus the surface's own padding, in whole cells.
-    static func desiredGrid(from sample: TerminalSurfaceRawSizingSample) -> (columns: Int, rows: Int)? {
-        guard let bounds = sample.viewBoundsPt, let scale = sample.backingScale,
-              bounds.width > 1, bounds.height > 1, scale > 0,
-              sample.cellWidthPx > 0, sample.cellHeightPx > 0 else { return nil }
-        let padWidth = max(0, sample.surfaceWidthPx - sample.columns * sample.cellWidthPx)
-        let padHeight = max(0, sample.surfaceHeightPx - sample.rows * sample.cellHeightPx)
-        let widthPx = Int((bounds.width * scale).rounded(.down)) - padWidth
-        let heightPx = Int((bounds.height * scale).rounded(.down)) - padHeight
-        let columns = widthPx / sample.cellWidthPx
-        let rows = heightPx / sample.cellHeightPx
-        guard columns >= 2, rows >= 2 else { return nil }
-        return (min(max(columns, 20), 300), min(max(rows, 5), 120))
-    }
-
-    private func currentDesiredGrid() -> (columns: Int, rows: Int)? {
-        guard let surface, surface.isNativeViewInRealWindow, let sample = surface.rawSizingSample() else { return nil }
-        return Self.desiredGrid(from: sample)
-    }
-
-    func apply(size sample: TerminalSurfaceRawSizingSample) {
-        guard phase != .stopped, isVisible, let grid = Self.desiredGrid(from: sample) else { return }
-        if let reported = reportedGrid, reported.columns == grid.columns, reported.rows == grid.rows { return }
-        pendingGrid = grid
-        guard viewportTask == nil, phase == .attached || phase == .attaching else { return }
-        startViewportTask()
-    }
-
-    private func startViewportTask() {
-        guard viewportTask == nil else { return }
-        viewportTask = Task { [weak self] in
-            guard let self else { return }
-            while let next = self.pendingGrid, self.phase != .stopped, self.isVisible, !Task.isCancelled {
-                self.pendingGrid = nil
-                await self.reportViewport(next)
-            }
-            self.viewportTask = nil
-        }
-    }
-
-    private func reportViewport(_ grid: (columns: Int, rows: Int)) async {
-        guard isConnected(), isVisible, phase != .stopped else { return }
-        viewportGeneration &+= 1
-        let generation = viewportGeneration
-        var params = surfaceParams
-        params["client_id"] = clientID
-        params["viewport_columns"] = grid.columns
-        params["viewport_rows"] = grid.rows
-        params["viewport_generation"] = viewportGeneration
-        do {
-            let response = try await request("mobile.terminal.viewport", params: params)
-            guard !Task.isCancelled, phase != .stopped, isVisible, viewportGeneration == generation else { return }
-            reportedGrid = grid
-            if let columns = (response["columns"] as? NSNumber)?.intValue,
-               let rows = (response["rows"] as? NSNumber)?.intValue, columns > 0, rows > 0 {
-                pin(columns: columns, rows: rows)
-            }
-        } catch {
-            deviceMirrorLog.error("device viewport report failed: \(String(describing: error), privacy: .private)")
-        }
-    }
-
-    private func clearViewportParams() -> [String: Any] {
-        viewportGeneration &+= 1
-        var params = surfaceParams
-        params["client_id"] = clientID
-        params["clear"] = true
-        params["viewport_generation"] = viewportGeneration
-        return params
-    }
-
-    /// Pins the local grid to the host's effective grid; the view clips or
-    /// letterboxes the difference, exactly as the remote Mac's own pane does.
+    /// Pins only the mirror to the source grid; local resizing clips or letterboxes it.
     private func pin(columns: Int, rows: Int) {
         if let assigned = assignedGrid, assigned.columns == columns, assigned.rows == rows { return }
         assignedGrid = (columns, rows)

@@ -208,8 +208,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
                 focus: focus,
                 onInput: { input in router.enqueue(input) },
                 keyNameResolver: nil,
-                onResize: { [weak session] sample in session?.apply(size: sample) },
-                onRuntimeReady: { [weak session] in session?.runtimeReady() },
+                onResize: { _ in },
+                onRuntimeReady: {},
                 onFocus: {}
             )
         } catch {

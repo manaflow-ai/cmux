@@ -12,7 +12,7 @@ import Testing
 
 /// A projected device terminal is a manual-mirror Ghostty pane fed raw PTY
 /// bytes; these pin the two pure edges of that path: how host events decode
-/// per surface, and how the pane's pixels become the grid it asks the host for.
+/// per surface, and that opening a pane cannot resize the host terminal.
 @MainActor
 @Suite("Devices: terminal mirror events and grid")
 struct DeviceTerminalMirrorTests {
@@ -33,7 +33,7 @@ struct DeviceTerminalMirrorTests {
         var methods: [String] = []
         let session = DeviceTerminalMirrorSession(
             remoteWorkspaceID: "workspace", remoteSurfaceID: surfaceID,
-            events: events, clientID: "mac-mirror", isConnected: { true },
+            events: events, isConnected: { true },
             requestData: { method, params in
                 methods.append(method)
                 #expect(params["viewport_columns"] == nil)
@@ -172,32 +172,4 @@ struct DeviceTerminalMirrorTests {
         }
     }
 
-    @Test("The desired grid derives from the pane's backing pixels minus the surface padding, clamped")
-    func desiredGrid() {
-        func sample(width: CGFloat, height: CGFloat, scale: CGFloat = 2) -> TerminalSurfaceRawSizingSample {
-            // 80×24 cells of 14×30 px with 8×6 px of padding.
-            TerminalSurfaceRawSizingSample(
-                columns: 80, rows: 24, cellWidthPx: 14, cellHeightPx: 30,
-                surfaceWidthPx: 80 * 14 + 8, surfaceHeightPx: 24 * 30 + 6,
-                viewBoundsPt: CGSize(width: width, height: height), backingScale: scale
-            )
-        }
-        // 1000pt × 600pt at 2x = 2000×1200 px; minus 8×6 → 1992×1194; / 14×30 → 142 × 39.
-        let grid = DeviceTerminalMirrorSession.desiredGrid(from: sample(width: 1000, height: 600))
-        #expect(grid?.columns == 142)
-        #expect(grid?.rows == 39)
-        #expect(DeviceTerminalMirrorSession.desiredGrid(from: sample(width: 0, height: 600)) == nil)
-        #expect(DeviceTerminalMirrorSession.desiredGrid(from: sample(width: 1000, height: 600, scale: 0)) == nil)
-        let tiny = DeviceTerminalMirrorSession.desiredGrid(from: sample(width: 100, height: 60))
-        #expect(tiny?.columns == 20, "narrow panes clamp up to the host minimum")
-        #expect(tiny?.rows == 5)
-        let huge = DeviceTerminalMirrorSession.desiredGrid(from: sample(width: 5000, height: 4000))
-        #expect(huge?.columns == 300)
-        #expect(huge?.rows == 120)
-        let noBounds = TerminalSurfaceRawSizingSample(
-            columns: 80, rows: 24, cellWidthPx: 14, cellHeightPx: 30, surfaceWidthPx: 1128, surfaceHeightPx: 726,
-            viewBoundsPt: nil, backingScale: nil
-        )
-        #expect(DeviceTerminalMirrorSession.desiredGrid(from: noBounds) == nil)
-    }
 }
