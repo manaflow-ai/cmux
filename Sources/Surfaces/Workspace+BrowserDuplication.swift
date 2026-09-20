@@ -8,11 +8,11 @@ extension Workspace {
               let paneId = paneId(forPanelId: panelId),
               let browser = browserPanel(for: panelId) else { return nil }
         let catalog = SurfaceCatalog.shared
-        let keepsCloudRoute = browser.cloudAccess.retainsCloudResourceForDuplication
+        let keepsCloudRoute = browser.retainsCloudResourceForDuplication
         let record = keepsCloudRoute
             ? catalog.projectionRecord(forPanel: panelId).flatMap { $0.resource.machine.isLocal ? nil : $0 }
             : nil
-        let resource = keepsCloudRoute ? (record?.resource ?? browser.cloudAccess.resourceID) : nil
+        let resource = keepsCloudRoute ? (record?.resource ?? browser.cloudResourceForDuplication) : nil
         guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId)) == nil else { return nil }
         let isCloud = resource?.machine.isLocal == false
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)

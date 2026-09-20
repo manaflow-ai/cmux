@@ -56,7 +56,25 @@ extension CmuxTuiSurfaceProvider {
         let projectedResource = catalog.projectionRecord(forPanel: browser.id).flatMap {
             $0.resource.machine.isLocal ? nil : $0.resource
         }
-        let explicitResource = resourceID ?? browser.cloudAccess.resourceID ?? projectedResource
+        let retainedResource = browser.cloudAccess.resourceID ?? projectedResource
+        let explicitResource: SurfaceResourceID?
+        if let resourceID {
+            explicitResource = resourceID
+        } else if let retainedResource,
+                  Self.port(for: retainedResource, catalog: catalog) == nil
+                    || Self.port(for: retainedResource, catalog: catalog) == requestedPort {
+            explicitResource = retainedResource
+        } else {
+            // A URL that changes the service port must resolve to the requested
+            // catalog slot instead of carrying the old display identity forward.
+            explicitResource = nil
+        }
+        if let explicitResource,
+           let expectedPort = Self.port(for: explicitResource, catalog: catalog),
+           expectedPort != requestedPort {
+            browser.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
+            return false
+        }
         if explicitResource == nil, fallbackID.kind == .display,
            fallbackID.key != SurfaceResourceID.desktopDisplayKey,
            catalog.resources[fallbackID] == nil {
@@ -92,6 +110,19 @@ extension CmuxTuiSurfaceProvider {
         browser.cloudAccess.routeDidConfigure()
         materializedPanels.insert(browser.id)
         return true
+    }
+
+    private static func port(for resource: SurfaceResourceID, catalog: SurfaceCatalog) -> Int? {
+        if let port = catalog.resources[resource]?.port { return port }
+        if resource.kind == .display,
+           let number = Int(resource.key.split(separator: ":").last ?? ""), (1...16).contains(number) {
+            return 6900 + number
+        }
+        if resource.kind == .browser, resource.key.hasPrefix("port:"),
+           let port = Int(resource.key.dropFirst("port:".count)) {
+            return port
+        }
+        return nil
     }
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {

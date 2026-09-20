@@ -8,19 +8,30 @@ extension BrowserPanel {
     /// provenance from this panel.
     func leaveCloudResourceForLocalNavigation() {
         pendingCloudRestoreURL = nil
-        if cloudAccess.retainsCloudResourceForDuplication {
+        if retainsCloudResourceForDuplication {
             SurfaceCatalog.shared.endProjections(panelID: id, reason: .replaced)
         }
         cloudAccess.leave()
     }
 
-    var cloudResourceForSession: SurfaceResourceID? {
-        guard cloudAccess.retainsCloudResourceForDuplication else { return nil }
+    /// The catalog projection remains authoritative while a Cloud pane is an
+    /// unavailable placeholder and before its provider has configured the
+    /// browser. Deliberate external navigation removes that projection first.
+    var cloudResourceForDuplication: SurfaceResourceID? {
         if let resource = cloudAccess.resourceID, !resource.machine.isLocal {
             return resource
         }
         let resource = SurfaceCatalog.shared.projectionRecord(forPanel: id)?.resource
         return resource?.machine.isLocal == false ? resource : nil
+    }
+
+    var retainsCloudResourceForDuplication: Bool {
+        cloudAccess.model != nil || cloudResourceForDuplication != nil
+    }
+
+    var cloudResourceForSession: SurfaceResourceID? {
+        guard retainsCloudResourceForDuplication else { return nil }
+        return cloudResourceForDuplication
     }
 
     /// Restore by stable resource identity before loading any saved address.

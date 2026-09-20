@@ -288,7 +288,13 @@ final class CloudBrowserAccessState {
     func owns(_ url: URL) -> Bool {
         guard let remoteURL else { return false }
         if model?.usesBrowserProxy == true {
-            return ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host?.lowercased() == remoteURL.host?.lowercased()
+            guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+                  url.host?.lowercased() == remoteURL.host?.lowercased() else { return false }
+            if let resourceID, let expectedPort = Self.displayPort(for: resourceID) {
+                let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
+                return requestedPort == expectedPort
+            }
+            return true
         }
         return Self.sameService(url, remoteURL) || navigationURL.map { Self.sameService(url, $0) } == true
     }
@@ -322,5 +328,12 @@ final class CloudBrowserAccessState {
     private static func sameService(_ a: URL, _ b: URL) -> Bool {
         a.scheme?.lowercased() == b.scheme?.lowercased() && a.host?.lowercased() == b.host?.lowercased()
             && (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))
+    }
+
+    private static func displayPort(for resource: SurfaceResourceID) -> Int? {
+        guard resource.kind == .display,
+              let number = Int(resource.key.split(separator: ":").last ?? ""),
+              (1...16).contains(number) else { return nil }
+        return 6900 + number
     }
 }
