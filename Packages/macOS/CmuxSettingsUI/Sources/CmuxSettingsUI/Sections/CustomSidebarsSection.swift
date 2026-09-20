@@ -215,8 +215,16 @@ public struct CustomSidebarsSection: View {
             operationMessage = nil
             enabled.set(true)
             refreshDiscoveredSidebars()
-        case .templateUnavailable, .writeFailed:
-            operationMessage = String(localized: "settings.networking.check.failed", defaultValue: "Failed")
+        case .templateUnavailable:
+            operationMessage = String(
+                localized: "settings.customSidebars.templateUnavailable",
+                defaultValue: "Could not load the sidebar template. Reinstall cmux and try again."
+            )
+        case .writeFailed:
+            operationMessage = String(
+                localized: "settings.customSidebars.writeFailed",
+                defaultValue: "Could not create the sidebar. Check folder permissions and free disk space, then try again."
+            )
         }
     }
 }
