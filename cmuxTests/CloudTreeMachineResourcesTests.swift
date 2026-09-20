@@ -199,6 +199,19 @@ struct CloudTreeMachineResourcesTests {
         #expect(snapshot.stats?.resourceSampledAt == nil)
     }
 
+    @Test func resizeInvalidationDoesNotReuseTheOldCapacity() {
+        var snapshot = machine()
+        snapshot.stats = .unavailable(at: Self.sampleTime)
+        let resources = CloudMachineResourcePresentation(machine: snapshot, now: Self.sampleTime)
+        #expect(resources.availability == .unavailable)
+        #expect(resources.cpu.inlineDetail == "Unavailable")
+        #expect(resources.memory.inlineDetail == "Unavailable")
+        #expect(resources.disk.inlineDetail == "Unavailable")
+        #expect(resources.cpu.percent == nil)
+        #expect(resources.memory.percent == nil)
+        #expect(resources.disk.percent == nil)
+    }
+
     /// Existing stats and resize replies can carry real gauges with only sampledAt.
     @Test func legacyRepliesPreserveMeasuredValues() {
         let json: [String: Any] = [

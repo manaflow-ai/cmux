@@ -31,7 +31,8 @@ struct MachineRowActions {
 
     static func bound(
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
-        onDidMutate: @escaping @MainActor () -> Void
+        onDidMutate: @escaping @MainActor () -> Void,
+        onResizeSucceeded: @escaping @MainActor (String) -> Void = { _ in }
     ) -> MachineRowActions {
         MachineRowActions(
             openShell: { id in
@@ -66,17 +67,17 @@ struct MachineRowActions {
             },
             resizeDisk: { id, gib in
                 onWillMutate(String(format: String(localized: "machines.operation.resizeDisk", defaultValue: "Increasing %@ disk to %d GiB…"), id, gib))
-                if !launch(arguments: ["vm", "resize", id, "--disk", "\(gib)G"], onDidMutate: onDidMutate) {
+                if !launch(arguments: ["vm", "resize", id, "--disk", "\(gib)G"], onSuccess: { onResizeSucceeded(id) }, onDidMutate: onDidMutate) {
                     onDidMutate()
                 }
             },
             resizeCPU: { id, cpu in
                 onWillMutate(String(format: String(localized: "machines.operation.resize", defaultValue: "Resizing %@…"), id))
-                if !launch(arguments: ["vm", "resize", id, "--cpu", "\(cpu)"], onDidMutate: onDidMutate) { onDidMutate() }
+                if !launch(arguments: ["vm", "resize", id, "--cpu", "\(cpu)"], onSuccess: { onResizeSucceeded(id) }, onDidMutate: onDidMutate) { onDidMutate() }
             },
             resizeMemory: { id, gib in
                 onWillMutate(String(format: String(localized: "machines.operation.resize", defaultValue: "Resizing %@…"), id))
-                if !launch(arguments: ["vm", "resize", id, "--memory", "\(gib)G"], onDidMutate: onDidMutate) { onDidMutate() }
+                if !launch(arguments: ["vm", "resize", id, "--memory", "\(gib)G"], onSuccess: { onResizeSucceeded(id) }, onDidMutate: onDidMutate) { onDidMutate() }
             },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)

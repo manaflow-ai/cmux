@@ -3008,7 +3008,7 @@ export function getVmStats(input: {
               ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
             },
           }, input.providerVmId, Date.now()) : reported),
-          Effect.catchAll(() => Effect.succeed(reported)),
+          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
         );
       }),
       Effect.mapError((error): VmWorkflowError => error),

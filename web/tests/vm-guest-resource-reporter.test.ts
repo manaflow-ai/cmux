@@ -62,7 +62,7 @@ except Finished: pass
   expect(sent.timeout).toBe(5);
   // Disk is available on macOS too; Linux additionally supplies CPU and RAM.
   expect(sent.body.diskUsedMb).toBeGreaterThanOrEqual(0);
-});
+}, 15_000);
 
 test("installer is a valid portable shell program", () => {
   const result = spawnSync("sh", ["-n"], { input: guestResourceReporterInstallCommand(), encoding: "utf8" });

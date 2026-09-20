@@ -5,6 +5,7 @@ import { FreestyleProvider } from "../services/vms/drivers/freestyle";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type VmRepositoryShape } from "../services/vms/repository";
+import { VmProviderOperationError } from "../services/vms/errors";
 import { getVmStats } from "../services/vms/workflows";
 import { VM_RESOURCE_USAGE_KEY, applyVmResourceUsage, parseVmResourceUsage } from "../services/vms/resourceUsage";
 
@@ -14,6 +15,8 @@ type ReadStatsOptions = {
   readonly directBackend?: boolean;
   readonly concurrent?: boolean;
   readonly resourceExitCode?: number;
+  readonly resourceHttpStatus?: number;
+  readonly onDestroyed?: (status: string) => void;
   readonly environment?: Record<string, string | undefined>;
   readonly resourceOutput?: unknown;
 };
@@ -36,6 +39,7 @@ async function readStats(
       if (path === "/v5/vms/vm-stats/exec-await" && init?.method === "POST") {
         resourceCalls.push("probe");
         expect(JSON.parse(String(init.body))).toMatchObject({ timeoutMs: 5_000, linuxUser: "nobody" });
+        if (options.resourceHttpStatus) return Response.json({}, { status: options.resourceHttpStatus });
         return Response.json({
           statusCode: options.resourceExitCode ?? 0,
           stdout: typeof options.resourceOutput === "string"
@@ -47,12 +51,16 @@ async function readStats(
   });
   const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("Unexpected install"); } });
   const repo = {
+    markProviderObservedStatus: ({ status }: { status: string }) => Effect.sync(() => { options.onDestroyed?.(status); return true; }),
     findUserVm: () => Effect.succeed({ provider: "freestyle", providerVmId: "vm-stats", billingTeamId: null, ownerTeamId: "user",
       providerMetadata: sample ? { [VM_RESOURCE_USAGE_KEY]: sample } : {} }),
   } as unknown as VmRepositoryShape;
   const providers = {
     getStats: () => Effect.promise(() => provider.getStats("vm-stats")),
-    getResourceStats: () => Effect.promise(() => provider.getResourceStats("vm-stats")),
+    getResourceStats: () => Effect.tryPromise({
+      try: () => provider.getResourceStats("vm-stats"),
+      catch: cause => new VmProviderOperationError({ provider: "freestyle", operation: "getResourceStats", cause }),
+    }),
   } as unknown as VmProviderGatewayShape;
   const layer = Layer.mergeAll(
     Layer.succeed(VmRepository, repo), Layer.succeed(VmProviderGateway, providers),
@@ -108,6 +116,14 @@ describe("Freestyle live machine stats", () => {
     expect(resourceCalls).toHaveLength(1);
     expect(result).toMatchObject({ state: "awake", ...gauges });
     expect(typeof result.resourceSampledAt).toBe("number");
+  });
+
+  test("a VM deleted during the direct probe reaches lifecycle reconciliation", async () => {
+    const observed: string[] = [];
+    await expect(readStats("running", undefined, {
+      directBackend: true, resourceHttpStatus: 404, onDestroyed: status => observed.push(status),
+    })).rejects.toBeTruthy();
+    expect(observed).toEqual(["destroyed"]);
   });
 
   test.each([

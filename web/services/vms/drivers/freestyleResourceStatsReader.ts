@@ -6,9 +6,18 @@ import type { VMResourceStatsResult } from "./types";
 
 const PROBE_TIMEOUT_MS = 5_000;
 
+/** Provider deletion raced the read; workflows must reconcile the VM row. */
+export class FreestyleResourceStatsNotFoundError extends Error {
+  readonly status = 404;
+  constructor() {
+    super("resource stats VM not found");
+    this.name = "FreestyleResourceStatsNotFoundError";
+  }
+}
+
 /** Owns bounded, coalesced read-only sampling for one provider client. */
 export class FreestyleResourceStatsReader {
-  private readonly cache: Cache.Cache<string, VMResourceStatsResult | null>;
+  private readonly cache: Cache.Cache<string, VMResourceStatsResult | null, FreestyleResourceStatsNotFoundError>;
 
   constructor(private readonly client: (timeoutMs?: number) => Freestyle) {
     this.cache = Effect.runSync(Cache.make({
@@ -23,8 +32,8 @@ export class FreestyleResourceStatsReader {
     return Effect.runPromise(this.cache.get(vmId));
   }
 
-  private sample(vmId: string): Effect.Effect<VMResourceStatsResult | null> {
-    return Effect.tryPromise(async (signal) => {
+  private sample(vmId: string): Effect.Effect<VMResourceStatsResult | null, FreestyleResourceStatsNotFoundError> {
+    return Effect.tryPromise({ try: async (signal) => {
       // The raw SDK fetch avoids its background-request polling loop. exec-await
       // returns 409 if paused concurrently; never start, retry, or heal the guest.
       const response = await this.client(PROBE_TIMEOUT_MS).fetch(`/v5/vms/${encodeURIComponent(vmId)}/exec-await`, {
@@ -33,15 +42,19 @@ export class FreestyleResourceStatsReader {
         signal,
         body: JSON.stringify({ command: guestResourceSampleCommand(), timeoutMs: PROBE_TIMEOUT_MS, linuxUser: "nobody" }),
       });
+      if (response.status === 404) {
+        throw new FreestyleResourceStatsNotFoundError();
+      }
       if (response.status !== 200) return null;
       const result: unknown = await response.json();
       if (!result || typeof result !== "object" || !("statusCode" in result)
         || result.statusCode !== 0 || !("stdout" in result) || typeof result.stdout !== "string") return null;
       const usage = parseVmResourceUsage(JSON.parse(result.stdout.trim()));
       return usage ? { ...usage, resourceSampledAt: Date.now() } : null;
-    }).pipe(
+    }, catch: (error) => error }).pipe(
       Effect.timeout(PROBE_TIMEOUT_MS),
-      Effect.catchAll(() => Effect.succeed(null)),
+      Effect.catchAll((error) => error instanceof FreestyleResourceStatsNotFoundError
+        ? Effect.fail(error) : Effect.succeed(null)),
     );
   }
 }

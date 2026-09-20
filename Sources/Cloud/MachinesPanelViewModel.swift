@@ -4,7 +4,6 @@ import SwiftUI
 extension Notification.Name {
     static let cmuxCloudVMAccessDidEnd = Notification.Name("cmux.cloudVM.accessDidEnd")
 }
-
 /// Plan meter shown in the panel header: "2 of 3 machines" / "1 of 1 machine".
 struct MachinePlanSnapshot: Equatable {
     /// What the header says about the free plan's access window. Precomputed
@@ -185,6 +184,13 @@ final class MachinesPanelViewModel: ObservableObject {
         refresh()
     }
 
+    /// Drops capacity after a successful resize until a fresh provider reading confirms the new shape.
+    func invalidateStats(for machineID: String) {
+        guard let index = machines.firstIndex(where: { $0.id == machineID }) else { return }
+        statsInvalidatedMachineIDs.insert(machineID)
+        machines[index].stats = .unavailable()
+    }
+
     func noteTreeFailure(_ description: String) {
         treeErrorDescription = description
     }
@@ -192,6 +198,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var refreshTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
+    private var statsInvalidatedMachineIDs = Set<String>()
     private var usageTask: Task<Void, Never>?
     private var usageFailureCount = 0
     private var usageRetryNotBefore: Date?
@@ -216,13 +223,11 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeTask: Task<Void, Never>?
     private let machineRefreshes = CloudMachineRefreshCoordinator { await SurfaceCatalog.shared.refresh(machine: $0, force: true) }
     private static let statsInterval: Duration = .seconds(20)
-
     let defaultMachineStore: DefaultCloudMachineStore?
     /// Explicit machine pins and the stable fleet order; nil keeps fleet order.
     let machinePinStore: CloudMachinePinStore?
     private let catalogProvider: @MainActor () -> SurfaceCatalogSnapshot
     private var awaitingCatalogScope = false
-
     init(
         createCoordinator: MachineCreateCoordinator? = nil,
         defaultMachineStore: DefaultCloudMachineStore? = nil,
@@ -478,12 +483,10 @@ final class MachinesPanelViewModel: ObservableObject {
             }
         }
     }
-
     func stopPolling() {
         wantsPolling = false
         pausePolling()
     }
-
     private func pausePolling() {
         pollTask?.cancel()
         pollTask = nil
@@ -504,7 +507,6 @@ final class MachinesPanelViewModel: ObservableObject {
         freeAccessTransitionTask?.cancel()
         freeAccessTransitionTask = nil
     }
-
     /// Sleeps until the earliest upcoming transition across the fleet, then
     /// recomputes the free-access facet locally and re-arms for the next one.
     private func scheduleFreeAccessTransition(now: Date = Date()) {
@@ -529,7 +531,6 @@ final class MachinesPanelViewModel: ObservableObject {
             self.scheduleFreeAccessTransition(now: now)
         }
     }
-
     /// Drop every locally cached machine and in-flight sample when auth ends.
     /// This is intentionally callable by the panel as well as the sign-out
     /// notification observer so a signed-out panel can never render a stale
@@ -567,7 +568,6 @@ final class MachinesPanelViewModel: ObservableObject {
         hasLoadedOnce = false
         isLoading = false
     }
-
     /// Retire old requests before changing pin scope. Catalog discoveries are
     /// admitted again only after the shared registry refreshes the new account.
     @discardableResult
@@ -589,7 +589,6 @@ final class MachinesPanelViewModel: ObservableObject {
         if wantsPolling { startPolling() }
         return task
     }
-
     private func scopedCatalogSnapshot() -> SurfaceCatalogSnapshot {
         let snapshot = catalogProvider()
         guard awaitingCatalogScope else { return snapshot }
@@ -618,7 +617,7 @@ final class MachinesPanelViewModel: ObservableObject {
             try Task.checkCancellation()
             guard generation == refreshGeneration, scope == machinePinStore?.scopeIdentifier,
                   CloudMachinesFeature.isEnabled else { return }
-            let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, $0.stats) })
+            let previous = Dictionary(uniqueKeysWithValues: machines.map { ($0.id, statsInvalidatedMachineIDs.contains($0.id) ? nil : $0.stats) })
             let freeAccessWindowDays = page.limits?.freeAccessWindowDays ?? 0
             self.freeAccessWindowDays = freeAccessWindowDays
             var snapshots = page.vms.map {
@@ -642,6 +641,7 @@ final class MachinesPanelViewModel: ObservableObject {
             // visible set: a pin whose machine is gone from both is pruned.
             machinePinStore?.reconcile(machineIDs: MachineSnapshotBuilder.includingCatalogMachines(snapshots, catalog: scopedCatalogSnapshot()).map(\.id))
             machines = snapshots
+            statsInvalidatedMachineIDs.subtract(snapshots.map(\.id))
             lastLimits = page.limits
             scheduleFreeAccessTransition()
             refreshStats()
