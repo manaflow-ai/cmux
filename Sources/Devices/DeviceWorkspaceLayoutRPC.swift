@@ -4,7 +4,7 @@ import Foundation
 /// Registered only on authenticated Mac connections, after transport authorization.
 @MainActor
 struct DeviceWorkspaceLayoutRPC {
-    let snapshot: (UUID) -> DeviceWorkspaceLayoutNode?
+    let snapshot: @MainActor (UUID) -> DeviceWorkspaceLayoutNode?
 
     func handle(_ request: MobileHostRPCRequest) -> MobileHostRPCResult? {
         guard request.method == "device.workspace.layout" else { return nil }
