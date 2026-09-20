@@ -22,8 +22,7 @@ public struct TerminalScrollBarDisplayPolicy: Sendable {
         isPointerOverScrollbar: Bool,
         isLiveScrolling: Bool
     ) -> Bool {
-        let presence = TerminalScrollBarPresencePolicy()
-        guard presence.isPresent(
+        guard TerminalScrollBarPresencePolicy.isPresent(
             allowedBySettings: allowedBySettings,
             scrollerStyle: scrollerStyle,
             hasScrollback: hasScrollback
