@@ -88,11 +88,25 @@ step below or required CI checks.
 
 ## 4. Exercise an isolated runtime
 
-For local socket checks, launch the tag you built and explicitly route the test to
-that tag's socket:
+A tagged `--launch` requires an authorized development account and a credentials
+file, even with `CMUX_DEV_BACKEND_MODE=local`. Local mode selects the backend
+origin; it does not bypass authentication. Team members provision their credentials
+with [`scripts/setup-team-dev.sh`](../scripts/setup-team-dev.sh); the launcher
+requires a current-user-owned file with mode `0600`. Cloning the public repository
+does not provide those credentials or team access.
+
+Without that access, the source checks, package tests and build-only steps above
+remain available. Record runtime verification as not performed and identify an
+authorized reviewer to run it; do not claim that compilation verifies the runtime
+or point tests at someone else's running app.
+
+Once the credentials file is configured, launch the tag you built and explicitly
+route local socket checks to that tag's socket:
 
 ```bash
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag contributor-check --no-global-cli-links --launch
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag contributor-check \
+  --no-global-cli-links --credentials-file "$HOME/.secrets/cmuxterm-dev.env" \
+  --auth-profile personal --launch
 CMUX_SOCKET_PATH=/tmp/cmux-debug-contributor-check.sock python3 tests_v2/test_ctrl_socket.py
 ```
 
