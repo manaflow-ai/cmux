@@ -192,8 +192,17 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
     let rows = &app.transcript_cache.rows;
     let track = Rect { x: area.x + area.width - 1, y: inner.y, width: 1, height: inner.height };
     let mut link_runs: Vec<crate::tui::links::LinkCell> = Vec::new();
+    let anchor = app.transcript_anchor.clone();
     let vp = app.viewport.entry(id.clone()).or_default();
     vp.layout(rows.len(), inner.height as usize, track);
+    if let Some((anchor_id, anchor_row, screen_row)) = anchor {
+        if anchor_id == id {
+            // Preserve the clicked row even when a collapse leaves blank space
+            // below the final item; moving the text under the pointer is worse.
+            vp.offset = anchor_row.saturating_sub(screen_row);
+            vp.follow = false;
+        }
+    }
     vp.hover = hover.map(|(hx, hy)| vp.track_contains(hx, hy)).unwrap_or(false);
     let offset = vp.offset;
     let sel = app.selection.as_ref().filter(|s| s.session == id).cloned();

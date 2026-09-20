@@ -133,6 +133,9 @@ pub struct App {
     /// Per row: (item index, is a collapsible header). Parallel to `rows_cache`.
     pub row_meta: Vec<(usize, Option<Toggle>)>,
     pub transcript_hitboxes: Vec<(Rect, usize)>,
+    /// (session, absolute row, screen row) keeps an accordion header fixed
+    /// while its children are inserted or removed.
+    pub transcript_anchor: Option<(String, usize, usize)>,
     /// Collapsibles flipped from their default, per session id.
     pub toggled: HashMap<String, std::collections::HashSet<Toggle>>,
     /// Composer mouse selection as (anchor, head) char offsets.
@@ -336,6 +339,7 @@ impl App {
             return;
         }
         self.selected = idx.min(self.row_count() - 1);
+        self.transcript_anchor = None;
         if let Some(pos) = self.sidebar_nav.iter().position(|item| matches!(item, SidebarNav::Session(i) if *i == self.selected)) {
             self.sidebar_nav_pos = pos;
         }

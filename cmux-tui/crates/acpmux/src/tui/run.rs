@@ -261,6 +261,7 @@ pub(super) fn make_app(client: Arc<Client>, tx: mpsc::UnboundedSender<AppMsg>, s
         transcript_cache: render::TranscriptCache::default(),
         row_meta: Vec::new(),
         transcript_hitboxes: Vec::new(),
+        transcript_anchor: None,
         toggled: HashMap::new(),
         composer_sel: None,
         link_cells: Vec::new(),

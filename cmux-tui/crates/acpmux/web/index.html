@@ -864,6 +864,20 @@
     if (rafPending) return; rafPending = true;
     requestAnimationFrame(() => { rafPending = false; renderLogIncremental(); if (barPending) { barPending = false; renderBar(); } });
   }
+  // Pin the clicked summary while a details element changes height. Browser
+  // scroll anchoring is not consistent across engines.
+  function pinAccordion(details) {
+    const summary = details && details.querySelector(':scope > summary');
+    if (!summary || summary.dataset.pinned === '1') return;
+    summary.dataset.pinned = '1';
+    summary.addEventListener('click', () => {
+      const before = summary.getBoundingClientRect().top;
+      requestAnimationFrame(() => {
+        const delta = summary.getBoundingClientRect().top - before;
+        if (delta) $('#log').scrollTop += delta;
+      });
+    });
+  }
   // The hover action row under a message: Copy (the raw text).
   function actions(text) {
     const row = document.createElement('div'); row.className = 'mact';
@@ -951,6 +965,7 @@
     d.innerHTML = '<summary><span>' + esc(stats.join(' · ')) + '</span><span class="chev">›</span></summary><div class="inner"></div>';
     nodes[0].before(d);
     const inner = d.querySelector('.inner'); for (const n of nodes) inner.appendChild(n);
+    pinAccordion(d);
     // "Edited 2 files +21 -2", listed per file, outside the fold (Codex app).
     if (files.size) {
       const card = document.createElement('div'); card.className = 'edits';
@@ -987,7 +1002,7 @@
         break;
       }
       case 'assistant': el.className = 'msg assistant'; el.innerHTML = renderMd(it.text); if (it.text.trim()) el.appendChild(actions(it.text)); for (const b of el.querySelectorAll('button.copy')) b.onclick = () => navigator.clipboard.writeText(b.closest('pre').querySelector('code').textContent).then(() => toast('Copied')); break;
-      case 'thought': { el.className = 'thought'; const first = (it.text.split('\n').find((l) => l.trim()) || '').trim().replace(/^\*+|\*+$/g, ''); el.innerHTML = '<details><summary><span class="lbl">Thought</span><span class="sum">' + esc(first) + '</span></summary><div class="body">' + esc(it.text) + '</div></details>'; break; }
+      case 'thought': { el.className = 'thought'; const first = (it.text.split('\n').find((l) => l.trim()) || '').trim().replace(/^\*+|\*+$/g, ''); el.innerHTML = '<details><summary><span class="lbl">Thought</span><span class="sum">' + esc(first) + '</span></summary><div class="body">' + esc(it.text) + '</div></details>';  pinAccordion(el.querySelector('details')); break; }
       case 'tool': {
         const counts = diffCounts(it.detail); const files = (it.detail || '').split('\n').filter((l) => l.startsWith('@@ ')).map((l) => l.slice(3).split('/').pop());
         const title = files.length && (it.kind === 'edit' || /edit/i.test(it.title)) ? (it.status === 'completed' ? 'Edited ' : 'Editing ') + files.join(', ') : shortTitle(it.title);

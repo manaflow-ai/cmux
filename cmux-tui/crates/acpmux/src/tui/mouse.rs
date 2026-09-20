@@ -103,6 +103,7 @@ impl App {
 
 impl App {
     pub(super) fn with_viewport(&mut self, f: impl FnOnce(&mut Viewport)) {
+        self.transcript_anchor = None;
         if !matches!(self.overlay, Overlay::None) {
             f(&mut self.dialog.viewport);
             return;
@@ -249,6 +250,7 @@ impl App {
 
     pub(super) fn press(&mut self, x: u16, y: u16, mods: KeyModifiers) {
         let hit = |r: Rect| x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height;
+        self.transcript_anchor = None;
         // Dialog buttons drawn last frame.
         if let Some((_, action)) = self.buttons.iter().find(|(r, _)| hit(*r)).cloned() {
             self.on_button(&action);
@@ -358,7 +360,10 @@ impl App {
                 let a = self.areas.transcript;
                 let exact_row = y >= a.y + 1 && (self.viewport.get(&id).map(|v| v.offset).unwrap_or(0) + (y - a.y - 1) as usize) == row;
                 if exact_row {
+                    let screen_row = y.saturating_sub(self.transcript_inner().y) as usize;
+                    self.transcript_anchor = Some((id.clone(), row, screen_row));
                     self.toggle(t);
+                    if let Some(vp) = self.viewport.get_mut(&id) { vp.follow = false; }
                     self.selection = None;
                     return;
                 }
