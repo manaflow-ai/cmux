@@ -8,7 +8,12 @@ entry waits until it times out.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import sys
+import tempfile
+import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import yaml
@@ -105,5 +110,63 @@ def main() -> int:
     return 0
 
 
+class MergeGroupCheckNamesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.workflow = yaml.safe_load(
+            (WORKFLOWS / "web-complexity-trusted.yml").read_text(encoding="utf-8")
+        )
+
+    def validate(self, workflow: dict, *, duplicate: bool = False) -> int:
+        with tempfile.TemporaryDirectory() as temporary:
+            workflows = Path(temporary)
+            bridge = workflows / BRIDGE.name
+            bridge.write_text(yaml.safe_dump(expected_bridge()), encoding="utf-8")
+            (workflows / "web-complexity-trusted.yml").write_text(
+                yaml.safe_dump(workflow), encoding="utf-8"
+            )
+            jobs = {
+                name: {} for name in REQUIRED_CHECKS
+                if name not in {*BRIDGED_CHECKS.values(), "Web complexity"}
+            }
+            if duplicate:
+                jobs["duplicate"] = {"name": "Web complexity"}
+            (workflows / "other.yml").write_text(
+                yaml.safe_dump({"on": "merge_group", "jobs": jobs}), encoding="utf-8"
+            )
+            with patch.dict(main.__globals__, WORKFLOWS=workflows, BRIDGE=bridge):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    return main()
+
+    def test_dynamic_name_reports_required_check_for_merge_group(self) -> None:
+        self.assertEqual(self.validate(self.workflow), 0)
+
+    def test_wrong_merge_group_name_is_rejected(self) -> None:
+        self.workflow["jobs"]["complexity"]["name"] = self.workflow["jobs"]["complexity"]["name"].replace(
+            "'Web complexity'", "'Wrong required name'"
+        )
+        self.assertEqual(self.validate(self.workflow), 1)
+
+    def test_missing_merge_group_trigger_is_rejected(self) -> None:
+        events = self.workflow.get("on", self.workflow.get(True))
+        events.pop("merge_group")
+        self.assertEqual(self.validate(self.workflow), 1)
+
+    def test_metadata_cannot_use_required_name(self) -> None:
+        self.workflow["jobs"]["complexity"]["name"] = self.workflow["jobs"]["complexity"]["name"].replace(
+            "'Web complexity metadata (ignored)'", "'Web complexity'"
+        )
+        self.assertEqual(self.validate(self.workflow), 1)
+
+    def test_duplicate_required_name_is_rejected(self) -> None:
+        self.assertEqual(self.validate(self.workflow, duplicate=True), 1)
+
+    def test_merge_group_excluded_job_is_rejected(self) -> None:
+        self.workflow["jobs"]["complexity"]["if"] = "github.event_name != 'merge_group'"
+        self.assertEqual(self.validate(self.workflow), 1)
+
+
 if __name__ == "__main__":
+    tests = unittest.defaultTestLoader.loadTestsFromTestCase(MergeGroupCheckNamesTests)
+    if not unittest.TextTestRunner().run(tests).wasSuccessful():
+        sys.exit(1)
     sys.exit(main())
