@@ -12,8 +12,8 @@ struct XcodeSchemeFile {
     let runTarget: TargetReference?
     let testTargets: [TargetReference]
     let profileTarget: TargetReference?
-    /// First build entry. Xcode archives with default settings when a scheme has
-    /// no `ArchiveAction` element, so the target does not depend on one.
+    /// The first build entry marked for archiving, falling back to the first
+    /// entry when the scheme does not declare archive intent.
     let archiveTarget: TargetReference?
     let launchArguments: [String]
     let environmentVariables: [String: String]
@@ -37,9 +37,12 @@ struct XcodeSchemeFile {
             .firstChild(named: "BuildableProductRunnable")
             .flatMap(Self.targetReference(in:))
 
-        archiveTarget = scheme?.firstChild(named: "BuildAction")?
+        let buildEntries = scheme?.firstChild(named: "BuildAction")?
             .firstChild(named: "BuildActionEntries")?
-            .firstChild(named: "BuildActionEntry")
+            .elements(forName: "BuildActionEntry") ?? []
+        archiveTarget = (buildEntries
+            .first { $0.attribute(forName: "buildForArchiving")?.stringValue == "YES" }
+            ?? buildEntries.first)
             .flatMap(Self.targetReference(in:))
 
         launchArguments = launch?.firstChild(named: "CommandLineArguments")?
