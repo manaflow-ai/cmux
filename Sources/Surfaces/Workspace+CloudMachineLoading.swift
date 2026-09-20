@@ -6,8 +6,7 @@ extension Workspace {
     /// Only a machine-bound loading card in this destination can be adopted.
     /// Ordinary terminal panes, including a user's first command, are never placeholders.
     func cloudMachineLoadingPanel(at destination: SurfaceDestination, machineID: String?) -> CloudVMLoadingPanel? {
-        guard case .workspace(let workspaceID, _) = destination,
-              workspaceID == id, let machineID,
+        guard destination.workspaceID == id, let machineID,
               cloudVMBinding?.vmID == machineID else { return nil }
         let candidates = panels.values.compactMap { $0 as? CloudVMLoadingPanel }
         return candidates.count == 1 ? candidates[0] : nil
