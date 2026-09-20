@@ -440,6 +440,9 @@ jobs:
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
+      - name: Validate stalled GhosttyKit downloads resume
+        run: ./tests/test_ci_ghosttykit_download_stall.sh
+
       - name: Validate GhosttyKit release check behavior
         run: ./tests/test_ci_ghosttykit_release_check.sh
 
