@@ -2768,7 +2768,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     bypassRemoteProxy: false,
                     isRemoteWorkspace: self.isRemoteWorkspace,
                     remoteWebsiteDataStoreIdentifier: self.isRemoteWorkspace ? self.id : nil,
-                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot()
+                    remoteStatus: self.browserRemoteWorkspaceStatusSnapshot(),
+                    routesThroughRemoteProxy: self.isRemoteWorkspace || self.isRemoteTmuxMirror
                 )
             },
             tabDragTransferRegistry: tabDragTransferRegistry,
@@ -4726,8 +4727,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @discardableResult func detachRemoteTmuxMirrorKeptOpenLocallyIfNeeded() -> Bool {
         guard isRemoteTmuxMirror else { return false }
         pendingRemoteDisconnectReplacementsBySurfaceId.removeAll(); remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false; remoteTmuxWindowMirrors.removeAll()
-        AppDelegate.shared?.remoteTmuxController.browserProxyRegistry.release(workspaceID: id)
+        // `detachMirrorWorkspaceKeptOpenLocally` below now centralizes this
+        // workspace's browser-proxy retention release, so every caller gets
+        // it — not just this one.
         applyRemoteProxyEndpointUpdate(nil)
+        // A mirror's browser panel routes through this workspace's proxy
+        // without being `isRemoteWorkspace` (`newBrowserSplit`/`newBrowserSurface`
+        // pass `routesThroughRemoteProxy: isRemoteTmuxMirror`); clearing
+        // `isRemoteTmuxMirror` and nil'ing the endpoint above leaves such a
+        // panel parked forever waiting for a proxy endpoint nothing will
+        // ever acquire again. Re-home it onto the local store the same way
+        // `reattachToWorkspace` already does when a browser panel is
+        // dragged from a remote workspace onto a local one.
+        for panel in panels.values {
+            guard let browserPanel = panel as? BrowserPanel else { continue }
+            browserPanel.reattachToWorkspace(
+                id,
+                isRemoteWorkspace: false,
+                proxyEndpoint: nil,
+                remoteStatus: nil,
+                routesThroughRemoteProxy: false
+            )
+        }
         AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
         return true
     }
@@ -11166,6 +11187,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+            // `reattachToWorkspace` marks the panel as routing through this
+            // mirror's proxy, but a mirror's endpoint is normally nil until
+            // something acquires it — unlike `newBrowserSplit`/`newBrowserSurface`
+            // (which always create the first browser content for a mirror,
+            // so they always acquire), a browser panel dragged in from
+            // another workspace could be the first browser content this
+            // specific mirror has ever seen. Without this, it would just sit
+            // parked forever with no forward ever requested.
+            if isRemoteTmuxMirror {
+                ensureRemoteTmuxBrowserProxyForward()
+            }
         } else if let deferredBrowserPanel = detached.panel as? DeferredBrowserPanel {
             deferredBrowserPanel.updateWorkspaceId(id)
         } else if let filePreviewPanel = detached.panel as? FilePreviewPanel {

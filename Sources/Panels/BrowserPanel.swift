@@ -3599,8 +3599,16 @@ final class BrowserPanel: Panel, ObservableObject {
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.chromeState = BrowserChromeState(visibility: chromeVisibility)
         self.usesTransparentBackground = transparentBackground
+        // Keyed on `usesRemoteWorkspaceProxy`, not the narrower
+        // `isRemoteWorkspace` — an ssh-tmux mirror routes through a remote
+        // proxy without being `isRemoteWorkspace`, and every panel that has
+        // its `proxyConfigurations` mutated (see `applyRemoteProxyEndpointUpdate`)
+        // must own a dedicated store. Falling through to the shared
+        // `BrowserProfileStore` default store here would silently redirect
+        // every other local browser panel's traffic through this panel's
+        // remote proxy, and wipe it on teardown.
         let websiteDataStore = explicitWebsiteDataStore ?? (
-            isRemoteWorkspace
+            usesRemoteWorkspaceProxy
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
                 : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
         )
@@ -4315,9 +4323,15 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         workspaceId = newWorkspaceId
         usesRemoteWorkspaceProxy = (routesThroughRemoteProxy ?? isRemoteWorkspace) && !bypassesRemoteWorkspaceProxy
+        // Keyed on `usesRemoteWorkspaceProxy`, not `isRemoteWorkspace` — see
+        // the matching comment in `init`. A panel reattached into an
+        // ssh-tmux mirror (`routesThroughRemoteProxy: true`,
+        // `isRemoteWorkspace: false`) must land on a dedicated store here
+        // too, or it keeps sharing the default store while this proxy's
+        // config gets applied to it below.
         let targetStore = cloudBrowserMachineID != nil ? websiteDataStore : preservesExplicitEphemeralWebsiteDataStore
             ? websiteDataStore
-            : isRemoteWorkspace
+            : usesRemoteWorkspaceProxy
                 ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? newWorkspaceId)
                 : BrowserProfileStore.shared.websiteDataStore(for: profileID)
         let needsStoreSwap = webView.configuration.websiteDataStore !== targetStore

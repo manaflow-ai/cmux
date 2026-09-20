@@ -26,10 +26,47 @@ extension Workspace {
         Task { [weak self] in
             do {
                 let endpoint = try await task.value
-                await MainActor.run { self?.applyRemoteProxyEndpointUpdate(endpoint) }
+                await MainActor.run { self?.publishRemoteTmuxBrowserProxyEndpointIfStillMirroring(endpoint, for: host) }
             } catch {
-                await MainActor.run { self?.applyRemoteProxyEndpointUpdate(nil) }
+                await MainActor.run { self?.publishRemoteTmuxBrowserProxyEndpointIfStillMirroring(nil, for: host) }
             }
         }
+    }
+
+    /// A dropped-and-recovered ssh-tmux control connection reconnects with a
+    /// fresh SSH session; the previously acquired `-D` dynamic forward and
+    /// its SOCKS listener belonged to the old one and are now dead, but
+    /// nothing in `RemoteTmuxTransportRegistry`/`RemoteTmuxBrowserProxyRegistry`
+    /// treats a reconnect (as opposed to the host being removed outright) as
+    /// invalidating them — so without this, every browser tab on this host
+    /// would keep being handed the same stale, now-unreachable endpoint.
+    /// `releaseHost` is host-wide and idempotent, so this is safe to call
+    /// from every mirror workspace sharing the host that just reconnected.
+    func remoteTmuxBrowserProxyDidReconnect() {
+        guard isRemoteTmuxMirror, let host = remoteTmuxBrowserProxyHost else { return }
+        // Only worth re-acquiring if this workspace actually has a browser
+        // panel routing through it — every main-area browser panel a mirror
+        // creates always does (`routesThroughRemoteProxy: true`), whether or
+        // not its endpoint has resolved yet, so this also covers a browser
+        // tab opened just before the reconnect whose original acquire is
+        // about to be cancelled by `releaseHost` below. Most mirrors never
+        // open a browser at all, and re-acquiring unconditionally here would
+        // undo that laziness on every reconnect.
+        let hasBrowserPanel = panels.values.contains { $0 is BrowserPanel }
+        AppDelegate.shared?.remoteTmuxController.browserProxyRegistry.releaseHost(connectionHash: host.connectionHash)
+        guard hasBrowserPanel else { return }
+        ensureRemoteTmuxBrowserProxyForward()
+    }
+
+    /// The registry's per-host `acquire()` is single-flighted across every
+    /// mirror workspace on that host, so this workspace detaching (or
+    /// re-mirroring onto a different host) while another mirror keeps the
+    /// same acquisition alive must not let this now-stale continuation
+    /// resurrect a proxy endpoint here — that would re-apply proxy
+    /// configuration onto whatever (possibly shared, local) website data
+    /// store this workspace's browser panels have since moved to.
+    private func publishRemoteTmuxBrowserProxyEndpointIfStillMirroring(_ endpoint: BrowserProxyEndpoint?, for host: RemoteTmuxHost) {
+        guard isRemoteTmuxMirror, remoteTmuxBrowserProxyHost == host else { return }
+        applyRemoteProxyEndpointUpdate(endpoint)
     }
 }
