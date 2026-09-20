@@ -8,6 +8,8 @@ cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod
 
 `./scripts/setup.sh` initializes submodules, builds GhosttyKit, and installs the pbxproj normalization pre-commit hook.
 
+Before setup or a native build, [choose verification for the changed area](skills/cmux-testing/references/local-vs-ci-validation.md). `python3 scripts/verify-local.py` runs fast static checks; docs and portable-tooling changes do not automatically require an app build.
+
 ## Dev builds on the Mac mini fleet
 
 For team dev builds, use the controller client `~/.local/bin/cmux-ci`. The Mac
@@ -174,7 +176,7 @@ Two commits, so CI proves the test catches the bug: commit 1 adds the failing te
 
 ## First pass, then dogfood
 
-A first pass ends when the change is implemented, the tagged build succeeded on the pushed HEAD, focused tests ran, and the PR is open (for `web/` PRs, also the live Vercel preview URL). Then hand off to the user. Do not sit in the main conversation watching CI or running speculative review passes after that point.
+A first pass ends when the change is implemented, [scoped verification](skills/cmux-testing/references/local-vs-ci-validation.md) passed, and the PR is open. Native app/build-input changes require the tagged build on the pushed HEAD and focused tests; `web/` PRs also require the live Vercel preview URL. Docs and portable contributor tooling use their relevant checks without an unrelated app build. Then hand off; do not sit watching CI or running speculative review passes.
 
 Do not launch a background review agent (`$autoreview`, `codex review`, `claude review`, or a judge loop) by default. Second-model review is explicit user opt-in in the current conversation; an implementation request, open PR, CI failure, closeout, or handoff is not that opt-in. Let required GitHub checks and the automatic review bots run asynchronously, then return to address only concrete check failures and actionable findings before merge.
 

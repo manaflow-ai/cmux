@@ -2,6 +2,10 @@
 
 ## Prerequisites
 
+These prerequisites are for native app development. For documentation or portable
+contributor tooling, start with [fast checks](#fast-checks-before-building-or-pushing)
+and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
+
 - macOS 14+
 - Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
@@ -124,17 +128,15 @@ zig build -Demit-xcframework=true -Doptimize=ReleaseFast
 
 ## Running Tests
 
-### Basic tests (run on VM)
+Choose the checks that establish your change's behavior using the
+[validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
+Portable contributor tooling needs its focused tests; Swift app/test changes need
+native compilation and execution; UI/socket changes need the correct tagged app.
+A static preflight pass is not a substitute for those checks.
 
-```bash
-ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" build && pkill -x "cmux DEV" || true && APP=$(find /Users/cmux/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app" -print -quit) && open "$APP" && for i in {1..20}; do [ -S /tmp/cmux.sock ] && break; sleep 0.5; done && python3 tests_v2/test_update_timing.py && python3 tests_v2/test_signals_auto.py && python3 tests_v2/test_ctrl_socket.py && python3 tests_v2/test_notifications.py'
-```
-
-### UI tests (run on VM)
-
-```bash
-ssh cmux-vm 'cd /Users/cmux/cmux && xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination "platform=macOS" -only-testing:cmuxUITests test'
-```
+The guide links the existing test commands and explains build-only versus
+executed-test evidence. Follow [current build routing](AGENTS.md) for native
+capacity; do not revive old SSH/VM recipes or launch an untagged app.
 
 ## Ghostty Submodule
 
