@@ -377,6 +377,7 @@ jobs:
         run: |
           python3 tests/test_ci_change_areas.py
           python3 tests/test_app_host_test_products.py
+          python3 tests/test_reuse_app_host_products.py
 
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
@@ -2258,6 +2259,9 @@ jobs:
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
+    permissions:
+      contents: read
+      actions: read
     outputs:
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       sha256: ${{ steps.package-products.outputs.sha256 }}
@@ -2265,6 +2269,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -2292,11 +2297,26 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      - name: Install Rust
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Identify reusable compiled products
+        id: product-key
+        run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
+      - name: Reuse compatible compiled products in merge queue
+        id: reuse-products
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+
       - name: Capture Ghostty revision
+        if: steps.reuse-products.outputs.hit != 'true'
         id: ghostty-revision
         run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Cache GhosttyKit.xcframework
+        if: steps.reuse-products.outputs.hit != 'true'
         id: cache-ghosttykit-admission
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -2304,13 +2324,11 @@ jobs:
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Install Rust
-        run: ./scripts/install-rust-ci.sh
-
       - name: Cache Swift packages
+        if: steps.reuse-products.outputs.hit != 'true'
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
@@ -2318,9 +2336,11 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
+        if: steps.reuse-products.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
+        if: steps.reuse-products.outputs.hit != 'true'
         run: |
           set -euo pipefail
           rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
@@ -2328,6 +2348,7 @@ jobs:
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
 
       - name: Compute test compilation cache key
+        if: steps.reuse-products.outputs.hit != 'true'
         id: compilation-cache-key
         run: |
           set -euo pipefail
@@ -2337,6 +2358,7 @@ jobs:
       # only writer. A cache saved here would be scoped to this pull request and
       # would spend the cache budget that keeps the main seed alive.
       - name: Restore test compilation cache
+        if: steps.reuse-products.outputs.hit != 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
@@ -2345,6 +2367,7 @@ jobs:
             xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
 
       - name: Compile app-host test product
+        if: steps.reuse-products.outputs.hit != 'true'
         run: |
           set -euo pipefail
           scripts/ci/compile-app-host-test-product.sh build \
@@ -2371,6 +2394,7 @@ jobs:
           rsync -aL "$framework_root/" "$products/PackageFrameworks/"
           test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
           tar -chzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
@@ -2379,7 +2403,7 @@ jobs:
         id: upload-products
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: app-host-products-${{ github.run_attempt }}
+          name: app-host-products-v1-${{ steps.product-key.outputs.key }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
           retention-days: 3
