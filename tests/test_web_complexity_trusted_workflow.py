@@ -20,6 +20,10 @@ ISOLATION = '--no-env-file --config="$GITHUB_WORKSPACE/trusted/.bunfig-empty.tom
 
 def main() -> int:
     document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    complexity_job = document["jobs"]["complexity"]
+    if complexity_job.get("continue-on-error"):
+        print("FAIL: the complexity job must not continue on error")
+        return 1
     checks = [
         step
         for job in document["jobs"].values()
@@ -34,12 +38,15 @@ def main() -> int:
         return 1
     for step in checks:
         name = step.get("name", "?")
+        if step.get("continue-on-error"):
+            print(f"FAIL: '{name}' must not continue on error")
+            return 1
         if step.get("working-directory") != "trusted/web":
             print(f"FAIL: '{name}' must run from trusted/web, not from the checkout it judges")
             return 1
         invocations = [line.strip() for line in step["run"].splitlines() if line.strip().startswith("bun ")]
         loose = [line for line in invocations if not line.startswith(f"bun {ISOLATION}")]
-        if not invocations or loose:
+        if not invocations or loose or "|| true" in step["run"]:
             print(f"FAIL: '{name}' must start every check with: bun {ISOLATION}")
             return 1
     print("PASS: trusted web complexity runs from the trusted checkout with an empty Bun config")
