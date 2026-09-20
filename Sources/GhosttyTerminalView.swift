@@ -8876,7 +8876,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let cell = cloudPresenceCell(at: point) else { return false }
         focusFromPointerDown()
         cloudPresenceHighlightAnchor = cell
-        cloudPresenceHighlight = CloudPresenceHighlight(start: cell, end: cell, mode: .laser)
+        cloudPresenceHighlight = CloudPresenceHighlight(end: cell, mode: .laser, start: cell)
         CloudPresenceStore.shared.publish(panelID: panelID, pointer: cell, highlight: cloudPresenceHighlight)
         return true
     }
@@ -8886,7 +8886,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               let panelID = cloudPresencePanelID() else { return false }
         let point = convert(event.locationInWindow, from: nil)
         guard let cell = cloudPresenceCell(at: point) else { return true }
-        cloudPresenceHighlight = CloudPresenceHighlight(start: anchor, end: cell, mode: .laser)
+        cloudPresenceHighlight = CloudPresenceHighlight(end: cell, mode: .laser, start: anchor)
         CloudPresenceStore.shared.publish(panelID: panelID, pointer: cell, highlight: cloudPresenceHighlight)
         return true
     }
