@@ -151,11 +151,11 @@ struct CloudDesktopAccessTests {
         let http = provider.accessModel(port: 8443, address: "10.0.0.7", scheme: "HTTP")
         let https = provider.accessModel(port: 8443, address: "10.0.0.7", scheme: "https")
         #expect(http !== https)
-        #expect(http.route == .loopback && https.route == .privateNetwork)
+        #expect(http.route == .browserProxy && https.route == .browserProxy)
+        #expect(http.usesBrowserProxy && https.usesBrowserProxy)
         https.acceptTunnelState(.off)
         https.connect()
-        #expect(https.phase == .needsVPN)
-        #expect(https.failureMessage != nil)
+        #expect(https.phase == .connecting, "HTTPS keeps its private origin through the browser proxy")
         await store.remove(machineID: "test-desktop")
     }
 

@@ -53,7 +53,7 @@ struct CloudTerminalCreationRequestTests {
         #expect(request.attemptKey != original)
         #expect(request.correlationArgument == original)
         #expect(await runner.commands == [
-            ["--socket", socketPath, "--json", "session", "current", "creation", original, "resolve"]
+            CloudTuiRequest("session.creation.resolve", ["correlation_key": original])
         ])
     }
 
@@ -156,11 +156,11 @@ struct CloudTerminalCreationRequestTests {
 
 private actor CreationReceiptRunner: CloudTuiCommandRunning {
     private var responses: [Result<Data, CloudMachineLink.LinkError>]
-    private(set) var commands: [[String]] = []
+    private(set) var commands: [CloudTuiRequest] = []
 
     init(responses: [Result<Data, CloudMachineLink.LinkError>]) { self.responses = responses }
 
-    func runTuiCommand(arguments: [String], deadline: Duration) async throws -> Data {
+    func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         commands.append(arguments)
         guard !responses.isEmpty else { throw CloudMachineLink.LinkError.timedOut }
         return try responses.removeFirst().get()

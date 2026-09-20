@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-// MARK: - New Cloud Workspace (Cmd+Y)
+// MARK: - Cloud creation actions
 
 extension AppDelegate {
     /// Creates a workspace on the persisted default machine through the app-owned operation controller.
@@ -17,7 +17,7 @@ extension AppDelegate {
         let context = preferredWindow.flatMap { contextForMainWindow($0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
         let focus = context?.tabManager.selectedTabId != nil
-        // Cmd+Y is one logical create-and-open intent. Coalesce repeated key
+        // Default-machine creation is one logical intent. Coalesce repeated key
         // events while the remote receipt is still being discovered/attached.
         return operationController.start(key: "new-cloud-workspace.default") {
             guard let workspaceID = try await coordinator.createOnDefaultMachine(focus: focus),
@@ -27,7 +27,34 @@ extension AppDelegate {
         }
     }
 
-    /// Presents machine provisioning and applies its exact workspace receipt to a group when requested.
+    /// Creates on the VM captured by the shared New Workspace action.
+    @discardableResult
+    func performNewCloudWorkspaceOnCurrentMachineAction(
+        tabManager: TabManager,
+        vmID: String,
+        destination: CloudWorkspaceGroupDestination? = nil
+    ) -> Bool {
+        guard let coordinator = cloudWorkspaceCoordinator,
+              let operationController = cloudWorkspaceOperationController,
+              coordinator.isAvailable else { return false }
+        let resolvedDestination = destination ?? mainWindowContext(for: tabManager).flatMap { context in
+            guard let target = workspaceGroupNewWorkspaceTarget(in: context) else { return nil }
+            return CloudWorkspaceGroupDestination(
+                tabManager: tabManager,
+                groupId: target.groupId,
+                placement: target.placement,
+                referenceWorkspaceId: target.referenceWorkspaceId,
+                initialWorkspaceId: nil
+            )
+        }
+        return operationController.start(key: "new-cloud-workspace.\(vmID)") {
+            guard let workspaceID = try await coordinator.createOnMachine(id: vmID, focus: true),
+                  !Task.isCancelled, coordinator.isAvailable else { return }
+            resolvedDestination?.apply(workspaceID: workspaceID)
+        }
+    }
+
+    /// Places a machine's reservation immediately; later provisioning cannot undo user navigation.
     @discardableResult
     func performNewCloudWorkspaceAction(
         tabManager preferredTabManager: TabManager? = nil,
@@ -46,10 +73,10 @@ extension AppDelegate {
             ?? preferredWindow ?? event?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
         guard let presenter = newMachineSheetPresenter else { return false }
         return operationController.start {
-            guard let workspaceID = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow),
-                  !Task.isCancelled,
-                  operationController.isCurrentlyAvailable else { return }
-            destination?.apply(workspaceID: workspaceID)
+            _ = await presenter.presentNewMachineFetchingPlan(preferredWindow: hostWindow) { workspaceID in
+                guard operationController.isCurrentlyAvailable else { return }
+                destination?.apply(workspaceID: workspaceID)
+            }
         }
     }
 }

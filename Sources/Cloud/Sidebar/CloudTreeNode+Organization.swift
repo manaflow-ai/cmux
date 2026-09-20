@@ -1,7 +1,18 @@
 extension CloudTreeNode {
+    /// Uses machine routing identity even when the row retains an adopted
+    /// pending-create node ID. This Mac and active creates are fixed anchors.
+    var machineOrderID: String? {
+        guard case .machine(let machine, _) = kind, !machine.id.isEmpty else { return nil }
+        return machine.id
+    }
+
+    var canReorderMachine: Bool { machineOrderID != nil }
+
     var showsAttentionSlot: Bool {
         switch kind {
-        case .workspace, .localWorkspace, .terminal, .display, .browser, .port: return true
+        // Surface, resource, and empty-state rows share a leading attention
+        // column so every nested row uses the same horizontal rhythm.
+        case .workspace, .localWorkspace, .terminal, .display, .browser, .port, .resource, .placeholder: return true
         default: return false
         }
     }
