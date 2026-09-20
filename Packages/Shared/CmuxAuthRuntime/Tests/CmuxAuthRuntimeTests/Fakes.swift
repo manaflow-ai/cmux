@@ -26,6 +26,9 @@ actor FakeAuthClient: AuthClient {
     var forceRefreshResult: String??
     var user: CMUXAuthUser?
     var teams: [CMUXAuthTeam] = []
+    private(set) var lastSelectedTeamID: String?
+    var serverSelectedTeamID: String?
+    var nextCreatedTeamID = "team-created"
     var throwOnCurrentUser: (any Error)?
     var throwOnListTeams: (any Error)?
     var nonce = "nonce-123"
@@ -96,6 +99,20 @@ actor FakeAuthClient: AuthClient {
     func listTeams() async throws -> [CMUXAuthTeam] {
         if let throwOnListTeams { throw throwOnListTeams }
         return teams
+    }
+
+    func selectedTeamID() async throws -> String? { serverSelectedTeamID }
+
+    func setSelectedTeam(id: String?) async throws {
+        lastSelectedTeamID = id
+        serverSelectedTeamID = id
+    }
+
+    func createTeam(displayName: String) async throws -> CMUXAuthTeam {
+        let team = CMUXAuthTeam(id: nextCreatedTeamID, displayName: displayName)
+        teams.append(team)
+        lastSelectedTeamID = team.id
+        return team
     }
 
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { nonce }

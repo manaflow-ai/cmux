@@ -260,8 +260,8 @@ struct SurfaceCatalogTests {
         }
     }
 
-    private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell") -> SurfaceResource {
-        SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
+    private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", remoteView: SurfaceRemoteView? = nil) -> SurfaceResource {
+        SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: remoteView?.workspace, remoteViews: remoteView.map { [$0] }, port: nil, url: nil)
     }
 
     @Test("Cloud delta patch preserves unaffected capability rows")
@@ -1210,17 +1210,18 @@ struct SurfaceCatalogTests {
 // MARK: - Optimistic layout open (https://github.com/manaflow-ai/cmux/issues/12537)
 
 extension SurfaceCatalogTests {
-    /// Opening a Cloud workspace with an optimistic host reserves every pane of the
-    /// layout before any machine round trip and attaches them all afterwards, instead
-    /// of projecting one placement at a time.
+    /// Reserves the whole Cloud layout before attaching any terminal.
     @Test @MainActor
     func `Opening a workspace optimistically reserves the whole layout first and attaches every pane`() async throws {
         let catalog = SurfaceCatalog()
         let machine = SurfaceMachineID.cloud("vm-1")
         catalog.register(FakeProvider(machine: machine))
         let ids = ["a", "b", "c", "d"].map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
-        catalog.replaceResources(ids.map { terminal(machine, $0.key) }, on: machine)
-
+        let remoteWorkspace = SurfaceRemoteWorkspace(id: "ws-1", name: "main", index: 0, focused: true)
+        catalog.replaceResources(ids.map {
+            terminal(machine, $0.key, remoteView: SurfaceRemoteView(tabID: "tab-\($0.key)", workspace: remoteWorkspace))
+        }, on: machine)
+        let placements = ids.map { SurfaceResourcePlacement(resource: $0, remoteWorkspaceID: remoteWorkspace.id, remoteTabID: "tab-\($0.key)") }
         let newWorkspace = UUID()
         let starter = UUID()
         var reserved: [(SurfaceDestination, Bool)] = []
@@ -1245,22 +1246,20 @@ extension SurfaceCatalogTests {
         )
         let layout = SurfaceProjectionLayout.split(
             direction: .right, ratio: 0.5,
-            first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[0]), SurfaceResourcePlacement(resource: ids[1])]),
+            first: .leaf(placements: [placements[0], placements[1]]),
             second: .split(
                 direction: .down, ratio: 0.5,
-                first: .leaf(placements: [SurfaceResourcePlacement(resource: ids[2])]),
-                second: .leaf(placements: [SurfaceResourcePlacement(resource: ids[3])])
+                first: .leaf(placements: [placements[2]]),
+                second: .leaf(placements: [placements[3]])
             )
         )
-
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-            SurfaceResourceGroup(title: "main", resources: ids), title: "vm-1: main", focus: true, host: host, layout: layout
+            SurfaceResourceGroup(title: "main", placements: placements, remoteWorkspaceID: remoteWorkspace.id), title: "vm-1: main", focus: true, host: host, layout: layout
         )
 
         #expect(opened.workspaceID == newWorkspace)
         #expect(closedStarters == 1)
-        // The first placement takes the starter's slot; its leaf mate becomes a tab; the
-        // second half opens beside it and its own second half below that.
+        // Parent splits precede child tabs, preserving the layout's nesting.
         #expect(reserved.map(\.0) == [
             .workspace(id: newWorkspace, placement: .split),
             .split(workspaceID: newWorkspace, paneID: "pane-1", direction: .right),
@@ -1270,9 +1269,10 @@ extension SurfaceCatalogTests {
         #expect(reserved.map(\.1) == [true, false, false, false])
         #expect(!attachedBeforeAllReserved)
         #expect(Set(attached) == Set(ids))
-        // Every reserved pane already carries its projection, so a bound-workspace pass
-        // sees no missing placement while the attachments run.
+        // Every reservation already carries its exact remote projection during attachment.
         #expect(opened.projections.count == 4)
+        #expect(opened.projections.allSatisfy { $0.remoteWorkspaceID == remoteWorkspace.id })
+        #expect(Set(opened.projections.compactMap(\.remoteTabID)) == Set(ids.map { "tab-\($0.key)" }))
         for projection in opened.projections {
             #expect(catalog.projection(forPanel: projection.panelID) == projection)
         }
