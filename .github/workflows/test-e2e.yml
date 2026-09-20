@@ -187,8 +187,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          git -C ghostty fetch origin 7d6da421349e70ddb8a770383c4f8d13042e2245
-          git -C ghostty checkout 7d6da421349e70ddb8a770383c4f8d13042e2245
+          git -C ghostty fetch origin 1f4cad9275e7e9bb4ab9e18cc858370e992f1afd
+          git -C ghostty checkout 1f4cad9275e7e9bb4ab9e18cc858370e992f1afd
           ./scripts/install-zig-ci.sh
           ./scripts/ensure-ghosttykit.sh
 
