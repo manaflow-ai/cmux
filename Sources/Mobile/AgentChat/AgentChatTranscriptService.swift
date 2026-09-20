@@ -26,6 +26,7 @@ final class AgentChatTranscriptService {
     /// Current live prose-stream generation per session, consumed only when a
     /// matching authoritative transcript prose line lands for that turn.
     private var proseTurnStates: [String: ProseTurnState] = [:]
+    private var didShutdown = false
     /// Highest transcript seq observed per session, used to bind live preview
     /// settlement to transcript lines that landed after the prompt started.
     private var latestTranscriptSeqBySessionID: [String: Int] = [:]
@@ -100,6 +101,18 @@ final class AgentChatTranscriptService {
             tickDemand: tickNotificationDemand
         )
         self.proseWakeDriver.start()
+    }
+
+    /// Stops streaming resources while the application still owns its service.
+    ///
+    /// App termination calls this on the main actor so observer removal,
+    /// notification demand release, and streamer cancellation complete before
+    /// the rest of the application teardown begins. Repeated calls are safe.
+    func shutdown() {
+        guard !didShutdown else { return }
+        didShutdown = true
+        proseWakeDriver.stop()
+        proseStreamer.stopAll()
     }
 
     /// Rendered screen rows (top to bottom) for a surface, the source the prose
@@ -613,6 +626,7 @@ final class AgentChatTranscriptService {
     }
 
     deinit {
+        guard !didShutdown else { return }
         // ARC may run deinit on the executor that releases the final reference.
         // This boundary hop owns both dependencies until synchronous teardown
         // finishes; it must outlive self and has no ongoing work to cancel.

@@ -88,13 +88,15 @@ final class NewCloudWorkspaceShortcutAuthFixture {
 
     func cleanup() {
         for (appDelegate, mainWindow) in registeredMainWindows.reversed() {
+            appDelegate.debugResetShortcutRoutingStateForTesting(
+                clearFocusedWindowOverride: true
+            )
             mainWindow.tabManager.tabs.forEach { $0.teardownAllPanels() }
             appDelegate.unregisterMainWindowContextForTesting(windowId: mainWindow.id)
             mainWindow.window.orderOut(nil)
             mainWindow.window.close()
         }
         registeredMainWindows.removeAll()
-        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
         AppDelegate.shared = originalAppDelegate
         defaults.removePersistentDomain(forName: suiteName)
     }

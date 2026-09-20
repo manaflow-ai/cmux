@@ -2628,12 +2628,9 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let targetFixture = try await ComputerUseExternalApplicationFixture()
+        defer { targetFixture.terminate() }
+        let target = targetFixture.application
         let targetName = try #require(target.localizedName)
         let targetLaunchDate = try #require(target.launchDate)
         let writerIdentity = try #require(AgentPIDProcessIdentity(
@@ -2722,13 +2719,9 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
-                && !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let targetFixture = try await ComputerUseExternalApplicationFixture()
+        defer { targetFixture.terminate() }
+        let target = targetFixture.application
         let targetName = try #require(target.localizedName)
         let targetBundleIdentifier = try #require(target.bundleIdentifier)
         let targetLaunchDate = try #require(target.launchDate)

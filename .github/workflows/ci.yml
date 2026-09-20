@@ -1172,6 +1172,7 @@ jobs:
           # These failures were exposed by a complete app-host run. Keep each
           # repaired selector strict, including a nonzero execution count.
           set -euo pipefail
+          failed=0
           for selector in \
             AgentChatTranscriptServiceLifetimeTests \
             CompositorBlurWindowLifetimeTests \
@@ -1179,13 +1180,15 @@ jobs:
             NewCloudWorkspaceShortcutTests \
             CloudPortAccessLateCoordinatorTests \
             KeyboardShortcutSpaceKeyTests \
+            ComputerUseUXTests/computerUseFilesystemCallbacksHopSafelyToMainActor \
+            ComputerUseUXTests/backgroundActivityCannotFrontItsTargetAndViewResumesIt \
             BrowserDesignModeScreenshotEvaluatorTests/smoothScrollingPageCapturesRequestedRegionAndRestoresOffset \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasUsesCmuxRemoteWhenProviderSSHIsUnmanaged \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasPreservesProviderFailureThatMentionsUnsupportedSSH \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasDoesNotFallbackForGenericHTTP404
           do
             test_log="$RUNNER_TEMP/cmux-lifecycle-${selector//\//-}.txt"
-            scripts/ci/run-in-console-session.sh \
+            if ! scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
               -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
               -destination "platform=macOS" \
@@ -1195,8 +1198,15 @@ jobs:
               -default-test-execution-time-allowance 120 \
               -maximum-test-execution-time-allowance 120 \
               test-without-building 2>&1 | tee "$test_log"
-            scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$selector"
+            then
+              failed=1
+            fi
+            if ! scripts/ci/require_selected_test_execution.sh "$test_log" "cmuxTests/$selector"; then
+              failed=1
+            fi
           done
+          # Collect every selector's result while preserving a failing gate.
+          exit "$failed"
 
       - name: Run five-tab renderer memory regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}

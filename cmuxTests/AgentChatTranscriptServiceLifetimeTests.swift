@@ -52,6 +52,8 @@ struct AgentChatTranscriptServiceLifetimeTests {
                 return service
             }
 
+            let serviceForShutdown = service
+            await MainActor.run { serviceForShutdown?.shutdown() }
             return Self.releaseOnCurrentThread(&service)
         }
 

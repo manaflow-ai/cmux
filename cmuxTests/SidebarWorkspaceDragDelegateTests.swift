@@ -70,23 +70,31 @@ struct SidebarWorkspaceDragDelegateTests {
     }
 
     @Test
-    func provisionalDelegateDoesNotRetainControllerOrReleasedSource() throws {
-        var controller: SidebarWorkspaceTableController? = SidebarWorkspaceTableController()
-        weak var originalController = controller
-        var table: SidebarWorkspaceTableViewImpl? = SidebarWorkspaceTableViewImpl()
-        weak var sourceTable = table
-        table?.delegate = controller
-        let writer = makeWriter(table: try #require(table), controller: try #require(controller))
-
-        writer.installProvisionalDelegate()
-        controller = nil
+    func provisionalDelegateDoesNotRetainControllerOrReleasedSource() {
+        weak var originalController: SidebarWorkspaceTableController?
+        weak var sourceTable: SidebarWorkspaceTableViewImpl?
+        let writer = autoreleasepool {
+            let controller = SidebarWorkspaceTableController()
+            originalController = controller
+            let table = SidebarWorkspaceTableViewImpl()
+            sourceTable = table
+            table.delegate = controller
+            let writer = makeWriter(table: table, controller: controller)
+            writer.installProvisionalDelegate()
+            return writer
+        }
         #expect(originalController == nil)
         #expect(!writer.responds(to: NSSelectorFromString("cmuxUnknownDragDelegateCallback:")))
 
-        writer.releaseSourceGraph()
-        #expect(table?.delegate == nil)
-        table = nil
-        #expect(sourceTable == nil)
+        // AppKit can autorelease the table while changing delegates. Drain those
+        // temporary owners before checking whether the still-live writer leaks it.
+        autoreleasepool {
+            writer.releaseSourceGraph()
+            #expect(sourceTable?.delegate == nil)
+        }
+        withExtendedLifetime(writer) {
+            #expect(sourceTable == nil)
+        }
     }
 
     private func makeWriter(
