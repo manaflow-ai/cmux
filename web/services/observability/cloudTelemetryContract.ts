@@ -19,6 +19,7 @@ export const cloudFailures = [
   "network", "timeout", "server", "response", "unsupported", "process", "protocol",
   "not_found", "placement", "resource_limit", "storage", "cancelled", "unknown",
 ] as const;
+export const cloudChannels = ["dev", "nightly", "production", "rc", "unknown"] as const;
 
 export type CloudTelemetrySpan = {
   readonly eventId: string;
@@ -40,7 +41,7 @@ export type CloudTelemetrySpan = {
   readonly sourceLine?: number;
 };
 export type CloudTelemetryClient = {
-  readonly channel: "dev" | "nightly" | "production" | "unknown";
+  readonly channel: typeof cloudChannels[number];
   readonly version: string;
   readonly build: string;
   readonly revision: string;
@@ -74,7 +75,7 @@ export function parseCloudTelemetryBatch(value: unknown, now = Date.now()): Clou
 
 function validClient(value: unknown): value is CloudTelemetryClient {
   if (!record(value) || !onlyKeys(value, clientKeys)) return false;
-  return member(value.channel, ["dev", "nightly", "production", "unknown"])
+  return member(value.channel, cloudChannels)
     && textMatches(value.version, /^[0-9][0-9A-Za-z.+-]{0,39}$/)
     && textMatches(value.build, /^[0-9]{1,20}$/)
     && textMatches(value.revision, /^(?:[0-9a-f]{7,64}|unknown)$/)
