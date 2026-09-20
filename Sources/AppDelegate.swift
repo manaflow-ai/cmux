@@ -9210,6 +9210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// attach entrypoint, closed-history record, launcher child, or managed
     /// VPN configuration behind.
     func endCloudVMAccess(reason: CloudVMAccessEndReason) {
+        SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.cancelAll()
         CloudVMActionLauncher.shared.cancelAllForAuthTransition()
         let disconnectedDetail: String
         switch reason {
