@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		45B6837082FAB3D6F5D9579B /* CmuxRemoteConnections in Frameworks */ = {isa = PBXBuildFile; productRef = B2DB1D73F88EBB7033D0A518 /* CmuxRemoteConnections */; };
+		6DFFFA76807A32D243BEF613 /* CmuxSSHNative in Frameworks */ = {isa = PBXBuildFile; productRef = 58290A33B68D2AB4C65009AF /* CmuxSSHNative */; };
 		B50F56A5BC61E0591FB71890 /* RemoteConnectionsTestHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0FE379E1397EA80B10912C /* RemoteConnectionsTestHost.swift */; };
 /* End PBXBuildFile section */
 
@@ -22,6 +23,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		4111291E1BD3A306623054C9 /* CmuxSSHNative */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxSSHNative; path = ../../Packages/Shared/CmuxSSHNative; sourceTree = SOURCE_ROOT; };
 		64DFF888E170E05CAEA82C1C /* RemoteConnectionsTestHost.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RemoteConnectionsTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC29E7518264B5F9DEBFA362 /* CmuxRemoteConnections */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CmuxRemoteConnections; path = ../../Packages/Shared/CmuxRemoteConnections; sourceTree = SOURCE_ROOT; };
 		CE0FE379E1397EA80B10912C /* RemoteConnectionsTestHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteConnectionsTestHost.swift; sourceTree = "<group>"; };
@@ -46,6 +48,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				45B6837082FAB3D6F5D9579B /* CmuxRemoteConnections in Frameworks */,
+				6DFFFA76807A32D243BEF613 /* CmuxSSHNative in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -56,6 +59,7 @@
 			isa = PBXGroup;
 			children = (
 				AC29E7518264B5F9DEBFA362 /* CmuxRemoteConnections */,
+				4111291E1BD3A306623054C9 /* CmuxSSHNative */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -109,6 +113,7 @@
 			name = RemoteConnectionsTests;
 			packageProductDependencies = (
 				B2DB1D73F88EBB7033D0A518 /* CmuxRemoteConnections */,
+				58290A33B68D2AB4C65009AF /* CmuxSSHNative */,
 			);
 			productName = RemoteConnectionsTests;
 			productReference = E55E12C2C3527D5D3EFDDE9C /* RemoteConnectionsTests.xctest */;
@@ -161,6 +166,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				C48DA7A9EC0107AD157597B0 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxRemoteConnections" */,
+				79FE0274495752F35BFDD77A /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxSSHNative" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 97DBC7E1E3480BE272CE4249 /* Products */;
@@ -217,6 +223,7 @@
 				CODE_SIGN_ENTITLEMENTS = RemoteConnectionsTests.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CMUXRemoteTestKeychainGroup = "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -363,6 +370,7 @@
 				CODE_SIGN_ENTITLEMENTS = RemoteConnectionsTests.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CMUXRemoteTestKeychainGroup = "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -446,6 +454,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		79FE0274495752F35BFDD77A /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxSSHNative" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../../Packages/Shared/CmuxSSHNative;
+		};
 		C48DA7A9EC0107AD157597B0 /* XCLocalSwiftPackageReference "../../Packages/Shared/CmuxRemoteConnections" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../../Packages/Shared/CmuxRemoteConnections;
@@ -453,6 +465,10 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		58290A33B68D2AB4C65009AF /* CmuxSSHNative */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = CmuxSSHNative;
+		};
 		B2DB1D73F88EBB7033D0A518 /* CmuxRemoteConnections */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxRemoteConnections;

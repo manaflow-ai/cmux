@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "Packages/Shared/CmuxRemoteConnections/**"
+      - "Packages/Shared/CmuxSSHNative/**"
       - "ios/RemoteConnectionsTests/**"
       - "scripts/test-remote-connections-ios.sh"
       - "scripts/verify-remote-native-tests.py"
@@ -33,6 +34,8 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
       - name: Test macOS package behavior
         run: swift test --package-path Packages/Shared/CmuxRemoteConnections
+      - name: Test native SSH package behavior
+        run: swift test --package-path Packages/Shared/CmuxSSHNative
       - name: Test native result verification
         run: python3 -m unittest discover -s tests -p test_remote_native_results.py
       - name: Test iOS package and native Keychain

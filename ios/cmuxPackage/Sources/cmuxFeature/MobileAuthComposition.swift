@@ -5,6 +5,7 @@ import CmuxPhonePush
 import CmuxMobileSupport
 import CmuxMobileTransport
 import CmuxRemoteConnections
+import CmuxSSHNative
 import Foundation
 import StackAuth
 
@@ -41,6 +42,8 @@ public struct MobileAuthComposition {
     public let keychainAccessGroup: String?
     /// Account gate required by every remote carrier before credential access.
     public let remoteAccountGate: MobileRemoteAccountGate
+    /// Native SSH connector shared by SSH, Mosh, and ET bootstrap owners.
+    public let remoteSSHConnector: MobileRemoteNativeSSHConnector
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
@@ -82,6 +85,7 @@ public struct MobileAuthComposition {
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
         self.remoteAccountObserver = MobileRemoteAccountGateObserver()
+        self.remoteSSHConnector = MobileRemoteNativeSSHConnector()
 
         let sourcedOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),

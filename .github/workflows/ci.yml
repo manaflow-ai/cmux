@@ -1876,6 +1876,7 @@ jobs:
             CmuxCanvasUI
             CmuxCore
             CmuxRemoteConnections
+            CmuxSSHNative
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession

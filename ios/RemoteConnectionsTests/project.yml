@@ -7,6 +7,8 @@ options:
 packages:
   CmuxRemoteConnections:
     path: ../../Packages/Shared/CmuxRemoteConnections
+  CmuxSSHNative:
+    path: ../../Packages/Shared/CmuxSSHNative
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -36,12 +38,14 @@ targets:
     dependencies:
       - target: RemoteConnectionsTestHost
       - package: CmuxRemoteConnections
+      - package: CmuxSSHNative
     settings:
       base:
         CODE_SIGN_IDENTITY: "-"
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.tests
         CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
         GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CMUXRemoteTestKeychainGroup: "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests"
 schemes:
   RemoteConnectionsTests:
     build:
