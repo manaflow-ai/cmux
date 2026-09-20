@@ -121,7 +121,11 @@ does not decrypt credentials or authorize adding an arbitrary device.
 
 - Generate random vault keys on a client. Device enrollment transfers a key
   envelope over an authenticated approval flow with QR/fingerprint binding.
-  The server must not substitute a new device public key without detection.
+  The shared package's signed X25519 envelope binds account, vault, epoch,
+  sender, recipient, ephemeral key, nonce, and ciphertext. The server must not
+  substitute a new device public key without detection. Enrollment still needs
+  an authenticated membership manifest and user approval before accepting the
+  envelope.
 - Use independently scoped vaults and key epochs. Authenticate owner, vault ID,
   record ID/type, epoch, revision, deletion flag, and format version.
 - The record cipher uses CryptoKit AES-GCM with fresh nonces. It requires

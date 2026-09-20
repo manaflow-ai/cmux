@@ -25,6 +25,9 @@ Current behavior:
   owner/editor members, rejects stale and same-revision conflicts, and retains
   authenticated tombstones. Its anti-rollback state still needs durable sync
   storage and membership-manifest verification.
+- Signed X25519 key envelopes transfer one vault epoch key from an approved
+  device to an exact device or organization recovery recipient. The server can
+  relay ciphertext but cannot substitute the recipient or decrypt the key.
 
 This is not a complete encrypted vault. Signing, device enrollment, recovery,
 key rotation, membership, whole-database rollback protection, SSH, account
