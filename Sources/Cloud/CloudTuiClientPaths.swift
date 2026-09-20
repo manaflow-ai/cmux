@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Security
 
@@ -95,11 +96,9 @@ struct CloudTuiClientPaths: Sendable {
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: devicesStoreURL.path)
     }
 
-    /// The device name a machine's daemon shows for this Mac; same derivation as the CLI.
-    static func deviceName(hostName: String = ProcessInfo.processInfo.hostName) -> String {
-        let raw = hostName.split(separator: ".").first.map(String.init) ?? "mac"
-        let cleaned = raw.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : Character("-") }
-        return "cmux-" + String(cleaned).prefix(40)
+    /// The app and CLI share a local label that never needs hostname resolution.
+    static func deviceName(hostName: String? = nil) -> String {
+        (hostName.map { RemoteClientDeviceName(hostName: $0) } ?? RemoteClientDeviceName()).value
     }
 
     /// The cmux-tui client the app drives: the bundled one
