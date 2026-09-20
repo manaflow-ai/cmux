@@ -537659,7 +537659,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local"
+            "value": "Sur cet appareil"
           }
         },
         "ar": {
@@ -537671,7 +537671,7 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local"
+            "value": "En este equipo"
           }
         },
         "zh-Hant": {
@@ -537712,13 +537712,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "In der Cloud"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud"
+            "value": "Dans le cloud"
           }
         },
         "ar": {
@@ -537777,7 +537777,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Attention"
+            "value": "À vérifier"
           }
         },
         "ar": {
@@ -538892,49 +538892,49 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux current [--limit <1...200>] [--json]\n\nBegrenzte, bereits bekannte Arbeitsdaten lokaler und Cloud-Oberflächen lesen.\nAktualisiert keine Maschinen, liest keine Transkripte und verändert keine Arbeit.\n\nOptionen:\n  --limit <1...200>  Maximale Einträge (Standard: 100)\n  --json            Unveränderte Quelldaten mit Identitäten, Belegen und Aktualität\n\nText und JSON verwenden denselben Snapshot. Unbekannte Fakten bleiben unbekannt; mögliche menschliche Aufgaben erlauben keine Aktionen. --window fokussiert oder filtert diese appweite Abfrage nicht; --id-format verändert ihre Identitäten nicht.\n\nBeispiele:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "Verwendung: cmux current [--limit <1...200>] [--json]\n\nBegrenzte, bereits bekannte Arbeitsdaten lokaler und Cloud-Oberflächen lesen.\nAktualisiert keine Maschinen, liest keine Transkripte und verändert keine Arbeit.\n\nOptionen:\n  --limit <1...200>  Maximale Einträge (Standard: 100)\n  --json            Unveränderte Quelldaten mit Identitäten, Belegen und Aktualität\n\nText und JSON verwenden denselben Snapshot. Unbekannte Fakten bleiben unbekannt; mögliche\nmenschliche Aufgaben sind Beobachtungen, keine Handlungserlaubnis. --window fokussiert oder filtert\ndiese appweite Abfrage nicht; --id-format verändert ihre Identitäten nicht.\n\nBeispiele:\n  cmux current\n  cmux current --json --limit 50"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation: cmux current [--limit <1...200>] [--json]\n\nLire les données de travail déjà connues de cmux, dans une limite définie, sur les surfaces locales et Cloud.\nN’actualise pas les machines, ne lit pas les transcriptions et ne modifie aucun travail.\n\nOptions:\n  --limit <1...200>  Nombre maximal d’éléments (par défaut : 100)\n  --json            Données sources exactes avec identités, preuves et fraîcheur\n\nLe texte et le JSON utilisent le même instantané. Les faits inconnus le restent ; les interventions humaines possibles ne sont pas des autorisations d’agir. --window ne focalise ni ne filtre cette requête globale ; --id-format ne réécrit pas les identités.\n\nExemples:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "Utilisation: cmux current [--limit <1...200>] [--json]\n\nLire les données de travail déjà connues de cmux, dans une limite définie, sur les surfaces locales et Cloud.\nN’actualise pas les machines, ne lit pas les transcriptions et ne modifie aucun travail.\n\nOptions:\n  --limit <1...200>  Nombre maximal d’éléments (par défaut : 100)\n  --json            Données sources exactes avec identités, preuves et fraîcheur\n\nLe texte et le JSON utilisent le même instantané. Les faits inconnus le restent ; les éventuelles\ninterventions humaines sont des observations, pas des autorisations d’agir. --window ne focalise\nni ne filtre cette requête globale ; --id-format ne réécrit pas les identités.\n\nExemples:\n  cmux current\n  cmux current --json --limit 50"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux current [--limit <1...200>] [--json]\n\nقراءة معلومات العمل المحدودة المعروفة بالفعل لدى cmux عبر الأسطح المحلية والسحابية.\nلا يحدّث الأجهزة ولا يقرأ النصوص ولا يغيّر العمل.\n\nالخيارات:\n  --limit <1...200>  الحد الأقصى للعناصر (الافتراضي: 100)\n  --json            بيانات المصدر الأصلية مع الهويات والأدلة وحداثة المعلومات\n\nيستخدم النص وJSON اللقطة نفسها. تظل المعلومات غير المعروفة مجهولة؛ المهام البشرية المحتملة ملاحظات وليست إذنًا بالتصرف. لا يركّز --window هذا الاستعلام الشامل للتطبيق ولا يرشّحه؛ ولا يعيد --id-format كتابة هوياته.\n\nأمثلة:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "الاستخدام: cmux current [--limit <1...200>] [--json]\n\nقراءة معلومات العمل المحدودة المعروفة بالفعل لدى cmux عبر الأسطح المحلية والسحابية.\nلا يحدّث الأجهزة ولا يقرأ النصوص ولا يغيّر العمل.\n\nالخيارات:\n  --limit <1...200>  الحد الأقصى للعناصر (الافتراضي: 100)\n  --json            بيانات المصدر الأصلية مع الهويات والأدلة وحداثة المعلومات\n\nيستخدم النص وJSON اللقطة نفسها. تظل المعلومات غير المعروفة مجهولة؛ المهام البشرية المحتملة\nملاحظات وليست إذنًا بالتصرف. لا يركّز --window هذا الاستعلام الشامل للتطبيق\nولا يرشّحه؛ ولا يعيد --id-format كتابة هوياته.\n\nأمثلة:\n  cmux current\n  cmux current --json --limit 50"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux current [--limit <1...200>] [--json]\n\nLee datos limitados del trabajo que cmux ya conoce en superficies locales y Cloud.\nNo actualiza máquinas, no lee transcripciones ni modifica trabajo.\n\nOpciones:\n  --limit <1...200>  Máximo de elementos (predeterminado: 100)\n  --json            Datos originales con identidades, pruebas y actualidad\n\nEl texto y JSON usan la misma instantánea. Los datos desconocidos siguen siéndolo; las posibles tareas humanas son observaciones, no permisos para actuar. --window no enfoca ni filtra esta consulta global; --id-format no reescribe sus identidades.\n\nEjemplos:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "Uso: cmux current [--limit <1...200>] [--json]\n\nLee datos limitados del trabajo que cmux ya conoce en superficies locales y Cloud.\nNo actualiza máquinas, no lee transcripciones ni modifica trabajo.\n\nOpciones:\n  --limit <1...200>  Máximo de elementos (predeterminado: 100)\n  --json            Datos originales con identidades, pruebas y actualidad\n\nEl texto y JSON usan la misma instantánea. Los datos desconocidos siguen siéndolo; las posibles\ntareas humanas son observaciones, no permisos para actuar. --window no enfoca ni filtra\nesta consulta global; --id-format no reescribe sus identidades.\n\nEjemplos:\n  cmux current\n  cmux current --json --limit 50"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux current [--limit <1...200>] [--json]\n\n讀取 cmux 已知的本機與 Cloud 表面目前工作資訊，並限制傳回數量。\n不重新整理機器、不讀取對話記錄，也不變更工作。\n\n旗標:\n  --limit <1...200>  項目上限（預設：100）\n  --json            原始擁有者資料，包含識別、證據與新鮮度\n\n文字與 JSON 使用相同快照。未知資訊保持未知；可能需要人工處理僅是觀察結果，不是操作授權。--window 不會聚焦或篩選此全應用程式查詢；--id-format 不會改寫識別。\n\n範例:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "用法: cmux current [--limit <1...200>] [--json]\n\n讀取 cmux 已知的本機與 Cloud 表面目前工作資訊，並限制傳回數量。\n不重新整理機器、不讀取對話記錄，也不變更工作。\n\n旗標:\n  --limit <1...200>  項目上限（預設：100）\n  --json            原始擁有者資料，包含識別、證據與新鮮度\n\n文字與 JSON 使用相同快照。未知資訊保持未知；可能需要人工處理\n僅是觀察結果，不是操作授權。--window 不會聚焦或篩選此全應用程式查詢；\n--id-format 不會改寫識別。\n\n範例:\n  cmux current\n  cmux current --json --limit 50"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux current [--limit <1...200>] [--json]\n\n读取 cmux 已知的本地与 Cloud 表面当前工作信息，并限制返回数量。\n不刷新机器、不读取对话记录，也不更改工作。\n\n选项:\n  --limit <1...200>  项目上限（默认：100）\n  --json            原始所有者数据，包含标识、证据和新鲜度\n\n文本与 JSON 使用相同快照。未知信息保持未知；可能需要人工处理仅是观察结果，不是操作授权。--window 不会聚焦或筛选此全应用查询；--id-format 不会重写标识。\n\n示例:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "用法: cmux current [--limit <1...200>] [--json]\n\n读取 cmux 已知的本地与 Cloud 表面当前工作信息，并限制返回数量。\n不刷新机器、不读取对话记录，也不更改工作。\n\n选项:\n  --limit <1...200>  项目上限（默认：100）\n  --json            原始所有者数据，包含标识、证据和新鲜度\n\n文本与 JSON 使用相同快照。未知信息保持未知；可能需要人工处理\n仅是观察结果，不是操作授权。--window 不会聚焦或筛选此全应用查询；\n--id-format 不会重写标识。\n\n示例:\n  cmux current\n  cmux current --json --limit 50"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux current [--limit <1...200>] [--json]\n\ncmux가 이미 알고 있는 로컬 및 Cloud 표면의 현재 작업 정보를 제한된 수로 읽습니다.\n머신을 새로 고치거나 대화 기록을 읽거나 작업을 변경하지 않습니다.\n\n플래그:\n  --limit <1...200>  최대 항목 수(기본값: 100)\n  --json            식별자, 근거, 최신성이 포함된 소유자의 원본 데이터\n\n텍스트와 JSON은 같은 스냅샷을 사용합니다. 알 수 없는 정보는 그대로 유지됩니다. 사람의 처리가 필요할 수 있다는 관찰은 실행 권한이 아닙니다. --window는 앱 전체 쿼리에 포커스를 주거나 필터링하지 않으며 --id-format은 식별자를 바꾸지 않습니다.\n\n예시:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "사용법: cmux current [--limit <1...200>] [--json]\n\ncmux가 이미 알고 있는 로컬 및 Cloud 표면의 현재 작업 정보를 제한된 수로 읽습니다.\n머신을 새로 고치거나 대화 기록을 읽거나 작업을 변경하지 않습니다.\n\n플래그:\n  --limit <1...200>  최대 항목 수(기본값: 100)\n  --json            식별자, 근거, 최신성이 포함된 소유자의 원본 데이터\n\n텍스트와 JSON은 같은 스냅샷을 사용합니다. 알 수 없는 정보는 그대로 유지됩니다.\n사람의 처리가 필요할 수 있다는 관찰은 실행 권한이 아닙니다. --window는 앱 전체 쿼리에\n포커스를 주거나 필터링하지 않으며 --id-format은 식별자를 바꾸지 않습니다.\n\n예시:\n  cmux current\n  cmux current --json --limit 50"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux current [--limit <1...200>] [--json]\n\ncmux がすでに把握しているローカルおよび Cloud サーフェスの作業情報を、件数を制限して読み取ります。\nマシンの更新、会話記録の読み取り、作業の変更は行いません。\n\nフラグ:\n  --limit <1...200>  最大件数（既定: 100）\n  --json            識別情報、根拠、鮮度を含む所有元の元データ\n\nテキストと JSON は同じスナップショットを使用します。不明な情報は不明のままです。人による対応の可能性は観察結果であり、操作の許可ではありません。--window はアプリ全体のクエリにフォーカスや絞り込みを行わず、--id-format は識別情報を書き換えません。\n\n例:\n  cmux current\n  cmux current --json --limit 50"
+            "value": "使用法: cmux current [--limit <1...200>] [--json]\n\ncmux がすでに把握しているローカルおよび Cloud サーフェスの作業情報を、件数を制限して読み取ります。\nマシンの更新、会話記録の読み取り、作業の変更は行いません。\n\nフラグ:\n  --limit <1...200>  最大件数（既定: 100）\n  --json            識別情報、根拠、鮮度を含む所有元の元データ\n\nテキストと JSON は同じスナップショットを使用します。不明な情報は不明のままです。\n人による対応の可能性は観察結果であり、操作の許可ではありません。--window はアプリ全体の\nクエリにフォーカスや絞り込みを行わず、--id-format は識別情報を書き換えません。\n\n例:\n  cmux current\n  cmux current --json --limit 50"
           }
         }
       }
