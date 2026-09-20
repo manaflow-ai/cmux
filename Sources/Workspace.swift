@@ -2825,7 +2825,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     private var surfaceTabBarButtonGlobalConfigPath: String?
     private var surfaceTabBarButtonConfiguration: SurfaceTabBarButtonConfiguration?
     private var featureFlagsObserver: NSObjectProtocol?
-    private var browserAvailabilityObservers: [NSObjectProtocol] = []
+    private var browserAvailabilityObserver: NSObjectProtocol?
 
     /// The pane-tree sub-model (CmuxPanes): owns the panel registry, the
     /// surface-id mapping, and the pane-layout bookkeeping. The legacy
@@ -4322,26 +4322,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 self.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
-        // The availability gate is mutated from several entrypoints that
-        // signal differently: the palette and MDM policy post the gate's own
-        // notification, Settings writes defaults directly, and the CLI writes
-        // from another process (caught on activation at the latest). The tab
-        // bar watches all three so its globe button cannot go stale while the
-        // other affordances update.
-        browserAvailabilityObservers = [
-            BrowserAvailabilitySettings.didChangeNotification,
-            UserDefaults.didChangeNotification,
-            NSApplication.didBecomeActiveNotification,
-        ].map { name in
-            NotificationCenter.default.addObserver(
-                forName: name,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self, !self.isRetiredFromOwningTabManager else { return }
-                    self.reapplySurfaceTabBarButtonsForFeatureFlags()
-                }
+        // `BrowserAvailabilityMonitor` owns watching the gate's several
+        // entrypoints and broadcasts only a real transition, so the tab bar
+        // rebuilds on an actual availability change rather than on every
+        // unrelated defaults write.
+        browserAvailabilityObserver = NotificationCenter.default.addObserver(
+            forName: BrowserAvailabilityMonitor.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, !self.isRetiredFromOwningTabManager else { return }
+                self.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
     }
@@ -4362,8 +4354,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if let featureFlagsObserver {
             NotificationCenter.default.removeObserver(featureFlagsObserver)
         }
-        for observer in browserAvailabilityObservers {
-            NotificationCenter.default.removeObserver(observer)
+        if let browserAvailabilityObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityObserver)
         }
         deferredAgentResumeIndexTask?.cancel()
         activeRemoteSessionControllerID = nil
@@ -10551,10 +10543,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             NotificationCenter.default.removeObserver(featureFlagsObserver)
             self.featureFlagsObserver = nil
         }
-        for observer in browserAvailabilityObservers {
-            NotificationCenter.default.removeObserver(observer)
+        if let browserAvailabilityObserver {
+            NotificationCenter.default.removeObserver(browserAvailabilityObserver)
+            self.browserAvailabilityObserver = nil
         }
-        browserAvailabilityObservers = []
         teardownAllPanels(retireDock: true)
         teardownRemoteConnection()
         owningTabManager = nil
