@@ -98,18 +98,18 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
-    @Test("workspace.current is withheld until its response is owner-scoped")
-    func currentIsDeniedUntilScoped() {
+    @Test("workspace.current requires an exact owner selector")
+    func currentRequiresWorkspaceID() {
         let policy = RemoteRelayAuthorizationPolicy()
         let owner = UUID()
         #expect(policy.validate(
             method: "workspace.current",
-            parameters: ["workspace_id": owner.uuidString],
+            parameters: ["preferred_workspace_id": owner.uuidString],
             ownerWorkspaceID: owner,
             surfaceIDs: []
         ) == .denied(
-            code: "remote_relay_method_denied",
-            message: "Relay method is not permitted"
+            code: "remote_relay_workspace_denied",
+            message: "Relay method requires an explicit workspace selector"
         ))
     }
 

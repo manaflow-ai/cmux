@@ -5573,7 +5573,7 @@ class TerminalController {
                 ) else {
                     return .finished(.err(
                         code: "not_found",
-                        message: "Surface not found for the given surface_id",
+                        message: self.controlSurfaceNotFoundMessage(),
                         data: nil
                     ))
                 }

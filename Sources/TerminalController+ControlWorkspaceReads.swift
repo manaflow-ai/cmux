@@ -55,7 +55,16 @@ extension TerminalController {
 
     func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
+            return routing.remoteRelayOwnerWorkspaceID == nil
+                ? .tabManagerUnavailable
+                : .relayOwnerUnavailable
+        }
+        if let owner = routing.remoteRelayOwnerWorkspaceID {
+            guard let workspace = tabManager.tabs.first(where: { $0.id == owner }),
+                  remoteRelayTargetIsCurrent(routing: routing, workspace: workspace) else {
+                return .relayOwnerUnavailable
+            }
+            return .relayWorkspace(id: owner, title: workspace.title)
         }
         // A relay request carries the authenticated workspace explicitly.  Do
         // not answer with whichever workspace happens to be focused in that

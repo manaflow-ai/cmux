@@ -73,6 +73,8 @@ extension ControlCommandCoordinator {
     private enum WorkspaceCurrentHopOutcome: Sendable {
         case tabManagerUnavailable
         case noWorkspaceSelected
+        case relayWorkspace(id: UUID, title: String)
+        case relayOwnerUnavailable(message: String)
         case resolved(
             windowID: UUID?,
             workspaceID: UUID,
@@ -89,8 +91,15 @@ extension ControlCommandCoordinator {
         _ params: [String: JSONValue],
         context: (any ControlCommandContext)?
     ) -> ControlCallResult {
+        let relayOwnerMarkerPresent: Bool = {
+            guard let value = params["_cmux_remote_workspace_id"] else { return false }
+            if case .null = value { return false }
+            return true
+        }()
         guard let context else {
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+            return relayOwnerMarkerPresent
+                ? .err(code: "remote_relay_workspace_denied", message: "Relay owner workspace is not active", data: nil)
+                : .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let outcome: WorkspaceCurrentHopOutcome = context.controlResolveOnMain { seam in
             switch seam.controlWorkspaceCurrent(routing: self.routingSelectors(params)) {
@@ -98,6 +107,10 @@ extension ControlCommandCoordinator {
                 return .tabManagerUnavailable
             case .noWorkspaceSelected:
                 return .noWorkspaceSelected
+            case .relayWorkspace(let id, let title):
+                return .relayWorkspace(id: id, title: title)
+            case .relayOwnerUnavailable:
+                return .relayOwnerUnavailable(message: seam.controlWorkspaceStrings().relayOwnerUnavailable)
             case .resolved(let windowID, let workspaceID, let index, let summary):
                 return .resolved(
                     windowID: windowID,
@@ -114,6 +127,19 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         case .noWorkspaceSelected:
             return .err(code: "not_found", message: "No workspace selected", data: nil)
+        case .relayWorkspace(let id, let title):
+            return .ok(.object([
+                "window_id": .null,
+                "window_ref": .null,
+                "workspace_id": .string(id.uuidString),
+                "workspace_ref": .string(id.uuidString),
+                "workspace": .object([
+                    "id": .string(id.uuidString),
+                    "title": .string(title),
+                ]),
+            ]))
+        case .relayOwnerUnavailable(let message):
+            return .err(code: "remote_relay_workspace_denied", message: message, data: nil)
         case let .resolved(windowID, workspaceID, index, summary, windowRef, workspaceRef):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),

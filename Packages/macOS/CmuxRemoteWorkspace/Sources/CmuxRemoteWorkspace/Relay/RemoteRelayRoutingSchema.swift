@@ -9,7 +9,7 @@ struct RemoteRelayRoutingSchema {
         let terminal = surface.union(["terminal_id"])
         switch method {
         case "system.ping", "system.capabilities": return []
-        case "workspace.list", "workspace.remote.status", "surface.list", "surface.current":
+        case "workspace.list", "workspace.current", "workspace.remote.status", "surface.list", "surface.current":
             return workspace
         case "workspace.remote.reconnect": return surface
         case "workspace.equalize_splits": return workspace.union(["orientation"])

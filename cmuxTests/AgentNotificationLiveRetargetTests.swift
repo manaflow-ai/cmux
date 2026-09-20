@@ -7,7 +7,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// Regression tests for https://github.com/manaflow-ai/cmux/issues/7939 /
 /// https://github.com/manaflow-ai/cmux/issues/5781: a notification addressed
 /// with a stale workspace id but a live surface id must be retargeted to the
@@ -24,12 +23,10 @@ extension AgentNotificationRegressionTests {
         let panelId: UUID
         let restore: () -> Void
     }
-
     private func makeLiveRetargetFixture() throws -> LiveRetargetFixture {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = appDelegate.tabManager ?? TabManager()
-
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
@@ -200,12 +197,15 @@ extension AgentNotificationRegressionTests {
         fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
         fixture.claimedWorkspace.registerReportedSurfaceTTYName("0", panelId: siblingPanelID)
         fixture.owningWorkspace.registerReportedSurfaceTTYName("0", panelId: fixture.panelId)
+        let connectionID = UUID()
+        fixture.owningWorkspace.activeRemoteSessionControllerID = connectionID
 
         let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
             "tty_name": "0",
             "tty_resolution": "reported_tty",
             "workspace_id": fixture.claimedWorkspace.id.uuidString,
             "_cmux_remote_workspace_id": fixture.owningWorkspace.id.uuidString,
+            WorkspaceRemoteRelayCommandRewriter.connectionIDKey: connectionID.uuidString,
         ])
         guard case .ok(let payload) = result,
               let target = payload as? [String: Any] else {

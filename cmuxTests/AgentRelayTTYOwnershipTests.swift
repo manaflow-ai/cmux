@@ -8,7 +8,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 extension AgentNotificationRegressionTests {
     @Test("Relay provenance does not cross remote hosts sharing a port")
     func relayTTYProvenanceDoesNotCrossRemoteHostsSharingPort() throws {
@@ -24,9 +23,7 @@ extension AgentNotificationRegressionTests {
         )
         fixture.source.trackRemoteTerminalSurface(fixture.panelId)
         fixture.source.registerReportedSurfaceTTYName("pts/20", panelId: fixture.panelId)
-
         try movePanel(fixture)
-
         assertRelayTTYTarget(
             authenticatedWorkspaceID: fixture.source.id,
             ttyName: "pts/20",
@@ -38,7 +35,6 @@ extension AgentNotificationRegressionTests {
             ttyName: "pts/20"
         )
     }
-
     @Test("A fresh TTY report follows a remote surface into an ordinary workspace")
     func freshRelayTTYReportFollowsSurfaceIntoOrdinaryWorkspace() throws {
         let fixture = try makeFixture()
@@ -58,7 +54,6 @@ extension AgentNotificationRegressionTests {
         fixture.source.registerReportedSurfaceTTYName("pts/21", panelId: fixture.panelId)
         let paneID = try #require(fixture.source.bonsplitController.allPaneIds.first)
         _ = try #require(fixture.source.newTerminalSurface(inPane: paneID, focus: false))
-
         try movePanel(fixture)
 
         #expect(
@@ -449,11 +444,26 @@ extension AgentNotificationRegressionTests {
         expectedWorkspaceID: UUID,
         expectedSurfaceID: UUID
     ) {
-        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
+        var params: [String: Any] = [
             "tty_name": ttyName,
             "tty_resolution": "reported_tty",
             "_cmux_remote_workspace_id": authenticatedWorkspaceID.uuidString,
-        ])
+        ]
+        if let workspace = AppDelegate.shared?.workspaceFor(tabId: authenticatedWorkspaceID) {
+            let previousConnectionID = workspace.activeRemoteSessionControllerID
+            let connectionID = previousConnectionID ?? UUID()
+            workspace.activeRemoteSessionControllerID = connectionID
+            params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey] = connectionID.uuidString
+            defer { workspace.activeRemoteSessionControllerID = previousConnectionID }
+        }
+        let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: params)
+        if expectedWorkspaceID != authenticatedWorkspaceID {
+            guard case .err = result else {
+                Issue.record("A relay TTY target must not disclose a moved workspace")
+                return
+            }
+            return
+        }
         guard case .ok(let payload) = result,
               let target = payload as? [String: Any] else {
             Issue.record("Expected authenticated relay TTY resolution, got \(result)")
