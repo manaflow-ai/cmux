@@ -2681,7 +2681,11 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 when ${attempt} ~ '^[0-9]+$' then (${attempt})::bigint + 1
                 else 1
               end,
-              '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', ${input.now.getTime()}::bigint,
+              -- Keep the row ineligible for the entire claim lease. A second
+              -- worker may already have selected the same candidate before
+              -- this update commits, so the retry fence must be future-dated
+              -- independently of the lease-id predicate.
+              '${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}', ${input.leaseExpiresAt.getTime()}::bigint,
               '${sql.raw(CREATE_CLEANUP_LEASE_ID_KEY)}', ${leaseId}::text,
               '${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}', ${input.leaseExpiresAt.getTime()}::bigint
             )
