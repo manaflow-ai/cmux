@@ -40,4 +40,10 @@ struct CloudMachineLoadingReservation: Sendable {
               materializedPlacement.workspaceID == expectedRemoteWorkspaceID,
               materializedPlacement.tabID == expectedRemoteTabID else { throw CloudDiagnosticFailure.placement }
     }
+
+    @MainActor
+    var materializationDestination: SurfaceDestination? {
+        guard let paneID = SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) else { return nil }
+        return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+    }
 }

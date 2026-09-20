@@ -262,7 +262,9 @@ final class MachineCreateCoordinator {
             case .created:
                 break
             case .createdButOpenFailed, .failed:
-                notifier(MachineCreateNotice(finished: finished))
+                if let notice = MachineCreateNotice(finished: finished) {
+                    notifier(notice)
+                }
             }
         }
         if transition.changed { postDidChange(finished: finished) }

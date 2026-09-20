@@ -618,13 +618,13 @@ final class SurfaceCatalog {
             resolvedRemoteView = nil
         }
         let loadingReservation = CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
-        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, destination: destination, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
+        let keyDestination = loadingReservation?.materializationDestination ?? destination
+        let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, destination: keyDestination, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
         if reuseExisting, let existing = projections.first(where: {
             guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
-            // Explicit placements must match their projection; legacy projections
-            // without tab ids are not safe to reuse.
+            // Explicit placements must match their projection.
             return (resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID)
-                && projectionMatchesMaterializationDestination($0, destination)
+                && (reuseInWorkspace == nil || projectionMatchesMaterializationDestination($0, keyDestination))
                 && $0.panelID != loadingReservation?.panelID
         }) {
             if let loadingReservation, let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID) {
@@ -798,10 +798,10 @@ final class SurfaceCatalog {
             let returnedProjection: SurfaceProjection
             let ownsProjection: Bool
             if let existing = projections.first(where: {
-                $0.resource == id
+                    $0.resource == id
                     && (key.remoteTabID == nil || $0.remoteTabID == key.remoteTabID)
                     && (key.workspaceID == nil || $0.workspaceID == key.workspaceID)
-                    && projectionMatchesMaterializationDestination($0, key.destination)
+                    && (key.workspaceID == nil || projectionMatchesMaterializationDestination($0, key.destination))
             }) {
                 if existing.panelID != projection.panelID {
                     cleanupMaterialization(projection, from: inFlight.provider)
