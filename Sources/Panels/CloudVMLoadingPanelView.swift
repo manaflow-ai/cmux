@@ -91,13 +91,19 @@ struct CloudVMLoadingPanelView: View {
     @MainActor
     private func retryCloudMachine() {
         guard panel.hasFailed else { return }
-        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.presentationWorkspaceID == panel.workspaceId }) {
+        let workspace = Workspace.liveWorkspace(id: panel.workspaceId)
+        let boundMachineID = workspace?.cloudVMBinding?.vmID
+        if let operation = MachineCreateCoordinator.shared.operations.first(where: { operation in
+            guard operation.request.presentationWorkspaceID == panel.workspaceId else { return false }
+            guard let boundMachineID else { return true }
+            return (operation.createdMachineID ?? operation.reconcilingMachineID) == boundMachineID
+        }) {
             if MachineCreateCoordinator.shared.retry(operation.id) {
                 panel.resetLoading()
             }
             return
         }
-        guard let workspace = Workspace.liveWorkspace(id: panel.workspaceId) else {
+        guard let workspace else {
             _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
             return
         }
