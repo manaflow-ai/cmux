@@ -19,7 +19,7 @@ struct VMResourceStatsStoreTests {
     }
 
     @Test func latePollCannotReplaceTheSuccessfulResizeResponse() {
-        let store = VMResourceStatsStore(now: { time })
+        let store = VMResourceStatsStore(now: { self.time })
         let before = stats(memory: 8192, disk: 32768)
         let after = stats(memory: 16384, disk: 65536, cpus: 8)
         store.finishRead(store.beginRead(machineID: "vm"), stats: before)
@@ -35,8 +35,18 @@ struct VMResourceStatsStoreTests {
         #expect(store.snapshot["vm"] == after)
     }
 
+    @Test func cancelledOldPollCannotClearTheLatestSuccessfulRead() {
+        let store = VMResourceStatsStore(now: { self.time })
+        let old = store.beginRead(machineID: "vm")
+        let newer = store.beginRead(machineID: "vm")
+        let reading = stats(memory: 8192, disk: 32768)
+        store.finishRead(newer, stats: reading)
+        store.finishRead(old, stats: nil)
+        #expect(store.snapshot["vm"] == reading)
+    }
+
     @Test func failedPostResizePollRetainsOnlyTheConfirmedNewShape() {
-        let store = VMResourceStatsStore(now: { time })
+        let store = VMResourceStatsStore(now: { self.time })
         store.finishRead(store.beginRead(machineID: "vm"), stats: stats(memory: 8192, disk: 32768))
         let resize = store.beginResize(machineID: "vm")
         store.finishResize(resize, stats: stats(memory: 16384, disk: 65536, cpus: 8))
@@ -49,7 +59,7 @@ struct VMResourceStatsStoreTests {
     }
 
     @Test func failedResizeDoesNotRestorePossiblySupersededCapacity() {
-        let store = VMResourceStatsStore(now: { time })
+        let store = VMResourceStatsStore(now: { self.time })
         let before = stats(memory: 8192, disk: 32768)
         store.finishRead(store.beginRead(machineID: "vm"), stats: before)
         let latePoll = store.beginRead(machineID: "vm")
@@ -65,7 +75,7 @@ struct VMResourceStatsStoreTests {
     }
 
     @Test func otherMachinesAndEverySubscriberShareTheAcceptedState() async {
-        let store = VMResourceStatsStore(now: { time })
+        let store = VMResourceStatsStore(now: { self.time })
         var first = store.changes().makeAsyncIterator()
         var second = store.changes().makeAsyncIterator()
         _ = await first.next()
@@ -82,7 +92,7 @@ struct VMResourceStatsStoreTests {
     }
 
     @Test func resetAndRemovalFenceOutstandingRequests() {
-        let store = VMResourceStatsStore(now: { time })
+        let store = VMResourceStatsStore(now: { self.time })
         let read = store.beginRead(machineID: "vm")
         let resize = store.beginResize(machineID: "other")
         store.reset()
@@ -96,7 +106,7 @@ struct VMResourceStatsStoreTests {
     }
 
     @Test func cliOnlyReadsHaveABoundedRetentionLimit() {
-        let store = VMResourceStatsStore(now: { time })
+        let store = VMResourceStatsStore(now: { self.time })
         for index in 0..<300 {
             store.finishRead(store.beginRead(machineID: "vm-\(index)"), stats: stats(memory: 8192, disk: 32768))
         }

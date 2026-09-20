@@ -25,7 +25,14 @@ final class VMResourceStatsStore {
     var snapshot: [String: VMStats] { entries.compactMapValues(\.stats) }
 
     func beginRead(machineID: String) -> Request {
-        Request(machineID: machineID, revision: entry(for: machineID).revision)
+        var entry = entry(for: machineID)
+        // New polls also fence older polls that are cancelled by a refresh.
+        // A read during resize must not supersede the mutation's revision.
+        if !entry.resizing {
+            entry.revision = UUID()
+            entries[machineID] = entry
+        }
+        return Request(machineID: machineID, revision: entry.revision)
     }
 
     @discardableResult
