@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 extension DockSplitStore {
     /// Clears the restore observation window when the resumed command returns to a shell prompt.
