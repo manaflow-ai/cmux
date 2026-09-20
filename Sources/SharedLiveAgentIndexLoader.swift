@@ -23,9 +23,7 @@ struct SharedLiveAgentIndexLoader {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         registry: CmuxVaultAgentRegistry? = nil,
-        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot = {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        },
+        processSnapshotProvider: @escaping () -> CmuxTopProcessSnapshot,
         capturedAtProvider: @escaping () -> TimeInterval = {
             Date().timeIntervalSince1970
         },
@@ -48,6 +46,23 @@ struct SharedLiveAgentIndexLoader {
         self.cachedAgentProcessValidator = cachedAgentProcessValidator
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func loadFreshResult() async -> LoadResult {
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
+        return SharedLiveAgentIndexLoader(
+            processSnapshotProvider: { snapshot },
+            capturedAtProvider: { snapshot.sampledAt.timeIntervalSince1970 },
+            processArgumentsProvider: { pid in
+                guard let process = snapshot.process(pid: pid) else { return nil }
+                return CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process)
+            }
+        ).loadResultSynchronously()
+    }
+
     func loadSynchronously() -> RestorableAgentSessionIndex {
         loadResultSynchronously().index
     }
@@ -56,6 +71,9 @@ struct SharedLiveAgentIndexLoader {
         let resolvedRegistry = registry
             ?? CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let processSnapshot = processSnapshotProvider()
+        guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
+            return (.unavailable, [], [], [])
+        }
         let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
             registry: resolvedRegistry,
             fileManager: fileManager,
