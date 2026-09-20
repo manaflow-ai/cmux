@@ -86,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Potvrdite e-poštu za nastavak",
     "emailUnverifiedBody": "Prijavite se metodom koji ste prvobitno koristili, a zatim potvrdite e-poštu prije korištenja ovog načina prijave.",
+    "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
     "backToSignIn": "Nazad na prijavu"
@@ -323,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "pregled",
       "team": "tim",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobilni uređaji"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -368,23 +369,25 @@
         "loading": "Učitavanje…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
+    "mobileDevices": {
+      "title": "Mobilni uređaji",
+      "description": "Upravljajte pristupom povezanim računarima, telefonima i tabletima.",
+      "team": "Tim",
+      "teamSwitchError": "Tim nije moguće promijeniti. Pokušajte ponovo.",
+      "loading": "Učitavanje uređaja…",
+      "empty": "Nema registrovanih uređaja za ovaj tim.",
+      "unavailable": "Uređaji se ne mogu učitati. Osvježite stranicu i pokušajte ponovo.",
+      "retry": "Pokušaj ponovo",
+      "mutationError": "Promjena uređaja nije završena.",
+      "revoke": "Opozovi pristup",
+      "deviceId": "Uređaj",
+      "revision": "Revizija",
       "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "active": "Aktivan",
+      "revoked": "Opozvan",
+      "relaySettings": "Postavke releja",
+      "relaySettingsDescription": "Odaberite relejne servere koje koristi ovaj tim. Unesite jedan URL po redu.",
+      "saveRelaySettings": "Sačuvaj postavke releja"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Podijeli s timom",

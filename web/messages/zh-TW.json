@@ -86,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "驗證電子郵件後繼續",
     "emailUnverifiedBody": "請使用最初註冊時的方式登入，然後驗證電子郵件，再使用此登入方式。",
+    "signupPendingBody": "如果你已有帳戶，請使用之前的方法登入。如果你剛建立帳戶，請在登入前驗證電子郵件。",
     "genericTitle": "無法完成登入",
     "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
     "backToSignIn": "返回登入"
@@ -323,7 +324,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "總覽",
       "team": "團隊",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "行動裝置"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -368,23 +369,25 @@
         "loading": "載入中…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "行動裝置",
+      "description": "管理已連線電腦、手機和平板電腦的存取權。",
+      "team": "團隊",
+      "teamSwitchError": "無法切換團隊。請重試。",
+      "loading": "正在載入裝置…",
+      "empty": "此團隊沒有已註冊的裝置。",
+      "unavailable": "無法載入你的裝置。重新整理頁面後再試一次。",
+      "retry": "重試",
+      "mutationError": "無法完成裝置變更。",
+      "revoke": "撤銷存取權",
+      "deviceId": "裝置",
+      "revision": "版本",
+      "status": "狀態",
+      "active": "使用中",
+      "revoked": "已撤銷",
+      "relaySettings": "中繼設定",
+      "relaySettingsDescription": "選擇此團隊使用的中繼伺服器。每行輸入一個 URL。",
+      "saveRelaySettings": "儲存中繼設定"
     },
     "coderouterAccounts": {
       "shareWithTeam": "與團隊共用",
