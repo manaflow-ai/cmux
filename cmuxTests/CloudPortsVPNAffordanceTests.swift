@@ -59,7 +59,8 @@ struct CloudPortsVPNAffordanceTests {
         let point = button.convert(NSPoint(x: button.bounds.midX, y: button.bounds.midY), to: parent)
         #expect(content.hitTest(point) === button)
         #expect(content.hitTest(content.convert(NSPoint(x: 4, y: 4), to: parent)) == nil)
-        #expect(button.accessibilityPerformPress())
+        #expect(button.accessibilityRole() == .button)
+        button.performClick(nil)
         #expect(calls == 1)
     }
 
