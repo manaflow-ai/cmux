@@ -5517,55 +5517,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Use app windows\n\nUse computer-use tools for native apps or visual controls. cmux provides these tools to Claude Code and Codex sessions launched in cmux. Complete setup in Settings > Computer Use. Read the `cmux-cua` skill for your agent's methods: inspect app or window state, click or type, then inspect again."
+            "value": "## Use app windows\n\nUse computer-use tools for native apps or visual controls. cmux provides these tools to Claude Code and Codex sessions launched in cmux. The first functional Computer Use request opens setup automatically when needed. You can resume setup in Settings > Computer Use. Read the `cmux-cua` skill for your agent's methods: inspect app or window state, click or type, then inspect again."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "## App-Fenster bedienen\n\nVerwenden Sie Computer-Use-Werkzeuge für native Apps oder visuelle Bedienelemente. cmux stellt diese Werkzeuge in Claude-Code- und Codex-Sitzungen bereit, die in cmux gestartet wurden. Schließen Sie die Einrichtung unter Einstellungen > Computer Use ab. Lesen Sie den Skill `cmux-cua` für die Methoden Ihres Agenten: App- oder Fensterzustand prüfen, klicken oder tippen und erneut prüfen."
+            "value": "## App-Fenster bedienen\n\nVerwenden Sie Computer-Use-Werkzeuge für native Apps oder visuelle Bedienelemente. cmux stellt diese Werkzeuge in Claude-Code- und Codex-Sitzungen bereit, die in cmux gestartet wurden. Die Einrichtung wird bei der ersten funktionalen Computer Use-Anfrage bei Bedarf automatisch geöffnet. Sie können die Einrichtung unter Einstellungen > Computer Use fortsetzen. Lesen Sie den Skill `cmux-cua` für die Methoden Ihres Agenten: App- oder Fensterzustand prüfen, klicken oder tippen und erneut prüfen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Utiliser les fenêtres des applications\n\nUtilisez les outils computer-use pour les applications natives ou les commandes visuelles. cmux fournit ces outils aux sessions Claude Code et Codex lancées dans cmux. Terminez la configuration dans Réglages > Computer Use. Lisez le skill `cmux-cua` pour connaître les méthodes de votre agent : inspectez l’état de l’application ou de la fenêtre, cliquez ou saisissez du texte, puis inspectez à nouveau."
+            "value": "## Utiliser les fenêtres des applications\n\nUtilisez les outils computer-use pour les applications natives ou les commandes visuelles. cmux fournit ces outils aux sessions Claude Code et Codex lancées dans cmux. La configuration s’ouvre automatiquement si nécessaire lors de la première demande Computer Use fonctionnelle. Vous pouvez la reprendre dans Réglages > Computer Use. Lisez le skill `cmux-cua` pour connaître les méthodes de votre agent : inspectez l’état de l’application ou de la fenêtre, cliquez ou saisissez du texte, puis inspectez à nouveau."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "## استخدام نوافذ التطبيقات\n\nاستخدم أدوات computer-use للتطبيقات الأصلية أو عناصر التحكم المرئية. يوفر cmux هذه الأدوات لجلسات Claude Code وCodex التي تبدأ داخله. أكمل الإعداد في الإعدادات > Computer Use. اقرأ مهارة `cmux-cua` لمعرفة طرق وكيلك: افحص حالة التطبيق أو النافذة، وانقر أو اكتب، ثم افحص مجدداً."
+            "value": "## استخدام نوافذ التطبيقات\n\nاستخدم أدوات computer-use للتطبيقات الأصلية أو عناصر التحكم المرئية. يوفر cmux هذه الأدوات لجلسات Claude Code وCodex التي تبدأ داخله. يُفتح الإعداد تلقائيًا عند الحاجة مع أول طلب وظيفي لـ Computer Use. يمكنك متابعة الإعداد من الإعدادات > Computer Use. اقرأ مهارة `cmux-cua` لمعرفة طرق وكيلك: افحص حالة التطبيق أو النافذة، وانقر أو اكتب، ثم افحص مجدداً."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "## Usar ventanas de aplicaciones\n\nUse herramientas computer-use para aplicaciones nativas o controles visuales. cmux proporciona estas herramientas a las sesiones de Claude Code y Codex iniciadas en cmux. Complete la configuración en Ajustes > Computer Use. Lea el skill `cmux-cua` para conocer los métodos de su agente: inspeccione el estado de la aplicación o ventana, haga clic o escriba y vuelva a inspeccionar."
+            "value": "## Usar ventanas de aplicaciones\n\nUse herramientas computer-use para aplicaciones nativas o controles visuales. cmux proporciona estas herramientas a las sesiones de Claude Code y Codex iniciadas en cmux. La configuración se abre automáticamente cuando es necesaria con la primera solicitud funcional de Computer Use. Puedes reanudarla en Ajustes > Computer Use. Lea el skill `cmux-cua` para conocer los métodos de su agente: inspeccione el estado de la aplicación o ventana, haga clic o escriba y vuelva a inspeccionar."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 操作應用程式視窗\n\n使用 computer-use 工具操作原生應用程式或視覺控制項。cmux 會為在其中啟動的 Claude Code 與 Codex 工作階段提供這些工具。請在「設定 > Computer Use」完成設定。閱讀 `cmux-cua` 技能以了解代理的操作方法：檢查應用程式或視窗狀態，點按或輸入，再次檢查。"
+            "value": "## 操作應用程式視窗\n\n使用 computer-use 工具操作原生應用程式或視覺控制項。cmux 會為在其中啟動的 Claude Code 與 Codex 工作階段提供這些工具。第一次功能性 Computer Use 要求需要設定時會自動開啟。您可以在「設定 > Computer Use」繼續設定。閱讀 `cmux-cua` 技能以了解代理的操作方法：檢查應用程式或視窗狀態，點按或輸入，再次檢查。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 操作应用窗口\n\n使用 computer-use 工具操作原生应用或可视控件。cmux 会为在其中启动的 Claude Code 和 Codex 会话提供这些工具。请在“设置 > Computer Use”完成设置。阅读 `cmux-cua` 技能以了解代理的操作方法：检查应用或窗口状态，点击或输入，再次检查。"
+            "value": "## 操作应用窗口\n\n使用 computer-use 工具操作原生应用或可视控件。cmux 会为在其中启动的 Claude Code 和 Codex 会话提供这些工具。首次功能性 Computer Use 请求需要设置时会自动打开。你可以在“设置 > Computer Use”继续设置。阅读 `cmux-cua` 技能以了解代理的操作方法：检查应用或窗口状态，点击或输入，再次检查。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "## 앱 창 사용\n\n네이티브 앱이나 시각적 컨트롤에는 computer-use 도구를 사용하세요. cmux에서 시작한 Claude Code와 Codex 세션에는 cmux가 이 도구를 제공합니다. 설정 > Computer Use에서 설정을 완료하세요. 에이전트별 방법은 `cmux-cua` 스킬을 읽으세요. 앱 또는 창 상태를 확인하고 클릭하거나 입력한 다음 다시 확인하세요."
+            "value": "## 앱 창 사용\n\n네이티브 앱이나 시각적 컨트롤에는 computer-use 도구를 사용하세요. cmux에서 시작한 Claude Code와 Codex 세션에는 cmux가 이 도구를 제공합니다. 첫 번째 기능적 Computer Use 요청에서 설정이 필요하면 설정이 자동으로 열립니다. 설정 > Computer Use에서 설정을 다시 진행할 수 있습니다. 에이전트별 방법은 `cmux-cua` 스킬을 읽으세요. 앱 또는 창 상태를 확인하고 클릭하거나 입력한 다음 다시 확인하세요."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "## アプリのウインドウを操作する\n\nネイティブアプリや視覚的な操作には computer-use ツールを使います。cmux から起動した Claude Code と Codex のセッションには、cmux がこれらのツールを提供します。「設定 > Computer Use」でセットアップを完了してください。エージェントごとの操作方法は `cmux-cua` スキルを読んでください。アプリやウインドウの状態を確認し、クリックや入力を行い、再度確認します。"
+            "value": "## アプリのウインドウを操作する\n\nネイティブアプリや視覚的な操作には computer-use ツールを使います。cmux から起動した Claude Code と Codex のセッションには、cmux がこれらのツールを提供します。最初の機能的な Computer Use リクエストで設定が必要な場合、セットアップが自動的に開きます。「設定 > Computer Use」でセットアップを再開できます。エージェントごとの操作方法は `cmux-cua` スキルを読んでください。アプリやウインドウの状態を確認し、クリックや入力を行い、再度確認します。"
           }
         }
       }
