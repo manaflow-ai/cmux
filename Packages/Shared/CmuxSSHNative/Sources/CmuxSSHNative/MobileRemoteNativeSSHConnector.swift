@@ -40,7 +40,7 @@ private struct NativeCString: Sendable {
     }
 }
 
-private actor MobileRemoteNativeSSHHandle {
+fileprivate actor MobileRemoteNativeSSHHandle {
     // libssh handles are accessed only through this actor; deinit is the final
     // native teardown path after all actor-isolated operations complete.
     private nonisolated(unsafe) var raw: OpaquePointer?
@@ -125,6 +125,29 @@ private actor MobileRemoteNativeSSHHandle {
 
     func isEOF() -> Bool { guard let raw else { return true }; return cmux_ssh_eof(raw) != 0 }
     func isClosed() -> Bool { guard let raw else { return true }; return closed || cmux_ssh_closed(raw) != 0 }
+
+    func sftpReadFile(path: String, maxBytes: Int) throws -> Data {
+        guard let raw, maxBytes > 0, maxBytes <= 64 * 1024 * 1024,
+              !path.isEmpty, !path.contains("\0") else { throw MobileRemoteNativeSSHError.invalidSFTPRequest }
+        var buffer = [UInt8](repeating: 0, count: maxBytes)
+        var written: UInt32 = 0
+        let result = path.withCString { cmux_ssh_sftp_read_file(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        guard result == Int32(CMUX_SSH_OK), Int(written) <= buffer.count else { throw MobileRemoteNativeSSHError.sftpFailure }
+        return Data(buffer.prefix(Int(written)))
+    }
+
+    func sftpList(path: String, maxEntries: Int, maxBytes: Int) throws -> [String] {
+        guard let raw, (1...10_000).contains(maxEntries), (1...4 * 1024 * 1024).contains(maxBytes),
+              !path.isEmpty, !path.contains("\0") else { throw MobileRemoteNativeSSHError.invalidSFTPRequest }
+        var buffer = [CChar](repeating: 0, count: maxBytes)
+        var written: UInt32 = 0
+        let result = path.withCString { cmux_ssh_sftp_list(raw, $0, &buffer, UInt32(buffer.count), &written) }
+        guard result == Int32(CMUX_SSH_OK), Int(written) <= buffer.count else { throw MobileRemoteNativeSSHError.sftpFailure }
+        let names = String(decoding: buffer.prefix(Int(written)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard names.count <= maxEntries else { throw MobileRemoteNativeSSHError.sftpFailure }
+        return names
+    }
 }
 
 private struct MobileRemoteNativeSSHHandshake: MobileRemoteSSHHandshake {
@@ -133,9 +156,18 @@ private struct MobileRemoteNativeSSHHandshake: MobileRemoteSSHHandshake {
     func authenticate(credential: MobileRemoteCredentialMaterial?) async throws -> any MobileRemoteSSHSession { try await handle.authenticate(credential, profile: profile) }
     func close() async { await handle.close() }
 }
-private struct MobileRemoteNativeSSHSession: MobileRemoteSSHSession {
-    let handle: MobileRemoteNativeSSHHandle
-    func output() -> AsyncThrowingStream<Data, any Error> {
+/// SFTP operations exposed by an authenticated native SSH session.
+public protocol MobileRemoteSFTPProviding: Sendable {
+    /// Reads a bounded remote file.
+    func readFile(path: String, maxBytes: Int) async throws -> Data
+    /// Lists bounded remote directory names.
+    func listDirectory(path: String, maxEntries: Int, maxBytes: Int) async throws -> [String]
+}
+
+/// Authenticated shell session backed by libssh.
+public struct MobileRemoteNativeSSHSession: MobileRemoteSSHSession, MobileRemoteSFTPProviding {
+    fileprivate let handle: MobileRemoteNativeSSHHandle
+    public func output() -> AsyncThrowingStream<Data, any Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -153,9 +185,15 @@ private struct MobileRemoteNativeSSHSession: MobileRemoteSSHSession {
             }
         }
     }
-    func sendInput(_ data: Data) async throws { try await handle.write(data) }
-    func resize(columns: Int, rows: Int) async throws { try await handle.resize(columns: columns, rows: rows) }
-    func close() async { await handle.close() }
+    public func sendInput(_ data: Data) async throws { try await handle.write(data) }
+    public func resize(columns: Int, rows: Int) async throws { try await handle.resize(columns: columns, rows: rows) }
+    public func readFile(path: String, maxBytes: Int = 64 * 1024 * 1024) async throws -> Data {
+        try await handle.sftpReadFile(path: path, maxBytes: maxBytes)
+    }
+    public func listDirectory(path: String, maxEntries: Int = 10_000, maxBytes: Int = 4 * 1024 * 1024) async throws -> [String] {
+        try await handle.sftpList(path: path, maxEntries: maxEntries, maxBytes: maxBytes)
+    }
+    public func close() async { await handle.close() }
 }
 /// Native adapter errors without secret material.
 public enum MobileRemoteNativeSSHError: Error, Equatable, Sendable {
@@ -166,4 +204,6 @@ public enum MobileRemoteNativeSSHError: Error, Equatable, Sendable {
     case authenticationFailed
     case closed
     case unsupportedSessionBackend(MobileRemoteSessionBackend)
+    case invalidSFTPRequest
+    case sftpFailure
 }

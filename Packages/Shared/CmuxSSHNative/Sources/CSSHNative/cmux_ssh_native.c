@@ -1,11 +1,13 @@
 #include "cmux_ssh_native.h"
 #include <libssh/libssh.h>
+#include <libssh/sftp.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <poll.h>
 
-struct cmux_ssh { ssh_session session; ssh_channel channel; ssh_key key; };
+struct cmux_ssh { ssh_session session; ssh_channel channel; ssh_key key; sftp_session sftp; };
 void cmux_ssh_destroy(cmux_ssh *s);
 static int result(int code) {
     return code==SSH_OK?CMUX_SSH_OK:(code==SSH_AGAIN?CMUX_SSH_AGAIN:CMUX_SSH_ERROR);
@@ -43,6 +45,7 @@ void cmux_ssh_destroy(cmux_ssh *s) {
         if(fd>=0)(void)shutdown(fd,SHUT_RDWR);
     }
     if(s->channel)ssh_channel_free(s->channel);
+    if(s->sftp)sftp_free(s->sftp);
     if(s->key)ssh_key_free(s->key);
     if(s->session) {ssh_disconnect(s->session);ssh_free(s->session);}
     free(s);
@@ -113,3 +116,25 @@ int cmux_ssh_write(cmux_ssh *s,const void *buffer,uint32_t count) {
 }
 int cmux_ssh_eof(cmux_ssh *s) {return ssh_channel_is_eof(s->channel);}
 int cmux_ssh_closed(cmux_ssh *s) {return ssh_channel_is_closed(s->channel);}
+static int ensure_sftp(cmux_ssh *s) {
+    if(s->sftp)return CMUX_SSH_OK;
+    s->sftp=sftp_new(s->session); if(!s->sftp)return CMUX_SSH_ERROR;
+    if(sftp_init(s->sftp)!=SSH_OK) { sftp_free(s->sftp); s->sftp=NULL; return CMUX_SSH_ERROR; }
+    return CMUX_SSH_OK;
+}
+int cmux_ssh_sftp_read_file(cmux_ssh *s,const char *path,void *buffer,uint32_t capacity,uint32_t *written) {
+    if(!path || !buffer || !written || ensure_sftp(s)!=CMUX_SSH_OK)return CMUX_SSH_ERROR;
+    sftp_file file=sftp_open(s->sftp,path,O_RDONLY,0); if(!file)return CMUX_SSH_ERROR;
+    ssize_t count=sftp_read(file,buffer,capacity); sftp_close(file);
+    if(count<0)return CMUX_SSH_ERROR; *written=(uint32_t)count; return CMUX_SSH_OK;
+}
+int cmux_ssh_sftp_list(cmux_ssh *s,const char *path,char *buffer,uint32_t capacity,uint32_t *written) {
+    if(!path || !buffer || !written || ensure_sftp(s)!=CMUX_SSH_OK)return CMUX_SSH_ERROR;
+    sftp_dir dir=sftp_opendir(s->sftp,path); if(!dir)return CMUX_SSH_ERROR;
+    uint32_t used=0; sftp_attributes attr;
+    while((attr=sftp_readdir(s->sftp,dir))!=NULL) {
+        size_t length=strlen(attr->name); if(used+length+1>capacity) { sftp_attributes_free(attr); sftp_closedir(dir); return CMUX_SSH_ERROR; }
+        memcpy(buffer+used,attr->name,length); used+=(uint32_t)length; buffer[used++]='\n'; sftp_attributes_free(attr);
+    }
+    sftp_closedir(dir); *written=used; return CMUX_SSH_OK;
+}

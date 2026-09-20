@@ -37,4 +37,8 @@ int cmux_ssh_read_timeout(cmux_ssh *s, void *buffer, uint32_t capacity, int stde
 int cmux_ssh_write(cmux_ssh *s, const void *buffer, uint32_t count);
 int cmux_ssh_eof(cmux_ssh *s);
 int cmux_ssh_closed(cmux_ssh *s);
+int cmux_ssh_sftp_read_file(cmux_ssh *s, const char *path, void *buffer,
+                            uint32_t capacity, uint32_t *written);
+int cmux_ssh_sftp_list(cmux_ssh *s, const char *path, char *buffer,
+                       uint32_t capacity, uint32_t *written);
 #endif
