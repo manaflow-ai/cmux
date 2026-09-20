@@ -25,6 +25,11 @@ final class CloudBrowserAccessState {
 
     var showsPage: Bool { model?.isReady == true && loaded && error == nil }
 
+    /// A Cloud document can commit before its render-blocking resources arrive.
+    /// Use the pane's backing color through that initial load for every origin;
+    /// after load WebKit resumes its ordinary document background semantics.
+    var isPreparingDocument: Bool { model != nil && !loaded && failureMessage == nil }
+
     var isDesktop: Bool {
         model?.target.port == CmuxTuiSnapshotParser.desktopPort && remoteURL?.path == "/vnc.html"
     }

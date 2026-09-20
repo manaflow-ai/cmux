@@ -4846,12 +4846,13 @@ final class BrowserPanel: Panel, ObservableObject {
             portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
-        if usesTransparentBackground || cloudAccess.isDesktop {
+        if usesTransparentBackground || cloudAccess.isPreparingDocument {
             // Transparent internal pages keep their page CSS clear. On opaque
             // themes, the native webview layer owns the terminal-color backing
             // fill so loading/empty/code regions never fall through to window gray.
-            // noVNC paints its own canvas and CSS background. Its bootstrap document
-            // must not paint WebKit's default white while the stylesheet is loading.
+            // Any Cloud document can wait for CSS after committing. Keep the pane
+            // backing until load completes, then restore normal page rendering,
+            // including the default background of websites without their own CSS.
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = color
