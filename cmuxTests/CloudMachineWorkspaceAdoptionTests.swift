@@ -82,6 +82,9 @@ struct CloudMachineWorkspaceAdoptionTests {
             #expect(app.manager.tabs.contains { $0.id == pending.id })
             #expect(pending.panels.count == 1 && pending.panels[command.id] === command)
             #expect(pending.cloudVMBinding == nil)
+            app.appDelegate.closeWorkspaces(forManagedCloudVMID: "cancelled-machine")
+            #expect(app.manager.tabs.contains { $0.id == pending.id })
+            #expect(pending.panels[command.id] === command)
             #expect(command.surface.initialCommand?.contains("first-command") == true)
         }
     }
