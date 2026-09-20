@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Exercise settings path validation in checkout and installed skill layouts."""
+"""Exercise path discovery in checkout and installed layouts.
+
+Semantic validation belongs to config doctor; it must not use an ambient CLI
+or be replaced by the path inventory. See test_cli_config_doctor.py.
+"""
 
 import json
 from pathlib import Path
@@ -58,25 +62,21 @@ class SupportedPathsTests(unittest.TestCase):
             check=False,
         )
 
-    def test_validate_accepts_catalog_sidebar_paths_in_both_layouts(self):
-        self.config.write_text(json.dumps({
-            "sidebar": {"showPorts": True, "showPullRequests": False, "showLog": True},
-        }))
+    def test_lists_catalog_sidebar_paths_in_both_layouts(self):
         for layout in ("checkout", "installed"):
             with self.subTest(layout=layout):
-                result = self.run_helper(self.helper(layout), "validate")
+                result = self.run_helper(self.helper(layout), "list-supported")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("all settings keys are recognized", result.stdout)
+                for path in ("sidebar.showPorts", "sidebar.showPullRequests", "sidebar.showLog"):
+                    self.assertIn(path, result.stdout.splitlines())
                 self.assertEqual(result.stderr, "")
 
-    def test_validate_rejects_unknown_sidebar_path_in_both_layouts(self):
-        self.config.write_text(json.dumps({"sidebar": {"notARealSetting": True}}))
+    def test_does_not_list_unknown_sidebar_path_in_both_layouts(self):
         for layout in ("checkout", "installed"):
             with self.subTest(layout=layout):
-                result = self.run_helper(self.helper(layout), "validate")
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn("unknown settings keys:", result.stdout)
-                self.assertIn("sidebar.notARealSetting", result.stdout)
+                result = self.run_helper(self.helper(layout), "list-supported")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("sidebar.notARealSetting", result.stdout.splitlines())
 
     def test_list_supported_is_identical_in_both_layouts(self):
         checkout = self.run_helper(self.helper("checkout"), "list-supported")
@@ -88,17 +88,10 @@ class SupportedPathsTests(unittest.TestCase):
 
     def test_missing_reference_falls_back_to_checkout_source(self):
         script = self.helper("checkout", reference=False)
-        self.config.write_text(json.dumps({"app": {"workspaceInheritWorkingDirectory": True}}))
-        valid = self.run_helper(script, "validate")
-        self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
-        self.assertIn("all settings keys are recognized", valid.stdout)
-        paths = self.run_helper(script, "list-supported")
-        self.assertEqual(paths.returncode, 0, paths.stdout + paths.stderr)
-        self.assertIn("app.workspaceInheritWorkingDirectory", paths.stdout.splitlines())
-        self.config.write_text(json.dumps({"app": {"notARealSetting": True}}))
-        invalid = self.run_helper(script, "validate")
-        self.assertEqual(invalid.returncode, 1, invalid.stdout + invalid.stderr)
-        self.assertIn("app.notARealSetting", invalid.stdout)
+        result = self.run_helper(script, "list-supported")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("app.workspaceInheritWorkingDirectory", result.stdout.splitlines())
+        self.assertNotIn("app.notARealSetting", result.stdout.splitlines())
 
     def test_list_supported_matches_schema_settings_paths(self):
         schema = json.loads((REPO_ROOT / "web" / "data" / "cmux.schema.json").read_text())
@@ -118,16 +111,13 @@ class SupportedPathsTests(unittest.TestCase):
             f"Missing paths: {missing}; extra paths: {extra}",
         )
 
-    def test_validate_accepts_paths_previously_only_in_checkout_source(self):
-        self.config.write_text(json.dumps({
-            "terminal": {"copyOnSelect": True},
-            "browser": {"urlAllowlist": ["https://example.com"]},
-        }))
+    def test_lists_paths_previously_only_in_checkout_source(self):
         for layout in ("checkout", "installed"):
             with self.subTest(layout=layout):
-                result = self.run_helper(self.helper(layout), "validate")
+                result = self.run_helper(self.helper(layout), "list-supported")
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("all settings keys are recognized", result.stdout)
+                self.assertIn("terminal.copyOnSelect", result.stdout.splitlines())
+                self.assertIn("browser.urlAllowlist", result.stdout.splitlines())
                 self.assertEqual(result.stderr, "")
 
 
