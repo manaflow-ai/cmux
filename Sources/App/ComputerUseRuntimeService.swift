@@ -91,6 +91,11 @@ final class ComputerUseRuntimeService {
             bundledHelperAppURL = nil
         }
         startObservingHelperTermination()
+        // Prepare only the private capability/runtime directories. This does
+        // not install, launch, or grant the helper; it lets a later explicit
+        // `$cmux-cua` request authenticate its first proxy even when the saved
+        // Computer Use toggle is currently off.
+        _ = prepareRuntimeForLaunch()
     }
 
     deinit {
@@ -219,7 +224,6 @@ final class ComputerUseRuntimeService {
                 guard let self else { return }
                 _ = await self.stopDaemon()
             }
-            try? FileManager.default.removeItem(at: paths.authenticationTokenFileURL)
             cachedStatus = .unknown
         }
     }

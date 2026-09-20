@@ -25,8 +25,9 @@ struct ComputerUseOnboardingAdmissionTests {
         let peer = try #require(AgentPIDProcessIdentity(pid: ProcessInfo.processInfo.processIdentifier))
         let status = try #require(await service.permissionStatus(at: socket, peer: peer))
         #expect(status.accessibility && status.screenRecording && status.helperOwnsPermissions)
+        let received = try #require(responder.receivedRequests.first)
         let envelope = try #require(JSONSerialization.jsonObject(
-            with: Data(try #require(responder.receivedRequests.first).utf8)
+            with: Data(received.utf8)
         ) as? [String: Any])
         let request = try #require(envelope["request"] as? [String: Any])
         #expect(request["method"] as? String == "permissions_status")
@@ -134,8 +135,9 @@ struct ComputerUseOnboardingAdmissionTests {
             phase: .disabled(onboardingComplete: true), enabled: false,
             to: fixture.paths.daemonSocketURL, peer: peer
         ))
+        let received = try #require(responder.receivedRequests.first)
         let envelope = try #require(JSONSerialization.jsonObject(
-            with: Data(try #require(responder.receivedRequests.first).utf8)
+            with: Data(received.utf8)
         ) as? [String: Any])
         let request = try #require(envelope["request"] as? [String: Any])
         #expect((request["args"] as? [String: Any])?["ready"] as? Bool == false)
@@ -177,8 +179,9 @@ struct ComputerUseOnboardingAdmissionTests {
         #expect(fixture.defaults.data(forKey: fixture.completionKey) == nil)
         for responder in [native, codex] {
             #expect(responder.receivedRequests.count == 2)
+            let received = try #require(responder.receivedRequests.last)
             let envelope = try #require(JSONSerialization.jsonObject(
-                with: Data(try #require(responder.receivedRequests.last).utf8)
+                with: Data(received.utf8)
             ) as? [String: Any])
             let request = try #require(envelope["request"] as? [String: Any])
             #expect((request["args"] as? [String: Any])?["ready"] as? Bool == false)

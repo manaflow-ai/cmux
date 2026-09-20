@@ -39,7 +39,10 @@ final class ComputerUseToolOnboardingFixture {
             featureEnabled: { [weak self] in self?.featureEnabled == true },
             onboardingCoordinator: ComputerUseOnboardingCoordinator(
                 presenter: { [weak self] in self?.presentations.append($0) }
-            )
+            ),
+            ownsSurface: { [weak self] surfaceID, workspaceID in
+                surfaceID == self?.surfaceID && workspaceID == self?.workspaceID
+            }
         )
     }()
 

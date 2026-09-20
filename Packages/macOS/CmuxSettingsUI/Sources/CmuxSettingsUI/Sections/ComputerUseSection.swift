@@ -65,7 +65,7 @@ public struct ComputerUseSection: View {
                         ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
                         : enabled.current
                             ? String(localized: "settings.computerUse.enabled.subtitleOn", defaultValue: "Supported agent sessions can see and drive apps on this Mac.")
-                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "New agent launches start without the computer-use tools, including in terminals that are already open.")
+                            : String(localized: "settings.computerUse.enabled.subtitleOff", defaultValue: "The first cmux-cua request starts setup automatically.")
                 ) {
                     Toggle("", isOn: Binding(get: { enabled.current && !managedByPolicy }, set: { enabled.set($0) }))
                         .labelsHidden()

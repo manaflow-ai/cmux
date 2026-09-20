@@ -11661,55 +11661,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New agent launches start without the computer-use tools, including in terminals that are already open."
+            "value": "The first cmux-cua request starts setup automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すでに開いているターミナルも含め、新しく起動するエージェントはコンピュータ操作ツールなしで開始されます。"
+            "value": "最初のcmux-cuaリクエストで設定が自動的に開始されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新启动的代理不再带 Computer Use 工具，已经打开的终端同样如此。"
+            "value": "首次 cmux-cua 请求会自动开始设置。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neue Agenten-Starts erfolgen ohne die Computer-Use-Tools, auch in bereits geöffneten Terminals."
+            "value": "Die Einrichtung startet automatisch bei der ersten cmux-cua-Anfrage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les lancements de nouveaux agents démarrent sans les outils computer-use, y compris dans les terminaux déjà ouverts."
+            "value": "La configuration démarre automatiquement à la première demande cmux-cua."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تبدأ عمليات إطلاق العميل الجديدة بدون أدوات استخدام الكمبيوتر، بما في ذلك الطرفيات المفتوحة بالفعل."
+            "value": "يبدأ الإعداد تلقائيًا عند أول طلب cmux-cua."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Los nuevos inicios de agentes se iniciarán sin las herramientas de uso de computadora, incluso en las terminales que ya estén abiertas."
+            "value": "La configuración comienza automáticamente con la primera solicitud de cmux-cua."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新啟動的代理程式將不包含電腦操作工具，這也包括已開啟的終端機。"
+            "value": "第一次 cmux-cua 要求會自動開始設定。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 열려 있는 터미널을 포함하여 새로 시작하는 에이전트는 컴퓨터 사용 도구 없이 시작됩니다."
+            "value": "첫 번째 cmux-cua 요청 시 설정이 자동으로 시작됩니다."
           }
         }
       }

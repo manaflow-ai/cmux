@@ -1477,8 +1477,8 @@ def test_codex_skips_when_live_app_setting_is_disabled(failures: list[str]) -> N
     code, args, stderr, _ = run_wrapper(["hello"], live_app_enabled=False)
     expect(code == 0, f"live-disabled wrapper exited {code}: {stderr}", failures)
     expect(
-        command_config(args) is None,
-        f"expected no injection when the live app setting is disabled, got {args}",
+        command_config(args) is not None,
+        f"explicit cmux-cua must remain attachable when the saved toggle is off, got {args}",
         failures,
     )
     expect_native_computer_use_disabled(args, "disabled cmux Computer Use", failures)

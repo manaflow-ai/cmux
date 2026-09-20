@@ -42,6 +42,18 @@ struct ComputerUseToolOnboardingTests {
         #expect(!fixture.runtime.onboardingIsComplete)
     }
 
+    @Test func firstFunctionalToolEnablesComputerUseWhenToggleIsOff() async throws {
+        let fixture = try ComputerUseToolOnboardingFixture()
+        defer { fixture.remove() }
+        await fixture.runtime.setEnabled(false)
+
+        await fixture.send("mcp__cmux_cua__get_app_state")
+
+        #expect(fixture.runtime.desiredEnabled)
+        #expect(fixture.presentations == [.overview])
+        #expect(fixture.runtime.permissionPhase == .onboarding)
+    }
+
     @Test func retriesStayQuietAndSettingsCanResumeSetup() async throws {
         let fixture = try ComputerUseToolOnboardingFixture()
         defer { fixture.remove() }
@@ -83,18 +95,19 @@ struct ComputerUseToolOnboardingTests {
         #expect(fixture.runtime.permissionPhase == .onboardingRequired)
     }
 
-    @Test func disabledFeatureAndUserOptOutStayQuiet() async throws {
+    @Test func explicitToolRequestEnablesComputerUseEvenWhenMenuFeatureIsOff() async throws {
         let fixture = try ComputerUseToolOnboardingFixture()
         defer { fixture.remove() }
         try await fixture.enable()
         fixture.featureEnabled = false
         await fixture.send("cmux-cua.get_app_state")
-        #expect(fixture.presentations.isEmpty)
+        #expect(fixture.presentations == [.overview])
+        #expect(fixture.runtime.permissionPhase == .onboarding)
         fixture.featureEnabled = true
         await fixture.runtime.setEnabled(false)
         await fixture.send("cmux-cua.get_app_state")
-        #expect(fixture.presentations.isEmpty)
-        #expect(!fixture.runtime.desiredEnabled)
+        #expect(fixture.presentations == [.overview, .overview])
+        #expect(fixture.runtime.desiredEnabled)
     }
 
     @Test func completedSetupStaysQuietUntilHelperInvalidation() async throws {

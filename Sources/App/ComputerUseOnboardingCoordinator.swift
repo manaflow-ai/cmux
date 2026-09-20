@@ -22,8 +22,8 @@ final class ComputerUseOnboardingCoordinator {
         return true
     }
 
-    /// Called only after the host matches a functional tool to a current live
-    /// agent session. Claim presentation synchronously so retries and dismissal
+    /// Called after the host matches a functional tool to an owned terminal.
+    /// Claim presentation synchronously so retries and dismissal
     /// cannot repeatedly raise the window; Settings can always resume the flow.
     @discardableResult
     func requestFromToolInvocation(onboarding: ComputerUseOnboardingStore) -> Bool {

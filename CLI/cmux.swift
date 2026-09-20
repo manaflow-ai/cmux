@@ -39603,12 +39603,11 @@ export default CMUXSessionRestore;
             "hook_event_name": hookEventName,
             "_source": source,
         ]
-        if agentPid > 0 {
-            eventDict["_ppid"] = agentPid
-        }
+        if agentPid > 0 { eventDict["_ppid"] = agentPid }
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
+        eventDict["surface_id"] = normalizedHandleValue(env["CMUX_SURFACE_ID"])
         if let validatedCodexFeedTarget {
             eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
             eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId

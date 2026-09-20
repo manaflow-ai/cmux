@@ -75,9 +75,11 @@ or permissions are not a reason to begin setup automatically.
   helper to raise an intermediate native prompt. The proxy keeps its
   external-flow flag on so the first driving call waits for both helper grants
   before it is forwarded.
-- Kill switch: set `CMUX_COMPUTER_USE_MCP_DISABLED=1`, or toggle it off in
-  Settings → Computer Use (persists to `~/.config/cmux/cmux.json` and is
-  exported to spawned terminals).
+- An explicit functional `$cmux-cua` request is the opt-in: if the saved
+  Computer Use toggle is off, cmux enables the runtime and opens onboarding
+  automatically. The hard kill switch is `CMUX_COMPUTER_USE_MCP_DISABLED=1`
+  (or managed policy); turning the Settings toggle off only stops automatic
+  helper startup until the next explicit request.
 - Attaches only on cmux-launched, live-socket sessions (same authority bar as
   cmux hooks); hooks-disabled and stale-socket sessions do not attach.
 
@@ -257,8 +259,10 @@ Settings → Computer Use.
 
 ## Troubleshooting
 
-- **Agent has no computer-use tools** — Settings → Computer Use must be on;
-  start a *new* session (tools attach at launch).
+- **Agent has no computer-use tools** — the session was launched outside cmux,
+  the hard kill switch is active, or the wrapper started before the tagged app.
+  Start a fresh session inside the tagged cmux app; the first functional
+  request enables setup automatically.
 - **Clicks do nothing / not permitted** — grant Accessibility to cmux Computer Use.
 - **Black/empty screenshots** — grant Screen Recording to cmux Computer Use;
   restart only the helper if its automatic refresh has not completed yet.

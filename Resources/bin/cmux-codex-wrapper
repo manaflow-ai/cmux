@@ -327,8 +327,7 @@ cmux_codex_cua_attachment_present() {
 # do not launch a helper or probe the daemon.
 cmux_codex_cua_attachment_reason() {
     if ! cmux_codex_computer_use_enabled_for_invocation "$@"; then
-        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] ||
-           ! cmux_codex_computer_use_app_enabled; then
+        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]]; then
             printf '%s' 'computer-use-disabled'
         else
             printf '%s' 'strict-mcp-config'
@@ -352,7 +351,6 @@ cmux_codex_cua_attachment_reason() {
 
 cmux_codex_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
-    cmux_codex_computer_use_app_enabled || return 1
     local arg
     for arg in "$@"; do
         case "$arg" in

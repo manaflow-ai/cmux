@@ -5,7 +5,6 @@ import CmuxSettings
 /// Owns the app-level computer-use menu-bar and onboarding controllers.
 @MainActor
 final class ComputerUseUXCoordinator {
-    private let liveAgentIndex: SharedLiveAgentIndex
     private let stateRepository: ComputerUseStateRepository
     private let stateDirectoryURL: URL
     private let configStore: JSONConfigStore
@@ -16,6 +15,7 @@ final class ComputerUseUXCoordinator {
     private let userDefaults: UserDefaults
     private let workspaceTitle: @MainActor (UUID) -> String?
     private let featureEnabled: @MainActor () -> Bool
+    private let ownsSurface: @MainActor (UUID, UUID?) -> Bool
     private let liveSessionProjection: ComputerUseLiveSessionProjection
     private let activityLifecycle = ComputerUseActivityLifecycle()
 
@@ -49,9 +49,9 @@ final class ComputerUseUXCoordinator {
         userDefaults: UserDefaults,
         workspaceTitle: @escaping @MainActor (UUID) -> String?,
         featureEnabled: @escaping @MainActor () -> Bool,
-        onboardingCoordinator: ComputerUseOnboardingCoordinator? = nil
+        onboardingCoordinator: ComputerUseOnboardingCoordinator? = nil,
+        ownsSurface: @escaping @MainActor (UUID, UUID?) -> Bool = { _, _ in false }
     ) {
-        self.liveAgentIndex = liveAgentIndex
         self.stateRepository = stateRepository
         self.stateDirectoryURL = stateDirectoryURL
         self.configStore = configStore
@@ -62,6 +62,7 @@ final class ComputerUseUXCoordinator {
         self.userDefaults = userDefaults
         self.workspaceTitle = workspaceTitle
         self.featureEnabled = featureEnabled
+        self.ownsSurface = ownsSurface
         self.liveSessionProjection = ComputerUseLiveSessionProjection(
             liveAgentIndex: liveAgentIndex
         )
@@ -330,26 +331,23 @@ final class ComputerUseUXCoordinator {
         guard isComputerUseInvocation || isCompletion else { return }
         if isComputerUseInvocation,
            Self.computerUseToolName(event) != "check_permissions",
-           event.surfaceId.flatMap(UUID.init(uuidString:)) != nil,
-           featureEnabled(),
-           runtimeService.desiredEnabled,
+           let surfaceID = event.surfaceId.flatMap(UUID.init(uuidString:)),
+           ownsSurface(surfaceID, event.workspaceId.flatMap(UUID.init(uuidString:))),
            runtimeService.acceptsNewLaunches {
-            // Presentation is owned by authenticated cmux hook ingress, not by
-            // the live-session projection. A first MCP call can arrive before
-            // process binding/index refresh finishes; waiting here loses the
-            // deterministic first-use boundary while the proxy waits on the
-            // daemon's bounded onboarding admission.
+            if !runtimeService.desiredEnabled {
+                // An explicit functional request is the opt-in. Persist it
+                // before reconciling the runtime so the settings stream cannot
+                // immediately turn the helper back off after presentation.
+                try? await configStore.set(true, for: enabledKey)
+                await runtimeService.setEnabled(true)
+            }
+            guard runtimeService.desiredEnabled else { return }
+            // The live terminal registry establishes ownership immediately.
+            // Agent process indexing may lag the first hook and is needed only
+            // for session/cursor bookkeeping, never for permission presentation.
             ensureOnboardingCoordinator().requestFromToolInvocation(
                 onboarding: runtimeService.onboarding
             )
-        }
-        if isComputerUseInvocation, Self.computerUseToolName(event) != "check_permissions",
-           featureEnabled(), runtimeService.desiredEnabled,
-           runtimeService.permissionPhase == .onboardingRequired {
-            // The first hook may precede the initial agent-index scan. Await its
-            // authoritative refresh rather than dropping that setup request.
-            guard await liveAgentIndex.indexRefreshingNow() != nil,
-                  !Task.isCancelled else { return }
         }
         let resolvedDriverSessionID = liveSessionProjection.driverSessionID(
                 surfaceID: event.surfaceId,
