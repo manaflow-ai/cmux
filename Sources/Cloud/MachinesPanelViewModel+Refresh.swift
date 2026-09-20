@@ -4,7 +4,10 @@ import Foundation
 /// Refresh ownership stays on the panel; only immutable requests survive suspension.
 extension MachinesPanelViewModel {
     func refreshStats() {
-        guard isCloudEnabled(), statsTask == nil, let client = client ?? VMClient.shared else { return }
+        statsTask?.cancel()
+        statsTask = nil
+        statsID = nil
+        guard isCloudEnabled(), let client = client ?? VMClient.shared else { return }
         let ids = machines.filter { $0.capabilities.stats }.map(\.id)
         guard !ids.isEmpty else { return }
         let requestID = UUID()
