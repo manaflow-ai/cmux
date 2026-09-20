@@ -5406,7 +5406,7 @@ final class BrowserPanel: Panel, ObservableObject {
             provider.configureBrowser(self, url: url)
             return nil
         } else {
-            cloudAccess.leave()
+            leaveCloudResourceForLocalNavigation()
         }
         let request = URLRequest(url: url)
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)

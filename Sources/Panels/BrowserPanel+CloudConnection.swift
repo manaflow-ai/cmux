@@ -2,6 +2,17 @@ import Foundation
 import WebKit
 
 extension BrowserPanel {
+    /// Leaving a Cloud resource for a user-owned external page ends only this
+    /// local projection. The `.replaced` reason keeps a navigation from
+    /// editing the remote workspace layout while removing stale restore
+    /// provenance from this panel.
+    func leaveCloudResourceForLocalNavigation() {
+        if cloudAccess.retainsCloudResourceForDuplication {
+            SurfaceCatalog.shared.endProjections(panelID: id, reason: .replaced)
+        }
+        cloudAccess.leave()
+    }
+
     var cloudResourceForSession: SurfaceResourceID? {
         guard cloudAccess.retainsCloudResourceForDuplication else { return nil }
         if let resource = cloudAccess.resourceID, !resource.machine.isLocal {
