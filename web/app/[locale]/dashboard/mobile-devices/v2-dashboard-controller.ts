@@ -141,7 +141,10 @@ export class V2DashboardController {
           connected = true;
           clearTimeout(timeout);
           resolve();
-          void this.requestDirectory().catch(cause => this.fail(cause));
+          void this.requestDirectory().catch(cause => {
+            this.fail(cause);
+            this.scheduleReconnect(cause);
+          });
           return;
         }
         this.resolvePending(frame);

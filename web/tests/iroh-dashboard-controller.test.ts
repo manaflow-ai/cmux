@@ -179,26 +179,32 @@ test("permanent authorization failures do not schedule another session", async (
 
 test("transient startup failures stop after a bounded retry budget", async () => {
   const original = globalThis.fetch;
-  const realSetTimeout = globalThis.setTimeout;
   const timers: Array<() => void> = [];
   const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((callback: TimerHandler) => {
     timers.push(callback as () => void);
     return 1 as unknown as ReturnType<typeof setTimeout>;
   }) as unknown as typeof setTimeout);
+  const resolveSession: Array<(response: Response) => void> = [];
+  const failure = () => Response.json({ schemaId: "error.v1", code: "temporary_failure", retryable: true }, { status: 503 });
+  const waitFor = async (predicate: () => boolean) => {
+    for (let turn = 0; turn < 20 && !predicate(); turn += 1) await Promise.resolve();
+  };
   let requests = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (() => {
     requests += 1;
-    return Response.json({ schemaId: "error.v1", code: "temporary_failure", retryable: true }, { status: 503 });
+    return new Promise<Response>(resolve => { resolveSession.push(resolve); });
   }) as typeof fetch;
   const controller = new V2DashboardController({ origin: "https://cmux-iroh-v2-staging.debussy.workers.dev", environment: "staging", projectId: "p", userId: "u", teamId: "t", getStackToken: async () => "s", onDirectory: () => {}, onError: () => {} });
   try {
-    await controller.start();
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const next = timers.shift();
-      next?.();
-      await Promise.resolve();
-      await Promise.resolve();
-      await new Promise<void>(resolve => realSetTimeout(resolve, 0));
+    const started = controller.start();
+    await waitFor(() => resolveSession.length === 1);
+    resolveSession.shift()!(failure());
+    await started;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      timers.shift()?.();
+      await waitFor(() => resolveSession.length === 1);
+      resolveSession.shift()!(failure());
+      await waitFor(() => timers.length > 0 || requests === 6);
     }
     expect(requests).toBe(6);
     expect(timers).toHaveLength(0);

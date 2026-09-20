@@ -66,8 +66,9 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
     catch { setError(t("mutationError")); }
     finally { setBusyDevice(null); }
   };
+  const managedDeviceIds = new Set(directory?.managedDeviceIds ?? []);
   return <>
-    {error ? <div role="alert" className="border border-red-500/40 p-3 text-sm"><p>{error}</p><button className="mt-2 border border-border px-2 py-1" onClick={() => { setDirectory(null); setError(null); setRetryNonce(value => value + 1); }}>{t("retry")}</button></div> : null}
+    {error ? <div role="alert" className="border border-red-500/40 p-3 text-sm"><p>{error}</p><button type="button" className="mt-2 border border-border px-2 py-1" onClick={() => { setDirectory(null); setError(null); setRetryNonce(value => value + 1); }}>{t("retry")}</button></div> : null}
     {!directory && !error ? <p className="text-muted">{t("loading")}</p> : null}
     {directory?.devices.length === 0 ? <p className="border border-border p-3 text-muted">{t("empty")}</p> : null}
     {directory?.canManageTeam ? <RelaySettings key={JSON.stringify(directory.relayURLs)} relayURLs={directory.relayURLs} controllerRef={controllerRef} /> : null}
@@ -77,7 +78,7 @@ function ConnectedDevices({ teamId, userId, stack }: { readonly teamId: string; 
           <h2 className="font-medium">{device.descriptor.metadata.displayName}</h2>
           <p className="mt-1 text-xs text-muted">{device.descriptor.metadata.platform} · {device.descriptor.metadata.appVersion}</p>
         </div>
-        {directory.managedDeviceIds.includes(device.deviceRecordId) ? <button className="border border-border px-2 py-1" disabled={busyDevice === device.deviceRecordId || device.revoked} onClick={() => void revoke(device.deviceRecordId)}>{t("revoke")}</button> : null}
+        {managedDeviceIds.has(device.deviceRecordId) ? <button type="button" className="border border-border px-2 py-1" disabled={busyDevice === device.deviceRecordId || device.revoked} onClick={() => void revoke(device.deviceRecordId)}>{t("revoke")}</button> : null}
       </div>
       <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
         <Fact label={t("deviceId")} value={`…${device.descriptor.identity.deviceId.slice(-8)}`} />
@@ -108,7 +109,7 @@ function RelaySettings({ relayURLs, controllerRef }: {
     <p className="mt-1 text-xs text-muted">{t("relaySettingsDescription")}</p>
     <textarea className="mt-3 min-h-20 w-full border border-border bg-background p-2 font-mono text-xs" value={draft} onChange={event => setDraft(event.target.value)} aria-label={t("relaySettings")} />
     {failed ? <p role="alert">{t("mutationError")}</p> : null}
-    <button className="mt-2 border border-border px-2 py-1" disabled={saving} onClick={() => void save()}>{t("saveRelaySettings")}</button>
+    <button type="button" className="mt-2 border border-border px-2 py-1" disabled={saving} onClick={() => void save()}>{t("saveRelaySettings")}</button>
   </section>;
 }
 
