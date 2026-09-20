@@ -11,6 +11,8 @@ struct CloudTreeMachineBand<Content: View>: View {
     var body: some View {
         if style.machineBand {
             content()
+                // Inset the whole identity inside the band; this is independent
+                // of the shared icon-to-label gap used within the content.
                 .padding(.leading, 6)
                 .padding(.vertical, GlobalFontMagnification.scaledSize(
                     style.machineBandVerticalPadding, percent: magnification

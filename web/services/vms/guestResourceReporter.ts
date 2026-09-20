@@ -35,6 +35,14 @@ def sample():
     return stats
 `;
 
+/** A one-shot probe used only by provider-owned direct resource sampling. */
+export function guestResourceSampleCommand(): string {
+  return `python3 - <<'PY'
+${GUEST_RESOURCE_SAMPLE_SCRIPT}
+print(json.dumps(sample()))
+PY`;
+}
+
 /** The awake guest publishes through its existing edge identity; no secret is stored here. */
 export function guestResourceReporterScript(): string {
   return `${GUEST_RESOURCE_SAMPLE_SCRIPT}
