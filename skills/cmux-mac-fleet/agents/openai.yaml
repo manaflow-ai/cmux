@@ -1,4 +1,0 @@
-interface:
-  display_name: "cmux Mac Fleet"
-  short_description: "Lease the shared cmux Mac fleet for builds and remote verification (maintainers only)."
-  default_prompt: "Use this skill when a cmux build, archive, test run, or agent verification should run on the shared Mac fleet from a cmuxterm-hq checkout."
