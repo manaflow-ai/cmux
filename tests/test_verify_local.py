@@ -525,6 +525,16 @@ class AutomaticSelectionTests(unittest.TestCase):
             self.assertIn("swift-syntax", result.stdout)
             self.assertNotIn("RUN ", result.stdout)
 
+    def test_preview_respects_explicit_check_and_swift_file_selection(self):
+        with repo_fixture() as repo:
+            self.remote_default(repo)
+            (repo / "Example.swift").write_text("invalid Swift")
+            result = cli(repo, "--only", "swift-syntax", "--swift", "Example.swift", "--list")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Example.swift", result.stdout)
+            self.assertNotIn("xcstrings:", result.stdout)
+            self.assertNotIn("RUN ", result.stdout)
+
     def test_all_and_ci_preserve_full_recipe_and_explicit_selection_wins(self):
         with repo_fixture() as repo:
             self.remote_default(repo)

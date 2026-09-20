@@ -57,6 +57,26 @@ CHECK_INPUTS = {
 }
 
 
+def automatic_scope(repo, environ):
+    """Use local Git metadata only; CI keeps the full static recipe."""
+    if any(environ.get(key, "").lower() not in ("", "0", "false", "no")
+           for key in ("CI", "GITHUB_ACTIONS")):
+        return {"mode": "ci_full", "base_ref": None, "reason": "CI: full static recipe"}
+    for remote in ("upstream", "origin"):
+        try:
+            base = subprocess.run(
+                ["git", "-C", str(repo), "symbolic-ref", "-q", f"refs/remotes/{remote}/HEAD"],
+                capture_output=True, text=True, check=True, timeout=5).stdout.strip()
+            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
+                           capture_output=True, check=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        return {"mode": "affected", "base_ref": base,
+                "reason": f"Local default-branch reference: {base} (no fetch)"}
+    return {"mode": "full_fallback", "base_ref": None,
+            "reason": "No usable local remote-default reference: full static recipe; parse local Swift edits"}
+
+
 def affected_checks(repo, base):
     paths, evidence = changed_files(repo, base, include_deleted=True)
     reasons = {item[0]: [] for item in CHECKS}
@@ -382,24 +402,28 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
 def main():
     parser = argparse.ArgumentParser(
         description="Fast pre-build checks: shared CI sanity checks, with optional Swift syntax parsing.",
-        usage="%(prog)s [--affected [BASE] | --only CHECK] [--swift-changed [BASE]] [options]",
+        usage="%(prog)s [--all | --affected [BASE] | --only CHECK] [options]",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Start here:
-  python3 scripts/verify-local.py                         Shared CI static checks
-  python3 scripts/verify-local.py --swift-changed          Also parse local Swift edits
+  python3 scripts/verify-local.py                         Choose checks and parse changed Swift automatically
+  python3 scripts/verify-local.py --all                   Full CI static recipe
   python3 scripts/verify-local.py --swift-changed origin/main  Include committed branch edits
   python3 scripts/verify-local.py --affected               Run affected static checks
   python3 scripts/verify-local.py --affected origin/main --list  Explain selection without running checks
-  python3 scripts/verify-local.py --list                   Discover focused check names
+  python3 scripts/verify-local.py --list                   Preview automatic selection
+  python3 scripts/verify-local.py --all --list             Discover every check
 
 Compose (use shell pipefail to preserve producer/check failures):
   git diff --name-only -z --diff-filter=ACMR HEAD -- |
     python3 scripts/verify-local.py --only swift-syntax --swift-stdin0 --receipt -
 
+Defaults use local upstream/HEAD, then origin/HEAD; no fetch. Missing base or CI
+uses the full static recipe. Explicit selections override automatic selection.
 Parsing is not typechecking or test execution. Empty Swift selections are skipped
 (exit 0); a failed, interrupted or unsupported check exits nonzero.
 Details and examples: docs/verification-receipts.md""")
     selection = parser.add_argument_group("check selection")
+    selection.add_argument("--all", action="store_true", help="Run the full static recipe; Swift parsing remains opt-in")
     selection.add_argument("--only", action="append", metavar="CHECK", choices=[c[0] for c in CHECKS] + ["swift-syntax"],
                         help="Run this named check only; repeat to select several")
     selection.add_argument("--swift-changed", nargs="?", const="HEAD", metavar="BASE",
@@ -418,10 +442,20 @@ Details and examples: docs/verification-receipts.md""")
                            help="Trusted target checkout; its scripts execute locally (default: this checkout)")
     execution.add_argument("--timeout", type=float, default=60, help="Seconds per check (default 60)")
     args = parser.parse_args()
+    if args.all and (args.affected is not None or args.only):
+        parser.error("--all, --affected and --only are alternatives")
+    automatic = None
+    if not args.all and not args.only and args.affected is None:
+        automatic = automatic_scope(args.repo.resolve(), os.environ)
+        if automatic["mode"] == "affected":
+            args.affected = automatic["base_ref"]
+        if automatic["mode"] != "ci_full" and not (args.swift or args.swift_stdin0 or args.swift_changed is not None):
+            args.swift_changed = automatic["base_ref"] or "HEAD"
+        print(automatic["reason"], file=sys.stderr if args.receipt == Path("-") else sys.stdout)
     if args.affected is not None and args.only:
         parser.error("--affected and --only are alternatives; use --list to inspect affected checks")
     if args.list:
-        chosen = None
+        chosen = args.only
         if args.affected is not None:
             try:
                 chosen, evidence = affected_checks(args.repo.resolve(), args.affected)
@@ -432,8 +466,25 @@ Details and examples: docs/verification-receipts.md""")
             if chosen is not None and name not in chosen:
                 continue
             print(f"{name}: {label} [{phase}]\n  {' '.join(argv)}")
-        if chosen is None:
-            print("swift-syntax: Parse Swift files [parsing; --swift-changed [BASE], --swift-stdin0, or --swift FILE ...]")
+        if args.swift or args.swift_changed is not None or args.swift_stdin0:
+            try:
+                swift_names = list(args.swift)
+                if args.swift_changed is not None:
+                    swift_names += changed_swift_files(args.repo.resolve(), args.swift_changed)[0]
+                if args.swift_stdin0:
+                    swift_names += stdin_swift_files(sys.stdin.buffer.read())
+                swift_names = [str(p.relative_to(args.repo.resolve()))
+                               for p in swift_paths(args.repo.resolve(), swift_names)]
+            except ValueError as error:
+                if automatic is None or automatic["mode"] != "full_fallback":
+                    parser.error(str(error))
+                swift_names = []
+                print("Swift input discovery unavailable; supply a Git checkout or explicit files.")
+            print(f"swift-syntax: Parse {len(swift_names)} selected Swift files [parsing]")
+            for name in swift_names:
+                print(f"  {name!r}")
+        elif chosen is None or "swift-syntax" in chosen:
+            print("swift-syntax: Optional parsing [--swift-changed [BASE], --swift-stdin0, or --swift FILE ...]")
         return 0
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be a finite positive number")
@@ -446,6 +497,8 @@ Details and examples: docs/verification-receipts.md""")
                      swift_stdin0=sys.stdin.buffer.read() if args.swift_stdin0 else None)
     except ValueError as error:
         parser.error(str(error))
+    if automatic is not None:
+        result["evidence"]["automatic_selection"] = automatic
     if args.receipt:
         encoded = json.dumps(result, indent=2, sort_keys=True) + "\n"
         if json_stdout:

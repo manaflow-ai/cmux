@@ -12,8 +12,8 @@ even `verify-local.py --help` and `--list` load repository code.
 
 | Task | Command |
 | --- | --- |
-| Choose static checks from local edits | `python3 scripts/verify-local.py --affected` |
-| Run the fast static recipe | `python3 scripts/verify-local.py` |
+| Choose checks and parse changed Swift | `python3 scripts/verify-local.py` |
+| Run the full CI static recipe | `python3 scripts/verify-local.py --all` |
 | Parse current Swift edits | `python3 scripts/verify-local.py --only swift-syntax --swift-changed` |
 | Check new Swift test-file wiring | `python3 scripts/verify-local.py --only test-wiring` |
 

@@ -73,35 +73,27 @@ and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation
 
 ## Fast checks before committing or building
 
-First run `python3 scripts/verify-local.py` on your reviewed checkout. This is the
-early localization, project structure, package grouping, generated-policy and
-feature-flag gate; it does not install dependencies or build the app.
+Run `python3 scripts/verify-local.py` on your reviewed checkout. It selects
+affected static checks and parses changed Swift, including committed branch edits.
+The base comes from local `upstream/HEAD`, then `origin/HEAD`; nothing is fetched.
+Use `--list` to preview, `--all` for the full CI static recipe, or `--affected BASE`
+to choose a different static comparison base.
 
-The command executes repository Python/shell checkers and tests. Do not run it,
-including with `--repo`, against untrusted source on your credentialed host.
-Git push does not automatically execute candidate code. See the
-[trust boundary](docs/contributor-verification.md#trust-boundary).
-
-For edited Swift, use `python3 scripts/verify-local.py --swift-changed` to discover
-staged, unstaged and untracked files automatically. Add a base ref, such as
-`--swift-changed origin/main`, to include committed branch changes. Use
-`--only swift-syntax --swift-changed` for the parser-only edit loop. The
-[command guide](docs/verification-receipts.md) also covers explicit files, piped
-NUL-delimited paths and JSON stdout. Parsing does not replace typechecking or tests.
-
-Run `python3 scripts/verify-local.py` to run the same static checks as CI locally,
-without Xcode, package installs, submodules or an app build. It checks localization,
-project configuration, generated policy, test-target wiring, package grouping and
-feature flags, and runs the project normalizer's tests. Failures show the diagnostic
-and a command to rerun just that check, for example:
+Checks cover localization, project/test wiring, package grouping, generated policy
+and feature flags. Unknown inputs or a missing base select the full static recipe.
+CI also keeps the full static recipe. Failures print a focused rerun command:
 
 ```sh
 python3 scripts/verify-local.py --only project --only test-wiring
 ```
 
-These are static sanity checks, not Swift compilation or app tests. Add
-`--receipt /tmp/cmux-preflight.json` when handing the result to another contributor.
-See [local verification](docs/verification-receipts.md) for scope and receipt limits.
+Parsing does not replace typechecking, app tests or a build. Add `--receipt -`
+for JSON stdout; see the [command guide](docs/verification-receipts.md) for piped
+paths, explicit Swift inputs and evidence limits.
+
+The command executes repository Python/shell code, including for help and list.
+Use a [trusted checkout](docs/contributor-verification.md#trust-boundary).
+Git push does not run it automatically.
 
 ## Team dogfood setup
 

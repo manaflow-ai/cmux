@@ -17,12 +17,11 @@ not need the same first step. Run commands from the repository root.
 ```bash
 git diff --check
 python3 scripts/verify-local.py
-python3 scripts/verify-local.py --swift-changed
 ```
 
 The project checks matter when adding or moving app/test files. An unwired test can
-silently execute zero tests. For changed Swift files, `--swift-changed` discovers current edits; supply a base
-ref to include committed branch changes. The [command guide](verification-receipts.md)
+silently execute zero tests. The plain command discovers the local default-branch base and changed Swift files;
+use `--all` for the complete static recipe. The [command guide](verification-receipts.md)
 covers focused checks, piped paths and JSON receipts. Parsing is an early check only: it does not type-check imports, compile
 the test target, or run assertions. Use the owning script/package's tests for logic
 changes instead of tests that merely search source text for the new implementation.

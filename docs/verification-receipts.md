@@ -6,10 +6,11 @@ Run this before spending time on a native build or pushing a change to CI:
 python3 scripts/verify-local.py
 ```
 
-This is a **local pre-build/pre-CI static sanity check**. It runs the existing
-production checks from CI's `static-preflight` job. CI calls the same command,
-so there is one recipe list. No Xcode, downloads, dependency installation,
-app launch or provider credentials are needed. Python 3, Bash, Git, and standard
+This is a **local pre-build/pre-CI static sanity check**. It selects from the existing
+production checks in CI's `static-preflight` job and parses changed Swift files.
+CI keeps the full static recipe; local `--all` runs that same recipe without
+Swift parsing. No downloads, dependency installation, app launch or provider
+credentials are needed. Swift parsing needs `swiftc` on PATH. Python 3, Bash, Git, and standard
 Unix tools must be available. Run only in a trusted CMUX checkout: the command
 executes that checkout's existing scripts.
 
@@ -18,6 +19,21 @@ configuration errors, Swift tests omitted from their Xcode target, package
 layout mistakes and feature-flag policy violations. For example, adding
 `cmuxTests/NewTests.swift` without target membership fails immediately with the
 filename, before an expensive build or a misleading zero-test run.
+
+## Automatic selection
+
+The plain command compares against local `upstream/HEAD`, then `origin/HEAD`.
+It includes committed branch changes, dirty edits and nonignored new files, and
+prints the chosen base. It does not fetch: these refs may be stale. Use
+`--affected BASE` and `--swift-changed BASE` when a stack or another comparison
+needs an explicit base. Without a usable base, it runs all static checks and
+parses local Swift edits against HEAD.
+
+`--list` previews selection; `--all --list` lists every available check.
+`--all` forces all static checks. Explicit `--only` or `--affected` selection
+disables automatic defaults; Swift selection flags still compose with them.
+Under `CI` or `GITHUB_ACTIONS`, the default remains the full static recipe
+without automatic parsing. Receipts record automatic selection and its base.
 
 ## Select checks from changed inputs
 
@@ -48,7 +64,7 @@ untracked files; matching observations still do not establish an exact snapshot.
 ## Iterate on a smaller scope
 
 ```sh
-python3 scripts/verify-local.py --list
+python3 scripts/verify-local.py --all --list
 python3 scripts/verify-local.py --only project --only test-wiring
 python3 scripts/verify-local.py --only localization
 python3 scripts/verify-local.py --receipt /tmp/cmux-preflight.json
@@ -185,7 +201,7 @@ python3 scripts/verification_receipt.py ci --run /tmp/run.json --job /tmp/job.js
 ```
 
 `local` on this lower-level adapter runs only `tests/test_docs_deploy_auth_guard.py`;
-use `verify-local.py` for the full preflight. The CI importer accepts GitHub's
+use `verify-local.py --all` for the full static recipe. The CI importer accepts GitHub's
 existing run/job JSON and job log for that docs-auth step. Keep raw downloads
 private. The committed example preserves three passing tests inside a failed
 workflow, with checkout merge `25930fe8a91012ad178343016774d6850d5fd3db` different
