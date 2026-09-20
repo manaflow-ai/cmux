@@ -2,15 +2,13 @@ import Foundation
 
 extension SurfaceCatalog {
     /// Persists the machine and remote workspace identity behind a local workspace.
-    /// An accepted remote name may adopt an automatic local placeholder immediately.
     @MainActor
     func bindCloudWorkspace(
         localWorkspaceID: UUID,
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
         isBase: Bool? = nil,
-        generatedTitle: String? = nil,
-        remoteWorkspaceName: String? = nil
+        generatedTitle: String? = nil
     ) {
         let workspaceBeforeBind = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID)
         let wasUnbound = workspaceBeforeBind?.cloudVMBinding?.remoteWorkspaceID?.isEmpty != false
@@ -26,8 +24,7 @@ extension SurfaceCatalog {
             machine: machine,
             remoteWorkspaceID: remoteWorkspaceID,
             isBase: isBase,
-            generatedTitle: generatedTitle,
-            remoteWorkspaceName: remoteWorkspaceName
+            generatedTitle: generatedTitle
         )
         // A remote id can arrive after a user edit. Submit that edit once, at
         // the first identity binding, before graph reconciliation can apply an

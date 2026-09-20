@@ -17,14 +17,7 @@ extension CloudTreeNodeActions {
     static func resolvedMachineName(_ machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> String {
         if machine.isLocal { return String(localized: "cloudTree.machine.local", defaultValue: "This Mac") }
         let name = snapshot.machines.first(where: { $0.id == machine })?.name
-        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A provider id is an address, not a useful workspace label. Keep the
-        // optimistic projection stable and human-readable until the catalog
-        // publishes the machine's accepted slug/label.
-        guard let trimmed, !trimmed.isEmpty, trimmed != machine.rawValue else {
-            return String(localized: "workspace.cloudVM.defaultTitle", defaultValue: "Cloud VM")
-        }
-        return trimmed
+        return name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? name! : machine.rawValue
     }
 
     /// The machine's ⌘N, shared by the sidebar's ＋ and the socket's `vm.workspace_new`:

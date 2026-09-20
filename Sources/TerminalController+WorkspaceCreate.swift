@@ -291,14 +291,12 @@ extension TerminalController {
             ? remoteRaw
             : (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         let generatedTitle = v2RawString(params, "generated_title")
-        let remoteWorkspaceName = v2RawString(params, "remote_workspace_name")
         SurfaceCatalog.shared.bindCloudWorkspace(
             localWorkspaceID: workspaceId,
             machine: .cloud(vmID),
             remoteWorkspaceID: remoteWorkspaceID,
             isBase: isBase,
-            generatedTitle: generatedTitle,
-            remoteWorkspaceName: remoteWorkspaceName
+            generatedTitle: generatedTitle
         )
         return .ok([
             "workspace_id": workspaceId.uuidString,
@@ -306,7 +304,6 @@ extension TerminalController {
             "vm_id": vmID,
             "base": isBase,
             "remote_workspace_id": remoteWorkspaceID ?? NSNull(),
-            "remote_workspace_name": remoteWorkspaceName ?? NSNull(),
             "transport": "cmux-remote",
         ])
     }

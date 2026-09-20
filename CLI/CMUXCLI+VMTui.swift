@@ -451,7 +451,6 @@ extension CMUXCLI {
         var paneSurfaceId = terminalSurfaceId
         var terminalId: String?
         var remoteWorkspaceId: String?
-        var remoteWorkspaceName: String?
         if !options.fullClient {
             // Open the machine's existing terminal. Explicit New Terminal actions
             // create sessions; opening or reconnecting the machine does not.
@@ -461,9 +460,6 @@ extension CMUXCLI {
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
-                    remoteWorkspaceName = VMRemoteWorkspaceResolver().remoteWorkspaceName(
-                        remoteWorkspaceID, machine: vmId, in: catalog
-                    )
                     var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
                     if let tabID { params["remote_tab_id"] = tabID }
                     var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
@@ -471,11 +467,6 @@ extension CMUXCLI {
                     projected["remote_workspace_id"] = remoteWorkspaceID
                     opened = projected
                 case .empty(let remoteWorkspaceID):
-                    if let remoteWorkspaceID {
-                        remoteWorkspaceName = VMRemoteWorkspaceResolver().remoteWorkspaceName(
-                            remoteWorkspaceID, machine: vmId, in: catalog
-                        )
-                    }
                     var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
@@ -484,7 +475,6 @@ extension CMUXCLI {
                 }
                 terminalId = opened["terminal_id"] as? String
                 remoteWorkspaceId = opened["remote_workspace_id"] as? String
-                remoteWorkspaceName = (opened["remote_workspace_name"] as? String) ?? remoteWorkspaceName
                 let newSurface = (opened["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 if let placeholder = terminalSurfaceId, !placeholder.isEmpty, placeholder != newSurface {
                     _ = try? client.sendV2(method: "surface.close", params: ["workspace_id": workspaceId, "surface_id": placeholder])
@@ -505,8 +495,7 @@ extension CMUXCLI {
                             vmID: vmId,
                             base: options.pinAsBase,
                             remoteWorkspaceID: remoteWorkspaceId,
-                            generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil,
-                            remoteWorkspaceName: remoteWorkspaceName
+                            generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil
                         )
                     )
                 }

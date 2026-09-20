@@ -283,6 +283,7 @@ struct MachineCreateCoordinatorTests {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(name: "build box"), launch: launches.launch)
         launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n")
+        #expect(coordinator.lastFinished?.operation.request.name == "build box")
         #expect(notices.notices.isEmpty)
     }
 
