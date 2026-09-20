@@ -116,6 +116,38 @@ class ReuseProducts(TestProductHandoff):
                 self.assertEqual(provenance['artifact_id'], 42)
                 shutil.rmtree(self.consumer)
 
+    def test_run_lookup_failure_does_not_hide_later_candidate(self):
+        first = {**self.api.artifact, 'id': 41, 'workflow_run': {'id': 99}}
+        second = {**self.api.artifact, 'id': 42}
+        original_get = self.api.get
+
+        def get(path):
+            if path.startswith('actions/artifacts?'):
+                return {'artifacts': [first, second]}
+            if path == 'actions/runs/99':
+                raise OSError('candidate run disappeared')
+            return original_get(path)
+
+        with mock.patch.object(self.api, 'get', side_effect=get):
+            self.assertEqual([artifact['id'] for artifact, _ in reuse.select(
+                self.api, self.contract, '13')], [42])
+
+    def test_malformed_jobs_response_does_not_hide_later_candidate(self):
+        first = {**self.api.artifact, 'id': 41, 'workflow_run': {'id': 99}}
+        second = {**self.api.artifact, 'id': 42}
+        original_get = self.api.get
+
+        def get(path):
+            if path.startswith('actions/artifacts?'):
+                return {'artifacts': [first, second]}
+            if '/runs/99/attempts/' in path:
+                return {'jobs': {}}
+            return original_get(path)
+
+        with mock.patch.object(self.api, 'get', side_effect=get):
+            self.assertEqual([artifact['id'] for artifact, _ in reuse.select(
+                self.api, self.contract, '13')], [42])
+
     def test_failure_after_relocation_aborts_without_trying_another_candidate(self):
         original_restore = reuse.products.restore
         def restore(derived, identity):

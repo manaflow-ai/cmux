@@ -87,45 +87,60 @@ def select(api, value, current_run):
         if len(candidates) >= 6 or len(batch) < 100:
             break
     for artifact in candidates[:6]:
-        suffix = artifact["name"][len(prefix):]
-        if artifact.get("expired") or not suffix.isdecimal():
+        try:
+            suffix = artifact["name"][len(prefix):]
+            if artifact.get("expired") or not suffix.isdecimal():
+                continue
+            if artifact.get("size_in_bytes", MAX_ARCHIVE_BYTES + 1) > MAX_ARCHIVE_BYTES:
+                continue
+            run_id = artifact.get("workflow_run", {}).get("id")
+            if not run_id or str(run_id) == str(current_run):
+                continue
+            run = api.get(f"actions/runs/{run_id}")
+            if not isinstance(run, dict):
+                raise ValueError("invalid workflow run response")
+            if (run.get("path") != ".github/workflows/ci.yml"
+                    or run.get("event") not in {"pull_request", "merge_group"}
+                    or run.get("head_repository", {}).get("full_name") != api.repository
+                    or suffix != str(run["run_attempt"])):
+                continue
+            # GitHub's run head, not a candidate-authored receipt, establishes the
+            # source identity before downloading. The whole tree includes the CI
+            # workflow and every build/packaging script; different producer code
+            # cannot vouch for this checkout. This inherits CI's existing trust in
+            # the candidate workflow, not an independent base-controlled attestation.
+            head = run.get("head_sha", "")
+            if not re.fullmatch(r"[0-9a-f]{6,40}", head):
+                continue
+            commit = api.get(f"git/commits/{head}")
+            if not isinstance(commit, dict) or not isinstance(commit.get("tree"), dict):
+                raise ValueError("invalid commit response")
+            if commit["tree"].get("sha") != value["tree"]:
+                continue
+            attempt = run["run_attempt"]
+            jobs = []
+            for page in range(1, 4):
+                response = api.get(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}")
+                if not isinstance(response, dict) or not isinstance(response.get("jobs"), list):
+                    raise ValueError("invalid workflow jobs response")
+                batch = response["jobs"]
+                jobs.extend(batch)
+                if len(batch) < 100:
+                    break
+            # The compile job must finish; unrelated tests in the producer run may
+            # still be running. No test result is being reused here.
+            if not any(j.get("name") == "macOS compile admission" and j.get("status") == "completed"
+                       and j.get("conclusion") == "success" for j in jobs):
+                continue
+            if not artifact.get("digest", "").startswith("sha256:"):
+                continue
+            yield artifact, run
+        except Exception as error:
+            # An artifact can disappear, or its run/jobs response can be stale or
+            # malformed, between pagination and lookup. Treat that candidate as a
+            # cache miss while preserving the global artifact-list fallback path.
+            print(f"Skipping unusable candidate {artifact.get('id', '?')} ({type(error).__name__}).")
             continue
-        if artifact.get("size_in_bytes", MAX_ARCHIVE_BYTES + 1) > MAX_ARCHIVE_BYTES:
-            continue
-        run_id = artifact.get("workflow_run", {}).get("id")
-        if not run_id or str(run_id) == str(current_run):
-            continue
-        run = api.get(f"actions/runs/{run_id}")
-        if (run.get("path") != ".github/workflows/ci.yml"
-                or run.get("event") not in {"pull_request", "merge_group"}
-                or run.get("head_repository", {}).get("full_name") != api.repository
-                or suffix != str(run["run_attempt"])):
-            continue
-        # GitHub's run head, not a candidate-authored receipt, establishes the
-        # source identity before downloading. The whole tree includes the CI
-        # workflow and every build/packaging script; different producer code
-        # cannot vouch for this checkout. This inherits CI's existing trust in
-        # the candidate workflow, not an independent base-controlled attestation.
-        head = run.get("head_sha", "")
-        if not re.fullmatch(r"[0-9a-f]{6,40}", head):
-            continue
-        if api.get(f"git/commits/{head}")["tree"]["sha"] != value["tree"]:
-            continue
-        attempt = run["run_attempt"]
-        jobs = []
-        for page in range(1, 4):
-            batch = api.get(f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}")["jobs"]
-            jobs.extend(batch)
-            if len(batch) < 100:
-                break
-        # The compile job must finish; unrelated tests in the producer run may
-        # still be running. No test result is being reused here.
-        if not any(j.get("name") == "macOS compile admission" and j.get("status") == "completed"
-                   and j.get("conclusion") == "success" for j in jobs):
-            continue
-        if not artifact.get("digest", "").startswith("sha256:"):
-            continue
-        yield artifact, run
 
 
 def bounded_copy(source, output, limit):
