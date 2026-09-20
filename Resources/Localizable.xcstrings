@@ -57,6 +57,72 @@
             "state": "translated",
             "value": "自動化ルールを作成できませんでした"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće napraviti pravila automatizacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke oprette automatiseringsregler"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile creare le regole di automazione"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបង្កើតច្បាប់ស្វ័យប្រវត្តិកម្មបានទេ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke opprette automatiseringsregler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można utworzyć reguł automatyzacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível criar as regras de automação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось создать правила автоматизации"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถสร้างกฎการทำงานอัตโนมัติได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomasyon kuralları oluşturulamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося створити правила автоматизації"
+          }
         }
       }
     },
@@ -115,6 +181,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定フォルダに書き込めることと、ディスクに空き容量があることを確認してから、もう一度お試しください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjerite da li možete pisati u konfiguracijsku mapu i ima li slobodnog prostora na disku, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollér, at der kan skrives til konfigurationsmappen, og at der er ledig plads på disken. Prøv derefter igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica che la cartella di configurazione sia scrivibile e che il disco abbia spazio libero, quindi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សូមពិនិត្យថាអាចសរសេរទៅក្នុងថតកំណត់រចនាសម្ព័ន្ធបាន ហើយថាសមានទំហំទំនេរ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontroller at konfigurasjonsmappen er skrivbar og at disken har ledig plass, og prøv deretter på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź, czy folder konfiguracji umożliwia zapis i czy na dysku jest wolne miejsce, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifique se é possível gravar na pasta de configuração e se há espaço livre no disco. Depois, tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убедитесь, что папка конфигурации доступна для записи и на диске есть свободное место, затем повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบว่าสามารถเขียนลงในโฟลเดอร์การกำหนดค่าได้และดิสก์มีพื้นที่ว่าง จากนั้นลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yapılandırma klasörüne yazılabildiğini ve diskte boş alan bulunduğunu kontrol edip yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переконайтеся, що папка конфігурації доступна для запису й на диску є вільне місце, а потім спробуйте знову."
           }
         }
       }
