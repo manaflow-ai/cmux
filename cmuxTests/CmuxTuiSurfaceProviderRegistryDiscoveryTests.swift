@@ -10,6 +10,31 @@ import Testing
 @MainActor
 @Suite
 struct CmuxTuiSurfaceProviderRegistryDiscoveryTests {
+    @Test("Create receipts publish friendly names before workspace binding and reject old accounts")
+    func createdMachineNameIsAvailableWithoutDiscovery() async {
+        let catalog = SurfaceCatalog()
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
+            allowsBackgroundWork: { false },
+            listPage: { Issue.record("A create receipt must not require another list request"); return nil }
+        )
+        registry.start(catalog: catalog)
+        let scope = registry.creationScope
+        var summary = machine("vm-internal-id")
+        summary.slug = "bright-teal-otter"
+        registry.recordCreatedMachine(summary, scope: scope)
+        #expect(catalog.snapshot.machines.first?.name == "bright-teal-otter")
+        let provider = registry.provider(machineID: summary.id)
+        registry.recordCreatedMachine(summary, scope: scope)
+        #expect(registry.provider(machineID: summary.id) === provider)
+        #expect(catalog.snapshot.machines.count == 1)
+        await registry.accessDidEnd()
+        registry.start(catalog: catalog)
+        registry.recordCreatedMachine(summary, scope: scope)
+        #expect(catalog.snapshot.machines.isEmpty)
+        await registry.accessDidEnd()
+    }
+
     @Test("A saved machine can resolve its private route before the first background list")
     func privateRouteDiscoversBeforeFirstPoll() async {
         let catalog = SurfaceCatalog()

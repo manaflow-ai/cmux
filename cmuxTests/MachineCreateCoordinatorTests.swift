@@ -294,6 +294,24 @@ struct MachineCreateCoordinatorTests {
         #expect(notices.notices.first?.workspaceID == workspaceID)
     }
 
+    @Test func reservedMachineCompletesWithoutAnExtraSuccessNotification() {
+        let (coordinator, launches, notices, _, _) = makeCoordinator()
+        let workspaceID = UUID()
+        coordinator.start(Self.newMachineRequest().targetingReservedWorkspace(workspaceID), launch: launches.launch)
+        launches.complete(status: 0, output: "OK machine=vm-internal-id", workspaceID: workspaceID, machineID: "vm-internal-id")
+        #expect(coordinator.lastFinished?.outcome == .created(machineID: "vm-internal-id", workspaceID: workspaceID))
+        #expect(notices.notices.isEmpty)
+    }
+
+    @Test func reservedMachineFailuresStayAnchoredToTheirOwnWorkspace() {
+        let (coordinator, launches, notices, _, _) = makeCoordinator()
+        let workspaceID = UUID()
+        coordinator.start(Self.newMachineRequest().targetingReservedWorkspace(workspaceID), launch: launches.launch)
+        launches.complete(status: 1, output: "Error: attach failed", machineID: "vm-internal-id")
+        #expect(notices.notices.first?.isFailure == true)
+        #expect(notices.notices.first?.workspaceID == workspaceID)
+    }
+
     // MARK: Failure
 
     @Test func failureKeepsTheRowWithTheCLIOutputAndOffersRetry() {

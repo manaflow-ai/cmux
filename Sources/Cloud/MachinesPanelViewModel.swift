@@ -516,6 +516,7 @@ final class MachinesPanelViewModel: ObservableObject {
         scoped.resources.removeAll { !allowed.contains($0.machine) }
         scoped.projections.removeAll { !allowed.contains($0.resource.machine) }
         scoped.pendingWorkspaceDeletions = scoped.pendingWorkspaceDeletions?.filter { allowed.contains($0.key) }
+        scoped.pendingWorkspaceCreations = scoped.pendingWorkspaceCreations?.filter { allowed.contains($0.key) }
         return scoped
     }
 

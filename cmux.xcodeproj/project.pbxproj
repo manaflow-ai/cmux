@@ -1035,6 +1035,9 @@
 		62AABF1720674956200EC388 /* CloudWireGuardHubTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */; };
 		D12439060000000000000001 /* CloudWorkspaceBindingReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439060000000000000002 /* CloudWorkspaceBindingReconciliation.swift */; };
 		D12439010000000000000001 /* CloudWorkspaceBindingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12439010000000000000002 /* CloudWorkspaceBindingRegressionTests.swift */; };
+		0CF98EFC979F48F49B178E2E /* CloudWorkspaceCreationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F13E1457FF48D4B5199F8E /* CloudWorkspaceCreationCoordinator.swift */; };
+		F3C8E0247F0746A1B76F4585 /* CloudWorkspaceCreationHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7593239CC9FF488990A01C2F /* CloudWorkspaceCreationHost.swift */; };
+		04B0133595304BF298FF0992 /* CloudWorkspaceCreationOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2C09EE9F9F459C903EF706 /* CloudWorkspaceCreationOperation.swift */; };
 		81B7F6D88BAB4427BD69134C /* CloudWorkspaceCreationSidebarFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16E21C24C997481EB96755B5 /* CloudWorkspaceCreationSidebarFixture.swift */; };
 		07B256DD8A2540B1942AF2E2 /* CloudWorkspaceCreationSidebarProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84467A53C7DC449E80A327BE /* CloudWorkspaceCreationSidebarProvider.swift */; };
 		232EA238DD8F42BF960DC463 /* CloudWorkspaceCreationSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46EBB82D5AD4493785328504 /* CloudWorkspaceCreationSidebarTests.swift */; };
@@ -3203,6 +3206,7 @@
 		C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */; };
 		9F002187F6364A9486A11818 /* SurfaceTransferOrigin.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0CD79814B2F48938BC881A7 /* SurfaceTransferOrigin.swift */; };
 		BA741B057707470F9D617D61 /* SurfaceTransferRejection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45B5556BE218466AB7FBA814 /* SurfaceTransferRejection.swift */; };
+		00AB96C0C4E1432D8861951B /* SurfaceWorkspaceCreationReceipt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0854284756934FD6BDEB5FDF /* SurfaceWorkspaceCreationReceipt.swift */; };
 		9666A2019666A2019666A201 /* SwiftTestingAssertions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */; };
 		F2100000000000000000000F /* SyntheticKeyEventFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1100000000000000000000F /* SyntheticKeyEventFactory.swift */; };
 		A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206A020000000000000001 /* SystemAppearanceObserver.swift */; };
@@ -5065,6 +5069,9 @@
 		C6544386D2BA373AF2133B58 /* CloudWireGuardHubTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWireGuardHubTests.swift; sourceTree = "<group>"; };
 		D12439060000000000000002 /* CloudWorkspaceBindingReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceBindingReconciliation.swift; sourceTree = "<group>"; };
 		D12439010000000000000002 /* CloudWorkspaceBindingRegressionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceBindingRegressionTests.swift; sourceTree = "<group>"; };
+		E7F13E1457FF48D4B5199F8E /* CloudWorkspaceCreationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationCoordinator.swift; sourceTree = "<group>"; };
+		7593239CC9FF488990A01C2F /* CloudWorkspaceCreationHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationHost.swift; sourceTree = "<group>"; };
+		CB2C09EE9F9F459C903EF706 /* CloudWorkspaceCreationOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationOperation.swift; sourceTree = "<group>"; };
 		16E21C24C997481EB96755B5 /* CloudWorkspaceCreationSidebarFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationSidebarFixture.swift; sourceTree = "<group>"; };
 		84467A53C7DC449E80A327BE /* CloudWorkspaceCreationSidebarProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationSidebarProvider.swift; sourceTree = "<group>"; };
 		46EBB82D5AD4493785328504 /* CloudWorkspaceCreationSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceCreationSidebarTests.swift; sourceTree = "<group>"; };
@@ -7109,6 +7116,7 @@
 		C51A73B40000000000000001 /* SurfaceTabBarButtonConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTabBarButtonConfiguration.swift; sourceTree = "<group>"; };
 		C0CD79814B2F48938BC881A7 /* SurfaceTransferOrigin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTransferOrigin.swift; sourceTree = "<group>"; };
 		45B5556BE218466AB7FBA814 /* SurfaceTransferRejection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceTransferRejection.swift; sourceTree = "<group>"; };
+		0854284756934FD6BDEB5FDF /* SurfaceWorkspaceCreationReceipt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurfaceWorkspaceCreationReceipt.swift; sourceTree = "<group>"; };
 		9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftTestingAssertions.swift; sourceTree = "<group>"; };
 		F1100000000000000000000F /* SyntheticKeyEventFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyntheticKeyEventFactory.swift; sourceTree = "<group>"; };
 		A7206A020000000000000001 /* SystemAppearanceObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserver.swift; sourceTree = "<group>"; };
@@ -8321,6 +8329,10 @@
 				AB74882A29884E378E36D645 /* SurfaceCatalog+CloudWorkspaceProjection.swift */,
 				C12575000000000000000031 /* CloudWorkspaceDeletionLedger.swift */,
 				C12575000000000000000035 /* SurfaceCatalog+Snapshot.swift */,
+				0854284756934FD6BDEB5FDF /* SurfaceWorkspaceCreationReceipt.swift */,
+				7593239CC9FF488990A01C2F /* CloudWorkspaceCreationHost.swift */,
+				CB2C09EE9F9F459C903EF706 /* CloudWorkspaceCreationOperation.swift */,
+				E7F13E1457FF48D4B5199F8E /* CloudWorkspaceCreationCoordinator.swift */,
 				C12575000000000000000037 /* SurfaceCatalog+WorkspaceDeletion.swift */,
 				183FE43D3F71A474726D6AA6 /* CloudWorkspaceLayoutTranslator.swift */,
 				90C490DDBA08806E15C5CC0A /* CmuxTuiSurfaceProvider+PlacementSync.swift */,
@@ -13237,6 +13249,9 @@
 				05FCD63D10A4F9C56B683B5A /* CloudWireGuardHubProcessSpawner.swift in Sources */,
 				1E23CF0E5CE10BA3913DCEFA /* CloudWireGuardHubSocketReadiness.swift in Sources */,
 				D12439060000000000000001 /* CloudWorkspaceBindingReconciliation.swift in Sources */,
+				0CF98EFC979F48F49B178E2E /* CloudWorkspaceCreationCoordinator.swift in Sources */,
+				F3C8E0247F0746A1B76F4585 /* CloudWorkspaceCreationHost.swift in Sources */,
+				04B0133595304BF298FF0992 /* CloudWorkspaceCreationOperation.swift in Sources */,
 				C12575000000000000000030 /* CloudWorkspaceDeletionLedger.swift in Sources */,
 				5D999EE2FD784319A73C3945 /* CloudWorkspaceGroupDestination.swift in Sources */,
 				0B2534A7872AF46D59819D49 /* CloudWorkspaceLayoutTranslator.swift in Sources */,
@@ -14518,6 +14533,7 @@
 				C51A73B40000000000000002 /* SurfaceTabBarButtonConfiguration.swift in Sources */,
 				9F002187F6364A9486A11818 /* SurfaceTransferOrigin.swift in Sources */,
 				BA741B057707470F9D617D61 /* SurfaceTransferRejection.swift in Sources */,
+				00AB96C0C4E1432D8861951B /* SurfaceWorkspaceCreationReceipt.swift in Sources */,
 				F2100000000000000000000F /* SyntheticKeyEventFactory.swift in Sources */,
 				A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */,
 				A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */,

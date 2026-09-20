@@ -52,6 +52,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// without this, a `DisableCloud` teardown that lands just after the
     /// policy lifts would clear the freshly restarted registry.
     private var accessEpoch: UInt64 = 0
+    /// Create receipts also end at team changes, which preserve the registry's observer epoch.
+    private var creationEpoch = UUID()
     /// Whether account access has ended. Retired registries reject all new Cloud work
     /// until ``start(catalog:)`` reactivates them for the next account.
     private var isRetired = true
@@ -98,6 +100,30 @@ final class CmuxTuiSurfaceProviderRegistry {
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
         }
     }
+    /// Captured before a create starts, so a late receipt cannot enter another account.
+    var creationScope: UUID? { !isRetired && isCloudEnabled() ? creationEpoch : nil }
+
+    /// Publishes the create response's friendly name before the first workspace bind.
+    func recordCreatedMachine(_ summary: VMSummary, scope: UUID?) {
+        guard let scope, scope == creationScope, let catalog else { return }
+        // An older fleet read cannot prune the machine this receipt just admitted.
+        refreshGeneration &+= 1
+        installProvider(summary: summary, catalog: catalog)
+    }
+
+    private func installProvider(summary: VMSummary, catalog: SurfaceCatalog) {
+        if let provider = providers[summary.id] {
+            provider.update(summary: summary)
+        } else {
+            let provider = CmuxTuiSurfaceProvider(
+                summary: summary, links: links, catalog: catalog,
+                portForwards: portForwards, portAccessStore: portAccess
+            )
+            providers[summary.id] = provider
+            catalog.register(provider)
+        }
+    }
+
     /// True while the periodic fleet read is scheduled.
     var isPolling: Bool { pollTask != nil }
 
@@ -129,6 +155,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         discoveryInFlight = nil
         isRetired = false
         accessEpoch &+= 1
+        creationEpoch = UUID()
         refreshGeneration &+= 1
         let epoch = accessEpoch
         // Replacing block observers prevents stale callbacks after a restart.
@@ -138,6 +165,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             object: nil,
             queue: .main
         ) { [weak self] notification in
+            MainActor.assumeIsolated { self?.creationEpoch = UUID() }
             guard notification.userInfo?["cmux.teamSwitch"] as? Bool != true else { return }
             Task { @MainActor in await self?.accessDidEnd(epoch: epoch) }
         }
@@ -446,19 +474,7 @@ final class CmuxTuiSurfaceProviderRegistry {
             // generation; creating a provider now would hand its link and
             // forwards to the teardown that delete scheduled.
             guard generation == refreshGeneration else { return nil }
-            if let provider = providers[summary.id] {
-                provider.update(summary: summary)
-            } else {
-                let provider = CmuxTuiSurfaceProvider(
-                    summary: summary,
-                    links: links,
-                    catalog: catalog,
-                    portForwards: portForwards,
-                    portAccessStore: portAccess
-                )
-                providers[summary.id] = provider
-                catalog.register(provider)
-            }
+            installProvider(summary: summary, catalog: catalog)
         }
         return page.vms.compactMap { providers[$0.id] }
     }
@@ -473,6 +489,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     func accessDidEnd() async {
         isRetired = true
         accessEpoch &+= 1
+        creationEpoch = UUID()
         refreshGeneration &+= 1
         pollTask?.cancel()
         pollTask = nil

@@ -94,6 +94,7 @@ extension CloudWorkspaceRenameService {
                 case .keep:
                     break
                 case .clear:
+                    if catalog.cloudWorkspaceCreationCoordinator.isPending(localWorkspaceID: workspace.id) { continue }
                     workspace.cloudVMBinding = nil
                     continue
                 case .rebind(let targetMachine, let targetWorkspaceID):

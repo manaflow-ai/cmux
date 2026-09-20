@@ -902,7 +902,7 @@ enum CloudTreeNodeBuilder {
             rows.displays.append(RemoteResourcePlacement(resource: member.resource, workspace: rows.workspace, view: nil))
             byWorkspace[member.workspaceID] = rows
         }
-        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty }.sorted { lhs, rhs in
+        let workspaces = byWorkspace.values.filter { !$0.terminals.isEmpty || !$0.browsers.isEmpty || !$0.displays.isEmpty || snapshot.pendingWorkspaceCreations?[machine]?[$0.workspace.id] != nil }.sorted { lhs, rhs in
             lhs.workspace.index != rhs.workspace.index ? lhs.workspace.index < rhs.workspace.index : lhs.workspace.id < rhs.workspace.id
         }
         let workspaceNodes = workspaces.map { rows in
@@ -920,7 +920,7 @@ enum CloudTreeNodeBuilder {
             let openInLocal = projectionIndex.localWorkspaceShowing(
                 remoteWorkspaceID: workspace.id,
                 placements: realPlacements
-            )
+            ) ?? snapshot.pendingWorkspaceCreations?[machine]?[workspace.id]
             let layout = layoutRows(
                 placements: terminalPlacements + browserPlacements + displayPlacements,
                 workspace: workspace,

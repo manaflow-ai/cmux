@@ -44,4 +44,167 @@ struct CloudWorkspaceCreationSidebarTests {
             #expect(fixture.provider.terminalCreates == 0, "A starter receipt must not spawn another terminal")
         }
     }
+
+    @Test("Receipt, older snapshot, and accepted graph retain one native terminal and its first input")
+    func snapshotsConvergeWithoutReplacingTheReservation() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            var pendingID: UUID?
+            var pendingPanel: TerminalPanel?
+            var relay: CloudOptimisticInputRelay?
+            fixture.provider.beforeMaterialize = { _, reservation in
+                let reservation = try #require(reservation)
+                let workspace = try #require(fixture.manager.workspacesById[reservation.workspaceID])
+                pendingID = workspace.id
+                pendingPanel = try #require(workspace.terminalPanel(for: reservation.panelID))
+                relay = reservation.inputRelay
+                reservation.inputRelay.send(.bytes(Data("echo first command\n".utf8)))
+                #expect(workspace.panels.count == 1)
+                #expect(workspace.cloudVMBinding?.remoteWorkspaceID == fixture.provider.createdWorkspaces.first?.id)
+                #expect(fixture.provider.refreshes == 0, "Current daemons must not refresh before publishing the receipt")
+                try fixture.provider.publish(revision: 9, includesWorkspaces: false)
+                await fixture.catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
+                #expect(fixture.workspaceRows().count == 1)
+                #expect(workspace.cloudVMBinding != nil, "A pre-receipt snapshot cannot clear the new binding")
+                #expect(workspace.panels.count == 1)
+                try fixture.provider.publish(revision: 10)
+                await fixture.catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
+                #expect(workspace.panels.count == 1, "An early event must not materialize a competing pane")
+                fixture.manager.selectedTabId = fixture.originalWorkspaceID
+            }
+            let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                name: nil, focus: true
+            )
+            let opened = try #require(result.opened)
+            let workspace = try #require(fixture.manager.workspacesById[opened.workspaceID])
+            #expect(opened.workspaceID == pendingID)
+            #expect(workspace.terminalPanel(for: opened.projections[0].panelID) === pendingPanel)
+            #expect(relay?.pendingCount == 1, "Adoption must preserve the existing input relay")
+            for revision in [10, 11, 12] {
+                try fixture.provider.publish(revision: revision)
+                await fixture.catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
+                #expect(fixture.workspaceRows().count == 1)
+                #expect(fixture.catalog.projections.count == 1)
+                #expect(workspace.panels.count == 1)
+                #expect(workspace.terminalPanel(for: opened.projections[0].panelID) === pendingPanel)
+            }
+            #expect(fixture.manager.selectedTabId == fixture.originalWorkspaceID)
+            #expect(fixture.provider.adoptedPanels == [opened.projections[0].panelID])
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+        }
+    }
+
+    @Test("An empty workspace receipt stays visible and terminal rejection rolls back its native projection")
+    func terminalRejectionRemovesTheSharedPendingProjection() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            fixture.provider.includesStarter = false
+            fixture.provider.terminalError = CloudDiagnosticFailure.conflict
+            fixture.provider.beforeRefresh = {
+                #expect(fixture.manager.tabs.count == 2)
+                #expect(fixture.workspaceRows().count == 1, "An empty receipt must still be navigable while its starter is pending")
+            }
+            await #expect(throws: CloudDiagnosticFailure.conflict) {
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID])
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.catalog.projections.isEmpty)
+            #expect(fixture.workspaceRows().isEmpty)
+            #expect(fixture.provider.terminalCreates == 1)
+        }
+    }
+
+    @Test("Invalidated creates cannot resurrect a workspace from a late provider callback",
+          arguments: ["cancel", "account", "provider", "close", "daemon", "generation"])
+    func staleCompletionCannotRestoreEitherProjection(reason: String) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            fixture.provider.beforeMaterialize = { _, reservation in
+                let reservation = try #require(reservation)
+                switch reason {
+                case "cancel": withUnsafeCurrentTask { $0?.cancel() }
+                case "account": NotificationCenter.default.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+                case "provider": fixture.catalog.register(CloudPlacementTestProvider(machine: fixture.provider.machine))
+                case "close":
+                    let workspace = try #require(fixture.manager.workspacesById[reservation.workspaceID])
+                    fixture.manager.closeWorkspace(workspace, recordHistory: false)
+                case "daemon": try fixture.provider.publish(revision: 10, includesWorkspaces: false)
+                default: try fixture.provider.publish(revision: 1, includesWorkspaces: false, generation: "restarted")
+                }
+                // Deliberately return success even after invalidation, modelling an
+                // uncooperative provider callback. The request fence owns admission.
+            }
+            let creation = Task { @MainActor in
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            await #expect(throws: CancellationError.self) { try await creation.value }
+            #expect(fixture.manager.tabs.map(\.id) == [fixture.originalWorkspaceID])
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.catalog.projections.isEmpty)
+            #expect(fixture.catalog.cloudWorkspaceCreationCoordinator.operations.isEmpty)
+        }
+    }
+
+    @Test("Overlapping creates finish out of order without sharing native or remote identities")
+    func overlappingCreatesStayIndependent() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try CloudWorkspaceCreationSidebarFixture()
+            defer { fixture.close() }
+            fixture.provider.usesReceipt = true
+            let starts = AsyncStream<UUID>.makeStream()
+            let gates = [CloudLinkFirstValue<Bool>(), CloudLinkFirstValue<Bool>()]
+            fixture.provider.beforeMaterialize = { resource, reservation in
+                let reservation = try #require(reservation)
+                starts.continuation.yield(reservation.workspaceID)
+                let index = try #require(resource.remoteWorkspace?.index)
+                _ = await gates[index].result
+            }
+            let first = Task { @MainActor in
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            var events = starts.stream.makeAsyncIterator()
+            let firstID = try #require(await events.next())
+            let second = Task { @MainActor in
+                try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(
+                    machine: fixture.provider.machine, provider: fixture.provider, catalog: fixture.catalog,
+                    name: nil, focus: false
+                )
+            }
+            let secondID = try #require(await events.next())
+            #expect(firstID != secondID)
+            #expect(fixture.manager.tabs.count == 3)
+            #expect(fixture.workspaceRows().count == 2)
+            gates[1].resolve(true)
+            let secondResult = try await second.value
+            gates[0].resolve(true)
+            let firstResult = try await first.value
+            #expect(firstResult.opened?.workspaceID == firstID)
+            #expect(secondResult.opened?.workspaceID == secondID)
+            try fixture.provider.publish(revision: 10)
+            await fixture.catalog.cloudWorkspaceProjectionCoordinator.waitForIdle()
+            #expect(fixture.catalog.projections.count == 2)
+            #expect(fixture.workspaceRows().count == 2)
+            #expect(fixture.manager.tabs.count == 3)
+            #expect(fixture.catalog.snapshot.pendingWorkspaceCreations == nil)
+            #expect(fixture.provider.terminalCreates == 0)
+        }
+    }
+
 }

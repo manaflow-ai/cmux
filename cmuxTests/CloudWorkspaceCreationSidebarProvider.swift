@@ -13,8 +13,15 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var info: SurfaceMachineInfo
     unowned let catalog: SurfaceCatalog
     var beforeRefresh: (@MainActor () throws -> Void)?
+    var beforeMaterialize: (@MainActor (SurfaceResource, CloudTerminalPaneReservation?) async throws -> Void)?
+    var beforeCreate: (@MainActor () async throws -> Void)?
+    var usesReceipt = false
+    var includesStarter = true
+    var terminalError: Error?
     var terminalCreates = 0
-    let remote = SurfaceRemoteWorkspace(id: "ws_receipt", name: "Project", index: 0, focused: true)
+    var refreshes = 0
+    var createdWorkspaces: [SurfaceRemoteWorkspace] = []
+    var adoptedPanels: [UUID] = []
 
     init(catalog: SurfaceCatalog) {
         self.catalog = catalog
@@ -23,39 +30,78 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
             cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil)
     }
 
-    var terminal: SurfaceResource {
-        SurfaceResource(id: .init(machine: machine, kind: .terminal, key: "term_receipt"), title: "shell",
-            detail: nil, lifecycle: .launching, agent: nil, remoteWorkspace: remote,
-            remoteViews: [.init(tabID: "tab_receipt", workspace: remote)], port: nil, url: nil)
+    func terminal(in workspace: SurfaceRemoteWorkspace) -> SurfaceResource {
+        SurfaceResource(id: .init(machine: machine, kind: .terminal, key: "term_" + workspace.id), title: "shell",
+            detail: nil, lifecycle: .launching, agent: nil, remoteWorkspace: workspace,
+            remoteViews: [.init(tabID: "tab_" + workspace.id, workspace: workspace,
+                                screenID: "screen_" + workspace.id, paneID: "pane_" + workspace.id)], port: nil, url: nil)
     }
 
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
-        info.remoteWorkspaces = [remote]
+        try await beforeCreate?()
+        let workspace = SurfaceRemoteWorkspace(id: "ws_\(createdWorkspaces.count)", name: name ?? "Project \(createdWorkspaces.count)",
+                                               index: createdWorkspaces.count, focused: true)
+        createdWorkspaces.append(workspace)
+        info.remoteWorkspaces = createdWorkspaces
         catalog.updateMachine(info, from: self)
-        catalog.upsert(terminal, from: self)
-        return remote
+        if includesStarter { catalog.upsert(terminal(in: workspace), from: self) }
+        return workspace
+    }
+
+    func createRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
+        let workspace = try await createRemoteWorkspace(name: name)
+        return SurfaceWorkspaceCreationReceipt(workspace: workspace,
+            terminal: usesReceipt && includesStarter ? terminal(in: workspace) : nil,
+            cursor: usesReceipt ? .init(generation: "creation", revision: 10) : nil)
     }
 
     func refresh() async {
+        refreshes += 1
         do { try beforeRefresh?() } catch { Issue.record(error) }
     }
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         terminalCreates += 1
-        return terminal
+        if let terminalError { throw terminalError }
+        let workspace = try #require(createdWorkspaces.first { $0.id == remoteWorkspaceID })
+        let resource = terminal(in: workspace)
+        catalog.upsert(resource, from: self)
+        return resource
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         let pane = try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID,
-                                 remoteWorkspaceID: remote.id, remoteTabID: "tab_receipt")
+                                 remoteWorkspaceID: resource.remoteWorkspace?.id, remoteTabID: resource.remoteViews?.first?.tabID)
     }
 
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination,
                      focus: Bool, adopting reservation: CloudTerminalPaneReservation?) async throws -> SurfaceProjection {
+        try await beforeMaterialize?(resource, reservation)
         guard let reservation else { return try await materialize(resource, at: destination, focus: focus) }
+        adoptedPanels.append(reservation.panelID)
         return SurfaceProjection(resource: resource.id, workspaceID: reservation.workspaceID, panelID: reservation.panelID,
-                                 remoteWorkspaceID: remote.id, remoteTabID: "tab_receipt")
+                                 remoteWorkspaceID: resource.remoteWorkspace?.id, remoteTabID: resource.remoteViews?.first?.tabID)
+    }
+
+    func publish(revision: Int, includesWorkspaces: Bool = true, generation: String = "creation", includesTerminals: Bool = true) throws {
+        let workspaces = includesWorkspaces ? createdWorkspaces : []
+        let terminals = includesTerminals ? workspaces : []
+        let document: [String: Any] = [
+            "cursor": ["generation": generation, "revision": String(revision)],
+            "workspaces": workspaces.map { ["id": $0.id, "name": $0.name, "index": $0.index] as [String: Any] },
+            "screens": workspaces.map { ["id": "screen_" + $0.id, "workspace_id": $0.id] },
+            "panes": workspaces.map { ["id": "pane_" + $0.id, "screen_id": "screen_" + $0.id] },
+            "tabs": terminals.map { ["id": "tab_" + $0.id, "pane_id": "pane_" + $0.id,
+                                       "content_kind": "terminal", "content_id": "term_" + $0.id] },
+            "terminals": terminals.map { ["id": "term_" + $0.id, "lifecycle": "running", "title": "shell"] },
+            "browsers": [], "agents": []
+        ]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: machine))
+        let resources = revision < 10 && generation == "creation"
+            ? createdWorkspaces.map { terminal(in: $0) } : CmuxTuiSnapshotParser.resources(from: state)
+        catalog.replaceCloudState(state, resources: resources, info: info)
+        catalog.reconcileCloudRemoteState(machine: machine, state: state)
     }
 
     func projectionDidEnd(_ projection: SurfaceProjection) {}

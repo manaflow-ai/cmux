@@ -35,50 +35,27 @@ extension CloudTreeNodeActions {
         openLocally: Bool = true,
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
-        onReceipt: @MainActor (SurfaceRemoteWorkspace, SurfaceResource?) -> Void = { _, _ in }
+        host suppliedHost: CloudWorkspaceCreationHost? = nil
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
         opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
-        let workspace: SurfaceRemoteWorkspace = if let existingWorkspace { existingWorkspace } else { try await provider.createRemoteWorkspace(name: name) }
-        onReceipt(workspace, nil)
-        await provider.refresh()
-        let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
-            resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
-        }
-        let terminal: SurfaceResource
-        if let existing {
-            terminal = existing
+        let host: CloudWorkspaceCreationHost?
+        if openLocally, let suppliedHost {
+            host = suppliedHost
+        } else if openLocally {
+            guard let manager = AppDelegate.shared?.preferredMainWindowContextForWorkspaceCreation(
+                debugSource: "cloud.workspace.create"
+            )?.tabManager else { throw CancellationError() }
+            host = CloudWorkspaceCreationHost(manager: manager)
         } else {
-            terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+            host = nil
         }
-        onReceipt(workspace, terminal)
-        guard openLocally else { return (workspace, terminal, nil) }
-        let placement = SurfaceResourcePlacement(
-            resource: terminal.id,
-            remoteView: terminal.remoteViews?.first { $0.workspace.id == workspace.id },
-            remoteWorkspaceID: workspace.id
+        return try await catalog.cloudWorkspaceCreationCoordinator.create(
+            provider: provider, name: name, focus: focus, host: host,
+            existingWorkspace: existingWorkspace, existingTerminal: existingTerminal
         )
-        let group = SurfaceResourceGroup(
-            title: workspace.name,
-            placements: [placement],
-            remoteWorkspaceID: workspace.id
-        )
-        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-            group,
-            title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
-            focus: focus,
-            host: .appOptimistic
-        )
-        catalog.bindCloudWorkspace(
-            localWorkspaceID: opened.workspaceID,
-            machine: machine,
-            remoteWorkspaceID: workspace.id,
-            generatedTitle: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group)
-        )
-        if focus, let first = opened.projections.first { SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID) }
-        return (workspace, terminal, opened)
     }
 
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and

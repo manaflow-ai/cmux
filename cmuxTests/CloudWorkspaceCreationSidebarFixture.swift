@@ -53,6 +53,8 @@ final class CloudWorkspaceCreationSidebarFixture {
 
     func close() {
         provider.beforeRefresh = nil
+        provider.beforeMaterialize = nil
+        provider.beforeCreate = nil
         catalog.unregister(machine: provider.machine)
         manager.tabs.forEach { $0.teardownAllPanels() }
         app.unregisterMainWindowContextForTesting(windowId: windowID)

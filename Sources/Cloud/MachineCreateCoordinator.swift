@@ -225,7 +225,12 @@ final class MachineCreateCoordinator {
         for handle in cancelledHandles { handle.cancel() }
         for machineID in transition.cleanupMachineIDs { cancelCreatedMachine(machineID) }
         for operation in closed { cancelOperation(operation) }
-        if let finished { notifier(MachineCreateNotice(finished: finished)) }
+        if let finished {
+            let notice = MachineCreateNotice(finished: finished)
+            // The reserved workspace and Cloud row already show successful completion.
+            // Keep notifications for failures and for creates without that presentation.
+            if notice.isFailure || finished.operation.request.reservedWorkspaceID == nil { notifier(notice) }
+        }
         if transition.changed { postDidChange(finished: finished) }
     }
 
