@@ -13107,8 +13107,7 @@ final class GhosttySurfaceScrollView: NSView {
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
             scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // AppKit owns the style (Show scroll bars preference); the policy owns
-        // presence so legacy gutters never depend on terminal scrollback.
+        // AppKit owns the style (Show scroll bars preference); the policy owns presence.
         scrollView.autohidesScrollers = false
         updateTrackingAreas()
         updateScrollbarVisualVisibility()
@@ -13126,10 +13125,9 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scroller preference. Update the hosted surface/document frames through
-        // the same narrow path instead of running the full pane reconciliation,
-        // which can perturb split-layout overlays during a system preference
-        // change.
+        // scroller preference, and update the hosted surface/document frames
+        // through the same narrow path: the full pane reconciliation can
+        // perturb split-layout overlays during a system preference change.
         scrollView.tile()
         synchronizeTerminalGeometryAfterScrollerStyleChange()
     }
@@ -13228,7 +13226,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func shouldShowTerminalScrollBar() -> Bool {
-        TerminalScrollBarPresencePolicy().isPresent(
+        TerminalScrollBarPresencePolicy.isPresent(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
             hasScrollback: surfaceHasScrollback()

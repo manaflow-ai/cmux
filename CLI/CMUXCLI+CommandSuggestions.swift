@@ -190,6 +190,7 @@ extension CMUXCLI {
         "settings",
         "setup-hooks",
         "shortcuts",
+        "socket-status",
         "simulate-app-active",
         "simulator",
         "sidebar",

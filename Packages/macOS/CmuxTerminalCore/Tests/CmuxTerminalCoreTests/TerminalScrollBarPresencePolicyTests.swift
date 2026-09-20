@@ -1,32 +1,30 @@
 import Testing
-@testable import CmuxTerminalCore
+import CmuxTerminalCore
 
-@Suite("Terminal scroll bar presence policy")
-struct TerminalScrollBarPresencePolicyTests {
-    @Test("legacy scrollers stay present regardless of scrollback")
-    func legacyStyleReservesStableGutter() {
-        let policy = TerminalScrollBarPresencePolicy()
+/// The scroller's presence may follow scrollback only where presence reserves
+/// no layout; a legacy gutter that came and went with history would make the
+/// terminal grid a function of the terminal's own content (#12885, #3051).
+@Suite struct TerminalScrollBarPresencePolicyTests {
+    private typealias Policy = TerminalScrollBarPresencePolicy
 
-        #expect(policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: false))
-        #expect(policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: nil))
-        #expect(policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: true))
+    @Test("A legacy scroller is present regardless of scrollback")
+    func legacyReservesTheGutter() {
+        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: false))
+        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: nil))
+        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .legacy, hasScrollback: true))
     }
 
-    @Test("overlay scrollers follow scrollback")
-    func overlayStyleDoesNotReserveGutter() {
-        let policy = TerminalScrollBarPresencePolicy()
-
-        #expect(!policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: false))
-        #expect(policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: nil))
-        #expect(policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: true))
+    @Test("An overlay scroller follows scrollback and assumes history until told otherwise")
+    func overlayFollowsScrollback() {
+        #expect(!Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: false))
+        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: true))
+        #expect(Policy.isPresent(allowedBySettings: true, scrollerStyle: .overlay, hasScrollback: nil))
     }
 
-    @Test("disabled settings always hide the scrollbar")
-    func settingsOverrideStyle() {
-        let policy = TerminalScrollBarPresencePolicy()
-
-        #expect(!policy.isPresent(allowedBySettings: false, scrollerStyle: .legacy, hasScrollback: true))
-        #expect(!policy.isPresent(allowedBySettings: false, scrollerStyle: .overlay, hasScrollback: true))
+    @Test("Settings that disallow the scroller win over every style")
+    func settingsWin() {
+        #expect(!Policy.isPresent(allowedBySettings: false, scrollerStyle: .legacy, hasScrollback: true))
+        #expect(!Policy.isPresent(allowedBySettings: false, scrollerStyle: .overlay, hasScrollback: true))
     }
 
     @Test("legacy visual presentation follows the macOS preference")

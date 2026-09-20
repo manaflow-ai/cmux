@@ -154,6 +154,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     var onOpenSelection: (() -> Void)?
     let ownershipFeedback = SurfaceDropFeedback()
     var onMoveSelection: ((Int) -> Void)?
+    var onMoveMachine: ((Int) -> Bool)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
     var onQuickSearch: ((String) -> Void)?
     var onDidBecomeFirstResponder: (() -> Void)?
@@ -175,7 +176,7 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         ownershipFeedback.clear()
         guard reorderPresentation.isCurrent(sender) else { return }
-        super.draggingEnded(sender)
+        // NSOutlineView may not implement this optional destination notification.
         reorderPresentation.ended(sender)
     }
 
@@ -325,6 +326,8 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         var frame = super.frameOfOutlineCell(atRow: row)
         frame.origin.x = disclosureLeading(atRow: row)
+        // The native disclosure control keeps its own artwork and height; only
+        // its column is fixed so every row's caret lines up at the same depth.
         frame.size.width = GlobalFontMagnification.scaledSize(CloudTreeRowGrid.disclosureSlot)
         if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow,
            treeStyle.machineRowLayout == .twoLine {

@@ -17,6 +17,11 @@ struct SurfaceProjectionRestoreStore: Sendable {
         Array(entriesByPanelID.values)
     }
 
+    /// Looks up a staged panel's identity without scanning other restored panels.
+    func projection(forPanel panelID: UUID) -> SurfaceProjection? {
+        entriesByPanelID[panelID]
+    }
+
     func machineOwningPanel(_ panelID: UUID) -> SurfaceMachineID? {
         entriesByPanelID[panelID]?.resource.machine
     }

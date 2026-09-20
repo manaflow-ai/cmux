@@ -4,7 +4,11 @@ extension SurfaceCatalog {
     /// Metadata updates never advance this revision. Only projection membership
     /// and coordinates can change a guest opener's routing/subscription scope.
     func noteProjectionChanges(from previous: Set<SurfaceProjection>) {
-        for machine in Set(projections.symmetricDifference(previous).map { $0.resource.machine }) {
+        let changed = projections.symmetricDifference(previous)
+        for workspaceID in Set(changed.map(\.workspaceID)) {
+            updateCloudDirectoryMetadata(localWorkspaceID: workspaceID)
+        }
+        for machine in Set(changed.map { $0.resource.machine }) {
             projectionVersions[machine, default: 0] &+= 1
         }
     }
