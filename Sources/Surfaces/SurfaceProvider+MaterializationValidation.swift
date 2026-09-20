@@ -40,8 +40,10 @@ extension SurfaceProvider {
                 reservation.inputRelay.discard()
             } else if let loadingReservation, projection.panelID == loadingReservation.panelID {
                 projectionDidEnd(projection)
-                guard let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID),
-                      workspace.restoreCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) else {
+                if let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID),
+                   workspace.restoreCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) {
+                    // The card remains in place for an explicit retry.
+                } else {
                     discardMaterialization(projection)
                 }
             } else {

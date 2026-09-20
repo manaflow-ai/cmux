@@ -11,6 +11,7 @@ extension CmuxTuiSurfaceProvider {
     /// attach stream.
     func materializeManualMirrorTerminal(
         _ resource: SurfaceResource,
+        remoteView: SurfaceRemoteView? = nil,
         remoteTabID: String? = nil,
         at destination: SurfaceDestination,
         focus: Bool,

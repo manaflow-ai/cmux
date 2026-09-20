@@ -772,8 +772,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var createdPlacement: SurfaceRemotePlacement?
         switch resource.kind {
         case .terminal:
-            let manual = try await materializeManualMirrorTerminal(
-                resource,
+            let manual = try await materializeManualMirrorTerminal(resource, remoteView: remoteView,
                 remoteTabID: (remoteView ?? Self.defaultRemoteView(for: resource))?.tabID,
                 at: destination,
                 focus: focus,
