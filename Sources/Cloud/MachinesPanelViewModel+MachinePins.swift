@@ -44,6 +44,9 @@ extension MachinesPanelViewModel {
             move: { [weak self, weak machinePinStore] id, move in
                 guard canMove(id, move), let self, let machinePinStore,
                       machinePinStore.move(move, machineID: id, machineIDs: self.currentMachineOrderIDs) else { return nil }
+                // Every panel's body reads this @Observable store through
+                // sidebarMachines. Its mutation invalidates those readers
+                // directly; the ObservableObject adapter needs no broadcast.
                 // Catalog reads are frozen while dragging; membership validation
                 // must still use the latest scoped catalog, never frozen rows.
                 return self.orderedMachines(
