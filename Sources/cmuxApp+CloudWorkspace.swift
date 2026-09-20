@@ -7,7 +7,7 @@ extension cmuxApp {
     static func makeCloudMachinePinStore(auth: MacAuthComposition) -> CloudMachinePinStore {
         CloudMachinePinStore(defaults: .standard, scopeProvider: { [auth] in
             guard let userID = auth.accountFlow.currentIdentity?.id, !userID.isEmpty else { return nil }
-            return "user:\(userID)|team:\(auth.accountFlow.selectedTeamID ?? "personal")"
+            return "user:\(userID)|team:\(auth.accountFlow.confirmedTeamID ?? "personal")"
         })
     }
 

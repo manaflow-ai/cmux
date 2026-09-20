@@ -45,8 +45,10 @@
 
 3. Build the debug app:
    ```bash
-   ./scripts/reload.sh --tag my-feature
+   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
    ```
+   `CMUX_DEV_BACKEND_MODE=local` points the build at the local dev origin. Without it, a tagged
+   build expects the maintainers' shared dev backend and exits before building.
    The script prints the `.app` path. Cmd-click to open, or pass `--launch` to open automatically.
 
 ## Development Scripts
