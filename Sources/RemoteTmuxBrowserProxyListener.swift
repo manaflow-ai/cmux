@@ -50,9 +50,18 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
         self.dynamicForwardPort = dynamicForwardPort
     }
 
-    /// Binds the listener; throws if the port is already taken (the registry
-    /// retries with a fresh port on that failure).
-    func start() throws {
+    /// Binds the listener and waits for it to actually become ready; throws
+    /// if the port is already taken (the registry retries with a fresh
+    /// port on that failure) or if it's stopped before becoming ready.
+    ///
+    /// `NWListener.start(queue:)` is asynchronous — binding happens on
+    /// `queue`, and a failure (e.g. the exact port-collision race the
+    /// registry's retry loop exists to handle) only ever reaches
+    /// `stateUpdateHandler`. Returning immediately without observing that
+    /// would let a bind failure go completely unreported: the registry would
+    /// think `start()` succeeded and publish an endpoint pointing at a
+    /// listener that will never accept anything.
+    func start() async throws {
         guard let port = NWEndpoint.Port(rawValue: UInt16(localPort)) else {
             throw ListenerError.invalidPort(localPort)
         }
@@ -68,8 +77,39 @@ final class RemoteTmuxBrowserProxyListener: @unchecked Sendable {
                 self?.acceptConnectionLocked(connection)
             }
         }
-        self.listener = listener
-        listener.start(queue: queue)
+
+        // `stateUpdateHandler` always fires serialized on `queue` (the
+        // listener starts with `queue: queue` below), so `didResume` is safe
+        // despite the plain capture, and `self.listener = listener` below is
+        // properly queue-confined too.
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            var didResume = false
+            listener.stateUpdateHandler = { [weak self] state in
+                switch state {
+                case .ready:
+                    guard !didResume else { return }
+                    didResume = true
+                    guard self?.isStopped != true else {
+                        listener.cancel()
+                        continuation.resume(throwing: RemoteTmuxError.unreachable("browser proxy listener stopped before becoming ready"))
+                        return
+                    }
+                    self?.listener = listener
+                    continuation.resume()
+                case .failed(let error):
+                    guard !didResume else { return }
+                    didResume = true
+                    continuation.resume(throwing: error)
+                case .cancelled:
+                    guard !didResume else { return }
+                    didResume = true
+                    continuation.resume(throwing: RemoteTmuxError.unreachable("browser proxy listener cancelled before becoming ready"))
+                default:
+                    break
+                }
+            }
+            listener.start(queue: queue)
+        }
     }
 
     func stop() {
