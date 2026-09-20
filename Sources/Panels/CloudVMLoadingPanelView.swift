@@ -52,9 +52,7 @@ struct CloudVMLoadingPanelView: View {
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 460)
                         HStack(spacing: 8) {
-                            Button {
-                                _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
-                            } label: {
+                            Button { retryCloudMachine() } label: {
                                 Label(
                                     String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
                                     systemImage: "arrow.clockwise"
@@ -87,6 +85,31 @@ struct CloudVMLoadingPanelView: View {
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
+        }
+    }
+
+    @MainActor
+    private func retryCloudMachine() {
+        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }),
+           MachineCreateCoordinator.shared.retry(operation.id) {
+            return
+        }
+        guard let workspace = Workspace.liveWorkspace(id: panel.workspaceId),
+              let machineID = workspace.cloudVMBinding?.vmID else { return }
+        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath())
+        let didStart = CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: nil,
+            arguments: ["vm", "open", machineID, "--workspace", workspace.id.uuidString, "--focus", "false"],
+            presentsFailureAlert: false,
+            onCompletion: { completion in
+                if !completion.succeeded {
+                    panel.showFailure(completion.output)
+                }
+            }
+        )
+        if !didStart {
+            panel.showFailure(String(localized: "panel.cloudVM.loading.failed.launch", defaultValue: "Cloud VM command could not be launched."))
         }
     }
 }

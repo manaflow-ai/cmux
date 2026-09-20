@@ -293,7 +293,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             provider.beforeMaterialization = { entered.resolve(true); _ = await release.result }
             let attachment = Task { try await open(pending, provider: provider, catalog: catalog) }
             _ = await entered.result
-            NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
+            NewMachineSheetPresenter.closeReservedWorkspace(pending.id, machineID: provider.machine.rawValue)
             #expect(pending.cloudVMBinding == nil)
             // A later explicit open has a different admission claim and must not
             // join the cancelled adoption or be discarded with its late result.
