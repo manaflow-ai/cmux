@@ -92,4 +92,36 @@ struct TerminalScrollBarGutterStabilityTests {
         #expect(withHistory == harness.paneWidth)
         #expect(afterReset == harness.paneWidth)
     }
+
+    @Test("AppKit's legacy scroller remains visible")
+    func legacyPresentationRespectsAppKit() throws {
+        // Automatic can select legacy for a connected mouse. The resolved
+        // AppKit style, rather than our interpretation of the preference
+        // string, owns presentation. Pin only this scroll view's style so
+        // concurrent tests retain the process's unmodified preferences.
+        let harness = Harness(scrollerStyle: .legacy)
+        let scrollView = try #require(harness.hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
+        let scroller = try #require(scrollView.verticalScroller)
+        let width = harness.contentWidth(after: Self.withHistory)
+        #expect(scroller.alphaValue == 1, "Do not hide the legacy scrollbar AppKit selected")
+        #expect(harness.contentWidth(after: Self.emptyHistory) == width)
+        #expect(scroller.alphaValue == 1)
+        #expect(scrollView.scrollerStyle == .legacy)
+    }
+
+    @Test("Unrelated defaults notifications do not reconcile terminal geometry")
+    func unrelatedDefaultsLeavePendingLayoutAlone() {
+        let harness = Harness(scrollerStyle: .legacy)
+        // Model a pending pane layout. A defaults notification must not apply
+        // the full geometry path and resize the terminal before layout does.
+        harness.hostedView.surfaceView.frame.size.width -= 20
+        let pendingFrame = harness.hostedView.surfaceView.frame
+
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        )
+
+        #expect(harness.hostedView.surfaceView.frame == pendingFrame)
+    }
 }

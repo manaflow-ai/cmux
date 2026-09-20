@@ -32,7 +32,10 @@ if args[:2] == ['deployments', 'status']:
     print(state_path.read_text())
 elif args[:2] == ['versions', 'view']:
     migration_tag = 'older-tag' if os.environ['PROBE_SCENARIO'] == 'pending-migration' else 'iroh-v2-fresh-storage-1'
-    print(json.dumps({'id': 'old-version', 'migration_tag': migration_tag}))
+    if os.environ['PROBE_SCENARIO'] == 'script-migration-resource':
+        print(json.dumps({'id': 'old-version', 'resources': {'script': {'migration_tag': migration_tag}}}))
+    else:
+        print(json.dumps({'id': 'old-version', 'resources': {'script_runtime': {'migration_tag': migration_tag}}}))
 elif args and args[0] == 'deploy':
     marker = args[args.index('--message') + 1]
     annotations = {'workers/message': marker, 'workers/tag': marker}
@@ -154,6 +157,12 @@ test("pending Durable Object migrations are refused before deployment", async ()
   expect(result.exit).not.toBe(0);
   expect(result.calls).not.toContain("deploy --env production");
   expect(result.output).toContain("pending Durable Object migration");
+});
+
+test("reads the migration tag from the Worker script resource shape", async () => {
+  const result = await probe("script-migration-resource");
+  expect(result.exit).toBe(0);
+  expect(result.calls).toMatch(/--message cmux-prod-guard-[0-9a-f-]{36}/);
 });
 
 test("missing curl is rejected before running checks or deployment", async () => {
