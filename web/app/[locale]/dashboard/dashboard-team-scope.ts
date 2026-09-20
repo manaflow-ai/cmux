@@ -27,15 +27,15 @@ export type DashboardTeamScope =
     readonly status: "ready";
     readonly teams: readonly DashboardCatalogTeam[];
     readonly selected: DashboardCatalogTeam;
-    readonly switchTeam: (team: DashboardCatalogTeam) => void;
+    readonly switchTeam: (team: DashboardCatalogTeam) => Promise<void>;
   };
 
 const CATALOG_TIMEOUT_MS = 10_000;
 
 /**
- * The dashboard-wide team scope. Every team-scoped page reads the same
- * persisted cookie on the server, so switching here changes what the whole
- * dashboard shows without a page-level picker.
+ * The dashboard-wide team scope. Stack Auth owns the selected team on the
+ * server, so switching here changes what every dashboard surface shows
+ * without a page-level picker. The legacy cookie is mirrored for older pages.
  */
 export function useDashboardTeamScope(userId: string | null): DashboardTeamScope {
   const router = useRouter();
@@ -59,10 +59,16 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   if (teams.length === 0) return { status: "unavailable" };
   const selected = selectedTeam(teams, data.selectedTeamId, searchParams.get("team"));
 
-  const switchTeam = (team: DashboardCatalogTeam) => {
+  const switchTeam = async (team: DashboardCatalogTeam) => {
     if (team.id === selected.id) return;
-    // The scope cookie is what the server reads. Persisting it before the
-    // refresh means the very next render already shows the chosen team.
+    const response = await fetch("/api/subrouter/teams", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ teamId: team.id }),
+    });
+    if (!response.ok) throw new Error("Could not switch dashboard team");
+    // Keep the legacy cookie in sync for older dashboard pages while the
+    // Stack Auth selected team remains the authority.
     persistCoderouterOrganizationScope(userId, team.id);
     queryClient.setQueryData<DashboardTeamCatalog>(
       queryKey,

@@ -8,6 +8,11 @@ import SwiftUI
 /// tracking area (the buttons are always laid out so hovering never reflows).
 final class CloudTreeCellView: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("CloudTreeCell")
+    var machineReorderAccessibilityActions: (() -> [NSAccessibilityCustomAction])?
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        machineReorderAccessibilityActions?() ?? super.accessibilityCustomActions()
+    }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
     private var buttonsHost: NSHostingView<AnyView>?
@@ -136,6 +141,7 @@ final class CloudTreeCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        machineReorderAccessibilityActions = nil
         hovered = false
     }
 }

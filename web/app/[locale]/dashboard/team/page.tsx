@@ -1,4 +1,4 @@
-import { AccountSettings } from "@stackframe/stack";
+import { AccountSettings } from "@hexclave/next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { loadDashboardSection } from "@/app/lib/dashboard-auth";

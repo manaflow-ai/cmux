@@ -22,6 +22,7 @@ jobs:
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
