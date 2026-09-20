@@ -2591,8 +2591,11 @@ actor MachineUsageClient {
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }
             }
-            guard await auth.isAuthenticatedSessionIdentityCurrent(identity),
-                  await auth.resolvedTeamID == selectedTeam else { throw CancellationError() }
+            guard await auth.isAuthenticatedSessionIdentityCurrent(identity) else { throw CancellationError() }
+            if explicitTeam?.isEmpty != false,
+               await auth.resolvedTeamID != selectedTeam {
+                throw CancellationError()
+            }
             let (data, http) = (response.data, response.http)
             guard (200...299).contains(http.statusCode) else {
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
