@@ -116,8 +116,15 @@ struct cmuxApp: App {
 
     init() {
         #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        #if targetEnvironment(simulator)
+        let launchUptime = environment["CMUX_IROH_UI_LAUNCH_UPTIME_NS"].flatMap(UInt64.init)
+        #else
+        let launchUptime: UInt64? = nil
+        #endif
         releaseGateUIProbe = MobileReleaseGateUIProbe(
-            enabled: ProcessInfo.processInfo.environment["CMUX_IROH_SOAK_PROFILE"] != nil
+            enabled: !(environment["CMUX_IROH_SOAK_PROFILE"] ?? "").isEmpty && launchUptime != nil,
+            launchUptimeNanoseconds: launchUptime
         )
         #endif
         Self.root.pushCoordinator.configure(delegate: appDelegate)

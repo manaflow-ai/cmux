@@ -39,10 +39,14 @@ public final class MobileReleaseGateUIProbe {
 
     private let timeoutClock: any Clock<Duration>
 
-    public init(enabled: Bool = true, timeoutClock: any Clock<Duration> = ContinuousClock()) {
+    public init(enabled: Bool = true, launchUptimeNanoseconds: UInt64? = nil,
+                timeoutClock: any Clock<Duration> = ContinuousClock()) {
         self.timeoutClock = timeoutClock
         if enabled {
-            started = DispatchTime.now().uptimeNanoseconds
+            let now = DispatchTime.now().uptimeNanoseconds
+            let origin = launchUptimeNanoseconds ?? now
+            guard origin > 0, origin <= now else { return }
+            started = origin
             phase = .awaitingSelection
         }
     }

@@ -48,14 +48,14 @@ that erases the original failure.
 The app reports workload version, elapsed time, completed cycles, action counts,
 maximum cycle duration, the last operation, compact per-operation latency
 summaries containing count, total, minimum, maximum, and last duration, and
-real UI timings from the app initializer to a rendered, connected workspace row,
+real UI timings from the simulator launch request to a rendered, connected workspace row,
 and from the row's selection action to the first nonblank verified terminal frame.
 The gate invokes the production row selection and back actions, waits for the
 terminal view to unmount, then starts the full transport workload. Timings are
 recorded once per process and survive SwiftUI reconstruction and later frames.
 The two UI screenshots are captured from the isolated app window after each
-measured boundary. This measures application/UI work, not OS pre-main launch or
-physical touchscreen latency. The monitor
+measured boundary. Launch timing includes OS pre-main work, using the shared
+Mach uptime clock. It does not measure physical touchscreen delivery latency. The monitor
 merges those summaries into one bounded `latency-stats.json` file; it does not
 retain one sample per cycle. The runner rejects missing
 coverage (at least 50 basic or 300 stress cycles), old schemas, shortened
