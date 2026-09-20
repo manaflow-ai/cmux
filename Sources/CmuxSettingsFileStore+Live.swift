@@ -11,12 +11,26 @@ extension CmuxSettingsFileStore {
 
     /// Returns the effective socket access policy represented by live defaults.
     static func liveSocketAccessMode(defaults: UserDefaults = .standard) -> SocketControlMode {
-        SocketControlSettings.effectiveMode(userMode: configuredSocketMode(defaults: defaults))
+        socketControlPolicyResolution(defaults: defaults).mode
+    }
+
+    /// Returns the authoritative socket policy snapshot, including whether a
+    /// forced MDM value owns the effective mode.
+    static func socketControlPolicyResolution(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> SocketControlPolicyResolution {
+        SocketControlPolicyResolver(
+            defaults: defaults,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        ).resolve()
     }
 
     /// Preserves restrictive policies; broader invalid policies fall back to `cmuxOnly`.
     static func failClosedSocketMode(defaults: UserDefaults = .standard) -> SocketControlMode {
-        let configuredMode = configuredSocketMode(defaults: defaults)
+        let configuredMode = socketControlPolicyResolution(defaults: defaults).mode
         switch configuredMode {
         case .off, .cmuxOnly, .password:
             return configuredMode

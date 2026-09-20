@@ -76,6 +76,7 @@ final class CloudTreeTerminalNavigationCoordinator {
         remoteWorkspaceID: String,
         openIn: UUID?
     ) async throws {
+        try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
         let localWorkspaceID = CloudTreeNodeBuilder.localWorkspaceShowing(
             remoteWorkspaceID: remoteWorkspaceID,
             placements: group.placements,
@@ -113,6 +114,7 @@ final class CloudTreeTerminalNavigationCoordinator {
             workspaceID: remoteWorkspaceID,
             catalog: catalog
         )
+        try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
             group,
             title: CloudTreeNodeActions.localWorkspaceTitle(

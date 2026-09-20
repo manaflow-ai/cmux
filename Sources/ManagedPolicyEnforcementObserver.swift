@@ -37,6 +37,7 @@ final class ManagedPolicyEnforcementObserver {
     private let isRemoteControlDisabledByPolicy: () -> Bool
     private let isCloudDisabledByPolicy: () -> Bool
     private let isIrohDisabledByPolicy: () -> Bool
+    private let socketControlPolicy: () -> SocketControlPolicyResolution
     private let capabilityPolicy: ManagedDevicePolicy
     private let enforceBrowserPolicy: () -> Void
     private let enforceBrowserURLAllowlistPolicy: () -> Void
@@ -44,6 +45,7 @@ final class ManagedPolicyEnforcementObserver {
     private let enforceCloudPolicy: () -> Void
     private let enforceRemoteConnectionsPolicy: () -> Void
     private let enforceComputerUsePolicy: () -> Void
+    private let enforceSocketControlPolicy: () -> Void
     /// Keys whose runtime effect is a per-call read, a launch-time read, or a
     /// Settings lock: a transition only needs the change signal — except
     /// Computer Use, whose helper is re-applied on both directions.
@@ -60,6 +62,7 @@ final class ManagedPolicyEnforcementObserver {
     private var irohPolicyActive: Bool
     private var remoteConnectionsPolicyActive: Bool
     private var fileTransferPolicyActive: Bool
+    private var socketControlPolicyState: SocketControlPolicyResolution
     private var observationTasks: [Task<Void, Never>] = []
 
     init(
@@ -77,13 +80,17 @@ final class ManagedPolicyEnforcementObserver {
             ManagedDevicePolicy().isEnforced(.disableCloud)
         },
         isIrohDisabledByPolicy: @escaping () -> Bool = { ManagedIrohNetworkingPolicy.isDisabled },
+        socketControlPolicy: @escaping () -> SocketControlPolicyResolution = {
+            SocketControlPolicyResolver().resolve()
+        },
         capabilityPolicy: ManagedDevicePolicy = ManagedDevicePolicy(),
         enforceBrowserPolicy: @escaping () -> Void,
         enforceBrowserURLAllowlistPolicy: @escaping () -> Void,
         enforceRemoteControlPolicy: @escaping () -> Void,
         enforceCloudPolicy: @escaping () -> Void = {},
         enforceRemoteConnectionsPolicy: @escaping () -> Void = {},
-        enforceComputerUsePolicy: @escaping () -> Void = {}
+        enforceComputerUsePolicy: @escaping () -> Void = {},
+        enforceSocketControlPolicy: @escaping () -> Void = {}
     ) {
         self.notificationCenter = notificationCenter
         self.isBrowserDisabledByPolicy = isBrowserDisabledByPolicy
@@ -91,6 +98,7 @@ final class ManagedPolicyEnforcementObserver {
         self.isRemoteControlDisabledByPolicy = isRemoteControlDisabledByPolicy
         self.isCloudDisabledByPolicy = isCloudDisabledByPolicy
         self.isIrohDisabledByPolicy = isIrohDisabledByPolicy
+        self.socketControlPolicy = socketControlPolicy
         self.capabilityPolicy = capabilityPolicy
         self.enforceBrowserPolicy = enforceBrowserPolicy
         self.enforceBrowserURLAllowlistPolicy = enforceBrowserURLAllowlistPolicy
@@ -98,6 +106,7 @@ final class ManagedPolicyEnforcementObserver {
         self.enforceCloudPolicy = enforceCloudPolicy
         self.enforceRemoteConnectionsPolicy = enforceRemoteConnectionsPolicy
         self.enforceComputerUsePolicy = enforceComputerUsePolicy
+        self.enforceSocketControlPolicy = enforceSocketControlPolicy
         settingsVisiblePolicyStates = Self.settingsVisibleStates(capabilityPolicy)
         browserPolicyActive = isBrowserDisabledByPolicy()
         observedBrowserURLAllowlistPolicy = browserURLAllowlistPolicy()
@@ -106,6 +115,7 @@ final class ManagedPolicyEnforcementObserver {
         irohPolicyActive = isIrohDisabledByPolicy()
         remoteConnectionsPolicyActive = capabilityPolicy.isEnforced(.disableRemoteConnections)
         fileTransferPolicyActive = capabilityPolicy.isEnforced(.disableFileTransfer)
+        socketControlPolicyState = socketControlPolicy()
         if irohPolicyActive { enforceRemoteControlPolicy() }
         if cloudPolicyActive {
             // A profile may already be installed before launch. Enforce it at
@@ -211,6 +221,16 @@ final class ManagedPolicyEnforcementObserver {
             // upload reads the resolver.
             fileTransferPolicyActive = fileTransferNow
             anyTransition = true
+        }
+        let socketControlPolicyNow = socketControlPolicy()
+        if socketControlPolicyNow != socketControlPolicyState {
+            socketControlPolicyState = socketControlPolicyNow
+            anyTransition = true
+            // Reconcile through the same app-owned path used by Settings,
+            // cmux.json reloads, and startup. SocketControlServer rotates its
+            // authorization generation before accepting the new mode, which
+            // revokes every old command and event-stream client.
+            enforceSocketControlPolicy()
         }
         let settingsVisibleNow = Self.settingsVisibleStates(capabilityPolicy)
         if settingsVisibleNow != settingsVisiblePolicyStates {
