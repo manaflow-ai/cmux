@@ -901,6 +901,16 @@ struct WorkspaceShellView: View {
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
+            #if DEBUG
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = {
+                    withAnimation {
+                        store.selectedWorkspaceID = nil
+                        splitColumnVisibility = .all
+                    }
+                }
+            }
+            #endif
         }
     }
     #else

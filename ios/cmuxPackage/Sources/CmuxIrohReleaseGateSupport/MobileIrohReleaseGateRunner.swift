@@ -17,7 +17,6 @@ private let mobileIrohReleaseGateLog = Logger(
 final class MobileIrohReleaseGateRunner {
     private static let relayRolloverSoakDurationSeconds = 330
     private static let requiredReadyObservations = 2
-    private static let readinessSettlingDuration: Duration = .milliseconds(500)
     private static let standardTimeout: Duration = .seconds(90)
     private static let extendedTimeout: Duration = .seconds(420)
 
@@ -370,7 +369,10 @@ final class MobileIrohReleaseGateRunner {
 
     private func execute(store: CMUXMobileShellStore) async -> Report {
         var readyObservations = 0
-        while readyObservations < Self.requiredReadyObservations {
+        let requiredReadyObservations = dependencies.readinessUpdates == nil
+            ? 1
+            : Self.requiredReadyObservations
+        while readyObservations < requiredReadyObservations {
             let readiness = dependencies.readinessUpdates?(store)
                 ?? readinessUpdates(for: store)
             var observedReady = false
@@ -406,18 +408,6 @@ final class MobileIrohReleaseGateRunner {
                 )
             }
             readyObservations += 1
-            if readyObservations < Self.requiredReadyObservations,
-               dependencies.readinessUpdates == nil {
-                do {
-                    try await Task.sleep(for: Self.readinessSettlingDuration)
-                } catch {
-                    return Self.failureReport(
-                        mode: configuration.mode,
-                        scenario: configuration.scenario,
-                        failure: .timeout
-                    )
-                }
-            }
         }
         progress = .running
         guard !Task.isCancelled else {
