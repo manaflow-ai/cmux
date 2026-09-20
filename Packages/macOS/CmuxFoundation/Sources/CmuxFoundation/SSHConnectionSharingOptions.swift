@@ -154,6 +154,47 @@ public struct SSHConnectionSharingOptions: Sendable {
         fromSSHConfigOutput output: String,
         explicitOptions: [String]
     ) -> [String]? {
+        userConfiguredControlOptions(
+            fromSSHConfigOutput: output,
+            baselineSSHConfigOutput: nil,
+            explicitOptions: explicitOptions
+        )
+    }
+
+    /// Parses resolved host control settings against OpenSSH's built-in
+    /// defaults. Comparing with a `-F /dev/null` baseline distinguishes an
+    /// explicit host `ControlMaster=no` from the ordinary default `false`.
+    public func userConfiguredControlOptions(
+        fromSSHConfigOutput output: String,
+        baselineSSHConfigOutput: String?,
+        explicitOptions: [String]
+    ) -> [String]? {
+        let values = controlConfigurationValues(fromSSHConfigOutput: output)
+        let baselineValues = baselineSSHConfigOutput.map(controlConfigurationValues(fromSSHConfigOutput:))
+
+        // Keep the fallback explicitly disabled if an OpenSSH version omits default-valued keys.
+        let controlMaster = values["controlmaster"] ?? "false"
+        let controlPath = values["controlpath"] ?? "none"
+        let controlPersist = values["controlpersist"] ?? "no"
+        let resolver = SSHAgentSocketResolver()
+        let defaultValues = baselineValues ?? [
+            "controlmaster": "false",
+            "controlpath": "none",
+            "controlpersist": "no",
+        ]
+        let hasCustomValue = ["controlmaster", "controlpath", "controlpersist"].contains { key in
+            guard !resolver.hasOptionKey(explicitOptions, key: key) else { return false }
+            return values[key]?.lowercased() != defaultValues[key]?.lowercased()
+        }
+        guard hasCustomValue else { return nil }
+        return [
+            "ControlMaster=\(controlMaster)",
+            "ControlPath=\(controlPath)",
+            "ControlPersist=\(controlPersist)",
+        ]
+    }
+
+    private func controlConfigurationValues(fromSSHConfigOutput output: String) -> [String: String] {
         var values: [String: String] = [:]
         for line in output.split(whereSeparator: \.isNewline) {
             let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
@@ -164,23 +205,7 @@ public struct SSHConnectionSharingOptions: Sendable {
             }
             values[key] = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
-        // Keep the fallback explicitly disabled if an OpenSSH version omits default-valued keys.
-        let controlMaster = values["controlmaster"] ?? "false"
-        let controlPath = values["controlpath"] ?? "none"
-        let controlPersist = values["controlpersist"] ?? "no"
-        let resolver = SSHAgentSocketResolver()
-        let hasCustomValue =
-            (!resolver.hasOptionKey(explicitOptions, key: "ControlMaster") && !isDisabled(controlMaster))
-            || (!resolver.hasOptionKey(explicitOptions, key: "ControlPath") && controlPath.lowercased() != "none")
-            || (!resolver.hasOptionKey(explicitOptions, key: "ControlPersist")
-                && !["no", "false", "off", "0"].contains(controlPersist.lowercased()))
-        guard hasCustomValue else { return nil }
-        return [
-            "ControlMaster=\(controlMaster)",
-            "ControlPath=\(controlPath)",
-            "ControlPersist=\(controlPersist)",
-        ]
+        return values
     }
 
     /// Returns the configured `ControlPath` when it is one of cmux's native

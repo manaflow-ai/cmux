@@ -11542,6 +11542,19 @@ struct CMUXCLI {
         )
         let resolvedUserSSHConfiguration =
             configurationResult.status == 0 ? configurationResult.stdout : nil
+        let resolvedOpenSSHDefaults: String?
+        if configurationResult.status == 0 {
+            let defaultConfigurationResult = resolvedSSHConfigurationResult(
+                for: sshOptions,
+                timeout: configurationTimeout,
+                configurationFile: "/dev/null"
+            )
+            resolvedOpenSSHDefaults = defaultConfigurationResult.status == 0
+                ? defaultConfigurationResult.stdout
+                : nil
+        } else {
+            resolvedOpenSSHDefaults = nil
+        }
         let fallsBackToOpenSSHInteractiveSession =
             usesImplicitManagedInteractiveShell && resolvedUserSSHConfiguration == nil
         let effectiveTerminalTransport: WorkspaceRemoteTerminalTransport =
@@ -11558,6 +11571,7 @@ struct CMUXCLI {
             userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
                 sharingOptions.userConfiguredControlOptions(
                     fromSSHConfigOutput: $0,
+                    baselineSSHConfigOutput: resolvedOpenSSHDefaults,
                     explicitOptions: inputSSHOptions.sshOptions
                 )
             }
@@ -13573,12 +13587,12 @@ struct CMUXCLI {
         if retryDelaySeconds <= 0 {
             retryText = String(
                 localized: "cli.vm.sshInfo.retry.nowStatus",
-                defaultValue: "Retrying now (\(retryAttempt))."
+                defaultValue: "Retrying now (attempt \(retryAttempt))."
             )
         } else {
             retryText = String(
                 localized: "cli.vm.sshInfo.retry.status",
-                defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (\(retryAttempt))."
+                defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds))s (attempt \(retryAttempt))."
             )
         }
         let errorText = String(describing: error)
@@ -13606,19 +13620,16 @@ struct CMUXCLI {
 
     private static func retryAttemptLabel(attempt: Int, retryLimit: Int) -> String {
         if retryLimit >= 86_400 {
-            return "attempt \(attempt)"
+            return "\(attempt)"
         }
-        return "attempt \(attempt)/\(retryLimit)"
+        return "\(attempt)/\(retryLimit)"
     }
 
     private static func retryDelayLabel(_ seconds: Double) -> String {
-        if seconds <= 0 {
-            return String(localized: "cli.vm.sshInfo.retry.now", defaultValue: "now")
-        }
         if seconds.rounded(.towardZero) == seconds {
-            return "\(Int(seconds))s"
+            return "\(Int(seconds))"
         }
-        return String(format: "%.1fs", seconds)
+        return String(format: "%.1f", seconds)
     }
 
     private static func isLocalCloudVMServiceUnreachable(_ message: String) -> Bool {

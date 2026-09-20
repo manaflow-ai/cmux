@@ -529710,58 +529710,123 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة المحاولة خلال %@ (%@)."
+            "value": "إعادة المحاولة خلال %@ (المحاولة %@)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erneuter Versuch in %@ (%@)."
+            "value": "Erneuter Versuch in %@ s (Versuch %@)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retrying in %@ (%@)."
+            "value": "Retrying in %@s (attempt %@)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reintentando en %@ (%@)."
+            "value": "Reintentando en %@ s (intento %@)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvelle tentative dans %@ (%@)."
+            "value": "Nouvelle tentative dans %@ s (tentative %@)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@後に再試行します（%@）。"
+            "value": "%@秒後に再試行します（試行 %@）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 후에 다시 시도합니다(%@)."
+            "value": "%@초 후에 다시 시도합니다(시도 %@)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将在 %@ 后重试（%@）。"
+            "value": "将在 %@ 秒后重试（第 %@ 次）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將於 %@ 後重試（%@）。"
+            "value": "將於 %@ 秒後重試（第 %@ 次）。"
           }
-        }
-      }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovni pokušaj za %@ sekundi (pokušaj %@)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver igen om %@ sek. (forsøg %@)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo tentativo tra %@ s (tentativo %@)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងព្យាយាមម្តងទៀតក្នុង %@ វិនាទី (លើកទី %@)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver igjen om %@ sek. (forsøk %@)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponawianie za %@ s (próba %@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentando novamente em %@ s (tentativa %@)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повтор через %@ с (попытка %@)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังลองอีกครั้งใน %@ วินาที (ครั้งที่ %@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sn. içinde yeniden deneniyor (deneme %@)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторна спроба через %@ с (спроба %@)."
+          }
+        }      }
     },
     "cli.vm.sshInfo.retry.nowStatus": {
       "extractionState": "manual",
@@ -529769,58 +529834,123 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة المحاولة الآن (%@)."
+            "value": "إعادة المحاولة الآن (المحاولة %@)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jetzt erneut versuchen (%@)."
+            "value": "Jetzt erneut versuchen (Versuch %@)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retrying now (%@)."
+            "value": "Retrying now (attempt %@)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reintentando ahora (%@)."
+            "value": "Reintentando ahora (intento %@)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvelle tentative maintenant (%@)."
+            "value": "Nouvelle tentative maintenant (tentative %@)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ で再試行します。"
+            "value": "今すぐ再試行します（試行 %@）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금 다시 시도합니다(%@)."
+            "value": "지금 다시 시도합니다(시도 %@)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在重试（%@）。"
+            "value": "立即重试（第 %@ 次）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在重試（%@）。"
+            "value": "立即重試（第 %@ 次）。"
           }
-        }
-      }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokušaj ponovo sada (pokušaj %@)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver igen nu (forsøg %@)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo tentativo ora (tentativo %@)."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងព្យាយាមម្តងទៀតឥឡូវនេះ (លើកទី %@)។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prøver igjen nå (forsøk %@)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponawianie teraz (próba %@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tentando novamente agora (tentativa %@)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повтор сейчас (попытка %@)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังลองอีกครั้งตอนนี้ (ครั้งที่ %@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi yeniden deneniyor (deneme %@)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повторна спроба зараз (спроба %@)."
+          }
+        }      }
     }
   },
   "version": "1.0"

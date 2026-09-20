@@ -148,6 +148,39 @@ struct SSHConnectionSharingOptionsTests {
         ).contains("ControlPath=/tmp/cmux-ssh-501-%C"))
     }
 
+    @Test("An explicit host opt-out differs from OpenSSH defaults")
+    func detectsExplicitHostOptOutAgainstBaseline() {
+        let output = """
+        controlmaster false
+        controlpath none
+        controlpersist no
+        """
+        let baseline = """
+        controlmaster false
+        controlpath none
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: output,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == nil)
+        let configured = """
+        controlmaster no
+        controlpath none
+        controlpersist no
+        """
+        #expect(options.userConfiguredControlOptions(
+            fromSSHConfigOutput: configured,
+            baselineSSHConfigOutput: baseline,
+            explicitOptions: []
+        ) == [
+            "ControlMaster=no",
+            "ControlPath=none",
+            "ControlPersist=no",
+        ])
+    }
+
     @Test("Explicit CLI control options win per key over resolved ssh_config settings")
     func explicitOptionsWinOverResolvedConfiguration() {
         let configured = [
