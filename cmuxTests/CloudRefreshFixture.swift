@@ -19,12 +19,13 @@ struct CloudRefreshFixture {
 
     static func make(
         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
+        authClient: (any AuthClient)? = nil,
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
         isCloudEnabled: @escaping @Sendable () -> Bool = { true }
     ) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
         let auth = AuthCoordinator(
-            client: CloudRefreshAuthClient(),
+            client: authClient ?? CloudRefreshAuthClient(),
             sessionCache: CMUXAuthSessionCache(keyValueStore: defaults, key: "session"),
             userCache: CMUXAuthIdentityStore(keyValueStore: defaults, key: "user"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: defaults, key: "team"),
@@ -52,4 +53,3 @@ struct CloudRefreshFixture {
         ), auth: auth, session: session, readRequests: readRequests)
     }
 }
-

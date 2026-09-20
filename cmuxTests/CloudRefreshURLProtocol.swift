@@ -71,7 +71,14 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
                 let response = HTTPURLResponse(url: source.request.url!, statusCode: behavior == .throttled ? 429 : unavailable ? 503 : 200, httpVersion: nil,
                     headerFields: behavior == .throttled ? ["Retry-After": "60"] : nil)!
                 source.client?.urlProtocol(source, didReceive: response, cacheStoragePolicy: .notAllowed)
-                let body = path.hasSuffix("/stats") ? #"{"state":"awake","cpus":2}"# : #"{"vms":[{"id":"fixture-0","provider":"fixture","image":"desktop-vnc","status":"running","createdAt":0,"capabilities":{"stats":true}}]}"#
+                let body: String
+                if path == "/api/coderouter/vm-usage/team" {
+                    body = #"{"teamId":"fixture-team","kind":"ready","periodDays":30,"machines":[]}"#
+                } else if path.hasSuffix("/stats") {
+                    body = #"{"state":"awake","cpus":2}"#
+                } else {
+                    body = #"{"vms":[{"id":"fixture-0","provider":"fixture","image":"desktop-vnc","status":"running","createdAt":0,"capabilities":{"stats":true}}]}"#
+                }
                 source.client?.urlProtocol(source, didLoad: Data(body.utf8))
                 source.client?.urlProtocolDidFinishLoading(source)
             }
