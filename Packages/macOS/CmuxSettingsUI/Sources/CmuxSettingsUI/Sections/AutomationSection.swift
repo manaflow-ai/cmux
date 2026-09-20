@@ -26,6 +26,7 @@ public struct AutomationSection: View {
     @State private var portRangeModel: DefaultsValueModel<Int>
     @State private var ampInstallState: AgentIntegrationInstallState = .checking
     @State private var ampActionInFlight = false
+    @State private var ampActionTask: Task<Void, Never>?
     @State private var ampActionMessage: String?
     @State private var socketPolicyResolution: SocketControlPolicyResolution
     @State private var socketPasswordDraft: String = ""
@@ -445,6 +446,11 @@ public struct AutomationSection: View {
             SettingsCardNote(String(localized: "settings.automation.amp.note", defaultValue: "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."))
         }
         .task { await refreshAmpInstallState() }
+        .onDisappear {
+            ampActionTask?.cancel()
+            ampActionTask = nil
+            ampActionInFlight = false
+        }
     }
 
     private func ampInstallSubtitle(_ state: AgentIntegrationDisplayState) -> String {
@@ -469,20 +475,27 @@ public struct AutomationSection: View {
     }
 
     private func refreshAmpInstallState() async {
-        ampInstallState = await hostActions.agentIntegrationInstallState(.amp)
+        let state = await hostActions.agentIntegrationInstallState(.amp)
+        guard !Task.isCancelled else { return }
+        ampInstallState = state
     }
 
     private func performAmpAction(_ action: AgentIntegrationInstallAction) {
+        guard !ampActionInFlight else { return }
+        ampActionTask?.cancel()
         ampActionInFlight = true
         ampActionMessage = nil
-        Task { @MainActor in
+        ampActionTask = Task { @MainActor in
             let result = await hostActions.performAgentIntegrationAction(action, for: .amp)
-            ampActionInFlight = false
+            guard !Task.isCancelled else { return }
             if result.succeeded {
                 await refreshAmpInstallState()
             } else {
                 ampActionMessage = result.message
             }
+            guard !Task.isCancelled else { return }
+            ampActionInFlight = false
+            ampActionTask = nil
         }
     }
 
