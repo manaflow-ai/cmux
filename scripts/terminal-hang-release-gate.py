@@ -14,6 +14,11 @@ from urllib.parse import urlencode
 PLATFORMS = {
     "macos": ("4510796264636416", "production"),
 }
+PHASES = {
+    "layout", "geometryPublication", "geometryQueue", "resizePublication",
+    "rendererRefresh", "ptyResizeRequest", "renderGridReplay",
+}
+TRANSITIONS = {"split", "restore", "reveal", "resize"}
 
 
 def api(resource, params):
@@ -88,10 +93,16 @@ def evaluate(baseline, candidate, min_sessions=1000, max_ratio=1.25):
         candidate["platform"], candidate["environment"], candidate["start"], candidate["end"]
     ):
         reasons.append("Samples must use the same platform, environment, and time window")
-    candidate_unknown = sum(row["count()"] for row in candidate["segments"]
-                            if row.get("terminal.evidence") != "no_active_main_phase"
-                            and (row.get("terminal.transition") not in {"split", "restore", "reveal", "resize"}
-                                 or row.get("terminal.phase") in (None, "", "unknown")))
+    candidate_unknown = 0
+    for row in candidate["segments"]:
+        evidence = row.get("terminal.evidence")
+        phase, transition = row.get("terminal.phase"), row.get("terminal.transition")
+        attributed = (evidence == "unfinished_at_capture"
+                      and phase in PHASES and transition in TRANSITIONS)
+        outside_geometry = (evidence == "no_active_main_phase"
+                            and phase == "unknown" and transition == "unknown")
+        if not (attributed or outside_geometry):
+            candidate_unknown += row["count()"]
     if candidate_unknown:
         reasons.append(f"{candidate_unknown} candidate hang events have no attributable geometry phase")
     ratio = None
