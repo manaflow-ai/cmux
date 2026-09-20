@@ -289,6 +289,15 @@ struct CloudPortOpenRegressionTests {
         ) == [3000])
     }
 
+    @Test("A missing private address does not make loopback-only listeners reachable")
+    func missingAddressDoesNotAdvertiseLoopback() {
+        let listing = "State Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0 128 127.0.0.1:8000 0.0.0.0:*\n"
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: VMExecResult(exitCode: 0, stdout: listing, stderr: ""),
+            privateAddress: nil
+        ) == [])
+    }
+
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
     func portScanCompletenessControlsRefresh() throws {
         #expect(CmuxTuiSurfaceProvider.ports(from: VMExecResult(exitCode: 127, stdout: "", stderr: "ss unavailable")) == nil)
