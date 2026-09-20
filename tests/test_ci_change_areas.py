@@ -993,7 +993,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "scripts/ci/compile-app-host-test-product.sh build" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
-    assert "for scheme in cmux-unit cmux-numeric-locale; do" in compile_script
+    assert "for scheme in cmux cmux-unit cmux-numeric-locale; do" in compile_script
     assert "actions/cache@27d5ce7" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "app_host_test_products.py stamp" in admission
@@ -1004,7 +1004,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "      - macos-compile-admission" in app_host
     assert "test-without-building" in app_host
     assert "needs.macos-compile-admission.outputs.artifact_id" in app_host
-    assert "app_host_test_products.py restore" in app_host
+    assert "restore-app-host-test-product.sh" in app_host
     assert "EXPECTED_SHA256" in app_host
     assert "-xctestrun" in app_host
 
@@ -1101,7 +1101,7 @@ def test_required_macos_topology_collapses_display_and_release_helper_jobs() -> 
     assert "vars.MACOS_RUNNER_DUAL_XCODE" in package_block
     assert "\n  ui-regressions:" not in workflow
     assert "\n  release-ghostty-cli-helper:" not in workflow
-    assert "build-for-testing" in runtime_block
+    assert "restore-app-host-test-product.sh" in runtime_block
     assert "Run display UI regressions" in runtime_block
     assert "scripts/ci/run-display-ui-regressions.sh" in runtime_block
     assert runtime_block.index("Run display UI regressions") < runtime_block.index("Create virtual display")

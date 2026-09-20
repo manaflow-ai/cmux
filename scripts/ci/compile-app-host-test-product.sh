@@ -61,10 +61,12 @@ resolve() {
 
 build() {
   local derived_data="$1" source_packages="$2" cas_path="$3" log="${4:-/dev/null}"
-  mkdir -p "$cas_path"
+  mkdir -p "$cas_path" "$derived_data"
 
+  # Build the app/UI scheme first so its warning log retains the old runtime
+  # job warning-budget scope; subsequent schemes reuse the same app objects.
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-  for scheme in cmux-unit cmux-numeric-locale; do
+  for scheme in cmux cmux-unit cmux-numeric-locale; do
     xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
@@ -75,7 +77,7 @@ build() {
       COMPILATION_CACHE_ENABLE_CACHING=YES \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
-      build-for-testing 2>&1 | tee -a "$log"
+      build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
 

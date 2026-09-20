@@ -116,14 +116,17 @@ echo "---" >> "$STUB_XCODEBUILD_ARGS"
 # success, and writes the binary artifacts only from the attempt named by
 # STUB_RESOLVE_ARTIFACTS_FROM.
 packages=""
+scheme=""
 resolving=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -scheme) scheme="$2"; shift ;;
     -clonedSourcePackagesDirPath) packages="$2"; shift ;;
     -resolvePackageDependencies) resolving=1 ;;
   esac
   shift
 done
+if [ -n "$scheme" ]; then echo "build output for $scheme"; fi
 if [ "$resolving" -eq 1 ]; then
   echo x >> "$STUB_RESOLVE_ATTEMPTS"
   if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -le "${STUB_RESOLVE_FAILS_UNTIL:-0}" ]; then
@@ -181,6 +184,13 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   exit 1
 fi
 echo "PASS: the build compiles all three schemes for testing with the compilation cache on"
+if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
+  || grep -Fq 'build output for cmux-unit' "$TMP_DIR/derived/cmux-build.log"; then
+  echo "FAIL: the warning-budget log must retain only app/UI build output"
+  exit 1
+fi
+echo "PASS: app/UI warnings are captured separately from unit-test warnings"
+
 
 # A restored package cache can make resolution succeed without the binary
 # artifacts, and the build cannot resolve again.

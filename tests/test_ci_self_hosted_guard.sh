@@ -80,33 +80,6 @@ check_release_build_runner_disk_capacity() {
   echo "PASS: release-build uses release-specific macOS 26 runner fallback"
 }
 
-check_build_lag_deriveddata_cache_path() {
-  if ! awk '
-    /^  tests-build-and-lag:/ { in_job=1; next }
-    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
-
-    in_job && /- name: Prepare isolated DerivedData/ { in_prepare=1; next }
-    in_prepare && /^[[:space:]]*- name:/ { in_prepare=0 }
-    in_prepare && /DERIVED_DATA_PATH="\$RUNNER_TEMP\/cmux-deriveddata-tests-build-and-lag"/ { saw_prepare_path=1 }
-    in_prepare && /GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/ { saw_dynamic_prepare_path=1 }
-
-    in_job && /- name: Cache DerivedData/ { in_cache=1; after_cache=1; next }
-    in_cache && /^[[:space:]]*- name:/ { in_cache=0 }
-    in_cache && /path:[[:space:]]*\$\{\{ runner\.temp \}\}\/cmux-deriveddata-tests-build-and-lag/ { saw_cache_path=1 }
-    in_cache && /Library\/Developer\/Xcode\/DerivedData/ { saw_home_cache_path=1 }
-
-    in_job && after_cache && /rm -rf "\$CMUX_DERIVED_DATA_PATH"/ { saw_post_cache_delete=1 }
-
-    END {
-      exit !(saw_prepare_path && saw_cache_path && !saw_dynamic_prepare_path && !saw_home_cache_path && !saw_post_cache_delete)
-    }
-  ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag DerivedData cache must restore into the stable RUNNER_TEMP path xcodebuild uses, and must not delete that path after restore"
-    exit 1
-  fi
-
-  echo "PASS: tests-build-and-lag DerivedData cache path matches xcodebuild path"
-}
 
 check_e2e_runner_fallbacks() {
   if ! awk '
@@ -366,15 +339,15 @@ check_runtime_regressions_collapsed() {
     /^  tests-build-and-lag:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
-    in_job && /build-for-testing/ { saw_build_for_testing=1 }
+    in_job && /restore-app-host-test-product.sh/ { saw_shared_product=1 }
     in_job && /scripts\/ci\/run-display-ui-regressions\.sh/ { saw_ui_script=1 }
     in_job && /kill -9 "\$VDISPLAY_PID"/ { saw_force_kill=1 }
     in_job && /scripts\/ci\/virtual-display-lock\.sh reap-strays/ { saw_reap_strays=1 }
     in_job && /timeout-minutes:[[:space:]]*75/ { saw_timeout=1 }
 
-    END { exit !(saw_build_for_testing && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
+    END { exit !(saw_shared_product && saw_ui_script && saw_force_kill && saw_reap_strays && saw_timeout) }
   ' "$CI_FILE"; then
-    echo "FAIL: tests-build-and-lag must build once, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
+    echo "FAIL: tests-build-and-lag must restore the shared product, run display UI regressions from that DerivedData, and clean virtual displays before releasing the lock"
     exit 1
   fi
 
@@ -1271,7 +1244,6 @@ check_macos_runner "$CI_FILE" "tests-build-and-lag"
 check_macos_runner "$CI_FILE" "release-build"
 check_release_build_runner_disk_capacity
 check_display_runner_identity_guard "$CI_FILE" "tests-build-and-lag"
-check_build_lag_deriveddata_cache_path
 
 # build-ghosttykit.yml
 check_macos_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
