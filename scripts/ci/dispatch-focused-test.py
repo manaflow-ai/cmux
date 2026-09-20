@@ -62,7 +62,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run one suite or method on an exact pushed commit. "
         "This focused result does not replace the full CI merge checks.",
-        epilog="Examples: scripts/run-e2e.sh cmuxTests/RemoteTmuxMirrorInputTests --wait; "
+        epilog="Examples: scripts/run-e2e.sh cmuxTests/RemoteTmuxMirrorPaneInputMappingTests --wait; "
         "scripts/run-e2e.sh UpdatePillUITests/testFoo --ref my-branch --no-video",
     )
     parser.add_argument("test_filter", help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests")
