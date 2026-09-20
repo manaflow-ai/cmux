@@ -216,6 +216,9 @@ const nextConfig: NextConfig = {
       "./public/logo.png",
     ],
     "**/browser-opengraph-image": ["./public/logo.png"],
+    // The schema-parity health route reads bundled migration names (and, for
+    // legacy rows, sql hashes) from the migrations folder at request time.
+    "**/api/health/schema-parity": ["./db/migrations/*/migration.sql"],
     // Changelog versions outside generateStaticParams render at request time
     // and read the copy that tools/sync-changelog.ts writes before the build.
     "**/docs/changelog": ["./CHANGELOG.md"],

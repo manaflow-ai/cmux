@@ -1,0 +1,46 @@
+name: Cloud VM schema parity
+
+# Daily drift alert for the gap that broke production on Aug 24/25 2026: web
+# code auto-deploys on merge while database migrations are applied manually,
+# so deployed code can query columns whose migrations were never applied.
+# /api/health/schema-parity compares the migrations bundled in the deployed
+# code with the drizzle.__drizzle_migrations table and reports "behind" when
+# the database lags. This run fails loudly in that case.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 8 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check production schema parity
+        run: |
+          set -euo pipefail
+          url="https://cmux.com/api/health/schema-parity"
+          if ! body="$(curl -sS --max-time 30 --retry 3 "$url")"; then
+            echo "::error::$url is unreachable; cannot verify schema parity."
+            exit 1
+          fi
+          echo "$body"
+          status="$(printf '%s' "$body" | jq -r '.status // "invalid"')"
+          case "$status" in
+            ok|ahead)
+              echo "Schema parity: $status (codeHead=$(printf '%s' "$body" | jq -r '.codeHead'), dbHead=$(printf '%s' "$body" | jq -r '.dbHead'))"
+              ;;
+            behind)
+              pending="$(printf '%s' "$body" | jq -r '.pending | join(", ")')"
+              echo "::error::Production database schema is BEHIND the deployed code. Pending migrations: $pending. Approve the waiting cloud-vm-migrate production run, or dispatch cloud-vm-migrate.yml with target=production."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected schema-parity response (status=$status); treat as drift until proven otherwise."
+              exit 1
+              ;;
+          esac

@@ -1,0 +1,94 @@
+name: Cloud VM DB migration auto-dispatch
+
+# Web code auto-deploys to Vercel when a PR merges to main, but Cloud VM
+# database migrations only run when someone dispatches cloud-vm-migrate.yml.
+# On Aug 24/25 2026 that gap broke production: three additive migrations had
+# merged, the deployed code queried the new columns, and account deletion
+# failed with VmDatabaseError until the migration was finally dispatched.
+#
+# This workflow closes the gap: any push to main that touches migrations
+# dispatches a staging migration, waits for it, then dispatches a production
+# migration. The production run still pauses on the cloud-vm-production
+# environment approval; the point is that the run now exists and waits for a
+# reviewer instead of relying on somebody remembering to dispatch it.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - web/db/migrations/**
+
+run-name: "Auto-dispatch Cloud VM migrations for ${{ github.sha }}"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: cloud-vm-migrate-auto
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 45
+    steps:
+      - name: Dispatch staging migration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Buffer for clock skew between this runner and GitHub's run
+          # timestamps; the newest-first pick below tolerates the overlap.
+          dispatched_after="$(date -u -d '60 seconds ago' '+%Y-%m-%dT%H:%M:%S+00:00')"
+          echo "DISPATCHED_AFTER=$dispatched_after" >> "$GITHUB_ENV"
+          gh workflow run cloud-vm-migrate.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f target=staging
+
+      - name: Wait for the staging migration to succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # gh workflow run does not return a run id (see reload-build.yml);
+          # cloud-vm-migrate.yml takes no nonce input, so match the newest
+          # dispatch-event run created after our dispatch instant.
+          run_id=""
+          for _ in $(seq 1 24); do
+            sleep 5
+            run_id="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow cloud-vm-migrate.yml \
+              --event workflow_dispatch \
+              --branch main \
+              --created ">=$DISPATCHED_AFTER" \
+              --limit 1 \
+              --json databaseId \
+              --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then
+              break
+            fi
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::Dispatched a staging cloud-vm-migrate run but could not find it; dispatch target=staging and target=production manually."
+            exit 1
+          fi
+          echo "Watching staging migration run $run_id"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --interval 15 --exit-status
+
+      # The production run re-applies staging first (that is how
+      # cloud-vm-migrate.yml sequences target=production), then waits on the
+      # cloud-vm-production environment approval before touching production.
+      - name: Dispatch production migration (pauses for approval)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run cloud-vm-migrate.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            -f target=production
+          echo "Production migration dispatched; it waits on the cloud-vm-production environment approval." >> "$GITHUB_STEP_SUMMARY"
