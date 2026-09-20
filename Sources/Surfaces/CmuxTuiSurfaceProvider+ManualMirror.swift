@@ -57,7 +57,11 @@ extension CmuxTuiSurfaceProvider {
             materializedPlacement: resolvedPlacement, catalog: catalog
         ) ?? resolvedPlacement
         do {
-            try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
+            let workspaceOnlyCreationID = resource.creationAttachment == nil ? nil : resource.remoteWorkspace?.id
+            try CloudMachineLoadingReservation.current?.validate(
+                materializedPlacement: confirmedPlacement,
+                materializedWorkspaceID: workspaceOnlyCreationID
+            )
         } catch {
             if let reservation = CloudMachineLoadingReservation.current,
                let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {

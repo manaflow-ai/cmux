@@ -25,10 +25,14 @@ extension CMUXCLI {
         _ workspaceID: String, machine: String, remoteWorkspaceID: String,
         base: Bool, client: SocketClient
     ) throws {
-        _ = try client.sendV2(method: "workspace.cloud_vm_bind", params: Self.cloudWorkspaceBindingParameters(
+        var params = Self.cloudWorkspaceBindingParameters(
             workspaceID: workspaceID, vmID: machine, base: base,
             remoteWorkspaceID: remoteWorkspaceID, generatedTitle: nil
-        ))
+        )
+        // Keep the first remote identity pinned for retry, but let the following
+        // surface.project adopt the reserved pane before graph reconciliation runs.
+        params["defer_projection"] = true
+        _ = try client.sendV2(method: "workspace.cloud_vm_bind", params: params)
     }
 
     /// Plain Cloud opens leave a creating card intact until its real terminal
