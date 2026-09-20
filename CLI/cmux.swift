@@ -4721,6 +4721,9 @@ struct CMUXCLI {
         if normalizedCommand == "surface", commandArgs.first?.lowercased() == "resume" {
             return false
         }
+        if Self.commandDefersSocketConnectionUntilRequest(command: command, commandArgs: commandArgs) {
+            return false
+        }
         return true
     }
 
@@ -13565,13 +13568,19 @@ struct CMUXCLI {
         retryLimit: Int,
         retryDelaySeconds: Double
     ) -> String {
-        let retryPrefixKey = retryDelaySeconds <= 0
-            ? "cli.vm.sshInfo.retry.nowStatus"
-            : "cli.vm.sshInfo.retry.in"
-        let retryPrefixDefault = retryDelaySeconds <= 0 ? "Retrying now" : "Retrying in"
-        let retryPrefix = String(localized: retryPrefixKey, defaultValue: retryPrefixDefault)
-        let retryDelay = retryDelaySeconds <= 0 ? "" : " \(Self.retryDelayLabel(retryDelaySeconds))"
-        let retryText = "\(retryPrefix)\(retryDelay) (\(Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)))."
+        let retryAttempt = Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)
+        let retryText: String
+        if retryDelaySeconds <= 0 {
+            retryText = String(
+                localized: "cli.vm.sshInfo.retry.nowStatus",
+                defaultValue: "Retrying now (\(retryAttempt))."
+            )
+        } else {
+            retryText = String(
+                localized: "cli.vm.sshInfo.retry.status",
+                defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (\(retryAttempt))."
+            )
+        }
         let errorText = String(describing: error)
         if Self.isLocalCloudVMServiceUnreachable(errorText),
            let url = Self.firstHTTPURL(in: errorText) {

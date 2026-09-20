@@ -529704,61 +529704,61 @@
         }
       }
     },
-    "cli.vm.sshInfo.retry.in": {
+    "cli.vm.sshInfo.retry.status": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة المحاولة خلال"
+            "value": "إعادة المحاولة خلال %@ (%@)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erneuter Versuch in"
+            "value": "Erneuter Versuch in %@ (%@)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retrying in"
+            "value": "Retrying in %@ (%@)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reintentando en"
+            "value": "Reintentando en %@ (%@)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvelle tentative dans"
+            "value": "Nouvelle tentative dans %@ (%@)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再試行まで"
+            "value": "%@後に再試行します（%@）。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 시도까지"
+            "value": "%@ 후에 다시 시도합니다(%@)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将在"
+            "value": "将在 %@ 后重试（%@）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將於"
+            "value": "將於 %@ 後重試（%@）。"
           }
         }
       }
@@ -529769,55 +529769,55 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة المحاولة الآن"
+            "value": "إعادة المحاولة الآن (%@)."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erneuter Versuch jetzt"
+            "value": "Jetzt erneut versuchen (%@)."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Retrying now"
+            "value": "Retrying now (%@)."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reintentando ahora"
+            "value": "Reintentando ahora (%@)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvelle tentative maintenant"
+            "value": "Nouvelle tentative maintenant (%@)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再試行します"
+            "value": "%@ で再試行します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금 다시 시도"
+            "value": "지금 다시 시도합니다(%@)."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在重试"
+            "value": "正在重试（%@）。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在重試"
+            "value": "正在重試（%@）。"
           }
         }
       }

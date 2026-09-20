@@ -170,11 +170,18 @@ public struct SSHConnectionSharingOptions: Sendable {
         let controlPath = values["controlpath"] ?? "none"
         let controlPersist = values["controlpersist"] ?? "no"
         let resolver = SSHAgentSocketResolver()
+        let explicitOtherControlOption = explicitOptions.contains { option in
+            let key = resolver.optionKey(option)
+            return key == "controlpath" || key == "controlpersist"
+        }
+        let hostDisabledMasterMustBePreserved =
+            explicitOtherControlOption && isDisabled(controlMaster)
         let hasCustomValue =
             (!resolver.hasOptionKey(explicitOptions, key: "ControlMaster") && !isDisabled(controlMaster))
             || (!resolver.hasOptionKey(explicitOptions, key: "ControlPath") && controlPath.lowercased() != "none")
             || (!resolver.hasOptionKey(explicitOptions, key: "ControlPersist")
                 && !["no", "false", "off", "0"].contains(controlPersist.lowercased()))
+            || hostDisabledMasterMustBePreserved
         guard hasCustomValue else { return nil }
         return [
             "ControlMaster=\(controlMaster)",
