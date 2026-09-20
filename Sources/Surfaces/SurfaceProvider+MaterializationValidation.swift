@@ -43,6 +43,7 @@ extension SurfaceProvider {
                 guard let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID),
                       workspace.restoreCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) else {
                     discardMaterialization(projection)
+                    throw CloudDiagnosticFailure.placement
                 }
             } else {
                 discardMaterialization(projection)

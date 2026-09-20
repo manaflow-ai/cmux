@@ -257,6 +257,10 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
+    /// Rows whose first delivery attempt had no local placement. A catalog
+    /// change may make one of these rows placeable, so equal feed snapshots
+    /// still retry only this small set instead of refolding every row.
+    private var unresolvedPlacementIDs: Set<String> = []
     private var flushTask: Task<Void, Never>?
     private var flushRequested = false
     /// Set by `retire()`: a replaced sync must not write the shared per-machine
@@ -293,18 +297,22 @@ final class CloudNotificationSync {
 
     /// Fold one accepted state. Called after every installed snapshot or
     /// delta; cheap when the rows did not change.
-    func apply(rows incoming: [CloudVMNotificationRow]) {
-        guard !retired else { return }
+    @discardableResult
+    func apply(rows incoming: [CloudVMNotificationRow]) -> Bool {
+        guard !retired else { return false }
+        guard rows != incoming || !unresolvedPlacementIDs.isEmpty else { return false }
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
         var placed: [(CloudVMNotificationRow, CloudNotificationDeliveryTarget)] = []
+        unresolvedPlacementIDs.removeAll(keepingCapacity: true)
         for row in plan.deliver {
             if let target = resolveTarget(row) {
                 placed.append((row, target))
             } else {
                 // Not consumed: the next fold retries placement.
                 next.delivered.removeAll { $0 == row.id }
+                unresolvedPlacementIDs.insert(row.id)
             }
         }
         // Commit before delivering: the store can call back into this sync
@@ -340,6 +348,7 @@ final class CloudNotificationSync {
             commit(declined)
         }
         requestFlush()
+        return true
     }
 
     /// Local reads of this machine's notifications, by daemon row id.
