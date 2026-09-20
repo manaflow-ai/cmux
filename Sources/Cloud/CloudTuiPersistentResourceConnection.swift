@@ -27,6 +27,8 @@ actor CloudTuiPersistentResourceConnection {
     private var sequence: UInt64 = 0
     private var pending: [String: Pending] = [:]
     private var subscriptions: [String: Subscription] = [:]
+    private var sendTail: Task<Void, Never>?
+    private var sendTailToken: UUID?
     private var startTask: Task<Void, Error>?
     private var pumpTask: Task<Void, Never>?
     private var closed = false
@@ -114,11 +116,17 @@ actor CloudTuiPersistentResourceConnection {
                     continuation: continuation, request: request, deadline: deadline,
                     isExpired: { clock.now >= expiresAt }, sendTask: nil
                 )
-                let sendTask: Task<Void, Never> = Task { [weak self, connection] in
-                    guard let self else { return }
+                let token = UUID()
+                let previous = sendTail
+                let orderedSendTask: Task<Void, Never> = Task { [weak self, previous] in
+                    await previous?.value
+                    guard !Task.isCancelled, let self else { return }
                     await self.sendIfPending(id, connection: connection, line: encoded + Data([0x0A]))
+                    await self.finishSendTail(token)
                 }
-                pending[id]?.sendTask = sendTask
+                sendTail = orderedSendTask
+                sendTailToken = token
+                pending[id]?.sendTask = orderedSendTask
             }
         }, onCancel: { [weak self] in
             Task { await self?.retire(id, error: CancellationError()) }
@@ -165,6 +173,12 @@ actor CloudTuiPersistentResourceConnection {
             guard pending[id] != nil else { return }
             sendFailed(id, error: error)
         }
+    }
+
+    private func finishSendTail(_ token: UUID) {
+        guard sendTailToken == token else { return }
+        sendTail = nil
+        sendTailToken = nil
     }
 
     private func sendBestEffort(_ request: CloudTuiRequest) {

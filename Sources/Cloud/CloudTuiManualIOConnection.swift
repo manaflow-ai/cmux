@@ -51,6 +51,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     private var pendingWrites: [Data] = []
     private var pendingWriteContinuations: [CheckedContinuation<Void, Error>?] = []
     private var pendingWriteTokens: [UUID?] = []
+    private var cancelledWriteTokens = Set<UUID>()
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
@@ -162,6 +163,10 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         try await withTaskCancellationHandler(operation: {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 queue.async { [self, line] in
+                    if cancelledWriteTokens.remove(token) != nil {
+                        continuation.resume(throwing: CheckedSendError.notSent)
+                        return
+                    }
                     guard !closed, descriptor >= 0 else {
                         continuation.resume(throwing: CheckedSendError.notSent)
                         return
@@ -185,7 +190,10 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
 
     private func cancelCheckedWrite(_ token: UUID) {
         queue.async { [self] in
-            guard let index = pendingWriteTokens.firstIndex(where: { $0 == token }) else { return }
+            guard let index = pendingWriteTokens.firstIndex(where: { $0 == token }) else {
+                cancelledWriteTokens.insert(token)
+                return
+            }
             let continuation = pendingWriteContinuations[index]
             pendingWriteContinuations[index] = nil
             pendingWriteTokens[index] = nil
@@ -433,6 +441,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         let writeContinuations = pendingWriteContinuations
         pendingWriteContinuations.removeAll(keepingCapacity: false)
         pendingWriteTokens.removeAll(keepingCapacity: false)
+        cancelledWriteTokens.removeAll(keepingCapacity: false)
         pendingWriteOffset = 0
         pendingWriteBytes = 0
         for continuation in writeContinuations {
