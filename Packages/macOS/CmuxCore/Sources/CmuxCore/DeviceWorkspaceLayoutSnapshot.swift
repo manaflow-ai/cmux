@@ -4,18 +4,34 @@ public struct DeviceWorkspaceLayoutSnapshot: Codable, Equatable, Sendable {
     public let workspaceID: String
     /// The ordered pane tree and divider proportions on the owning Mac.
     public let layout: DeviceWorkspaceLayoutNode
+    /// Opaque owning-Mac revision used to reject edits based on an older layout.
+    /// An empty value identifies an older peer that supports read-only snapshots.
+    public let revision: String
 
     /// Creates a snapshot for one Mac workspace.
     /// - Parameters:
     ///   - workspaceID: The owning Mac's stable workspace ID.
     ///   - layout: Its current pane tree.
-    public init(workspaceID: String, layout: DeviceWorkspaceLayoutNode) {
+    ///   - revision: The owning Mac's revision, or empty for a read-only legacy peer.
+    public init(workspaceID: String, layout: DeviceWorkspaceLayoutNode, revision: String = "") {
         self.workspaceID = workspaceID
         self.layout = layout
+        self.revision = revision
+    }
+
+    /// Decodes current snapshots and older Mac peers without revision support.
+    /// - Parameter decoder: The encoded Mac workspace snapshot.
+    /// - Throws: A decoding error for malformed workspace or layout fields.
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        workspaceID = try values.decode(String.self, forKey: .workspaceID)
+        layout = try values.decode(DeviceWorkspaceLayoutNode.self, forKey: .layout)
+        revision = try values.decodeIfPresent(String.self, forKey: .revision) ?? ""
     }
 
     private enum CodingKeys: String, CodingKey {
         case workspaceID = "workspace_id"
         case layout
+        case revision
     }
 }
