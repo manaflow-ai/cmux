@@ -30,6 +30,9 @@ extension SurfaceCatalog {
     /// so a rename, move or close during refresh cannot resurrect captured members.
     /// Arbitrary groups and local workspaces retain their supplied membership.
     func currentCloudWorkspace(_ group: SurfaceResourceGroup) throws -> (group: SurfaceResourceGroup, layout: SurfaceProjectionLayout?)? {
+        if let workspaceID = group.remoteWorkspaceID, let machine = group.placements.first?.resource.machine {
+            try checkCloudWorkspaceNavigation(machine: machine, workspaceID: workspaceID)
+        }
         guard group.representsWorkspace, let workspaceID = group.remoteWorkspaceID,
               let machine = group.placements.first?.resource.machine,
               !machine.isLocal, cloudStates[machine] != nil,
