@@ -25,21 +25,24 @@ struct CloudTerminalNavigationCapabilityTests {
         #expect(fixture.failures.isEmpty)
     }
 
-    @Test("Restore retains layout, owner identity, exact clicked tab and generated title")
-    func restoresExactTab() async {
+    @Test("Restore retains layout, owner identity, exact clicked tab and generated title", arguments: [false, true])
+    func restoresExactTab(blankTitle: Bool) async {
         let fixture = CloudTerminalNavigationFixture()
         var other = fixture.projection
         other.panelID = UUID()
         other.remoteTabID = "tab-other"
         fixture.restoredProjections = [other, fixture.projection]
+        let group = blankTitle
+            ? SurfaceResourceGroup(title: " \n ", placements: fixture.group.placements, remoteWorkspaceID: fixture.remoteWorkspace.id)
+            : fixture.group
         let navigation = fixture.makeNavigation()
-        navigation.open(machine: fixture.machine, group: fixture.group, resource: fixture.resource, view: fixture.view, openIn: nil)
+        navigation.open(machine: fixture.machine, group: group, resource: fixture.resource, view: fixture.view, openIn: nil)
         await fixture.wait()
         #expect(fixture.events == ["check", "lookup", "layout", "check", "open", "bind", "focus"])
         #expect(fixture.receivedLayout == fixture.layout)
-        #expect(fixture.receivedGroup == fixture.group)
-        #expect(fixture.openedTitle == "Project")
-        #expect(fixture.boundTitle == "Project")
+        #expect(fixture.receivedGroup == group)
+        #expect(fixture.openedTitle == (blankTitle ? "Friendly machine" : "Project"))
+        #expect(fixture.boundTitle == fixture.openedTitle)
         #expect(fixture.focused.count == 1)
         #expect(fixture.focused.first?.0 == fixture.panelID)
         #expect(fixture.failures.isEmpty)
