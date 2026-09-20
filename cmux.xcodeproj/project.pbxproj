@@ -851,6 +851,8 @@
 		C13151C0000000000000000C /* CloudReadRequestCoordinator+Waiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C0000000000000000B /* CloudReadRequestCoordinator+Waiter.swift */; };
 		C12625A00000000000000004 /* CloudReadRequestCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */; };
 		C12625B00000000000000004 /* CloudReadRequestCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */; };
+		C13151C00000000000000023 /* CloudRefreshAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000022 /* CloudRefreshAuthClient.swift */; };
+		C13151C00000000000000021 /* CloudRefreshFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000020 /* CloudRefreshFixture.swift */; };
 		C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000003 /* CloudRefreshURLProtocol.swift */; };
 		C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */; };
 		595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */; };
@@ -4959,6 +4961,8 @@
 		C13151C0000000000000000B /* CloudReadRequestCoordinator+Waiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Waiter.swift"; sourceTree = "<group>"; };
 		C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinator.swift; sourceTree = "<group>"; };
 		C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinatorTests.swift; sourceTree = "<group>"; };
+		C13151C00000000000000022 /* CloudRefreshAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshAuthClient.swift; sourceTree = "<group>"; };
+		C13151C00000000000000020 /* CloudRefreshFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshFixture.swift; sourceTree = "<group>"; };
 		C12625000000000000000003 /* CloudRefreshURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshURLProtocol.swift; sourceTree = "<group>"; };
 		C12449020000000000000001 /* CloudRemoteColorOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRemoteColorOwnershipTests.swift; sourceTree = "<group>"; };
 		64BF8B9B8328108560B40B7F /* CloudRemoteOperationStep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudRemoteOperationStep.swift"; sourceTree = "<group>"; };
@@ -11112,6 +11116,8 @@
 				8F8A0358C8DD0A7D998A86E9 /* VMClientTelemetryTests.swift */,
 				7B7B816D0E6DDD18F2D66C77 /* CloudOperationRecorderTests.swift */,
 				C12625000000000000000001 /* VMClientReadCoalescingTests.swift */,
+				C13151C00000000000000020 /* CloudRefreshFixture.swift */,
+				C13151C00000000000000022 /* CloudRefreshAuthClient.swift */,
 				C12625000000000000000003 /* CloudRefreshURLProtocol.swift */,
 				C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */,
 				C12625B00000000000000005 /* CloudReadManualClock.swift */,
@@ -15943,6 +15949,8 @@
 				AC38407F09E94DA38B94F168 /* CloudProviderRefreshCoordinatorTests.swift in Sources */,
 				C12625B00000000000000006 /* CloudReadManualClock.swift in Sources */,
 				C12625B00000000000000004 /* CloudReadRequestCoordinatorTests.swift in Sources */,
+				C13151C00000000000000023 /* CloudRefreshAuthClient.swift in Sources */,
+				C13151C00000000000000021 /* CloudRefreshFixture.swift in Sources */,
 				C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */,
 				C12449010000000000000001 /* CloudRemoteColorOwnershipTests.swift in Sources */,
 				C12575000000000000000050 /* CloudRenameOptimismTests.swift in Sources */,

@@ -22,8 +22,8 @@ const promptName = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 // transaction. The prompt lock is held across the browser and prompt writes,
 // so a rename cannot observe or race a partially-installed generation.
 const install = String.raw`
-import fcntl, hashlib, json, os, pwd, shutil, stat, subprocess, sys, tempfile
-source, target, digest, browser, prompt_json, paths_json = sys.argv[1:]
+import fcntl, hashlib, json, os, shutil, stat, subprocess, sys, tempfile
+source, target, digest, browser, prompt_json, paths_json, transaction_token = sys.argv[1:]
 stage = "validate"
 lock = None
 backup_root = None
@@ -35,13 +35,13 @@ def mime_paths():
     result = []
     for username in ("root", "cmux", "ubuntu"):
         try:
-            home = pwd.getpwnam(username).pw_dir
-        except KeyError:
-            continue
-        try:
-            if not os.access(home, os.R_OK | os.X_OK):
-                continue
+            lookup = subprocess.run(["getent", "passwd", username], check=False,
+                                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         except OSError:
+            continue
+        fields = lookup.stdout.strip().split(":") if lookup.returncode == 0 else []
+        home = fields[5] if len(fields) > 5 else ""
+        if not home.startswith("/"):
             continue
         result.extend([
             os.path.join(home, ".config/mimeapps.list"),
@@ -60,13 +60,18 @@ def parent_dirs(path):
     return result
 
 directory_paths = list(dict.fromkeys(
-    parent for path in paths + [lock_path] for parent in parent_dirs(path)
+    os.path.dirname(path) for path in paths + [lock_path] if os.path.dirname(path)
 ))
+
+def unsafe_symlink_target(path):
+    return path.endswith("/bash.bashrc") or path.endswith("/zshenv") or path.endswith("/.config/mimeapps.list") or path.endswith("/.local/share/applications/mimeapps.list")
 
 def validate_target(path):
     if os.path.lexists(path):
         if os.path.isdir(path) and not os.path.islink(path):
             raise IsADirectoryError(path)
+        if os.path.islink(path) and unsafe_symlink_target(path):
+            raise ValueError("refusing to mutate a symlink target")
         if not os.path.islink(path) and not stat.S_ISREG(os.lstat(path).st_mode):
             raise ValueError("target is not a regular file")
     for parent in parent_dirs(path):
@@ -99,8 +104,9 @@ def snapshot_path(path):
     if not stat.S_ISREG(os.lstat(path).st_mode):
         raise ValueError("install target is not a regular file")
     backup = os.path.join(backup_root, str(len(backups)))
-    shutil.copy2(path, backup)
-    backups[path] = ("file", backup)
+    metadata = os.stat(path, follow_symlinks=False)
+    shutil.copyfile(path, backup)
+    backups[path] = ("file", backup, metadata.st_mode, metadata.st_uid, metadata.st_gid, metadata.st_atime_ns, metadata.st_mtime_ns)
 
 def restore_paths():
     failures = []
@@ -109,33 +115,31 @@ def restore_paths():
             remove_path(path)
             if backup is None:
                 continue
-            kind, value = backup
+            kind, value, *metadata = backup
             os.makedirs(os.path.dirname(path), exist_ok=True)
             if kind == "link":
                 os.symlink(value, path)
             else:
-                shutil.copy2(value, path)
+                shutil.copyfile(value, path)
+                mode, uid, gid, atime_ns, mtime_ns = metadata
+                os.chmod(path, stat.S_IMODE(mode), follow_symlinks=False)
+                os.chown(path, uid, gid, follow_symlinks=False)
+                os.utime(path, ns=(atime_ns, mtime_ns), follow_symlinks=False)
         except Exception as error:
             failures.append(error)
     if failures:
         raise RuntimeError("rollback failed")
 
-def remember_directory_entries():
-    return {
-        path: set(os.listdir(path)) if os.path.isdir(path) else set()
-        for path in directory_paths
-    }
-
-def cleanup_generated(entries):
+def cleanup_generated():
     failures = []
-    prefixes = [os.path.basename(path) + "." for path in paths]
-    prefixes.append(".prompt-")
-    for directory, before in entries.items():
+    prefixes = [".prompt-" + transaction_token + "-"]
+    prefixes.extend(os.path.basename(path) + "." + transaction_token + "." for path in paths)
+    for directory in directory_paths:
         if not os.path.isdir(directory):
             continue
         try:
             for name in os.listdir(directory):
-                if name in before or not any(name.startswith(prefix) for prefix in prefixes):
+                if not any(name.startswith(prefix) for prefix in prefixes):
                     continue
                 candidate = os.path.join(directory, name)
                 if os.path.isfile(candidate) or os.path.islink(candidate):
@@ -162,7 +166,7 @@ def replace_file(directory, name, content):
         with open(target_path, "r") as stream:
             if stream.read() == content:
                 return
-    fd, temporary = tempfile.mkstemp(prefix=".prompt-", dir=directory)
+    fd, temporary = tempfile.mkstemp(prefix=".prompt-" + transaction_token + "-", dir=directory)
     try:
         with os.fdopen(fd, "w") as stream:
             stream.write(content)
@@ -210,7 +214,6 @@ try:
     backup_root = tempfile.mkdtemp(prefix=".cmux-install-", dir=os.path.dirname(lock_path))
     for path in paths:
         snapshot_path(path)
-    before_entries = remember_directory_entries()
     stage = "verify"
     subprocess.run([source, "--help"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     stage = "browser"
@@ -219,13 +222,13 @@ try:
     install_prompt(json.loads(prompt_json) if prompt_json else None)
     stage = "publish"
     os.replace(source, target)
-    cleanup_generated(before_entries)
+    cleanup_generated()
     shutil.rmtree(backup_root)
     backup_root = None
 except Exception as error:
     rollback_error = None
     try:
-        cleanup_generated(before_entries if "before_entries" in globals() else {})
+        cleanup_generated()
     except Exception as cleanup_error:
         rollback_error = cleanup_error
     try:
@@ -264,5 +267,7 @@ export function guestCliInstallCommand(temporaryPath: string, identity?: GuestPr
     identity,
     files: guestPromptInstallFiles,
   }) : "";
-  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(guestBrowserInstallCommand())} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(installPaths))}`;
+  const transactionToken = temporaryPath.replace(/[^A-Za-z0-9_-]/g, "_");
+  const browser = guestBrowserInstallCommand().replaceAll("XXXXXX", `${transactionToken}.XXXXXX`);
+  return `python3 -c ${shellQuote(install)} ${shellQuote(temporaryPath)} ${shellQuote(GUEST_CMUX_SHIM_PATH)} ${shellQuote(digest)} ${shellQuote(browser)} ${shellQuote(prompt)} ${shellQuote(JSON.stringify(installPaths))} ${shellQuote(transactionToken)}`;
 }

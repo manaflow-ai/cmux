@@ -213,11 +213,16 @@ final class MachinesPanelViewModel: ObservableObject {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if online {
-                    if self.wantsPolling { self.refresh() }
+                    if self.wantsPolling { self.startPolling() }
                 } else {
                     self.clearUnavailableMetrics()
                     self.lastErrorDescription = URLError(.notConnectedToInternet).localizedDescription
                     self.listProblem = .unreachable
+                    // Retire the active transport and advance the generation
+                    // so a late response cannot clear the offline state or
+                    // schedule another refresh. `wantsPolling` remains true,
+                    // allowing the online branch to restart the cadence.
+                    self.pausePolling()
                 }
             }
         }

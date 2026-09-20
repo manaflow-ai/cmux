@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -688,6 +688,16 @@ export const CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY = "createCleanupNextAttemptAtMs"
 export const CREATE_CLEANUP_LEASE_ID_KEY = "createCleanupLeaseId";
 export const CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY = "createCleanupLeaseExpiresAtMs";
 
+/** Treat malformed/oversized cleanup timestamps as immediately eligible without an unsafe cast. */
+function cleanupTimestampDueSql(raw: SQL<string | null>, nowMs: number) {
+  return sql`case
+    when ${raw} ~ '^[0-9]{1,16}$'
+      and (length(${raw}) < 16 or ${raw} <= '9007199254740991')
+      then (${raw})::numeric <= ${nowMs}
+    else true
+  end`;
+}
+
 const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
   "billing_reserve_failed",
@@ -744,11 +754,10 @@ async function restoreBaseAfterCreateFailure(
     .orderBy(desc(cloudVmBaseGenerations.generation))
     .limit(1);
   if (retained?.generation && retained.vm) {
-    await tx
-      .update(cloudVmBaseGenerations)
-      .set({ state: "active", updatedAt: now })
-      .where(eq(cloudVmBaseGenerations.id, retained.generation.id));
-    await tx
+    // Fence promotion on the failed generation still being the active Base
+    // row. A concurrent reset/open may have moved the Base on while provider
+    // cleanup was in flight; in that case leave the newer generation alone.
+    const activeBase = await tx
       .update(cloudVmBases)
       .set({
         activeGeneration: retained.generation.generation,
@@ -762,16 +771,24 @@ async function restoreBaseAfterCreateFailure(
         eq(cloudVmBases.id, input.baseId),
         eq(cloudVmBases.activeGeneration, input.generation),
         eq(cloudVmBases.activeVmId, input.vmId),
-      ));
-  } else {
+      ))
+      .returning({ id: cloudVmBases.id });
+    if (activeBase.length === 0) return;
     await tx
+      .update(cloudVmBaseGenerations)
+      .set({ state: "active", updatedAt: now })
+      .where(eq(cloudVmBaseGenerations.id, retained.generation.id));
+  } else {
+    const failedBase = await tx
       .update(cloudVmBases)
       .set({ state: "failed", updatedAt: now })
       .where(and(
         eq(cloudVmBases.id, input.baseId),
         eq(cloudVmBases.activeGeneration, input.generation),
         eq(cloudVmBases.activeVmId, input.vmId),
-      ));
+      ))
+      .returning({ id: cloudVmBases.id });
+    if (failedBase.length === 0) return;
   }
   await tx.insert(cloudVmBaseEvents).values({
     baseId: input.baseId,
@@ -866,7 +883,12 @@ function providerMetadataPatchForPersistence(
       key !== VM_RESOURCE_FORK_PENDING_METADATA_KEY &&
       key !== VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY &&
-      key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
+      key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY &&
+      key !== CREATE_CLEANUP_PROVIDER_VM_ID_KEY &&
+      key !== CREATE_CLEANUP_ATTEMPT_KEY &&
+      key !== CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY &&
+      key !== CREATE_CLEANUP_LEASE_ID_KEY &&
+      key !== CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY,
     ),
   );
 }
@@ -2639,16 +2661,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           // out of the worker batch so they cannot starve live cleanup rows.
           eq(cloudVms.provider, "freestyle"),
           sql`${cleanupProviderVmId} is not null and ${cleanupProviderVmId} <> ''`,
-          sql`(
-            ${nextAttemptAtMs} is null
-            or ${nextAttemptAtMs} !~ '^[0-9]+$'
-            or (${nextAttemptAtMs})::bigint <= ${nowMs}
-          )`,
-          sql`(
-            ${leaseExpiresAtMs} is null
-            or ${leaseExpiresAtMs} !~ '^[0-9]+$'
-            or (${leaseExpiresAtMs})::bigint <= ${nowMs}
-          )`,
+          cleanupTimestampDueSql(nextAttemptAtMs, nowMs),
+          cleanupTimestampDueSql(leaseExpiresAtMs, nowMs),
         ))
         .orderBy(asc(cloudVms.updatedAt), asc(cloudVms.id))
         .limit(limit);
@@ -2665,20 +2679,15 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const leaseExpiresAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_LEASE_EXPIRES_AT_KEY)}'`;
       const nextAttemptAtMs = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_NEXT_ATTEMPT_AT_KEY)}'`;
       const attempt = sql<string | null>`${cloudVms.providerMetadata}->>'${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}'`;
-      return await db.transaction(async (tx) => {
-        // Serialize claims for one row before the CAS update. The update
-        // predicates still fence stale leases, while this lock keeps two
-        // concurrent cron workers from both observing an eligible marker.
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.id}, 0))`);
-        const [row] = await tx
-          .update(cloudVms)
+      const [row] = await db
+        .update(cloudVms)
         .set({
           providerMetadata: sql`(
             coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
             || jsonb_build_object(
               '${sql.raw(CREATE_CLEANUP_ATTEMPT_KEY)}',
               case
-                when ${attempt} ~ '^[0-9]+$' then (${attempt})::bigint + 1
+                when ${attempt} ~ '^[0-9]{1,9}$' then least((${attempt})::numeric + 1, 1000000)::integer
                 else 1
               end,
               -- Keep the row ineligible for the entire claim lease. A second
@@ -2697,27 +2706,20 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           eq(cloudVms.status, "provisioning"),
           eq(cloudVms.failureCode, PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE),
           eq(cleanupProviderVmId, providerVmId),
-          sql`(
-            ${nextAttemptAtMs} is null
-            or ${nextAttemptAtMs} !~ '^[0-9]+$'
-            or (${nextAttemptAtMs})::bigint <= ${input.now.getTime()}
-          )`,
+          cleanupTimestampDueSql(nextAttemptAtMs, input.now.getTime()),
           sql`(
             ${leaseIdValue} is null
             or ${leaseIdValue} = ''
-            or ${leaseExpiresAtMs} is null
-            or ${leaseExpiresAtMs} !~ '^[0-9]+$'
-            or (${leaseExpiresAtMs})::bigint <= ${input.now.getTime()}
+            or ${cleanupTimestampDueSql(leaseExpiresAtMs, input.now.getTime())}
           )`,
         ))
-          .returning({ providerMetadata: cloudVms.providerMetadata });
-        if (!row) return null;
-        const rawAttempt = row.providerMetadata[CREATE_CLEANUP_ATTEMPT_KEY];
-        const parsedAttempt = typeof rawAttempt === "number" && Number.isSafeInteger(rawAttempt)
-          ? rawAttempt
-          : Number.parseInt(String(rawAttempt ?? "1"), 10);
-        return { attempt: Number.isSafeInteger(parsedAttempt) && parsedAttempt > 0 ? parsedAttempt : 1 };
-      });
+        .returning({ providerMetadata: cloudVms.providerMetadata });
+      if (!row) return null;
+      const rawAttempt = row.providerMetadata[CREATE_CLEANUP_ATTEMPT_KEY];
+      const parsedAttempt = typeof rawAttempt === "number" && Number.isSafeInteger(rawAttempt)
+        ? rawAttempt
+        : Number.parseInt(String(rawAttempt ?? "1"), 10);
+      return { attempt: Number.isSafeInteger(parsedAttempt) && parsedAttempt > 0 ? parsedAttempt : 1 };
     }),
 
   deferCreateCleanup: (input) =>

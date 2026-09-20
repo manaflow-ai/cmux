@@ -289,7 +289,8 @@ private actor CapturedCloudDiagnostics: CloudTelemetrySending {
     func clearForSignOut() { spans.removeAll() }
 }
 
-/// The request is handled synchronously without shared mutable fixture state.
+/// The parsed immutable span crosses to the capture actor before any receipt is delivered.
+/// URLProtocol callbacks can arrive off-actor; mutable capture state stays actor-isolated.
 private final class PlacementReceiptURLProtocol: URLProtocol, @unchecked Sendable {
     fileprivate struct UploadedSpan: Sendable {
         let failure: String
@@ -344,19 +345,22 @@ private final class PlacementReceiptURLProtocol: URLProtocol, @unchecked Sendabl
                 throw URLError(.cannotDecodeContentData)
             }
             let status = request.url?.host == "receipt-202.test" ? 202 : 400
-            Task { await capture.record(status: status, span: UploadedSpan(
+            let uploaded = UploadedSpan(
                 failure: span["failure"] as? String ?? "",
                 traceID: span["traceId"] as? String ?? "",
                 operationID: operationID
-            )) }
+            )
             guard let url = request.url,
                   let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil) else {
                 throw URLError(.badURL)
             }
             let receipt = try JSONSerialization.data(withJSONObject: ["eventIds": [eventID]])
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: receipt)
-            client?.urlProtocolDidFinishLoading(self)
+            Task {
+                await Self.capture.record(status: status, span: uploaded)
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: receipt)
+                client?.urlProtocolDidFinishLoading(self)
+            }
         } catch {
             client?.urlProtocol(self, didFailWithError: error)
         }

@@ -78,6 +78,22 @@ describe("guest CLI publication in an isolated filesystem", () => {
     expect(readdirSync(join(root, "bin")).sort()).toEqual(["cmux", "cmux-open-url", "sensible-browser", "x-www-browser", "xdg-open"]);
   });
 
+  test("a fresh prompt install keeps its identity when an older revision attaches", async () => {
+    const { fixture, root } = guest();
+    await fixture.provider.create({
+      ...guestCreateOptions,
+      promptIdentity: { machineId: "synthetic", name: "fresh-machine", revision: 10 },
+    });
+    await fixture.provider.create({
+      ...guestCreateOptions,
+      promptIdentity: { machineId: "synthetic", name: "stale-machine", revision: 9 },
+    });
+    expect(readFileSync(join(root, "etc/vm-name"), "utf8")).toBe("fresh-machine\n");
+    expect(JSON.parse(readFileSync(join(root, "etc/.prompt-identity"), "utf8"))).toEqual({
+      machineId: "synthetic", name: "fresh-machine", revision: 10,
+    });
+  });
+
   test("replaces a target symlink without modifying its referent", async () => {
     const { fixture, root, target } = guest();
     const unrelated = join(root, "unrelated");

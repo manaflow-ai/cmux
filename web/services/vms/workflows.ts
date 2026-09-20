@@ -217,10 +217,7 @@ const CREATE_CLEANUP_PROVIDER_TIMEOUT = "15 seconds";
 const CREATE_CLEANUP_LEASE_MS = 60 * 1000;
 const CREATE_CLEANUP_BACKOFF_BASE_MS = 5 * 1000;
 const CREATE_CLEANUP_BACKOFF_MAX_MS = 15 * 60 * 1000;
-// The Postgres lease is the cross-process fence. This small process-local set
-// avoids issuing duplicate provider deletes while two cron requests in the same
-// Node worker are between candidate selection and the durable claim result.
-const pendingCreateCleanupInFlight = new Set<string>();
+const CREATE_CLEANUP_BATCH_LIMIT = 20;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
@@ -396,7 +393,9 @@ export function reconcileVmProviderStatuses(input: {
       limit: LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
     });
     yield* reconcilePendingCreateCleanups(repo, providers, {
-      limit: boundedVmStatusReconcileLimit(input.limit),
+      // At four concurrent 15-second provider calls, twenty rows fit inside
+      // the five-minute cron budget while leaving time for status probes.
+      limit: Math.min(boundedVmStatusReconcileLimit(input.limit), CREATE_CLEANUP_BATCH_LIMIT),
     });
     const getStatus = providers.getStatus;
     if (!getStatus) {
@@ -486,8 +485,6 @@ function reconcilePendingCreateCleanups(
         const rawProviderVmId = vm.providerMetadata?.[CREATE_CLEANUP_PROVIDER_VM_ID_KEY];
         if (typeof rawProviderVmId !== "string" || rawProviderVmId.trim().length === 0) return Effect.void;
         const providerVmId = rawProviderVmId.trim();
-        if (pendingCreateCleanupInFlight.has(vm.id)) return Effect.void;
-        pendingCreateCleanupInFlight.add(vm.id);
         const leaseId = randomUUID();
         const now = new Date();
         const leaseExpiresAt = new Date(now.getTime() + CREATE_CLEANUP_LEASE_MS);
@@ -528,9 +525,7 @@ function reconcilePendingCreateCleanups(
             );
           }),
           Effect.catchAll(() => Effect.void),
-        ).pipe(Effect.ensuring(Effect.sync(() => {
-          pendingCreateCleanupInFlight.delete(vm.id);
-        })));
+        );
       },
       { concurrency: CREATE_CLEANUP_CONCURRENCY, discard: true },
     );
