@@ -223,7 +223,13 @@ final class HostSettingsActions: SettingsHostActions {
     func openAutomationRulesInExternalEditor() {
         let fileURL = automationConfigStore.fileURL
         if !FileManager.default.fileExists(atPath: fileURL.path) {
-            try? automationConfigStore.save(AutomationConfiguration())
+            do {
+                try automationConfigStore.save(AutomationConfiguration())
+            } catch {
+                hostSettingsLogger.error("Failed to create automation rules: \(String(describing: error), privacy: .private)")
+                reportAutomationRulesError(error)
+                return
+            }
         }
         openAutomationRulesFile(fileURL)
     }
