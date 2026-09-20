@@ -326,6 +326,19 @@ struct CloudDesktopAccessTests {
         #expect(restored.query?.contains("path=websockify") == true)
     }
 
+    @Test("A browser Cloud resource cannot retain ownership after its service port changes")
+    func browserResourceOwnsOnlyItsPort() throws {
+        let endpoint = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 48000, username: "u", password: "p")
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 3000), coordinator: nil,
+            wake: {}, startForward: { _ in 47000 }, stopForward: {},
+            startBrowserProxy: { endpoint })
+        let state = CloudBrowserAccessState()
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:3000/")!,
+                        resourceID: SurfaceResourceID(machine: .cloud("a"), kind: .browser, key: "port:3000"))
+        #expect(state.owns(try #require(URL(string: "http://10.0.0.7:3000/"))))
+        #expect(!state.owns(try #require(URL(string: "http://10.0.0.7:8000/"))))
+    }
+
     @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")
     func nonDisplayVNCPathDoesNotUseDesktopReadiness() {
         let state = CloudBrowserAccessState()
