@@ -15,6 +15,7 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
+    private var portsStatus: CloudPortsStatusContent?
     private var buttonsHost: NSHostingView<AnyView>?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
@@ -68,12 +69,31 @@ final class CloudTreeCellView: NSTableCellView {
             cmuxDebugLog("cloudTree.cell.configure unread terminal=\(row.resource.id.key.suffix(4)) node=\(node.id.suffix(12))")
         }
         #endif
-        displayHost.isHidden = false
+        let status: CloudPortsStatusPresentation? = {
+            guard case .placeholder(_, let placeholder) = node.kind else { return nil }
+            return placeholder.portStatus
+        }()
+        displayHost.isHidden = status != nil
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind, style: style)
                 .modifier(CloudSidebarRowDecoration(isPinned: node.isPinned, showsAttentionSlot: node.showsAttentionSlot, hasUnreadNotification: node.hasUnreadAttention))
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
+        if let status {
+            let view = portsStatus ?? makePortsStatus()
+            view.isHidden = false
+            view.configure(presentation: status, style: style) { [weak self, weak node] in
+                guard let self, let node else { return }
+                switch status.action {
+                case .none: break
+                case .refresh: self.nodeActions.refreshMachine(node.machine)
+                case .openMachine: self.nodeActions.newTerminal(node.machine, nil)
+                case .openShell: self.machineActions.openShell(node.machine.rawValue)
+                }
+            }
+        } else {
+            portsStatus?.isHidden = true
+        }
         // An in-place row reload reuses this cell; the new content can be wider
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
@@ -114,6 +134,8 @@ final class CloudTreeCellView: NSTableCellView {
             setAccessibilityLabel(CloudTreeTerminalRowContent(row: row, style: style).toolTip)
         } else if case .display(let resource, _, _) = node.kind {
             setAccessibilityLabel([node.searchableTitle, CloudTreeRowContentView.text(for: resource)].joined(separator: ", "))
+        } else if let status {
+            setAccessibilityLabel("\(status.title), \(status.message)")
         } else {
             setAccessibilityLabel(node.searchableTitle)
         }
@@ -143,6 +165,20 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
+    private func makePortsStatus() -> CloudPortsStatusContent {
+        let view = CloudPortsStatusContent(frame: .zero)
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        portsStatus = view
+        return view
+    }
+
     func setHovered(_ hovered: Bool) {
         guard self.hovered != hovered else { return }
         self.hovered = hovered
@@ -152,6 +188,7 @@ final class CloudTreeCellView: NSTableCellView {
         super.prepareForReuse()
         machineReorderAccessibilityActions = nil
         hovered = false
+        portsStatus?.isHidden = true
     }
 }
 

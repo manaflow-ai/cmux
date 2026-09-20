@@ -17,10 +17,19 @@ final class CloudBrowserAccessState {
     private var dismissedFailure: String?
     var showsPorts = true
     private(set) var unavailable: String?
+    private var unavailableRetry: (@MainActor () -> Void)?
 
-    func showUnavailable(_ message: String) {
+    func showUnavailable(_ message: String, retry: (@MainActor () -> Void)? = nil) {
         leave()
         unavailable = message
+        unavailableRetry = retry
+    }
+
+    func retryUnavailable() { unavailableRetry?() }
+
+    var unavailableRetryAction: (() -> Void)? {
+        guard unavailableRetry != nil else { return nil }
+        return { [weak self] in self?.retryUnavailable() }
     }
 
     var showsPage: Bool { model?.isReady == true && loaded && error == nil }
@@ -166,6 +175,7 @@ final class CloudBrowserAccessState {
     }
 
     func leave() {
+        unavailableRetry = nil
         unavailable = nil
         model = nil
         remoteURL = nil

@@ -1730,10 +1730,9 @@ struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     /// Every cmux-tui workspace on the machine, in the daemon's order — including empty
     /// ones, which have no terminal to be derived from. nil when unknown (asleep, local).
     var remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil
-    /// The machine's address on its owner's private network (v4 preferred),
-    /// reachable through the WireGuard tunnel. nil for the local Mac and for
-    /// machines created before private networking.
+    /// The machine's address on its owner's private network (v4 preferred), reachable through WireGuard; nil for local or legacy machines.
     var privateAddress: String? = nil
+    var portDiscoveryState: CloudPortDiscoveryState = .notRequested
 }
 
 enum SurfaceLinkState: String, Codable, Sendable {

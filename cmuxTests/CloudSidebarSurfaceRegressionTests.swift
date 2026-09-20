@@ -192,6 +192,54 @@ struct CloudSidebarSurfaceRegressionTests {
         if link == .error { #expect(value.style == .error) }
     }
 
+    @Test("Ports project distinct discovery and route reasons with actionable copy")
+    func portStatusMatrix() {
+        let cases: [(CloudPortDiscoveryState, CloudPortsStatusPresentation.Action, String)] = [
+            (.loading, .none, "Discovering ports"),
+            (.empty(.noListeningService), .refresh, "No service is listening"),
+            (.empty(.loopbackOnly), .refresh, "loopback"),
+            (.unavailable(.privateAddress), .refresh, "private address"),
+            (.unavailable(.transport), .refresh, "discovery unavailable"),
+            (.stale, .refresh, "out of date"),
+            (.unsupported, .openShell, "not supported"),
+        ]
+        for (state, action, phrase) in cases {
+            let info = SurfaceMachineInfo(
+                id: machine, name: machine.rawValue, status: "running", image: nil,
+                hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+                linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+                portDiscoveryState: state
+            )
+            let presentation = CloudPortsStatusPresentation.make(info: info)
+            #expect(presentation.action == action)
+            #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
+            if state != .loading && state != .unsupported {
+                #expect(presentation.message.contains("system-wide VPN"), "cmux forwarding truth must remain visible")
+            }
+        }
+    }
+
+    @Test("A route failure remains visible beside real port rows")
+    func routeFailureDoesNotReplacePorts() throws {
+        let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000, directURL: nil)
+        let info = SurfaceMachineInfo(
+            id: machine, name: machine.rawValue, status: "running", image: nil,
+            hasDesktop: false, memoryMb: nil, diskMb: nil, linkState: .connected,
+            linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil,
+            privateAddress: nil, portDiscoveryState: .unavailable(.privateAddress)
+        )
+        let snapshot = SurfaceCatalogSnapshot(machines: [info], resources: [port], projections: [])
+        let nodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
+            machines: [MachineSnapshot(id: machine.rawValue, provider: "freestyle", image: "base", isDesktop: false, activity: .ready, createdAt: nil, label: nil)],
+            snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false
+        ))
+        let group = try #require(nodes.first { if case .portsGroup = $0.kind { true } else { false } })
+        #expect(group.children.count == 2)
+        guard case .port = group.children[0].kind else { Issue.record("real ports must stay visible"); return }
+        guard case .placeholder(_, let placeholder) = group.children[1].kind else { Issue.record("route status must be appended"); return }
+        #expect(placeholder.portStatus?.action == .refresh)
+    }
+
     @Test("Shell-only machines do not invent a desktop")
     func noDesktopForBaseMachine() {
         #expect(!nodes(link: .connected, desktop: false).contains {

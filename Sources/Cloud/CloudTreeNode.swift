@@ -346,7 +346,7 @@ enum CloudTreeNodeBuilder {
     /// Indexes local projections by their complete remote placement and by
     /// open-state identity. The cloud tree is rebuilt often, so neither
     /// `localWorkspaceShowing` nor leaf rows should rescan every projection.
-    private struct LocalProjectionIndex {
+    struct LocalProjectionIndex {
         private var exact: [RemotePlacementIdentity: [UUID]] = [:]
         /// A projection from a provider that does not model tabs. This is only
         /// used when the current resource also has no view metadata, so it
@@ -841,20 +841,12 @@ enum CloudTreeNodeBuilder {
             children.append(CloudTreeNode(
                 id: nodeID(portsGroup: machine),
                 kind: .portsGroup(machine: machine),
-                children: portBrowsers.isEmpty ? [CloudMachineSurfacePresentation.emptyPorts(info: info)] : portBrowsers.map {
-                    CloudTreeNode(
-                        id: nodeID(resource: $0.id),
-                        kind: .port(
-                            $0,
-                            url: $0.url ?? portURL(
-                                machine: machine,
-                                info: info,
-                                port: $0.id.forwardedPort ?? $0.port
-                            ),
-                            openIn: projectionIndex.localWorkspaceShowing(resource: $0.id)
-                        )
-                    )
-                }
+                children: portChildren(
+                    machine: machine,
+                    info: info,
+                    resources: portBrowsers,
+                    projectionIndex: projectionIndex
+                )
             ))
             if info.linkState == .connected || info.linkState == .notApplicable || !displays.isEmpty {
                 children.append(CloudTreeNode(

@@ -61,8 +61,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private var watchedLink: CloudMachineLink?
     private var changeWatcherID: UUID?
     private var scheduledRefresh: Task<Void, Never>?
-    private var portsCache: (ports: [Int], at: Date)?
-    private let portsTTL: TimeInterval = 30
+    var portsCache: (scan: CloudPortScanResult, at: Date)?
+    let portsTTL: TimeInterval = 30
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.
     var materializedPanels: Set<UUID> = []
@@ -128,7 +128,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.browserPolicy = browserPolicy
-        info = Self.info(from: summary, linkState: summary.status == "running" ? .connecting : .asleep, linkError: nil, stats: nil)
+        info = Self.info(
+            from: summary,
+            linkState: summary.status == "running" ? .connecting : .asleep,
+            linkError: nil,
+            stats: nil,
+            portDiscoveryState: supportsPortPreviews ? .notRequested : .unsupported
+        )
         installNotificationSync()
     }
     var isAwake: Bool { summary.status == "running" }
@@ -152,12 +158,16 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let shouldMarkStale = summary.status != "running" && cloudState != nil
         let linkState: SurfaceLinkState = shouldMarkStale ? .asleep : info.linkState
         let linkError: String? = shouldMarkStale ? nil : info.linkError
+        let portState: CloudPortDiscoveryState = supportsPortPreviews
+            ? (info.portDiscoveryState == .unsupported ? .notRequested : info.portDiscoveryState)
+            : .unsupported
         info = Self.info(
             from: summary,
             linkState: linkState,
             linkError: linkError,
             stats: nil,
-            remoteWorkspaces: info.remoteWorkspaces
+            remoteWorkspaces: info.remoteWorkspaces,
+            portDiscoveryState: portState
         )
         if shouldMarkStale {
             catalog.markCloudStateStale(on: machine, reason: "machine_\(summary.status)", info: info)
@@ -223,22 +233,37 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let vmClient = VMClient.shared
         let privateAddress = summary.preferredPrivateAddress
         var scannedPorts: [Int]?
+        var portState = info.portDiscoveryState
         if !supportsPortPreviews {
             scannedPorts = []
+            portState = .unsupported
         } else {
             // Keep the last private-link scan while this refresh reconnects. A new
             // scan runs through cmux-tui after the link is ready. Routine catalog
             // refresh must never use provider exec or the web control plane.
-            scannedPorts = portsCache?.ports
+            scannedPorts = portsCache?.scan.ports
+        }
+        if force, supportsPortPreviews {
+            portState = .loading
+            info.portDiscoveryState = .loading
+            catalog.updateMachine(info, from: self)
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-        var currentPorts = scannedPorts ?? portsCache?.ports ?? []
+        let previousPorts = previousResources.compactMap(\.id.forwardedPort).sorted()
+        var currentPorts = scannedPorts ?? portsCache?.scan.ports ?? previousPorts
         guard isAwake, let client = vmClient else {
             tabByTerminal = [:]
             let remoteWorkspaces = remoteWorkspaces(for: cloudState)
             let linkState: SurfaceLinkState = isAwake ? .unavailable : .asleep
             let linkError: String? = isAwake ? "cloud_api_unavailable" : nil
-            info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: nil)
+            portState = isAwake ? .unavailable(.transport) : .unavailable(.machineAsleep)
+            info = Self.info(
+                from: summary,
+                linkState: linkState,
+                linkError: linkError,
+                stats: nil,
+                portDiscoveryState: portState
+            )
             info.remoteWorkspaces = remoteWorkspaces
             let resources: [SurfaceResource]
             if let cloudState {
@@ -305,8 +330,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             async let snapshotData = link.run(arguments: CloudTuiRequests.snapshotArguments(socketPath: connected.socketPath))
             if let refreshedPorts = await refreshedPorts {
                 guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-                scannedPorts = refreshedPorts
-                currentPorts = refreshedPorts
+                scannedPorts = refreshedPorts.ports
+                currentPorts = refreshedPorts.ports
+                portState = Self.portDiscoveryState(for: refreshedPorts, privateAddress: privateAddress)
+            } else if portsCache == nil {
+                portState = .unavailable(.transport)
+            } else {
+                portState = .stale
             }
             watchChanges(link: link, generation: lifecycle)
             configureGuestURLOpen(link: link, socketPath: connected.socketPath)
@@ -354,6 +384,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
+            portState = .unavailable(.link)
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
@@ -362,6 +393,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if let eventsFeedWarning {
             linkState = .error
             linkError = eventsFeedWarning
+            portState = .stale
         }
         let remoteWorkspaces = cloudState.map(Self.remoteWorkspaces)
         info = Self.info(
@@ -369,7 +401,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState: linkState,
             linkError: linkError,
             stats: await stats,
-            remoteWorkspaces: remoteWorkspaces
+            remoteWorkspaces: remoteWorkspaces,
+            portDiscoveryState: portState
         )
         if let cloudState {
             // A successful read or an event install proves the retained graph is
@@ -1227,25 +1260,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     // MARK: - internals
 
-    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(
-            id: .cloud(summary.id),
-            name: summary.preferredName,
-            status: summary.status,
-            image: summary.image,
-            hasDesktop: summary.resolvedKind.hasDesktop,
-            memoryMb: stats?.memoryTotalMb,
-            diskMb: stats?.diskTotalMb,
-            linkState: linkState,
-            linkError: linkError,
-            cpuPercent: stats?.cpuPercent,
-            memoryUsedMb: stats?.memoryUsedMb,
-            diskUsedMb: stats?.diskUsedMb,
-            remoteWorkspaces: remoteWorkspaces,
-            privateAddress: summary.preferredPrivateAddress
-        )
-    }
-
     /// Appends preserved resources without repeatedly scanning the growing
     /// snapshot array. Refresh fallback paths run on the main actor, so keeping
     /// this linear is important for machines with many remote views.
@@ -1332,29 +1346,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return updated
     }
 
-    private func ports(
-        link: CloudMachineLink,
-        socketPath: String,
-        force: Bool,
-        generation: UInt64,
-        privateAddress: String?
-    ) async -> [Int]? {
-        if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
-            return cached.ports
-        }
-        guard let arguments = CloudTuiRequests.listeningPortsArguments(socketPath: socketPath),
-              let data = try? await link.run(arguments: arguments),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let stdout = object["stdout"] as? String else {
-            return nil
-        }
-        let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
-        guard let ports = Self.ports(from: result, privateAddress: privateAddress) else { return nil }
-        guard generation == refreshGeneration else { return nil }
-        portsCache = (ports, Date.now)
-        return ports
-    }
-
     private func watchChanges(link: CloudMachineLink, generation: UInt64) {
         guard generation == lifecycleGeneration else { return }
         if let watchedLink, watchedLink === link, changeWatcher != nil { return }
@@ -1419,7 +1410,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 }
                 info.linkState = .connected
                 info.linkError = nil
-                publish(incoming, ports: portsCache?.ports ?? [])
+                publish(incoming, ports: portsCache?.scan.ports ?? [])
                 reprojectRestoredPanes(generation: lifecycleGeneration)
                 syncNotifications(from: incoming)
             }
@@ -1485,7 +1476,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 publishDelta(
                     next,
                     impact: application.impact,
-                    ports: portsCache?.ports ?? [],
+                    ports: portsCache?.scan.ports ?? [],
                     reconcileTitles: titlesChanged
                 )
                 syncNotifications(from: next)

@@ -184,6 +184,16 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("An unavailable route exposes a retry action")
+    func unavailableRouteCanRetry() {
+        var retries = 0
+        let state = CloudBrowserAccessState()
+        state.showUnavailable("Private address unavailable", retry: { retries += 1 })
+        #expect(state.unavailableRetryAction != nil)
+        state.unavailableRetryAction?()
+        #expect(retries == 1)
+    }
+
     @Test("A canceled forward cannot publish a late local address")
     func stopDuringStart() async {
         let started = CloudLinkFirstValue<Bool>()

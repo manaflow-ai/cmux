@@ -24,7 +24,6 @@ struct CloudPortOpenRegressionTests {
         var materialized: [(resource: SurfaceResourceID, destination: SurfaceDestination)] = []
         var refreshCalls = 0
         var forcedRefreshCalls = 0
-
         init(machine: SurfaceMachineID, supportsPortPreviews: Bool) {
             self.machine = machine
             self.supportsPortPreviews = supportsPortPreviews
@@ -45,16 +44,13 @@ struct CloudPortOpenRegressionTests {
                 privateAddress: "10.0.0.7"
             )
         }
-
         func refresh() async {
             refreshCalls += 1
         }
-
         func refresh(force: Bool) async {
             refreshCalls += 1
             if force { forcedRefreshCalls += 1 }
         }
-
         func materialize(
             _ resource: SurfaceResource,
             at destination: SurfaceDestination,
@@ -63,7 +59,6 @@ struct CloudPortOpenRegressionTests {
             materialized.append((resource.id, destination))
             return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
         }
-
         func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
             SurfaceResource(
                 id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_new"),
@@ -76,10 +71,8 @@ struct CloudPortOpenRegressionTests {
                 url: nil
             )
         }
-
         func projectionDidEnd(_ projection: SurfaceProjection) {}
     }
-
     private func machineSnapshot() -> MachineSnapshot {
         MachineSnapshot(
             id: machine.rawValue,
@@ -91,7 +84,6 @@ struct CloudPortOpenRegressionTests {
             label: nil
         )
     }
-
     private func machineInfo(workspaces: [SurfaceRemoteWorkspace] = []) -> SurfaceMachineInfo {
         SurfaceMachineInfo(
             id: machine,
@@ -110,7 +102,6 @@ struct CloudPortOpenRegressionTests {
             privateAddress: "10.0.0.7"
         )
     }
-
     private func terminal() -> SurfaceResource {
         var resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_app"),

@@ -261,16 +261,37 @@ extension SurfaceCatalog {
 }
 
 extension CmuxTuiSurfaceProvider {
+    /// Converts one successful port probe into a result that preserves why an
+    /// empty list is empty. A missing private address does not make discovery
+    /// fail; it makes the discovered rows unopenable until the route metadata
+    /// is refreshed, so callers can explain that distinction.
+    nonisolated static func portScan(
+        from result: VMExecResult,
+        privateAddress: String? = nil
+    ) -> CloudPortScanResult? {
+        guard result.exitCode == 0 else { return nil }
+        let bindings = CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: result.stdout)
+            .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0.port) }
+        var loopbackOnlyByPort: [Int: Bool] = [:]
+        for binding in bindings {
+            loopbackOnlyByPort[binding.port] =
+                (loopbackOnlyByPort[binding.port] ?? true) && binding.isLoopbackOnly
+        }
+        let ports = loopbackOnlyByPort.keys
+            .filter { loopbackOnlyByPort[$0] == false }
+            .sorted()
+        return CloudPortScanResult(
+            ports: ports,
+            hadListeners: !bindings.isEmpty,
+            hadLoopbackOnlyListeners: !bindings.isEmpty && loopbackOnlyByPort.values.allSatisfy { $0 }
+        )
+    }
+
     /// Converts one port-probe result into a complete scan. A non-zero exit is
     /// incomplete (the command or transport was unavailable); a successful
     /// header-only listing is authoritative and intentionally returns `[]`.
     nonisolated static func ports(from result: VMExecResult, privateAddress: String? = nil) -> [Int]? {
-        guard result.exitCode == 0 else { return nil }
-        return CmuxTuiSnapshotParser.reachableListeningPorts(
-            fromSocketListing: result.stdout,
-            privateAddress: privateAddress
-        )
-            .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0) }
+        portScan(from: result, privateAddress: privateAddress)?.ports
     }
 
     /// Reconciles one machine's port scan with its prior catalog values.

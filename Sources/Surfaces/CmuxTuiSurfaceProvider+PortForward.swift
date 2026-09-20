@@ -10,7 +10,7 @@ extension CmuxTuiSurfaceProvider {
                 case .privateDirect(let raw):
                     if let url = URL(string: raw) { configureBrowser(browser, url: url) }
                 case .unsupported(let message):
-                    browser.cloudAccess.showUnavailable(message)
+                    showPortUnavailable(message, resourceID: resource.id, browser: browser)
                 }
             }
         }
@@ -36,7 +36,7 @@ extension CmuxTuiSurfaceProvider {
             guard let url = URL(string: raw) else { throw ProviderError.localForwardURLUnavailable }
             configureBrowser(browser, url: url)
         case .unsupported(let message):
-            browser.cloudAccess.showUnavailable(message)
+            showPortUnavailable(message, resourceID: resource.id, browser: browser)
         }
         return pane
     }
@@ -61,6 +61,34 @@ extension CmuxTuiSurfaceProvider {
         browser.prepareCloudBrowserStore(machineID: machineID)
         browser.showCloudAddress(privateURL)
         model.connect()
+    }
+
+    /// Re-runs the authoritative machine refresh before retrying a route that
+    /// was unavailable at materialization time (most commonly a withdrawn
+    /// private address). The browser card therefore always has a real retry
+    /// action instead of leaving the user on a dead loading surface.
+    private func showPortUnavailable(_ message: String, resourceID: SurfaceResourceID, browser: BrowserPanel) {
+        browser.cloudAccess.showUnavailable(message) { [weak self, weak browser] in
+            guard let self, let browser else { return }
+            Task { @MainActor in
+                guard self.isRegisteredInCatalog() else { return }
+                await self.catalog.refresh(machine: self.machine, force: true)
+                guard let resource = self.catalog.snapshot.resources.first(where: { $0.id == resourceID }) else {
+                    browser.cloudAccess.showUnavailable(String(
+                        localized: "cloud.portAccess.resourceGone",
+                        defaultValue: "This Cloud port is no longer available. Refresh the machine and try again."
+                    ))
+                    return
+                }
+                switch CloudPortRoutePlan.plan(resource: resource, privateAddress: self.info.privateAddress) {
+                case .privateDirect(let raw):
+                    guard let url = URL(string: raw) else { return }
+                    self.configureBrowser(browser, url: url)
+                case .unsupported(let nextMessage):
+                    self.showPortUnavailable(nextMessage, resourceID: resourceID, browser: browser)
+                }
+            }
+        }
     }
 
     func accessModel(port: Int, address: String, scheme: String = "http") -> CloudPortAccessModel {
@@ -124,7 +152,7 @@ extension CmuxTuiSurfaceProvider {
                 switch CloudPortRoutePlan.plan(resource: resource, privateAddress: info.privateAddress) {
                 case .privateDirect(let raw):
                     if let url = URL(string: raw) { configureBrowser(browser, url: url) }
-                case .unsupported(let message): browser.cloudAccess.showUnavailable(message)
+                case .unsupported(let message): showPortUnavailable(message, resourceID: resource.id, browser: browser)
                 }
             }
         }
