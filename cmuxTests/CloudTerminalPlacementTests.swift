@@ -53,6 +53,7 @@ struct CloudTerminalPlacementTests {
             // Return focus to the original source while the creates are suspended.
             // Completion must adopt each reservation without stealing focus back.
             workspace.focusPanel(sourceID)
+            try await settled { provider.requestedWorkspaces.count == 8 }
             provider.release.resolve(true)
             try await settled {
                 provider.materialized.count == 8 && !workspace.cloudPaneCreationFailureStore.hasActiveRequests
