@@ -307877,13 +307877,13 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux automatski instalira i osvježava Amp hookove u cmux terminalima. Izvan cmux terminala ne rade ništa. Kada je onemogućeno, instalirani Amp dodatak ostaje neaktivan bez potrebe za uklanjanjem."
+            "value": "Hookovi se izvršavaju samo u cmux terminalima. Isključivanje ove integracije ostavlja instalirane hookove neaktivnim."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux installerer og opdaterer automatisk Amp-hooks i cmux-terminaler. De gør intet uden for cmux-terminaler. Når funktionen er deaktiveret, forbliver det installerede Amp-plugin inaktivt uden at skulle fjernes."
+            "value": "Hooks kører kun i cmux-terminaler. Når denne integration slås fra, forbliver de installerede hooks inaktive."
           }
         },
         "de": {
@@ -307913,7 +307913,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux installa e aggiorna automaticamente gli hook di Amp nei terminali cmux. Al di fuori dei terminali cmux non eseguono alcuna operazione. Quando l’integrazione è disattivata, il plugin Amp installato rimane inattivo senza dover essere rimosso."
+            "value": "Gli hook vengono eseguiti solo nei terminali cmux. Disattivando questa integrazione, gli hook installati rimangono inattivi."
           }
         },
         "ja": {
@@ -307925,7 +307925,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ដំឡើង និងធ្វើឱ្យ Amp hooks ថ្មីដោយស្វ័យប្រវត្តិនៅក្នុងស្ថានីយ cmux។ វាមិនធ្វើអ្វីនៅក្រៅស្ថានីយ cmux ទេ។ នៅពេលបិទ កម្មវិធីបន្ថែម Amp ដែលបានដំឡើងនឹងនៅតែអសកម្ម ដោយមិនចាំបាច់លុបចេញ។"
+            "value": "Hooks ដំណើរការតែក្នុងស្ថានីយ cmux ប៉ុណ្ណោះ។ ការបិទការរួមបញ្ចូលនេះធ្វើឱ្យ hooks ដែលបានដំឡើងនៅតែអសកម្ម។"
           }
         },
         "ko": {
@@ -307937,43 +307937,43 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux installerer og oppdaterer Amp-hooks automatisk i cmux-terminaler. De gjør ingenting utenfor cmux-terminaler. Når integrasjonen er deaktivert, forblir den installerte Amp-utvidelsen inaktiv uten at den må fjernes."
+            "value": "Hooks kjører bare i cmux-terminaler. Når denne integrasjonen slås av, forblir de installerte hooksene inaktive."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux automatycznie instaluje i odświeża hooki Amp w terminalach cmux. Poza terminalami cmux nie wykonują one żadnych działań. Po wyłączeniu zainstalowana wtyczka Amp pozostaje nieaktywna i nie trzeba jej usuwać."
+            "value": "Hooki działają tylko w terminalach cmux. Wyłączenie tej integracji pozostawia zainstalowane hooki nieaktywne."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux instala e atualiza automaticamente os hooks do Amp nos terminais do cmux. Fora dos terminais do cmux, eles não realizam nenhuma ação. Quando a integração é desativada, o plugin do Amp instalado permanece inativo sem precisar ser removido."
+            "value": "Os hooks são executados apenas nos terminais cmux. Ao desativar esta integração, os hooks instalados permanecem inativos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux автоматически устанавливает и обновляет хуки Amp в терминалах cmux. Вне терминалов cmux они ничего не делают. Когда интеграция отключена, установленный плагин Amp остаётся неактивным, и удалять его не требуется."
+            "value": "Хуки работают только в терминалах cmux. При отключении этой интеграции установленные хуки остаются неактивными."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux จะติดตั้งและอัปเดตฮุกของ Amp โดยอัตโนมัติในเทอร์มินัล cmux ฮุกเหล่านี้จะไม่ทำงานนอกเทอร์มินัล cmux เมื่อปิดใช้งาน ปลั๊กอิน Amp ที่ติดตั้งไว้จะยังคงไม่ทำงานโดยไม่จำเป็นต้องลบออก"
+            "value": "ฮุกจะทำงานเฉพาะในเทอร์มินัล cmux เท่านั้น เมื่อปิดการผสานรวมนี้ ฮุกที่ติดตั้งไว้จะไม่ทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux, Amp kancalarını cmux terminallerinde otomatik olarak yükler ve yeniler. Bu kancalar cmux terminalleri dışında işlem yapmaz. Devre dışı bırakıldığında yüklü Amp eklentisi kaldırılması gerekmeden etkisiz kalır."
+            "value": "Kancalar yalnızca cmux terminallerinde çalışır. Bu entegrasyon kapatıldığında yüklü kancalar devre dışı kalır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux автоматично встановлює та оновлює хуки Amp у терміналах cmux. Поза терміналами cmux вони не виконують жодних дій. Коли інтеграцію вимкнено, встановлений плагін Amp залишається неактивним, і видаляти його не потрібно."
+            "value": "Хуки працюють лише в терміналах cmux. Після вимкнення цієї інтеграції встановлені хуки залишаються неактивними."
           }
         },
         "zh-Hans": {
