@@ -1,4 +1,5 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
+import type { CoderouterAccountAccess } from "../../../../../services/coderouter/accountAccess";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
 import { resolveCoderouterControlContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
@@ -17,6 +18,7 @@ export function createDeleteAccountHandler(dependencies: {
     readonly teamId: string;
     readonly accountId: string;
     readonly stackUserId?: string;
+    readonly access: CoderouterAccountAccess;
   }) => ReturnType<typeof removeAccount>;
 }) {
   return async (
@@ -36,6 +38,7 @@ export function createDeleteAccountHandler(dependencies: {
         teamId: resolved.value.team.teamId,
         accountId,
         stackUserId: resolved.value.user.id,
+        access: resolved.value.access,
       });
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_account" });
@@ -85,6 +88,6 @@ export function createDeleteAccountHandler(dependencies: {
 
 export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accounts/[accountId]", createDeleteAccountHandler({
   resolve: resolveCoderouterControlContext,
-  remove: async ({ teamId, accountId, stackUserId }) =>
-    await removeAccount(teamId, accountId, stackUserId),
+  remove: async ({ teamId, accountId, stackUserId, access }) =>
+    await removeAccount(teamId, accountId, stackUserId, access),
 }));
