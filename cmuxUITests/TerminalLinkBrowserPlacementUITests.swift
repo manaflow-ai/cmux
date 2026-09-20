@@ -169,10 +169,10 @@ final class TerminalLinkBrowserPlacementUITests: XCTestCase {
     }
 
     private func selectPlacementInSettings(_ placement: String, app: XCUIApplication) throws {
-        app.activate()
-        app.typeKey(",", modifierFlags: .command)
+        _ = try rpc("settings.open", ["target": "browser", "activate": true])
         let settings = app.windows["cmux.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        settings.click()
         let search = settings.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5))
         search.click()
