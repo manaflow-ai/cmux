@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxWorkspaces
 import Foundation
 
 /// The system-domain action witnesses (`workspace.action`, `surface.action` /
@@ -28,10 +29,24 @@ extension TerminalController {
 
     // MARK: - surface.action / tab.action
 
+    func controlTabActionStrings() -> ControlTabActionStrings {
+        ControlTabActionStrings(
+            missingColor: String(
+                localized: "cli.error.missingColor",
+                defaultValue: "Missing or invalid color"
+            ),
+            invalidColor: String(
+                localized: "cli.error.invalidColor",
+                defaultValue: "Invalid color. Use a hex value (#RRGGBB) or a named color."
+            )
+        )
+    }
+
     func controlTabAction(
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        color: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
@@ -144,6 +159,25 @@ extension TerminalController {
         case "clear_name":
             workspace.setPanelCustomTitle(panelId: panelId, title: nil)
             return finish(.none)
+
+        case "set_color":
+            switch WorkspaceTabColorSettings.inputResolver(defaults: .standard).resolve(color) {
+            case .missing:
+                return .invalidColor(namedColors: nil)
+            case .invalid(let namedColors):
+                return .invalidColor(namedColors: namedColors)
+            case .resolved(let colorHex):
+                guard workspace.setPanelCustomColor(panelId: panelId, colorHex: colorHex) else {
+                    return .tabNotFound(surfaceID: surfaceId)
+                }
+                return finish(.color(colorHex))
+            }
+
+        case "clear_color":
+            guard workspace.setPanelCustomColor(panelId: panelId, colorHex: nil) else {
+                return .tabNotFound(surfaceID: surfaceId)
+            }
+            return finish(.color(nil))
 
         case "pin":
             workspace.setPanelPinned(panelId: panelId, pinned: true)

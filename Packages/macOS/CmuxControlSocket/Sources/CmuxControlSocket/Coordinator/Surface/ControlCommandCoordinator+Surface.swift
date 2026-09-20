@@ -155,6 +155,7 @@ extension ControlCommandCoordinator {
                     "index": .int(Int64(index)),
                     "type": .string(surface.typeRawValue),
                     "title": .string(surface.title),
+                    "custom_color": orNull(surface.customColor),
                     "focused": .bool(surface.isFocused),
                     "pane_id": orNull(surface.paneID?.uuidString),
                     "pane_ref": surfaceRefs[index].paneRef,

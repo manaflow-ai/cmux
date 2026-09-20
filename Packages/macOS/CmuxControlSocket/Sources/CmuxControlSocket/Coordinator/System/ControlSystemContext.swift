@@ -87,6 +87,7 @@ public protocol ControlSystemContext: AnyObject {
     ///   - routing: The routing selectors.
     ///   - actionKey: The normalized action key, or `nil` when missing.
     ///   - title: The trimmed `title` param, if any.
+    ///   - color: The `color` param, if any.
     ///   - rawURL: The trimmed `url` param, if any.
     ///   - surfaceID: The explicit `surface_id` / `tab_id`, if any.
     ///   - requestedFocus: The requested `focus` flag (the app applies the
@@ -98,11 +99,15 @@ public protocol ControlSystemContext: AnyObject {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        color: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,
         moveParams: [String: JSONValue]
     ) -> ControlTabActionResolution
+
+    /// Returns app-bundle-resolved validation strings for tab color actions.
+    func controlTabActionStrings() -> ControlTabActionStrings
 
     /// Returns the app-localized generic surface-not-found message for tab-action
     /// routing failures.

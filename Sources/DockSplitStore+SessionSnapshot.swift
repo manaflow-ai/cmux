@@ -410,6 +410,7 @@ extension DockSplitStore {
             customTitle: titleMetadata.customTitle,
             customTitleSource: titleMetadata.customTitleSource == .remote ? .user : titleMetadata.customTitleSource,
             customTitleWasRemote: titleMetadata.customTitleSource == .remote ? true : nil,
+            customColor: transfer?.customColor,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
             isPinned: tab?.isPinned ?? transfer?.isPinned ?? false,

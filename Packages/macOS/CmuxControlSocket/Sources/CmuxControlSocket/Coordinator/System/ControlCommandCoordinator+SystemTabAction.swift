@@ -11,6 +11,7 @@ extension ControlCommandCoordinator {
         "new_terminal_right", "new_browser_right",
         "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
         "pin", "unpin", "mark_read", "mark_unread", "toggle_full_width_tab",
+        "set_color", "clear_color",
     ]
 
     /// `surface.action` / `tab.action` — run one surface-tab mutation.
@@ -31,6 +32,7 @@ extension ControlCommandCoordinator {
             routing: routingSelectors(params),
             actionKey: action,
             title: string(params, "title"),
+            color: string(params, "color"),
             rawURL: string(params, "url"),
             surfaceID: surfaceID ?? tabID,
             requestedFocus: bool(params, "focus") ?? false,
@@ -68,6 +70,18 @@ extension ControlCommandCoordinator {
             )
         case .invalidTitle:
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        case .invalidColor(let namedColors):
+            let strings = systemContext.controlTabActionStrings()
+            guard let namedColors else {
+                return .err(code: "invalid_params", message: strings.missingColor, data: nil)
+            }
+            return .err(
+                code: "invalid_params",
+                message: strings.invalidColor,
+                data: .object([
+                    "named_colors": .array(namedColors.map { .string($0) }),
+                ])
+            )
         case .invalidURL(let rawURL):
             return .err(
                 code: "invalid_params",
@@ -118,6 +132,8 @@ extension ControlCommandCoordinator {
                 payload["title"] = .string(title)
             case .pinned(let pinned):
                 payload["pinned"] = .bool(pinned)
+            case .color(let color):
+                payload["color"] = orNull(color)
             case .fullWidthTabMode(let enabled):
                 payload["full_width_tab_mode"] = .bool(enabled)
             case .created(let createdID):

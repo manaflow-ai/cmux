@@ -387,6 +387,7 @@ struct DockWorkingDirectoryInheritanceTests {
             cachedTitle: nil,
             customTitle: nil,
             customTitleSource: nil,
+            customColor: nil,
             manuallyUnread: false,
             restoredUnreadIndicator: nil,
             restorableAgent: nil,
