@@ -60,7 +60,8 @@ def main():
         return
     if mode == "delete-worker":
         if CREATED.exists() and json.loads(CREATED.read_text()).get("worker") == worker:
-            api(f"workers/scripts/{worker}", "DELETE")
+            # This run also owns the Worker's isolated Durable Object namespace.
+            api(f"workers/scripts/{worker}?force=true", "DELETE")
         return
     if mode == "cleanup-bucket":
         if CREATED.exists() and json.loads(CREATED.read_text()).get("bucket") == bucket:
