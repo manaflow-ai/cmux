@@ -1935,7 +1935,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .flatMap { entries in entries.compactMap { $0["command"] as? String } }
         XCTAssertFalse(commands.isEmpty)
 
-        let ambientInvocation = #""$CMUX_BUNDLED_CLI_PATH" --socket "$CMUX_SOCKET_PATH" hooks antigravity"#
+        let ambientInvocation = #""${cmux_hook_ambient_cli:-}" --socket "${cmux_hook_ambient_socket:-}" hooks antigravity"#
         let pinnedInvocation = "--socket '\(pinnedSocketPath)' hooks antigravity"
         for command in commands {
             let ambientRange = command.range(of: ambientInvocation)
@@ -1956,11 +1956,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 )
             }
             XCTAssertTrue(
-                command.contains(#"[ -S "$CMUX_SOCKET_PATH" ]"#),
+                command.contains(#"[ -S "${cmux_hook_ambient_socket:-}" ]"#),
                 "Ambient dispatch must require a live socket so an exited app falls back to the pinned build, saw \(command)"
             )
             XCTAssertTrue(
-                command.contains(#"[ -f "${CMUX_BUNDLED_CLI_PATH:-}" ]"#),
+                command.contains(#"[ -f "${cmux_hook_ambient_cli:-}" ]"#),
                 "Ambient dispatch must require a bundled CLI file, not a directory, saw \(command)"
             )
         }
@@ -4154,7 +4154,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let captureURL = root.appendingPathComponent("timeout.txt", isDirectory: false)
         try makeCodexHookExecutableShellFile(at: pinnedCLI, lines: [
             "#!/bin/sh",
-            "printf '%s' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" > \"$CMUX_TEST_CAPTURE\"",
+            "printf 'pinned:%s' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" > \"$CMUX_TEST_CAPTURE\"",
         ])
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
 
@@ -4209,19 +4209,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let notificationCommand = try XCTUnwrap(
             allCommands.first { $0.contains("hooks enqueue grok notification") }
         )
-        let ambientResult = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", notificationCommand],
-            environment: [
-                "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
-                "CMUX_SOCKET_PATH": socketPath,
+        let ambientCLI = root.appendingPathComponent("cmux ambient '$ cli\n", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: ambientCLI, lines: [
+            "#!/bin/sh",
+            "printf 'ambient:%s' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" > \"$CMUX_TEST_CAPTURE\"",
+        ])
+        let failedAmbientCLI = root.appendingPathComponent("cmux failed ambient", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: failedAmbientCLI, lines: ["#!/bin/sh", "exit 1"])
+        let ambientSocketPath = socketPath + "\n"
+        let ambientSocketFD = try bindUnixSocket(at: ambientSocketPath)
+        defer {
+            Darwin.close(ambientSocketFD)
+            unlink(ambientSocketPath)
+        }
+        let cases: [(name: String, cli: String?, socket: String?, expected: String)] = [
+            ("sanitized environment", nil, nil, "pinned:0.5"),
+            ("live launching terminal", ambientCLI.path, ambientSocketPath, "ambient:0.5"),
+            ("stale launching socket", ambientCLI.path, ambientSocketPath + ".missing", "pinned:0.5"),
+            ("failed launching CLI", failedAmbientCLI.path, ambientSocketPath, "pinned:0.5"),
+        ]
+        for testCase in cases {
+            var environment = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_TEST_CAPTURE": captureURL.path,
-            ],
-            timeout: 2
-        )
-        XCTAssertFalse(ambientResult.timedOut, ambientResult.stderr)
-        XCTAssertEqual(ambientResult.status, 0, ambientResult.stderr)
-        XCTAssertEqual(try String(contentsOf: captureURL, encoding: .utf8), "0.5")
+            ]
+            environment["CMUX_BUNDLED_CLI_PATH"] = testCase.cli
+            environment["CMUX_SOCKET_PATH"] = testCase.socket
+            for shellOptions in ["-c", "-ec"] {
+                try? FileManager.default.removeItem(at: captureURL)
+                let execution = runProcess(
+                    executablePath: "/bin/sh",
+                    arguments: [shellOptions, notificationCommand],
+                    environment: environment,
+                    timeout: 2
+                )
+                XCTAssertFalse(execution.timedOut, "\(testCase.name) \(shellOptions): \(execution.stderr)")
+                XCTAssertEqual(execution.status, 0, "\(testCase.name) \(shellOptions): \(execution.stderr)")
+                XCTAssertEqual(
+                    try String(contentsOf: captureURL, encoding: .utf8),
+                    testCase.expected,
+                    "\(testCase.name) \(shellOptions)"
+                )
+            }
+        }
     }
 
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
