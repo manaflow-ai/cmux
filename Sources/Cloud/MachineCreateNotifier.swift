@@ -1,7 +1,7 @@
 import Foundation
 
-/// Delivers actionable failure notices through the app's notification store.
-/// Successful Cloud creates select their workspace and never reach this path.
+/// Delivers actionable failure and fallback success notices through the app's
+/// notification store. A success that selected its workspace never reaches it.
 struct MachineCreateNotifier {
     @MainActor
     func post(_ notice: MachineCreateNotice) {

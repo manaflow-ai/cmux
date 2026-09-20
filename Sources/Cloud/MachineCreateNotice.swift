@@ -1,8 +1,8 @@
 import Foundation
 
-/// What the person is told when a background create fails: the words for the
-/// actionable notification and its workspace anchor. Successful creates are
-/// acknowledged by selecting their workspace and do not post a notification.
+/// What the person is told when a background create needs an actionable
+/// notification. A successfully selected workspace is silent; a create whose
+/// workspace cannot be selected falls back to the Machines list.
 struct MachineCreateNotice: Equatable {
     let title: String
     let subtitle: String
@@ -28,9 +28,7 @@ struct MachineCreateNotice: Equatable {
                 name
             )
             self.subtitle = subtitle
-            body = workspaceID == nil
-                ? String(localized: "machines.notification.ready.body.list", defaultValue: "Find it in the Machines list.")
-                : String(localized: "machines.notification.ready.body", defaultValue: "It's open in its own workspace. Click to go there.")
+            body = String(localized: "machines.notification.ready.body.list", defaultValue: "Find it in the Machines list.")
             self.workspaceID = workspaceID
             isFailure = false
         case .createdButOpenFailed(let machineID, let output):
