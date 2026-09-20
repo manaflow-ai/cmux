@@ -81,7 +81,6 @@ public struct MobileAuthComposition {
         let keychainAccessGroup = Self.keychainAccessGroup(in: bundle)
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
-        self.remoteAccountGate = MobileRemoteAccountGate()
         self.remoteAccountObserver = MobileRemoteAccountGateObserver()
 
         let sourcedOverrides = Self.authOverrides(
@@ -213,6 +212,14 @@ public struct MobileAuthComposition {
             await push.syncTokenIfPossible()
         }
         self.coordinator = coordinator
+        self.remoteAccountGate = MobileRemoteAccountGate { account in
+            let identity = AuthenticatedSessionIdentity(
+                generation: account.sessionGeneration, accountID: account.accountID
+            )
+            guard await coordinator.isAuthenticatedSessionIdentityCurrent(identity) else {
+                throw MobileRemoteAccountGateError.authenticationRequired
+            }
+        }
         self.pushRegistration = push
         self.protectedDataAvailability = availability
         self.taskOwner = MobileAuthTaskOwner(

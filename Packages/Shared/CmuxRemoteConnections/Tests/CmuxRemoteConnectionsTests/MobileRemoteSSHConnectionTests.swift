@@ -100,7 +100,7 @@ import Testing
             hostKeyApprover: { _, _ in .reject }
         )
         let recorder = LoadRecorder()
-        await #expect(throws: FakeConnectorError.hostKeyRejected) {
+        await #expect(throws: MobileRemoteSSHError.hostKeyRejected) {
             _ = try await coordinator.connect(
                 profile: profile(),
                 credential: MobileRemoteSSHCredentialSource {
@@ -161,27 +161,31 @@ private actor FakeConnector: MobileRemoteSSHConnecting {
         self.challenge = challenge
     }
 
-    func connect(
-        _ request: MobileRemoteSSHConnectionRequest,
-        decideHostKey: @escaping @Sendable (
-            MobileRemoteSSHHostKeyChallenge
-        ) async throws -> MobileRemoteSSHHostKeyDecision
-    ) async throws -> any MobileRemoteSSHSession {
+    func handshake(_ request: MobileRemoteSSHConnectionRequest) async throws -> any MobileRemoteSSHHandshake {
         connectCount += 1
         accountID = request.account.accountID
-        if let challenge {
-            guard try await decideHostKey(challenge) == .accept else {
-                throw FakeConnectorError.hostKeyRejected
-            }
-        }
-        credentialWasLoaded = true
-        _ = try await request.credential.load()
-        return FakeSession()
+        return FakeHandshake(challenge: challenge, owner: self)
     }
+
+    func didAuthenticate() { credentialWasLoaded = true }
 }
 
-private enum FakeConnectorError: Error, Equatable {
-    case hostKeyRejected
+private actor FakeHandshake: MobileRemoteSSHHandshake {
+    let challenge: MobileRemoteSSHHostKeyChallenge?
+    let owner: FakeConnector
+    init(challenge: MobileRemoteSSHHostKeyChallenge?, owner: FakeConnector) {
+        self.challenge = challenge
+        self.owner = owner
+    }
+    func hostKey() throws -> MobileRemoteSSHHostKeyChallenge {
+        guard let challenge else { throw MobileRemoteSSHError.invalidHostKeyChallenge }
+        return challenge
+    }
+    func authenticate(credential: MobileRemoteCredentialMaterial?) async throws -> any MobileRemoteSSHSession {
+        await owner.didAuthenticate()
+        return FakeSession()
+    }
+    func close() {}
 }
 
 private struct FakeSession: MobileRemoteSSHSession {

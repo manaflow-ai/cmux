@@ -1,26 +1,5 @@
 import Foundation
 
-/// The authenticated cmux account identity supplied by the app auth coordinator.
-///
-/// This value authorizes an app-level connection attempt only. It does not
-/// replace SSH host authentication, vault membership, or device enrollment.
-public struct MobileRemoteAuthenticatedAccount: Equatable, Hashable, Sendable {
-    /// Stable cmux account identifier.
-    public let accountID: String
-    /// Authenticated session generation, changed after reauthentication.
-    public let sessionGeneration: UInt64
-
-    init(accountID: String, sessionGeneration: UInt64) throws {
-        guard !accountID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              accountID.utf8.count <= 256,
-              !accountID.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
-            throw MobileRemoteAccountGateError.invalidAccount
-        }
-        self.accountID = accountID
-        self.sessionGeneration = sessionGeneration
-    }
-}
-
 /// Account lifecycle boundary shared by all remote carriers.
 ///
 /// The iOS composition root updates this actor from the authenticated auth
@@ -31,8 +10,15 @@ public struct MobileRemoteAuthenticatedAccount: Equatable, Hashable, Sendable {
 public actor MobileRemoteAccountGate {
     private var account: MobileRemoteAuthenticatedAccount?
 
-    /// Creates a signed-out gate.
-    public init() {}
+    private let validate: @Sendable (MobileRemoteAuthenticatedAccount) async throws -> Void
+
+    /// Creates a signed-out gate with optional live authority validation.
+    /// - Parameter validate: App composition checks the auth owner directly.
+    ///   Standalone fixtures may omit it; a cached observer is insufficient for
+    ///   production sign-out invalidation.
+    public init(validate: @escaping @Sendable (MobileRemoteAuthenticatedAccount) async throws -> Void = { _ in }) {
+        self.validate = validate
+    }
 
     /// Publishes the current authenticated account from the app auth owner.
     ///
@@ -44,6 +30,8 @@ public actor MobileRemoteAccountGate {
         accountID: String,
         sessionGeneration: UInt64
     ) throws {
+        if account?.accountID == accountID, account?.sessionGeneration == sessionGeneration { return }
+        account = nil
         account = try MobileRemoteAuthenticatedAccount(
             accountID: accountID, sessionGeneration: sessionGeneration
         )
@@ -57,10 +45,25 @@ public actor MobileRemoteAccountGate {
     /// Returns the current authenticated account or fails closed.
     ///
     /// - Throws: Authentication-required when no account is active.
-    public func requireAccount() throws -> MobileRemoteAuthenticatedAccount {
+    public func requireAccount() async throws -> MobileRemoteAuthenticatedAccount {
         guard let account else {
             throw MobileRemoteAccountGateError.authenticationRequired
         }
+        try Task.checkCancellation()
+        try await validate(account)
+        try Task.checkCancellation()
+        guard self.account == account else {
+            throw MobileRemoteAccountGateError.authenticationRequired
+        }
         return account
+    }
+
+    /// Revalidates a captured account across suspended connection work.
+    /// - Parameter expected: Account returned before the operation began.
+    /// - Throws: Authentication-required when account or session authority changed.
+    public func requireCurrent(_ expected: MobileRemoteAuthenticatedAccount) async throws {
+        guard try await requireAccount() == expected else {
+            throw MobileRemoteAccountGateError.authenticationRequired
+        }
     }
 }

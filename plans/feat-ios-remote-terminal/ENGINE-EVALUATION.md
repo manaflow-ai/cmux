@@ -35,8 +35,24 @@ backend ABI. FIDO2 and PKCS#11 remain callback or external-provider work and
 must not be represented as supported merely because the libssh headers expose
 those APIs.
 
-1. Build a reproducible arm64 iOS static library from a pinned source release,
-   with OpenSSL/libgcrypt dependencies and unused server features disabled.
+An arm64 iOS Simulator cross-build was then completed with libssh 0.12.2 and
+Mbed TLS 3.6.7. The resulting libssh archive contains 79 objects and is arm64;
+the source archives and output hashes are recorded here:
+
+- libssh source SHA-256: `49560f677d96e3706a904ac2de1116e25f3680937d51e5c92198fcba4a1c1e9f`
+- Mbed TLS source SHA-256: `a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6`
+- iOS-simulator libssh archive SHA-256: `473c4c9001d58ec26b13897b12a8a65a240dcf29c56aef277071bacc581e4599`
+
+The Apple SDK probe incorrectly reported `memset_explicit` and
+`explicit_bzero` as available during CMake configuration. The cross-build
+must clear those generated `HAVE_*` values so libssh selects its existing
+volatile-memory fallback. This is a build-system portability patch, not a
+relaxation of secret-clearing behavior, and must be made reproducible in the
+vendored recipe rather than edited in a build directory.
+
+1. Build a reproducible arm64 iOS static library from pinned source releases,
+   with the Mbed TLS backend and unused server features disabled. The checked-in
+   recipe is `scripts/build-libssh-ios.sh`.
 2. Expose a small Swift-owned wrapper that keeps all libssh objects on one
    actor or serial executor, translates callbacks into bounded async streams,
    and never passes untrusted shell strings to a subprocess.
