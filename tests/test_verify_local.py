@@ -232,5 +232,101 @@ class SwiftSyntaxTests(unittest.TestCase):
             self.assertFalse(result["assessment"]["exact_verification"])
 
 
+class SwiftSelectionTests(unittest.TestCase):
+    def git(self, repo, *args):
+        return subprocess.check_output(["git", "-C", str(repo), *args]).decode().strip()
+
+    def commit(self, repo):
+        self.git(repo, "add", ".")
+        self.git(repo, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+                 "commit", "-qm", "baseline")
+
+    def test_changed_selection_includes_staged_unstaged_untracked_and_renames(self):
+        with repo_fixture() as repo:
+            for name in ("Staged.swift", "Unstaged.swift", "Old.swift", "Deleted.swift"):
+                (repo / name).write_text("let value = 1\n")
+            (repo / ".gitignore").write_text("Ignored.swift\n")
+            self.commit(repo)
+            (repo / "Staged.swift").write_text("let value = 2\n")
+            self.git(repo, "add", "Staged.swift")
+            (repo / "Unstaged.swift").write_text("let value = 3\n")
+            self.git(repo, "mv", "Old.swift", "Renamed.swift")
+            (repo / "Deleted.swift").unlink()
+            for name in ("New with spaces\nand newline.swift", "Ignored.swift", "note.md"):
+                (repo / name).write_text("let value = 4\n")
+            names, evidence = verify.changed_swift_files(repo, "HEAD")
+            self.assertEqual(set(names), {"Staged.swift", "Unstaged.swift", "Renamed.swift",
+                                          "New with spaces\nand newline.swift"})
+            self.assertEqual(evidence["merge_base_sha"], self.git(repo, "rev-parse", "HEAD"))
+
+    def test_base_includes_committed_branch_changes_and_working_tree(self):
+        with repo_fixture() as repo:
+            self.git(repo, "branch", "base")
+            (repo / "Committed.swift").write_text("let value = 1\n")
+            self.commit(repo)
+            (repo / "Dirty.swift").write_text("let value = 2\n")
+            names, evidence = verify.changed_swift_files(repo, "base")
+            self.assertEqual(set(names), {"Committed.swift", "Dirty.swift"})
+            self.assertEqual(evidence["base_sha"], self.git(repo, "rev-parse", "base"))
+            self.assertNotEqual(evidence["base_sha"], self.git(repo, "rev-parse", "HEAD"))
+            self.assertEqual(verify.changed_swift_files(repo, "HEAD")[0], ["Dirty.swift"])
+
+    def test_missing_base_fails_closed(self):
+        with repo_fixture() as repo:
+            result = cli(repo, "--swift-changed", "missing-base")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("Cannot select changed Swift files", result.stderr)
+
+    def test_changed_empty_selection_is_a_json_noop_not_a_parse_pass(self):
+        with repo_fixture() as repo:
+            result = cli(repo, "--only", "swift-syntax", "--swift-changed", "--receipt", "-")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            evidence = json.loads(result.stdout)
+            self.assertEqual(evidence["outcome"]["status"], "skipped")
+            self.assertEqual(verify.receipt.check(evidence, "parsing")["status"], "skipped")
+            self.assertFalse(evidence["evidence"]["executions"][0]["executed"])
+            self.assertEqual(evidence["evidence"]["swift_selection"]["paths"], [])
+            self.assertIn("SKIPPED", result.stderr)
+            self.assertFalse((repo.parent / "-").exists())
+
+    def test_stdin0_filters_non_swift_and_rejects_unterminated_input(self):
+        with repo_fixture() as repo:
+            argv = ["python3", str(repo / "scripts/verify-local.py"), "--only", "swift-syntax",
+                    "--swift-stdin0", "--receipt", "-"]
+            empty = subprocess.run(argv, input=b"note.md\0", capture_output=True)
+            self.assertEqual(empty.returncode, 0, empty.stderr)
+            self.assertEqual(json.loads(empty.stdout)["outcome"]["status"], "skipped")
+            bad = subprocess.run(argv, input=b"File.swift\n", capture_output=True)
+            self.assertEqual(bad.returncode, 2)
+            self.assertIn(b"NUL-terminated", bad.stderr)
+
+    def test_empty_swift_selection_does_not_skip_other_selected_checks(self):
+        with repo_fixture() as repo:
+            (repo / "scripts/lint-xcstrings.py").write_text('print("ok")\n')
+            result = cli(repo, "--only", "xcstrings", "--swift-changed", "--receipt", "-")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            evidence = json.loads(result.stdout)
+            self.assertEqual(evidence["outcome"]["status"], "passed")
+            self.assertEqual(verify.receipt.check(evidence, "parsing")["status"], "skipped")
+            self.assertEqual([e["status"] for e in evidence["evidence"]["executions"]], ["skipped", "passed"])
+
+    @unittest.skipUnless(shutil.which("swiftc"), "Swift parser unavailable")
+    def test_real_nul_pipeline_preserves_filename_and_json_stdout(self):
+        with repo_fixture() as repo:
+            name = 'Space and\nnewline "quoted".swift'
+            (repo / name).write_text("let value = 1\n")
+            producer = subprocess.run(["git", "-C", str(repo), "ls-files", "--others",
+                                       "--exclude-standard", "-z"], check=True, capture_output=True)
+            consumer = subprocess.run(["python3", str(repo / "scripts/verify-local.py"),
+                                       "--only", "swift-syntax", "--swift-stdin0", "--receipt", "-"],
+                                      input=producer.stdout, capture_output=True)
+            self.assertEqual(consumer.returncode, 0, consumer.stderr)
+            evidence = json.loads(consumer.stdout)
+            self.assertEqual(evidence["outcome"]["status"], "passed")
+            self.assertEqual(evidence["evidence"]["swift_selection"]["paths"], [name])
+            self.assertEqual(evidence["evidence"]["swift_inputs"]["before"][0]["path"], name)
+            self.assertIn(b"PASSED", consumer.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
