@@ -85,6 +85,8 @@ struct CmuxPopoverGroupTests {
         group.handleMove(windowNumber: nil, point: CGPoint(x: 220, y: 50))
         #expect(closed.isEmpty)
         group.handleMove(windowNumber: nil, point: CGPoint(x: 700, y: 500))
+        #expect(closed == [child])
+        group.handleClick(windowNumber: nil, point: CGPoint(x: 700, y: 500))
         #expect(closed == [child, parent])
     }
 

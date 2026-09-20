@@ -88,9 +88,14 @@ public final class CmuxPopoverGroup {
     }
 
     func handleMove(windowNumber: Int?, point: CGPoint) {
-        guard !members.isEmpty,
-              !members.contains(where: { $0.containsPointer(windowNumber, point) }) else { return }
-        dismissAll()
+        let childMembers = members.filter { $0.parent != nil }
+        guard !childMembers.isEmpty,
+              !childMembers.contains(where: { $0.containsPointer(windowNumber, point) }) else { return }
+        // Hover only controls the nested submenu. The account popover remains
+        // application-defined and closes on an explicit outside click.
+        for member in childMembers.reversed() {
+            unregister(member.id)
+        }
     }
 
     /// Closes children before their parent so no detached child can retain an
