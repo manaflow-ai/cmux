@@ -148,4 +148,20 @@ struct HostSettingsActionsLocalTmuxTests {
             _ = try LocalTmuxSessionListDecoder().decode(data)
         }
     }
+    @Test("Starting persistence pins the workspace captured with its directory")
+    func startArgumentsKeepCapturedWorkspaceIdentity() {
+        let workspaceID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let arguments = HostSettingsActions.localTmuxStartArguments(
+            name: "work", workspaceID: workspaceID, cwd: "/selected/project",
+            socketPath: "/tmp/selected.sock"
+        )
+        #expect(arguments.contains("--workspace"))
+        if let index = arguments.firstIndex(of: "--workspace") {
+            #expect(arguments[index + 1] == workspaceID.uuidString)
+        }
+        if let index = arguments.firstIndex(of: "--cwd") {
+            #expect(arguments[index + 1] == "/selected/project")
+        }
+    }
+
 }

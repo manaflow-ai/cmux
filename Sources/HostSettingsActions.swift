@@ -257,12 +257,21 @@ final class HostSettingsActions: SettingsHostActions {
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        _ = try await runLocalTmuxCLI(arguments: [
-            "--socket", socketPath,
-            "local-tmux", "start", trimmedName,
-            "--cwd", cwd,
-            "--json",
-        ])
+        _ = try await runLocalTmuxCLI(arguments: Self.localTmuxStartArguments(
+            name: trimmedName,
+            workspaceID: AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace?.id,
+            cwd: cwd,
+            socketPath: socketPath
+        ))
+    }
+
+    nonisolated static func localTmuxStartArguments(
+        name: String,
+        workspaceID: UUID?,
+        cwd: String,
+        socketPath: String
+    ) -> [String] {
+        ["--socket", socketPath, "local-tmux", "start", name, "--cwd", cwd, "--json"]
     }
 
     func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
