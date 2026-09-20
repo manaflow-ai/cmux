@@ -16,20 +16,21 @@ struct CloudMachinesBetaSettingActionTests {
         defaults.set(false, forKey: keyName)
         let center = NotificationCenter()
         let changes = AsyncStream<Bool>.makeStream()
-        // UserDefaults is thread-safe; the notification callback only reads this isolated suite.
-        nonisolated(unsafe) let committedDefaults = defaults
         let observer = center.addObserver(
             forName: Notification.Name("rightSidebarBetaFeatureDidChange"),
             object: nil,
             queue: nil
         ) { _ in
-            changes.continuation.yield(committedDefaults.bool(forKey: keyName))
+            let committedValue = UserDefaults(suiteName: suite)?.bool(forKey: keyName) ?? false
+            changes.continuation.yield(committedValue)
         }
         defer {
             center.removeObserver(observer)
             changes.continuation.finish()
         }
-        let store = UserDefaultsSettingsStore(defaults: defaults)
+        // Give the store actor its own non-Sendable UserDefaults handle.
+        let storeDefaults = try #require(UserDefaults(suiteName: suite))
+        let store = UserDefaultsSettingsStore(defaults: storeDefaults)
         let model = DefaultsValueModel(store: store, key: key)
         let action = CloudMachinesBetaSettingAction(model: model, notificationCenter: center)
 
