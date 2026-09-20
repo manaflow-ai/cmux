@@ -23,6 +23,11 @@
       "message": "Cloud VM wymagają planu cmux Pro.",
       "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
     },
+    "displayName": {
+      "title": "Nieprawidłowa nazwa maszyny",
+      "message": "Nazwa maszyny musi być tekstem drukowalnym o długości co najwyżej {maxLength} znaków.",
+      "action": "Użyj krótszej nazwy bez znaków sterujących lub pozostaw pole puste, aby ją wyczyścić."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maszyny z {memory} GiB wymagają cmux {plan}. Twój plan obsługuje do {max} GiB.",

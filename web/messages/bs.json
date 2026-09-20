@@ -23,6 +23,11 @@
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
     },
+    "displayName": {
+      "title": "Nevažeći naziv mašine",
+      "message": "Naziv mašine mora biti ispisiv tekst od najviše {maxLength} znakova.",
+      "action": "Koristite kraći naziv bez kontrolnih znakova ili ga ostavite praznim da biste ga obrisali."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Mašine sa {memory} GiB zahtijevaju cmux {plan}. Vaš paket podržava do {max} GiB.",

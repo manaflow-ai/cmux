@@ -172,6 +172,11 @@
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
     },
+    "displayName": {
+      "title": "マシン名が無効です",
+      "message": "マシン名は {maxLength} 文字以内の表示可能なテキストにしてください。",
+      "action": "制御文字を含まない短い名前を使うか、空にして名前をクリアしてください。"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",

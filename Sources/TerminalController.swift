@@ -25,9 +25,7 @@ import CmuxSidebar
 import CmuxWorkspaces
 import CmuxNotifications
 import CmuxSimulator
-
 private let mobileReconnectDebugLog = Logger(subsystem: "dev.cmux", category: "mobile-reconnect-debug")
-
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
@@ -64,7 +62,6 @@ private struct RemotePTYSocketTarget {
     let workspaceRef: Any
     let workspaceTitle: String
 }
-
 nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
     let nsError = error as NSError
     guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
@@ -73,11 +70,9 @@ nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) ->
     return error.localizedDescription
         .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ error: Error) -> String {
     v2RemotePTYUserFacingErrorMessage(error.localizedDescription)
 }
-
 nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) -> String {
     let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { return "remote PTY operation failed" }
@@ -112,7 +107,6 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
     }
     return "remote PTY operation failed"
 }
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -239,7 +233,6 @@ class TerminalController {
         subsystem: "com.cmux.socket",
         category: .dynamicTracing
     )
-
     /// True while a tool (e.g. Instruments' os_signpost instrument) is
     /// recording the main-hop signposts. The single predicate consulted by
     /// both `withSocketCommandPolicy` (command-key stack bookkeeping) and
@@ -276,25 +269,21 @@ class TerminalController {
             defaultValue: "The terminal session has ended; reopen it or create a new terminal session."
         )
     }
-
     nonisolated static var terminalInputQueueFullMessage: String {
         String(
             localized: "socket.terminal.inputQueueFull",
             defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."
         )
     }
-
     nonisolated static var terminalSurfaceUnavailableMessage: String {
         String(
             localized: "socket.terminal.surfaceUnavailable",
             defaultValue: "The terminal surface is no longer available; reopen it or create a new terminal session."
         )
     }
-
     private nonisolated static var terminalProcessExitedSocketError: String {
         "ERROR: \(terminalProcessExitedMessage)"
     }
-
     private nonisolated static var terminalInputQueueFullSocketError: String {
         "ERROR: \(terminalInputQueueFullMessage)"
     }
@@ -2078,6 +2067,8 @@ class TerminalController {
                 )
                 return
             }
+            // Recheck after admission so a policy refresh cannot cross into execution.
+            guard socketAuthorizationIsCurrent(authorizationGeneration, passwordAuthorization: &passwordAuthorization) else { _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8)); return }
             // Only a process in cmux's own descendant tree may attach the
             // internal automation envelope. Same-UID clients are authorized
             // for ordinary automation RPCs, but cannot forge a rule chain.
