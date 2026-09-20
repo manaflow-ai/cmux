@@ -139,8 +139,6 @@ export class V2DashboardController {
         }
         if (frame.schemaId === "dashboard.connected.v1") {
           connected = true;
-          this.reconnectAttempts = 0;
-          this.reconnectDelayMs = 1_000;
           clearTimeout(timeout);
           resolve();
           void this.requestDirectory().catch(cause => this.fail(cause));
@@ -193,6 +191,10 @@ export class V2DashboardController {
     if (frame.directory.nextCursor) {
       await this.requestDirectory(frame.directory.nextCursor, seenCursors, snapshot);
     } else {
+      // A complete directory proves the connection is healthy. Handshake-only
+      // sockets keep the retry budget so they cannot loop forever without data.
+      this.reconnectAttempts = 0;
+      this.reconnectDelayMs = 1_000;
       this.options.onDirectory({ ...frame.directory, devices: snapshot.devices, managedDeviceIds: snapshot.managedDeviceIds, nextCursor: null });
     }
   }
