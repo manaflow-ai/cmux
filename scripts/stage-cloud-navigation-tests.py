@@ -50,6 +50,8 @@ def main():
                  "SurfaceResourceGroup+CloudNavigation"]:
         stage(f"Sources/Cloud/{name}.swift")
     for kind, name in [("enum", "SurfaceMachineID"), ("enum", "SurfaceResourceKind"),
+                       ("enum", "SurfaceLifecycle"), ("struct", "SurfaceAgentBadge"),
+                       ("struct", "CloudCreationAttachment"), ("struct", "SurfaceResource"),
                        ("struct", "SurfaceResourceID"), ("struct", "SurfaceRemoteWorkspace"),
                        ("struct", "SurfaceRemoteView"), ("struct", "SurfaceProjection"),
                        ("enum", "SurfaceSplitDirection"), ("enum", "SurfaceCatalogError")]:

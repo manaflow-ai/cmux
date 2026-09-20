@@ -68,7 +68,7 @@ final class CloudTerminalNavigationFixture: CloudTerminalNavigationCatalog, Clou
         )
     }
 
-    func start(key: String, _ operation: @escaping @MainActor () async throws -> Void) -> Bool {
+    func start(key: String, _ operation: @escaping CloudTerminalNavigationScheduling.Operation) -> Bool {
         guard available else { return false }
         tasks.append(Task { @MainActor in
             do { try await operation() }
