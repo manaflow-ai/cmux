@@ -260,7 +260,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             let pending = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
             let other = app.manager.addWorkspace(initialSurface: .cloudVMLoading, select: false, autoWelcomeIfNeeded: false)
             let pane = try #require(pending.bonsplitController.allPaneIds.first)
-            let command = try #require(pending.newTerminalPanel(inPane: pane, focus: false, initialCommand: "echo first-command"))
+            let command = try #require(pending.newTerminalSurface(inPane: pane, focus: false, initialCommand: "echo first-command", autoRefreshMetadata: false))
             catalog.bindCloudWorkspace(localWorkspaceID: pending.id, machine: provider.machine, remoteWorkspaceID: nil)
             let entered = CloudLinkFirstValue<Bool>(), release = CloudLinkFirstValue<Bool>()
             provider.beforeMaterialization = { entered.resolve(true); _ = await release.result }
