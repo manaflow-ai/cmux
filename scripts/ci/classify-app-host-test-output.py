@@ -18,6 +18,15 @@ SWIFT_SUMMARY_RE = re.compile(
     r"(?P<result>passed|failed) after "
 )
 
+# These runner records invalidate completeness of the selected test run. A
+# restarted host's passing subset is not evidence that the interrupted tests
+# passed. Match runner records, not arbitrary application timeout log messages.
+_INCOMPLETE_TEST_RUN_RE = re.compile(
+    r"^\s*(?:\d{4}-\d{2}-\d{2}T\S+\s+)?(?:"
+    r"Restarting after unexpected exit, crash, or test timeout\b|"
+    r"✘ Test .* recorded an issue.*Time limit was exceeded:)"
+)
+
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _COMPILE_ERROR_RE = re.compile(
     r"(?:\berror:\s+|Build input files cannot be found|"
@@ -130,7 +139,14 @@ def diagnose(output: str, exit_code: Optional[int] = None) -> Dict[str, object]:
 
 
 def classify(output: str) -> tuple[bool, str]:
-    """Apply the existing expected-XCTest-failure gate to app-host output."""
+    """Reject interrupted runs before applying the expected-XCTest-failure gate."""
+    for line in io.StringIO(output):
+        if _INCOMPLETE_TEST_RUN_RE.search(_ANSI_RE.sub("", line)):
+            return False, (
+                "incomplete app-host test run: " + _clean_line(line)
+                + "; a later passing subset does not establish completion"
+            )
+
     summaries = list(SUMMARY_RE.finditer(output))
     if not summaries:
         diagnosis = diagnose(output)

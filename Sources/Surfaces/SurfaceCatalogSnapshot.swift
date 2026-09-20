@@ -6,6 +6,8 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
     /// Workspaces admitted for deletion but not yet confirmed by the daemon,
     /// per machine. Nil when nothing is pending, so socket readers on older
     /// builds keep decoding the same document.
+    /// Pending native workspace identities, keyed by machine and daemon workspace.
+    var pendingWorkspaceCreations: [SurfaceMachineID: [String: UUID]]? = nil
     var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>]? = nil
     var machines: [SurfaceMachineInfo]
     var resources: [SurfaceResource]
@@ -30,11 +32,12 @@ struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
 
 extension SurfaceCatalogSnapshot {
     private enum CodingKeys: String, CodingKey {
-        case pendingWorkspaceDeletions, machines, resources, projections, staleMachineIDs
+        case pendingWorkspaceCreations, pendingWorkspaceDeletions, machines, resources, projections, staleMachineIDs
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        pendingWorkspaceCreations = try values.decodeIfPresent([SurfaceMachineID: [String: UUID]].self, forKey: .pendingWorkspaceCreations)
         pendingWorkspaceDeletions = try values.decodeIfPresent([SurfaceMachineID: Set<String>].self, forKey: .pendingWorkspaceDeletions)
         machines = try values.decode([SurfaceMachineInfo].self, forKey: .machines)
         resources = try values.decode([SurfaceResource].self, forKey: .resources)

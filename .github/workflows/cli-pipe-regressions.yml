@@ -18,9 +18,6 @@ on:
 permissions:
   contents: read
 
-env:
-  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
-
 concurrency:
   group: cli-pipes-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
