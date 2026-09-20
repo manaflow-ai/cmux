@@ -30,15 +30,48 @@ function validate(tag) {
   ]);
 }
 
-function resolveDevAPIBaseURL(fallback, override = "") {
+function resolveDevAPIBaseURL(fallback, override = "", backendOverride = "") {
   return run("bash", [
     "-c",
-    'source "$1"; CMUX_DEV_API_BASE_URL="$3" cmux_attach_resolve_dev_api_base_url "$2"',
+    'source "$1"; CMUX_DEV_API_BASE_URL="$3" CMUX_DEV_BACKEND_URL="$4" cmux_attach_resolve_dev_api_base_url "$2"',
     "mobile-attach-test",
     validator,
     fallback,
     override,
+    backendOverride,
   ]);
+}
+
+function validateReloadBackendOrigin(origin, required) {
+  const source = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+  const validator = extractShellFunction(source, "cmux_reload_validate_backend_origin");
+  return run(
+    "bash",
+    [
+      "-c",
+      validator + '\ncmux_reload_validate_backend_origin "$1" "$2"',
+      "reload-backend-origin-test",
+      origin,
+      required,
+    ],
+  );
+}
+
+function resolveReloadBackendRequired(cloud, override = "") {
+  const source = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+  const resolver = extractShellFunction(source, "cmux_reload_backend_required");
+  return run(
+    "bash",
+    [
+      "-c",
+      resolver + '\ncmux_reload_backend_required',
+      "reload-backend-required-test",
+    ],
+    {
+      CMUX_RELOAD_CLOUD: cloud,
+      CMUX_DEV_BACKEND_REQUIRED: override,
+    },
+  );
 }
 
 function removeStaleSocket(socketPath) {
@@ -458,6 +491,53 @@ test("shared dev API origin accepts an explicit trusted backend", () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "https://cmux-staging.vercel.app");
+});
+
+test("shared dev API origin accepts the hq backend alias", () => {
+  const result = resolveDevAPIBaseURL(
+    "http://localhost:4123",
+    "",
+    "https://cmux-dev-backend-1.tail137216.ts.net:4405/",
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "https://cmux-dev-backend-1.tail137216.ts.net:4405/");
+});
+
+test("explicit API origin wins over the hq backend alias", () => {
+  const result = resolveDevAPIBaseURL(
+    "http://localhost:4123",
+    "https://api.example.test/",
+    "https://backend.example.test/",
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "https://api.example.test/");
+});
+
+test("internal reloads accept only a direct HTTPS backend origin", () => {
+  const direct = validateReloadBackendOrigin(
+    "https://cmux-dev-backend-1.tail137216.ts.net:4405/",
+    "1",
+  );
+  assert.equal(direct.status, 0, direct.stderr);
+
+  const localhost = validateReloadBackendOrigin("http://localhost:4405", "1");
+  assert.notEqual(localhost.status, 0);
+
+  const noPort = validateReloadBackendOrigin("https://backend.example.test", "1");
+  assert.notEqual(noPort.status, 0);
+
+  const externalLocal = validateReloadBackendOrigin("http://localhost:4405", "0");
+  assert.equal(externalLocal.status, 0, externalLocal.stderr);
+});
+
+test("cloud reload markers force the fail-closed backend policy", () => {
+  const cloud = resolveReloadBackendRequired("1", "0");
+  assert.equal(cloud.status, 0, cloud.stderr);
+  assert.equal(cloud.stdout, "1");
+
+  const local = resolveReloadBackendRequired("0", "0");
+  assert.equal(local.status, 0, local.stderr);
+  assert.equal(local.stdout, "0");
 });
 
 test("tagged stale-socket cleanup removes only the exact Unix socket", async () => {

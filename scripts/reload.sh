@@ -22,6 +22,7 @@ CMUX_DEV_PORT_END=""
 CMUX_DEV_PORT_RANGE=""
 CMUX_DEV_ORIGIN=""
 CMUX_DEV_API_BASE_URL_VALUE=""
+CMUX_DEV_BACKEND_REQUIRED=""
 CMUX_IROH_BROKER_BASE_URL_VALUE=""
 CMUX_IROH_V2_ENVIRONMENT_VALUE=""
 CMUX_IROH_V2_BASE_URL_VALUE=""
@@ -886,6 +887,15 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/reload.sh --tag <name> [options]
 
+Remote backend:
+  CMUX_DEV_API_BASE_URL or CMUX_DEV_BACKEND_URL
+                         Explicitly select a remote web/API origin. Set
+                         CMUX_DEV_BACKEND_REQUIRED=1 to fail closed unless the
+                         origin is HTTPS with a port. CMUX_RELOAD_CLOUD=1
+                         enables that fail-closed mode automatically.
+                         Standalone contributors leave these unset and use the
+                         tagged localhost server.
+
 Options:
   --tag <name>           Required. Short tag for parallel builds (e.g., feature-xyz-lol).
                          Sets app name, bundle id, and derived data path unless overridden.
@@ -980,6 +990,34 @@ choose_cmux_dev_port_end() {
     end="$start_num"
   fi
   echo "$end"
+}
+
+cmux_reload_validate_backend_origin() {
+  local origin="$1"
+  local required="$2"
+  case "$required" in
+    0|1) ;;
+    *)
+      echo "error: CMUX_DEV_BACKEND_REQUIRED must be 0 or 1" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$required" == "1" \
+    && ! "$origin" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*:[0-9]{1,5}/?$ ]]; then
+    echo "error: required remote dev backend must use an HTTPS URL with a port; got '$origin'" >&2
+    echo "error: provision the GCP backend with cmuxterm-hq/scripts/reload-cloud.sh or set CMUX_DEV_API_BASE_URL explicitly" >&2
+    return 1
+  fi
+}
+
+cmux_reload_backend_required() {
+  if [[ "${CMUX_RELOAD_CLOUD:-0}" == "1" ]]; then
+    # A cloud/fleet build must never silently bake localhost into its bundle.
+    # The hq wrapper supplies the validated GCP URL; direct callers fail closed.
+    printf '1'
+  else
+    printf '%s' "${CMUX_DEV_BACKEND_REQUIRED:-0}"
+  fi
 }
 
 set_plist_env() {
@@ -1275,16 +1313,30 @@ CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
+CMUX_DEV_BACKEND_REQUIRED="$(cmux_reload_backend_required)"
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
+cmux_reload_validate_backend_origin \
+  "$CMUX_DEV_API_BASE_URL_VALUE" "$CMUX_DEV_BACKEND_REQUIRED" || exit 1
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}"
 CMUX_IROH_V2_ENVIRONMENT_VALUE="${CMUX_IROH_V2_ENVIRONMENT:-development}"
 CMUX_IROH_V2_BASE_URL_VALUE="${CMUX_IROH_V2_BASE_URL:-https://cmux-iroh-v2-development.debussy.workers.dev}"
 CMUX_IROH_V2_FORCE_RELAY_VALUE="${CMUX_IROH_V2_FORCE_RELAY:-0}"
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
+if [[ "$CMUX_DEV_BACKEND_REQUIRED" == "1" ]]; then
+  # A direct GCP backend serves the web/API and auth routes together. Bake the
+  # same origin into the bundle so every launch path, including Tag Opener,
+  # remains on the remote stack instead of inheriting localhost.
+  CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_API_BASE_URL_VALUE"
+  CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_API_BASE_URL_VALUE"
+fi
 if [[ "$PROD_AUTH" -eq 1 ]]; then
   if [[ -n "${CMUX_DEV_API_BASE_URL:-}" && "$CMUX_DEV_API_BASE_URL" != "https://cmux.com" ]]; then
     echo "error: --prod-auth cannot use API origin '$CMUX_DEV_API_BASE_URL'; production builds must use https://cmux.com" >&2
+    exit 1
+  fi
+  if [[ -n "${CMUX_DEV_BACKEND_URL:-}" && "$CMUX_DEV_BACKEND_URL" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use backend origin '$CMUX_DEV_BACKEND_URL'; production builds must use https://cmux.com" >&2
     exit 1
   fi
   if [[ -n "${CMUX_IROH_BROKER_BASE_URL:-}" && "$CMUX_IROH_BROKER_BASE_URL" != "https://cmux.com" ]]; then
