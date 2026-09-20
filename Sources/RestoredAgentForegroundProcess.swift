@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Foreground-process evidence that a restored or hook-published agent is
