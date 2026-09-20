@@ -7,6 +7,10 @@ on:
       - .github/workflows/ci.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/verify-r2-canary.py
+      - scripts/ci/r2-canary-cloudflare.py
+      - tests/test_ci_r2_canary.py
+      - .github/workflows/ci-artifact-canary.yml
       - tests/test_ci_r2_artifact.py
   push:
     branches: [main]
@@ -14,6 +18,10 @@ on:
       - .github/workflows/ci-artifact-transport.yml
       - workers/ci-artifacts/**
       - scripts/ci/restore-r2-artifact.py
+      - scripts/ci/verify-r2-canary.py
+      - scripts/ci/r2-canary-cloudflare.py
+      - tests/test_ci_r2_canary.py
+      - .github/workflows/ci-artifact-canary.yml
       - tests/test_ci_r2_artifact.py
 
 permissions:
@@ -25,7 +33,7 @@ concurrency:
 
 jobs:
   transport:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -35,7 +43,9 @@ jobs:
         with:
           node-version: '24'
       - name: Test transport and fallback
-        run: python3 tests/test_ci_r2_artifact.py
+        run: |
+          python3 tests/test_ci_r2_artifact.py
+          python3 tests/test_ci_r2_canary.py
       - name: Install local Worker test tools
         working-directory: workers/ci-artifacts
         run: npm ci --ignore-scripts --no-audit --no-fund

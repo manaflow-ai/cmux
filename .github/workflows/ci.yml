@@ -365,6 +365,12 @@ jobs:
       - name: Validate package test selection
         run: python3 tests/test_ci_select_package_tests.py
 
+      - name: Validate Ghostty helper cache failure handling
+        run: bash tests/test_ghostty_cli_helper_cache.sh
+
+      - name: Validate stale run cleanup eligibility
+        run: python3 tests/test_cleanup_stale_runs.py
+
       - name: Validate the trusted web complexity workflow
         run: python3 tests/test_web_complexity_trusted_workflow.py
 
@@ -437,6 +443,11 @@ jobs:
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
+      - name: Validate local build cache preflight
+        run: |
+          python3 tests/test_local_build_cache_preflight.py
+          python3 tests/test_local_build_cache_policy.py
+
       - name: Validate Xcode compilation cache pruning
         run: python3 tests/test_ci_prune_xcode_compilation_cache.py
 
@@ -486,6 +497,9 @@ jobs:
 
       - name: Validate Ghostty Zig version synchronization
         run: ./tests/test_ghostty_zig_version_sync.sh
+
+      - name: Validate bundled-resource incremental outputs
+        run: ./tests/test_build_app_bundled_resources.sh
 
       - name: Validate virtual display lock
         run: ./tests/test_ci_virtual_display_lock.sh
@@ -1051,11 +1065,10 @@ jobs:
 
       - name: Download compiled app-host test product
         if: steps.r2-products.outputs.hit != 'true'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: ./.github/actions/download-test-product
         with:
-          artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+          artifact-id: ${{ needs.macos-compile-admission.outputs.artifact_id }}
           path: ${{ runner.temp }}/app-host-products
-          merge-multiple: true
 
       - name: Restore compiled app-host test product
         env:

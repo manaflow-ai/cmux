@@ -261,6 +261,7 @@ extension CMUXCLI {
         list-workspaces [--window <id|ref|index>]
         list-panes [--workspace <id|ref|index>] [--window <id|ref|index>]
         list-pane-surfaces [--workspace <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>]
+        current [--limit <1...200>] [--json]
         tree [--all] [--workspace <id|ref|index>] [--window <id|ref|index>]
         top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
         memory [--all] [--workspace <id|ref|index>] [--groups <count>]

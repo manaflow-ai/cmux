@@ -537404,7 +537404,1541 @@
         }
       }
     }
-  }
+  },
+    "commandPalette.currentWork.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Work"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeit finden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouver du travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث عن العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找工作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找工作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 찾기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業を探す"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current local and Cloud work"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelle lokale und Cloud-Arbeit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Travail actuel en local et dans le Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "العمل الحالي محليًا وفي السحابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trabajo actual local y en la nube"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前的本機與雲端工作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前的本地和云端工作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 로컬 및 클라우드 작업"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のローカルとクラウドの作業"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.search": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find current work"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuelle Arbeit finden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouver le travail en cours"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث عن العمل الحالي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar trabajo actual"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尋找目前的工作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找当前工作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 작업 찾기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の作業を探す"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No work in this snapshot matches your search."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Arbeit in dieser Momentaufnahme entspricht deiner Suche."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun travail dans cet instantané ne correspond à votre recherche."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد عمل في هذه اللقطة يطابق بحثك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ningún trabajo de esta instantánea coincide con tu búsqueda."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此快照中沒有符合搜尋條件的工作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此快照中没有与搜索条件匹配的工作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 스냅샷에 검색과 일치하는 작업이 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスナップショットに検索に一致する作業はありません。"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.local": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur cet appareil"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محلي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En este equipo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.cloud": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans le cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السحابة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nube"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "雲端"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "云端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウド"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attention"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufmerksamkeit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À vérifier"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتباه"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atención"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需留意"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需关注"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 필요"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要確認"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.notCurrent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "May be out of date"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Möglicherweise veraltet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peut être obsolète"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد يكون غير محدّث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puede estar desactualizado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能已過時"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能已过时"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신 정보가 아닐 수 있음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新でない可能性があります"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.notOpen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No open local view · read only"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine lokale Ansicht geöffnet · nur lesbar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune vue locale ouverte · lecture seule"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد عرض محلي مفتوح · للقراءة فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin vista local abierta · solo lectura"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有開啟的本機檢視 · 唯讀"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有打开的本地视图 · 只读"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 로컬 보기 없음 · 읽기 전용"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているローカルビューなし · 読み取り専用"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing %lld of %lld items"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld von %lld Einträgen werden angezeigt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichage de %lld éléments sur %lld"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض %lld من أصل %lld عنصرًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrando %lld de %lld elementos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示 %lld 個項目，共 %lld 個"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示 %lld 个项目，共 %lld 个"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개 항목 표시, 전체 %lld개"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld件を表示（全%lld件）"
+          }
+        }
+      }
+    },
+    "commandPalette.currentWork.bounded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional work is outside this snapshot."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weitere Arbeit liegt außerhalb dieser Momentaufnahme."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "D’autres travaux ne figurent pas dans cet instantané."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توجد أعمال إضافية خارج هذه اللقطة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay más trabajo fuera de esta instantánea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此快照未包含其他工作。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此快照未包含其他工作。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 스냅샷에 포함되지 않은 작업이 더 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このスナップショットに含まれていない作業があります。"
+          }
+        }
+      }
+    },
+    "cli.current.error.duplicateLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit may only be supplied once"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit darf nur einmal angegeben werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current : --limit ne peut être indiqué qu’une fois"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: يمكن تحديد --limit مرة واحدة فقط"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit solo se puede indicar una vez"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：--limit 只能指定一次"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：--limit 只能指定一次"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit는 한 번만 지정할 수 있습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit は一度だけ指定できます"
+          }
+        }
+      }
+    },
+    "cli.current.error.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit requires an integer from 1 to 200"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit erfordert eine ganze Zahl von 1 bis 200"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current : --limit exige un entier de 1 à 200"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: يتطلب --limit عددًا صحيحًا من 1 إلى 200"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit requiere un entero del 1 al 200"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：--limit 需要 1 到 200 之間的整數"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：--limit 需要 1 到 200 之间的整数"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit에는 1~200의 정수가 필요합니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: --limit には 1〜200 の整数が必要です"
+          }
+        }
+      }
+    },
+    "cli.current.error.argument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: unexpected argument '%@'. Known flags: --limit <1...200> --json"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: Unerwartetes Argument '%@'. Gültige Optionen: --limit <1...200> --json"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current : argument inattendu '%@'. Options reconnues : --limit <1...200> --json"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: وسيطة غير متوقعة '%@'. الخيارات المعروفة: --limit <1...200> --json"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: argumento inesperado '%@'. Opciones admitidas: --limit <1...200> --json"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：未預期的引數 '%@'。支援的旗標：--limit <1...200> --json"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：意外的参数 '%@'。支持的选项：--limit <1...200> --json"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: 예상하지 못한 인수 '%@'. 지원 플래그: --limit <1...200> --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: 予期しない引数 '%@'。使用可能なフラグ: --limit <1...200> --json"
+          }
+        }
+      }
+    },
+    "cli.current.error.response": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: invalid response (missing items)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: Ungültige Antwort (items fehlt)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current : réponse non valide (items manquant)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: استجابة غير صالحة (items مفقود)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: respuesta no válida (falta items)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：無效的回應（缺少 items）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current：无效的响应（缺少 items）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: 잘못된 응답(items 누락)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "current: 無効な応答（items がありません）"
+          }
+        }
+      }
+    },
+    "cli.current.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No current work observed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine aktuelle Arbeit erfasst"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun travail en cours observé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرصد عمل حالي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha observado trabajo actual"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未觀察到目前工作"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未观察到当前工作"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 작업이 관찰되지 않았습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の作業は確認されていません"
+          }
+        }
+      }
+    },
+    "cli.current.cwd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cwd: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsverzeichnis: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "répertoire courant : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد العمل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "directorio de trabajo: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作目錄：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作目录：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 디렉터리: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業ディレクトリ: %@"
+          }
+        }
+      }
+    },
+    "cli.current.freshness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "freshness: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualität: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fraîcheur : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حداثة البيانات: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "actualidad: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新鮮度：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新鲜度：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신성: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鮮度: %@"
+          }
+        }
+      }
+    },
+    "cli.current.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "attention: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufmerksamkeit: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "attention : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتباه: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "atención: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需注意：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需注意：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주의: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意: %@"
+          }
+        }
+      }
+    },
+    "cli.current.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Status: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "état de l’agent : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوكيل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agente: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント: %@"
+          }
+        }
+      }
+    },
+    "cli.current.pullRequest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull-Request: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "demande de fusion : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلب السحب: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solicitud de cambios: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提取要求：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉取请求：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풀 리퀘스트: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プルリクエスト: %@"
+          }
+        }
+      }
+    },
+    "cli.current.obligation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "possible human obligation: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mögliche menschliche Aufgabe: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "intervention humaine possible : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مهمة بشرية محتملة: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "posible tarea humana: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能需要人工處理：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能需要人工处理：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람의 처리가 필요할 수 있음: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人による対応の可能性: %@"
+          }
+        }
+      }
+    },
+    "cli.current.limited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit reached; more work was observed. Use --limit (maximum 200)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit erreicht; weitere Arbeit wurde erfasst. --limit verwenden (maximal 200)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite atteinte ; d’autres travaux ont été observés. Utilisez --limit (maximum 200)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم بلوغ الحد؛ رُصد عمل إضافي. استخدم --limit (الحد الأقصى 200)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se alcanzó el límite; se observó más trabajo. Usa --limit (máximo 200)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已達上限；還有其他已觀察到的工作。請使用 --limit（最多 200）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达上限；还有其他已观察到的工作。请使用 --limit（最多 200）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한도에 도달했습니다. 추가 작업이 관찰되었습니다. --limit를 사용하세요(최대 200)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上限に達しました。ほかにも作業が確認されています。--limit を使用してください（最大 200）。"
+          }
+        }
+      }
+    },
+    "cli.current.observed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed: %@; cached owner facts, no refresh"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfasst: %@; zwischengespeicherte Quelldaten, keine Aktualisierung"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observation : %@ ; données sources en cache, sans actualisation"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وقت الرصد: %@؛ بيانات المصدر مخزنة مؤقتًا دون تحديث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observado: %@; datos del propietario en caché, sin actualizar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "觀察時間：%@；使用擁有者的快取資料，不重新整理"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "观察时间：%@；使用所有者的缓存数据，不刷新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "관찰 시각: %@; 소유자의 캐시 데이터, 새로 고침 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認時刻: %@; 所有元のキャッシュ情報、更新なし"
+          }
+        }
+      }
+    },
+    "cli.current.owner": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Owner %@: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quelle %@: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source %@ : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المصدر %@: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propietario %@: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擁有者 %@：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者 %@：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소유자 %@: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有元 %@: %@"
+          }
+        }
+      }
+    },
+    "cli.current.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux current [--limit <1...200>] [--json]\n\nRead bounded current-work facts already known to cmux across local and Cloud surfaces.\nDoes not refresh machines, read transcripts, or mutate work.\n\nFlags:\n  --limit <1...200>  Maximum items (default: 100)\n  --json            Exact owner payload with identities, evidence and freshness\n\nText and JSON use the same snapshot. Unknown facts remain unknown; possible\nhuman obligations are observations, not permission to act. --window does not\nfocus or filter this app-wide query; --id-format does not rewrite its identities.\n\nExamples:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux current [--limit <1...200>] [--json]\n\nBegrenzte, bereits bekannte Arbeitsdaten lokaler und Cloud-Oberflächen lesen.\nAktualisiert keine Maschinen, liest keine Transkripte und verändert keine Arbeit.\n\nOptionen:\n  --limit <1...200>  Maximale Einträge (Standard: 100)\n  --json            Unveränderte Quelldaten mit Identitäten, Belegen und Aktualität\n\nText und JSON verwenden denselben Snapshot. Unbekannte Fakten bleiben unbekannt; mögliche\nmenschliche Aufgaben sind Beobachtungen, keine Handlungserlaubnis. --window fokussiert oder filtert\ndiese appweite Abfrage nicht; --id-format verändert ihre Identitäten nicht.\n\nBeispiele:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation: cmux current [--limit <1...200>] [--json]\n\nLire les données de travail déjà connues de cmux, dans une limite définie, sur les surfaces locales et Cloud.\nN’actualise pas les machines, ne lit pas les transcriptions et ne modifie aucun travail.\n\nOptions:\n  --limit <1...200>  Nombre maximal d’éléments (par défaut : 100)\n  --json            Données sources exactes avec identités, preuves et fraîcheur\n\nLe texte et le JSON utilisent le même instantané. Les faits inconnus le restent ; les éventuelles\ninterventions humaines sont des observations, pas des autorisations d’agir. --window ne focalise\nni ne filtre cette requête globale ; --id-format ne réécrit pas les identités.\n\nExemples:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux current [--limit <1...200>] [--json]\n\nقراءة معلومات العمل المحدودة المعروفة بالفعل لدى cmux عبر الأسطح المحلية والسحابية.\nلا يحدّث الأجهزة ولا يقرأ النصوص ولا يغيّر العمل.\n\nالخيارات:\n  --limit <1...200>  الحد الأقصى للعناصر (الافتراضي: 100)\n  --json            بيانات المصدر الأصلية مع الهويات والأدلة وحداثة المعلومات\n\nيستخدم النص وJSON اللقطة نفسها. تظل المعلومات غير المعروفة مجهولة؛ المهام البشرية المحتملة\nملاحظات وليست إذنًا بالتصرف. لا يركّز --window هذا الاستعلام الشامل للتطبيق\nولا يرشّحه؛ ولا يعيد --id-format كتابة هوياته.\n\nأمثلة:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux current [--limit <1...200>] [--json]\n\nLee datos limitados del trabajo que cmux ya conoce en superficies locales y Cloud.\nNo actualiza máquinas, no lee transcripciones ni modifica trabajo.\n\nOpciones:\n  --limit <1...200>  Máximo de elementos (predeterminado: 100)\n  --json            Datos originales con identidades, pruebas y actualidad\n\nEl texto y JSON usan la misma instantánea. Los datos desconocidos siguen siéndolo; las posibles\ntareas humanas son observaciones, no permisos para actuar. --window no enfoca ni filtra\nesta consulta global; --id-format no reescribe sus identidades.\n\nEjemplos:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux current [--limit <1...200>] [--json]\n\n讀取 cmux 已知的本機與 Cloud 表面目前工作資訊，並限制傳回數量。\n不重新整理機器、不讀取對話記錄，也不變更工作。\n\n旗標:\n  --limit <1...200>  項目上限（預設：100）\n  --json            原始擁有者資料，包含識別、證據與新鮮度\n\n文字與 JSON 使用相同快照。未知資訊保持未知；可能需要人工處理\n僅是觀察結果，不是操作授權。--window 不會聚焦或篩選此全應用程式查詢；\n--id-format 不會改寫識別。\n\n範例:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法: cmux current [--limit <1...200>] [--json]\n\n读取 cmux 已知的本地与 Cloud 表面当前工作信息，并限制返回数量。\n不刷新机器、不读取对话记录，也不更改工作。\n\n选项:\n  --limit <1...200>  项目上限（默认：100）\n  --json            原始所有者数据，包含标识、证据和新鲜度\n\n文本与 JSON 使用相同快照。未知信息保持未知；可能需要人工处理\n仅是观察结果，不是操作授权。--window 不会聚焦或筛选此全应用查询；\n--id-format 不会重写标识。\n\n示例:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux current [--limit <1...200>] [--json]\n\ncmux가 이미 알고 있는 로컬 및 Cloud 표면의 현재 작업 정보를 제한된 수로 읽습니다.\n머신을 새로 고치거나 대화 기록을 읽거나 작업을 변경하지 않습니다.\n\n플래그:\n  --limit <1...200>  최대 항목 수(기본값: 100)\n  --json            식별자, 근거, 최신성이 포함된 소유자의 원본 데이터\n\n텍스트와 JSON은 같은 스냅샷을 사용합니다. 알 수 없는 정보는 그대로 유지됩니다.\n사람의 처리가 필요할 수 있다는 관찰은 실행 권한이 아닙니다. --window는 앱 전체 쿼리에\n포커스를 주거나 필터링하지 않으며 --id-format은 식별자를 바꾸지 않습니다.\n\n예시:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux current [--limit <1...200>] [--json]\n\ncmux がすでに把握しているローカルおよび Cloud サーフェスの作業情報を、件数を制限して読み取ります。\nマシンの更新、会話記録の読み取り、作業の変更は行いません。\n\nフラグ:\n  --limit <1...200>  最大件数（既定: 100）\n  --json            識別情報、根拠、鮮度を含む所有元の元データ\n\nテキストと JSON は同じスナップショットを使用します。不明な情報は不明のままです。\n人による対応の可能性は観察結果であり、操作の許可ではありません。--window はアプリ全体の\nクエリにフォーカスや絞り込みを行わず、--id-format は識別情報を書き換えません。\n\n例:\n  cmux current\n  cmux current --json --limit 50"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

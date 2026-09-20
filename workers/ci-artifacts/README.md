@@ -50,9 +50,13 @@ No deployment or live credentials are provided by this change.
 2. Provide `GITHUB_ARTIFACT_TOKEN` as a Worker secret: Actions-read access scoped
    to this repository. Set its rotation/expiry ownership and request/rate limits
    on the broker route before enabling CI traffic.
-3. Run `npm ci`, `npm run check`, then deploy the reviewed Worker normally.
+3. The generic configuration has no public routes, `workers_dev=false`, and
+   preview URLs disabled. Do not expose it without a reviewed authenticated
+   admission policy; otherwise anonymous misses can consume GitHub API quota.
+   Run `npm ci`, `npm run check`, then deploy the reviewed Worker normally.
    Wrangler declares the R2 binding and per-artifact Durable Object migration.
-4. Set the repository variable `CI_ARTIFACT_R2_URL` to the HTTPS Worker origin
+4. Only after that production access policy and client integration are reviewed,
+   set the repository variable `CI_ARTIFACT_R2_URL` to the HTTPS Worker origin
    with no path, credentials, query string or fragment. Remove the variable to
    revert every consumer to the existing GitHub action.
 
@@ -76,3 +80,29 @@ artifact ID, byte count and cache outcome, not signed URLs or credentials.
 References: [R2 streaming writes and checksums](https://developers.cloudflare.com/r2/api/workers/workers-api-reference/),
 [GitHub artifact identity and downloads](https://docs.github.com/en/rest/actions/artifacts),
 [Durable Objects](https://developers.cloudflare.com/durable-objects/api/base/).
+
+## Isolated deployment canary
+
+The main-only manual `CI artifact transport canary` workflow uses a separately
+named Worker, Durable Object namespace and private R2 bucket for each run/attempt. It permits only
+artifact `10610975375` and its exact provider digest, requires a random per-run
+secret header, and fails closed after a twenty-minute lease or artifact expiry.
+The generic broker stays unreachable, and `CI_ARTIFACT_R2_URL` is never changed.
+
+The workflow uses the existing repository Cloudflare account/token. It may create
+only `cmux-ci-artifacts-canary-<run-id>-<attempt>` after authenticated lookups
+confirm that run's Worker and bucket are absent;
+permission failures do not trigger fallback to another account or public bucket.
+It verifies public access is disabled and adds a one-day lifecycle for this one
+artifact prefix, preserving unrelated rules. Its server GitHub credential is
+that job's Actions-read token, never a personal token. Both server secrets are
+removed during cleanup along with the run's Worker and exact R2 copy;
+a bucket created by that run is deleted only if empty.
+
+One cold fill and one warm read run on the configured Linux CI runner, with
+streamed local SHA-256 verification and separate network/total/hash timings.
+Cold failure stops the trial; there is no retry loop or paid Mac dependency.
+These timings exclude ZIP extraction and cannot be presented as a like-for-like
+comparison to the existing complete GitHub download action. The allowlisted
+artifact expires on 2026-09-23; an expired artifact requires another reviewed
+allowlist change rather than an arbitrary dispatch input.

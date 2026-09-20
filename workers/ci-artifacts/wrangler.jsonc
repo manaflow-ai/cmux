@@ -6,7 +6,7 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "workers_dev": true,
+  "workers_dev": false,
   "preview_urls": false,
   "r2_buckets": [
     {
@@ -41,5 +41,6 @@
   },
   "vars": {
     "IMPORT_TIMEOUT_MS": "150000"
-  }
+  },
+  "routes": []
 }

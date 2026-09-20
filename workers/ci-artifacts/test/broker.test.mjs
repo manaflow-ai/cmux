@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { setTimeout } from "node:timers/promises";
 import test from "node:test";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
@@ -9,11 +10,63 @@ const digest = createHash("sha256").update(bytes).digest("hex");
 const path = `/v1/manaflow-ai/cmux/artifacts/123/${digest}.zip`;
 const key = `github/manaflow-ai/cmux/123/${digest}.zip`;
 
+// Faults live outside the production Worker. The wrapper delegates to the real
+// R2 binding after a service-controlled gate, including the actual streaming put.
+const faultWrapper = `
+import broker, { ArtifactImport as ProductionImport } from "./index.js";
+export class ArtifactImport extends ProductionImport {
+  constructor(ctx, env) {
+    const bucket = {};
+    for (const method of ["head", "get", "put"]) {
+      bucket[method] = async (...args) => {
+        await env.R2_FAULT.fetch("http://fault/" + method + "/start");
+        try { return await env.ARTIFACTS[method](...args); }
+        finally { await env.R2_FAULT.fetch("http://fault/" + method + "/settled"); }
+      };
+    }
+    super(ctx, { ...env, ARTIFACTS: bucket });
+  }
+}
+export default broker;
+`;
+
+function r2Gate(method) {
+  let release, entered;
+  const pending = new Promise((resolve) => { release = resolve; });
+  const started = new Promise((resolve) => { entered = resolve; });
+  const state = { calls: 0, active: 0, settled: 0, maxActive: 0 };
+  return {
+    state, release, started,
+    async fetch(request) {
+      const [actual, phase] = new URL(request.url).pathname.slice(1).split("/");
+      if (actual === method) {
+        if (phase === "start") {
+          state.calls++;
+          state.active++;
+          state.maxActive = Math.max(state.maxActive, state.active);
+          entered();
+          await pending;
+        } else {
+          state.active--;
+          state.settled++;
+        }
+      }
+      return new Response("ok");
+    },
+  };
+}
+
 async function fixture(t, options = {}) {
   const state = { downloads: 0, api: 0, private: false, failed: false, corrupt: false, ...options };
+  const bundled = new URL("../.test-dist/index.js", import.meta.url);
   const mf = new Miniflare(convertV4MiniflareOptions({
-    modules: true,
-    scriptPath: new URL("../.test-dist/index.js", import.meta.url).pathname,
+    ...(options.r2Gate ? {
+      modules: [
+        { type: "ESModule", path: new URL("../.test-dist/fault-wrapper.js", import.meta.url).pathname, contents: faultWrapper },
+        { type: "ESModule", path: bundled.pathname, contents: readFileSync(bundled, "utf8") },
+      ],
+      serviceBindings: { R2_FAULT: options.r2Gate.fetch },
+    } : { modules: true, scriptPath: bundled.pathname }),
     compatibilityDate: "2026-09-20", compatibilityFlags: ["nodejs_compat"],
     bindings: { GITHUB_ARTIFACT_TOKEN: "server-only-token", IMPORT_TIMEOUT_MS: String(options.timeoutMs || 150_000) },
     r2Buckets: ["ARTIFACTS"],
@@ -114,3 +167,59 @@ test("concurrent cold misses time out together instead of holding consumers inde
   assert.equal(state.downloads, 1);
   assert.equal(await (await mf.getR2Bucket("ARTIFACTS")).head(key), null);
 });
+
+
+for (const method of ["head", "put", "get"]) {
+  test(`stalled R2 ${method} bounds consumers and permits retry only after late I/O settles`, { timeout: 20_000 }, async (t) => {
+    const gate = r2Gate(method);
+    // Release before fixture disposal, even if an assertion fails.
+    t.after(gate.release);
+    const { mf, state } = await fixture(t, { timeoutMs: 250, delayMs: 0, r2Gate: gate });
+    await mf.ready; // Runtime startup is outside the HTTP deadline.
+    const started = Date.now();
+    const request = () => mf.dispatchFetch(`https://broker.example${path}`);
+    const first = request();
+    await gate.started;
+    const budget = method === "get" ? 12_000 : 2_000;
+    let deadline;
+    const response = await Promise.race([
+      first,
+      new Promise((_, reject) => {
+        deadline = globalThis.setTimeout(() => reject(new Error("stalled binding held HTTP consumer")), budget);
+      }),
+    ]).finally(() => clearTimeout(deadline));
+    assert.equal(response.status, 502);
+    // head/put waiters use the import deadline; get has its own 10s R2 deadline.
+    assert.ok(Date.now() - started < (method === "get" ? 12_000 : 2_000), "stalled binding must release HTTP consumers");
+    assert.equal(gate.state.active, 1, "caller deadline must not pretend binding I/O settled");
+    assert.equal(gate.state.settled, 0);
+
+    if (method !== "get") {
+      const followers = await Promise.all(Array.from({ length: 3 }, request));
+      assert.ok(followers.every((item) => item.status === 502));
+      assert.equal(gate.state.calls, 1, "timed-out consumers must not start overlapping imports");
+      assert.equal(gate.state.maxActive, 1);
+      assert.equal(state.downloads, method === "put" ? 1 : 0);
+      assert.equal(await (await mf.getR2Bucket("ARTIFACTS")).head(key), null);
+    } else {
+      assert.equal(state.downloads, 1, "get stalls must not restart the completed transfer");
+    }
+
+    gate.release();
+    // Settlement crosses the service boundary before import cleanup's final
+    // microtask. Retry until that cleanup finishes, with a separate test bound.
+    const retryDeadline = Date.now() + 2_000;
+    let retry;
+    do {
+      retry = await request();
+      if (retry.status === 200) break;
+      await setTimeout(10);
+    } while (Date.now() < retryDeadline);
+    assert.equal(retry.status, 200, "late binding completion must eventually allow a fresh request");
+    assert.deepEqual(Buffer.from(await retry.arrayBuffer()), bytes);
+    assert.ok(gate.state.settled >= 1);
+    assert.equal(gate.state.active, 0);
+    if (method !== "get") assert.equal(gate.state.maxActive, 1, "retry must not overlap the orphaned transfer");
+    assert.equal(state.downloads, method === "put" ? 2 : 1);
+  });
+}

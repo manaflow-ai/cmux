@@ -65,6 +65,11 @@ else:
       const hit = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("="))).hit;
       const download = evaluate(fallback.if, { steps: { "r2-products": { outputs: { hit } } } }) === "true";
       assert.equal(download, !enabled);
+      const wrapped = jobName === "app-host-unit-tests";
+      assert.equal(fallback.uses, wrapped
+        ? "./.github/actions/download-test-product"
+        : "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
+      assert.equal(render(fallback.with[wrapped ? "artifact-id" : "artifact-ids"], values), "123");
       assert.equal(fs.existsSync(path.join(temporary, "metadata-called")), enabled);
       if (enabled) assert.equal(fs.readFileSync(path.join(temporary, "app-host-products/app-host-products.aar"), "utf8"), "opaque product and producer log");
     });

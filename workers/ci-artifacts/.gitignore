@@ -2,3 +2,4 @@ node_modules/
 .wrangler/
 .test-dist/
 .dev.vars
+wrangler.canary.runtime.json
