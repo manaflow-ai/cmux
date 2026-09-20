@@ -22,7 +22,7 @@ extension CmuxTuiSurfaceProvider {
         let generation = currentLifecycleGeneration
         let refresh = refreshGeneration
         await displayCoordinator.refresh()
-        guard isCurrentRefresh(lifecycle: generation, refresh: refresh), displayCoordinator.isAvailable else { return }
+        guard isCurrentRefresh(lifecycle: generation, refresh: refresh) else { return }
         publishDisplays()
     }
 
@@ -41,7 +41,13 @@ extension CmuxTuiSurfaceProvider {
     }
 
     private func publishDisplays() {
-        for var resource in displayResources {
+        let resources = displayResources
+        let desiredIDs = Set(resources.map(\.id))
+        for resource in catalog.snapshot.resources(on: machine)
+            where resource.kind == .display && !desiredIDs.contains(resource.id) {
+            catalog.remove(resource.id, from: self)
+        }
+        for var resource in resources {
             // Guest discovery owns the connection, while the daemon/catalog
             // owns existing view placements. Refresh must preserve both.
             if let existing = catalog.resources[resource.id] {

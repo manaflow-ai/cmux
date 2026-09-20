@@ -53,9 +53,17 @@ extension CmuxTuiSurfaceProvider {
         } else {
             SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(requestedPort)")
         }
-        let resourceID = resourceID ?? browser.cloudAccess.resourceID
-            ?? catalog.projectionRecord(forPanel: browser.id).flatMap { $0.resource.machine.isLocal ? nil : $0.resource }
-            ?? fallbackID
+        let projectedResource = catalog.projectionRecord(forPanel: browser.id).flatMap {
+            $0.resource.machine.isLocal ? nil : $0.resource
+        }
+        let explicitResource = resourceID ?? browser.cloudAccess.resourceID ?? projectedResource
+        if explicitResource == nil, fallbackID.kind == .display,
+           fallbackID.key != SurfaceResourceID.desktopDisplayKey,
+           catalog.resources[fallbackID] == nil {
+            browser.cloudAccess.showUnavailable(CloudGuestDisplaySnapshot.unavailableMessage)
+            return false
+        }
+        let resourceID = explicitResource ?? fallbackID
         guard resourceID.machine == machine,
               browser.cloudAccess.resourceID?.machine == nil || browser.cloudAccess.resourceID?.machine == machine,
               (try? catalog.validateOwnership(of: [resourceID], at: .workspace(id: browser.workspaceId, placement: .tab))) != nil else {
