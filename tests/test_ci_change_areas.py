@@ -1750,6 +1750,31 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
     assert 'benchmark["result"] not in {"success", "skipped"}' in sentinel
 
 
+
+def test_linux_preflight_accepts_unselected_guard_jobs() -> None:
+    outputs = {name: "false" for name in (
+        "macos", "web", "agent_session_web", "linux_guard_tests",
+        "linux_guard_history", "linux_guard_cli", "linux_guard_source",
+        "ghosttykit_release",
+    )}
+    skipped = {name: "skipped" for name in (
+        *GUARD_JOBS, "ghosttykit-release-check", "web-typecheck",
+        "react-apps-check", "diff-sidecar-check", "web-db-migrations",
+        "agent-session-web-resources",
+    )}
+    skipped.pop("static-preflight", None)
+    result = run_linux_preflight(linux_preflight_needs(outputs=outputs, results=skipped))
+    assert result.returncode == 0, result.stderr
+
+
+def test_linux_preflight_rejects_unknown_guard_route() -> None:
+    for value in ("", "tru", "null"):
+        result = run_linux_preflight(linux_preflight_needs(
+            outputs={"linux_guard_history": value},
+            results={"workflow-guard-history": "skipped"},
+        ))
+        assert result.returncode != 0, value
+
 if __name__ == "__main__":
     for name, value in sorted(globals().items()):
         if name.startswith("test_") and callable(value):
