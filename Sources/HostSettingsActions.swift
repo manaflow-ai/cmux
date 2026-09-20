@@ -20,6 +20,8 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
     private let automationConfigStore: AutomationConfigStore
+    private let openAutomationRulesFile: @MainActor (URL) -> Void
+    private let reportAutomationRulesError: @MainActor (Error) -> Void
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
@@ -56,10 +58,18 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
-        automationConfigStore: AutomationConfigStore = AutomationConfigStore()
+        automationConfigStore: AutomationConfigStore = AutomationConfigStore(),
+        openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
+            PreferredEditorService(defaults: .standard).open($0)
+        },
+        reportAutomationRulesError: @escaping @MainActor (Error) -> Void = {
+            NSAlert(error: $0).runModal()
+        }
     ) {
         self.configFileURL = configFileURL
         self.automationConfigStore = automationConfigStore
+        self.openAutomationRulesFile = openAutomationRulesFile
+        self.reportAutomationRulesError = reportAutomationRulesError
         self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
@@ -215,7 +225,7 @@ final class HostSettingsActions: SettingsHostActions {
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             try? automationConfigStore.save(AutomationConfiguration())
         }
-        PreferredEditorService(defaults: .standard).open(fileURL)
+        openAutomationRulesFile(fileURL)
     }
 
     /// Routes a reload request to the already-attached automation engine.

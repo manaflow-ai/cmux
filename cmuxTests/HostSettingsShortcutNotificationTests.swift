@@ -97,6 +97,38 @@ struct HostSettingsShortcutNotificationTests {
         #expect(status.hasError)
     }
 
+    @Test(arguments: [false, true])
+    func editingAutomationRulesReportsCreationFailureBeforeOpening(blockParent: Bool) throws {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-host-automation-edit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let parentURL = directoryURL.appendingPathComponent("config")
+        if blockParent {
+            try Data("not a directory".utf8).write(to: parentURL)
+        }
+        let fileURL = parentURL.appendingPathComponent("automations.json")
+        var opened: [URL] = []
+        var errors: [Error] = []
+        let host = HostSettingsActions(
+            configFileURL: directoryURL.appendingPathComponent("cmux.json"),
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            automationConfigStore: AutomationConfigStore(fileURL: fileURL),
+            openAutomationRulesFile: { opened.append($0) },
+            reportAutomationRulesError: { errors.append($0) }
+        )
+        host.openAutomationRulesInExternalEditor()
+        if blockParent {
+            #expect(opened.isEmpty)
+            #expect(errors.count == 1)
+            #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+        } else {
+            #expect(opened == [fileURL])
+            #expect(errors.isEmpty)
+            #expect(FileManager.default.fileExists(atPath: fileURL.path))
+        }
+    }
+
     private func withSettingsFile(
         initialContents: String,
         updatedContents: String,
