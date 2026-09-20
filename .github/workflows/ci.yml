@@ -39,6 +39,7 @@ jobs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
+      release_build: ${{ steps.detect.outputs.release_build }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
       compile_admitted: ${{ steps.admitted.outputs.compile_admitted }}
     permissions:
@@ -65,6 +66,7 @@ jobs:
               echo "macos=true"
               echo "web=true"
               echo "agent_session_web=true"
+              echo "release_build=true"
             } >> "$GITHUB_OUTPUT"
           }
 
@@ -127,6 +129,7 @@ jobs:
                 echo "macos=false"
                 echo "web=false"
                 echo "agent_session_web=false"
+                echo "release_build=false"
               } >> "$GITHUB_OUTPUT"
               exit 0
             fi
@@ -2042,7 +2045,10 @@ jobs:
           # "Select package tests" diffs against.
           fetch-depth: 2
 
+      # Only release-build consumes this artifact. Package/app-host tests use
+      # the prebuilt GhosttyKit framework and do not need the universal CLI.
       - name: Select helper Xcode
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         run: |
           set -euo pipefail
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
@@ -2050,9 +2056,11 @@ jobs:
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
@@ -2060,6 +2068,7 @@ jobs:
           restore-keys: zig-packages-
 
       - name: Build universal Ghostty CLI helper
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         run: |
           set -euo pipefail
           mkdir -p ghostty-cli-helper
@@ -2074,6 +2083,7 @@ jobs:
           done
 
       - name: Upload universal Ghostty CLI helper
+        if: ${{ needs.changes.outputs.release_build == 'true' }}
         id: upload-ghostty-cli-helper
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2084,7 +2094,7 @@ jobs:
           retention-days: 1
 
       - name: Retry universal Ghostty CLI helper upload
-        if: steps.upload-ghostty-cli-helper.outcome == 'failure'
+        if: ${{ needs.changes.outputs.release_build == 'true' && steps.upload-ghostty-cli-helper.outcome == 'failure' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-ghostty-cli-helper
@@ -2935,7 +2945,7 @@ jobs:
     # See app-host-unit-tests: explicit direct-needs gate instead of the
     # implicit success() so skipped routed linux jobs upstream of
     # linux-preflight do not skip this job transitively.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && needs.changes.outputs.release_build == 'true' && needs.changes.outputs.full_suite == 'true' }}
     # Compile the same unsigned universal Release app that nightly builds before
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
