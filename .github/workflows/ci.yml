@@ -1124,6 +1124,7 @@ jobs:
           # host exited, crashed, or timed out. An assertion failure never earns
           # a rerun, and a second crash still fails the shard.
           set -euo pipefail
+          rm -f -- "$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt
           for suite in \
             RemoteTmuxMirrorCloseDetachTests \
             RemoteTmuxMirrorFocusPolicyTests \
@@ -1161,12 +1162,39 @@ jobs:
         run: |
           set -u
           diagnostics="$RUNNER_TEMP/cmux-remote-tmux-mirror-diagnostics"
+          rm -rf -- "$diagnostics"
           mkdir -p "$diagnostics"
 
           # XCTest runs with an isolated HOME. Preserve its reports before the
           # always-running app-host cleanup removes that home.
-          if [ -n "${CMUX_APP_HOST_HOME:-}" ] && [ -d "$CMUX_APP_HOST_HOME/.local/state/cmux/crash" ]; then
-            cp -R "$CMUX_APP_HOST_HOME/.local/state/cmux/crash" "$diagnostics/crash-reports" || true
+          if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
+            # The console account owns the isolated home on runners where the
+            # GitHub agent is a different user. Validate the published identity
+            # before using its resolved path, then fall back to passwordless
+            # sudo only for this exact authenticated run scope.
+            ci_script_dir="${GITHUB_WORKSPACE:-$PWD}/scripts/ci"
+            # shellcheck source=scripts/ci/app-host-isolation.sh
+            source "$ci_script_dir/app-host-isolation.sh"
+            if cmux_validate_published_app_host_identity_values; then
+              crash_reports="$CMUX_RESOLVED_APP_HOST_HOME/.local/state/cmux/crash"
+              if [ -d "$crash_reports" ]; then
+                copied=0
+                if cp -R "$crash_reports" "$diagnostics/crash-reports" 2>/dev/null; then
+                  copied=1
+                elif sudo -n true 2>/dev/null; then
+                  rm -rf -- "$diagnostics/crash-reports"
+                  if sudo -n cp -R "$crash_reports" "$diagnostics/crash-reports" \
+                    && sudo -n chown -R "$(id -u):$(id -g)" "$diagnostics/crash-reports"; then
+                    copied=1
+                  fi
+                fi
+                if [ "$copied" -ne 1 ]; then
+                  echo "::warning::unable to read isolated app-host crash reports" >&2
+                fi
+              fi
+            else
+              echo "::warning::app-host identity validation failed; crash reports not collected" >&2
+            fi
           fi
 
           shopt -s nullglob
