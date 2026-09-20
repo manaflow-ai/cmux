@@ -61,6 +61,7 @@ struct CloudVMLoadingPanelView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
+                            .disabled(panel.retryInFlight)
 
                             Button {
                                 FeedbackComposerBridge().openComposer()
@@ -90,12 +91,26 @@ struct CloudVMLoadingPanelView: View {
 
     @MainActor
     private func retryCloudMachine() {
-        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }),
-           MachineCreateCoordinator.shared.retry(operation.id) {
+        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.presentationWorkspaceID == panel.workspaceId }) {
+            if MachineCreateCoordinator.shared.retry(operation.id) {
+                panel.resetLoading()
+            }
             return
         }
-        guard let workspace = Workspace.liveWorkspace(id: panel.workspaceId),
-              let machineID = workspace.cloudVMBinding?.vmID else { return }
+        guard let workspace = Workspace.liveWorkspace(id: panel.workspaceId) else {
+            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+            return
+        }
+        guard let machineID = workspace.cloudVMBinding?.vmID else {
+            _ = AppDelegate.shared?.performCloudVMAction(
+                tabManager: workspace.owningTabManager,
+                debugSource: "panel.cloudVM.retry"
+            )
+            return
+        }
+        guard !panel.retryInFlight else { return }
+        panel.retryInFlight = true
+        panel.resetLoading()
         let socketPath = TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath())
         let didStart = CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
@@ -103,12 +118,14 @@ struct CloudVMLoadingPanelView: View {
             arguments: ["vm", "open", machineID, "--workspace", workspace.id.uuidString, "--focus", "false"],
             presentsFailureAlert: false,
             onCompletion: { completion in
+                panel.retryInFlight = false
                 if !completion.succeeded {
                     panel.showFailure(completion.output)
                 }
             }
         )
         if !didStart {
+            panel.retryInFlight = false
             panel.showFailure(String(localized: "panel.cloudVM.loading.failed.launch", defaultValue: "Cloud VM command could not be launched."))
         }
     }

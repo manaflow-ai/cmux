@@ -15,6 +15,7 @@ final class CloudVMLoadingPanel: Panel {
     let panelType: PanelType = .cloudVMLoading
     @Published var startedAt: Date
     @Published var phase: Phase = .loading(headline: nil)
+    @Published var retryInFlight = false
 
     var displayTitle: String {
         String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")
