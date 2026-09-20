@@ -94,7 +94,7 @@ import {
 import { getGoVmUsage, GO_INCLUDED_VM_HOURS } from "./goUsage";
 import { GO_PAUSE_INTENT_KEY, pauseGoVm } from "./goPause";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
-import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
+import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import { withVmProductAnalytics } from "./productAnalytics";
@@ -502,7 +502,7 @@ function reconcilePendingCreateCleanups(
                 duration: CREATE_CLEANUP_PROVIDER_TIMEOUT,
                 onTimeout: () => new Error("provider cleanup deadline"),
               }),
-              Effect.catchAll((error) => isProviderNotFoundError(error)
+              Effect.catchAll((error) => isProviderDeletionConfirmed(error)
                 ? Effect.succeed("confirmed" as const)
                 : Effect.fail(error)),
             );

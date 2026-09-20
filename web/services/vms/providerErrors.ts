@@ -89,6 +89,25 @@ export function isProviderNotFoundError(err: unknown): boolean {
   return legacyNotFound;
 }
 
+/**
+ * A destructive delete is confirmed only by the provider's explicit
+ * not-found contract. A bare 404 with an unknown code may be an endpoint or
+ * gateway error and must retain the allocation for a later retry.
+ */
+export function isProviderDeletionConfirmed(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current = err;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as ProviderFailure;
+    const status = httpStatus(candidate);
+    const code = String(candidate.code ?? "").toUpperCase();
+    if (status !== undefined) return status === 404 && code === "NOT_FOUND";
+    current = candidate.cause;
+  }
+  return false;
+}
+
 export function isProviderIdentityNotFoundError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const candidate = err as {
