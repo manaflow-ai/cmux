@@ -6,6 +6,10 @@ import Foundation
 /// commands. No process launching here — that's `RemoteTmuxSSHTransport`.
 /// Kept as pure functions specifically so argv exactness and stderr
 /// classification are unit-testable without a real SSH process.
+///
+/// Static members only: pure argv/string transforms with no per-instance
+/// state to hold (one-line justification per the no-namespace-enum
+/// convention; see `LoopbackPortAllocator`/`RemoteLoopbackProxyAlias`).
 enum RemoteTmuxDynamicForwardCommand {
     /// `ssh -O forward -D 127.0.0.1:<localPort> -o ControlPath=<path> -- <destination>`.
     ///

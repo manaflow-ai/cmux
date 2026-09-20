@@ -40,22 +40,14 @@ extension Workspace {
     /// treats a reconnect (as opposed to the host being removed outright) as
     /// invalidating them — so without this, every browser tab on this host
     /// would keep being handed the same stale, now-unreachable endpoint.
-    /// `releaseHost` is host-wide and idempotent, so this is safe to call
-    /// from every mirror workspace sharing the host that just reconnected.
+    /// `invalidateAndRebuild` preserves the host's existing retainers
+    /// (unlike `releaseHost`, which would drop every OTHER mirror workspace's
+    /// retention on this same host), and no-ops when nothing on this host has
+    /// ever opened a browser, so calling this from every mirror workspace
+    /// sharing the host that just reconnected is safe — merely redundant.
     func remoteTmuxBrowserProxyDidReconnect() {
         guard isRemoteTmuxMirror, let host = remoteTmuxBrowserProxyHost else { return }
-        // Only worth re-acquiring if this workspace actually has a browser
-        // panel routing through it — every main-area browser panel a mirror
-        // creates always does (`routesThroughRemoteProxy: true`), whether or
-        // not its endpoint has resolved yet, so this also covers a browser
-        // tab opened just before the reconnect whose original acquire is
-        // about to be cancelled by `releaseHost` below. Most mirrors never
-        // open a browser at all, and re-acquiring unconditionally here would
-        // undo that laziness on every reconnect.
-        let hasBrowserPanel = panels.values.contains { $0 is BrowserPanel }
-        AppDelegate.shared?.remoteTmuxController.browserProxyRegistry.releaseHost(connectionHash: host.connectionHash)
-        guard hasBrowserPanel else { return }
-        ensureRemoteTmuxBrowserProxyForward()
+        AppDelegate.shared?.remoteTmuxController.browserProxyRegistry.invalidateAndRebuild(connectionHash: host.connectionHash)
     }
 
     /// The registry's per-host `acquire()` is single-flighted across every
