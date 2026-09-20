@@ -25,6 +25,7 @@ permissions:
 
 env:
   SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

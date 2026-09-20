@@ -73,6 +73,7 @@ permissions:
 env:
   CREATE_DMG_VERSION: 8.0.0
   SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
 
 jobs:
   decide:

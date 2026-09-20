@@ -49,7 +49,6 @@ runs:
       if: ${{ inputs.backend == 'r2' }}
       shell: bash
       env:
-        CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
         CACHE_PATH: ${{ inputs.path }}
         CACHE_KEY: ${{ inputs.key }}
         CACHE_RESTORE_KEYS: ${{ inputs.restore-keys }}
