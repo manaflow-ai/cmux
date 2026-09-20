@@ -48,10 +48,14 @@ extension CmuxTuiSurfaceProvider {
                 preferredWorkspaceID: preferredWorkspaceID
             )
         }
+        let knownPlacement = remoteTabID.flatMap { tabID in
+            resource.remoteViews?.first(where: { $0.tabID == tabID })
+                .map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
+        }
         let confirmedPlacement = try reservation?.validatedAttachmentPlacement(
             resourceID: resource.id, remoteTabID: remoteTabID,
             materializedPlacement: resolved.placement, catalog: catalog
-        ) ?? resolved.placement
+        ) ?? resolved.placement ?? knownPlacement
         try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
