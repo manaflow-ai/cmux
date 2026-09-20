@@ -1,8 +1,8 @@
 import Foundation
 
 /// What the person is told when a background create needs an actionable
-/// notification. A successfully selected workspace is silent; a create whose
-/// workspace cannot be selected falls back to the Machines list.
+/// notification. Successful creates are represented by their bound workspace
+/// and Cloud tree row, so this value exists only for failures.
 struct MachineCreateNotice: Equatable {
     let title: String
     let subtitle: String
@@ -13,24 +13,14 @@ struct MachineCreateNotice: Equatable {
     /// panel's inline error off this.
     let isFailure: Bool
 
-    init(finished: MachineCreateCoordinator.Finished) {
+    init?(finished: MachineCreateCoordinator.Finished) {
         let request = finished.operation.request
         let subtitle = request.isBaseSetup
             ? String(localized: "machines.new.title.base", defaultValue: "Set Up Base")
             : String(localized: "machines.new.title", defaultValue: "New Machine")
         switch finished.outcome {
-        case .created(let machineID, let workspaceID):
-            let name = request.isBaseSetup
-                ? String(localized: "machines.kind.base", defaultValue: "Base")
-                : (request.name ?? machineID ?? request.displayName)
-            title = String(
-                format: String(localized: "machines.notification.ready.title", defaultValue: "%@ is ready"),
-                name
-            )
-            self.subtitle = subtitle
-            body = String(localized: "machines.notification.ready.body.list", defaultValue: "Find it in the Machines list.")
-            self.workspaceID = workspaceID
-            isFailure = false
+        case .created:
+            return nil
         case .createdButOpenFailed(let machineID, let output):
             title = String(
                 format: String(

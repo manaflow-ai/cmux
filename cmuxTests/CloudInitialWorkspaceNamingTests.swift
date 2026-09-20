@@ -24,6 +24,36 @@ struct CloudInitialWorkspaceNamingTests {
         }
     }
 
+    @Test("The first remote workspace receipt adopts the optimistic local placeholder once")
+    func firstWorkspaceReceiptAdoptsPlaceholder() async throws {
+        try await withUnboundFixture { fixture in
+            fixture.catalog.bindCloudWorkspace(
+                localWorkspaceID: fixture.workspace.id,
+                machine: fixture.provider.machine,
+                remoteWorkspaceID: "a",
+                generatedTitle: "Cloud VM",
+                remoteWorkspaceName: "workspace-1"
+            )
+
+            #expect(fixture.workspace.title == "workspace-1")
+            #expect(fixture.workspace.cloudVMBinding?.remoteWorkspaceID == "a")
+            #expect(fixture.provider.writes.isEmpty, "adoption acknowledges the daemon name; it does not rename it back")
+
+            // A duplicate receipt is idempotent and cannot create another local
+            // workspace or replay a remote rename.
+            fixture.catalog.bindCloudWorkspace(
+                localWorkspaceID: fixture.workspace.id,
+                machine: fixture.provider.machine,
+                remoteWorkspaceID: "a",
+                generatedTitle: "Cloud VM",
+                remoteWorkspaceName: "workspace-1"
+            )
+            #expect(fixture.manager.tabs.count == 1)
+            #expect(fixture.workspace.title == "workspace-1")
+            #expect(fixture.provider.writes.isEmpty)
+        }
+    }
+
     @Test("Discovery after binding replaces the placeholder without a second create")
     func discoveryReconcilesAlreadyBoundWorkspace() async throws {
         try await withUnboundFixture { fixture in
@@ -73,7 +103,8 @@ struct CloudInitialWorkspaceNamingTests {
         try await withUnboundFixture { fixture in
             #expect(fixture.workspace.setCustomTitle("Cloud VM", source: .user))
             fixture.catalog.bindCloudWorkspace(localWorkspaceID: fixture.workspace.id,
-                machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM")
+                machine: fixture.provider.machine, remoteWorkspaceID: "a", generatedTitle: "Cloud VM",
+                remoteWorkspaceName: "workspace-1")
             try await fixture.settle()
             try fixture.expectParity("terminal", workspaceName: "Cloud VM")
             #expect(fixture.provider.writes.map { $0.1 } == ["Cloud VM"])
