@@ -220,6 +220,14 @@ def is_agent_session_web_change(path: str) -> bool:
 
 
 def is_macos_neutral(path: str) -> bool:
+    # Review configuration is not a build input. Keep this exact: unknown
+    # policy files retain native coverage, and Linux guards still validate PRs.
+    if path in {
+        ".coderabbit.yaml",
+        ".greptile/rules.md",
+        ".github/review-bot-rules/user-facing-errors.md",
+    }:
+        return True
     # `cmux-tui/` is the standalone cmux-tui Rust project, gated by its own
     # workflow. Packages/iOS stays macOS-relevant because the desktop app
     # links CmuxMobileRPC, CmuxMobileTransport, and their package dependencies.
