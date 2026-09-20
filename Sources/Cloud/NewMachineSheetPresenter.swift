@@ -66,8 +66,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else { return }
         let loading = workspace.panels.values.compactMap { $0 as? CloudVMLoadingPanel }
         guard !loading.isEmpty else { return }
-        let ownsBinding = workspace.cloudVMBinding?.vmID == machineID
-            || (machineID == nil && workspace.cloudVMBinding == nil)
+        let ownsBinding = workspace.cloudVMBinding?.vmID == nil
+            || workspace.cloudVMBinding?.vmID == machineID
         guard ownsBinding else { return }
         if loading.count < workspace.panels.count {
             // A cancelled create may destroy its provider machine after this

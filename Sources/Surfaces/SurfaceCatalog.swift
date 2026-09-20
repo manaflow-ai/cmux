@@ -639,12 +639,13 @@ final class SurfaceCatalog {
         let loadingReservation = CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
         let keyDestination = loadingReservation?.materializationDestination ?? destination
         let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, destination: keyDestination, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
-        if reuseExisting, let existing = projections.first(where: {
-            guard $0.resource == id, reuseInWorkspace == nil || $0.workspaceID == reuseInWorkspace else { return false }
+        if reuseExisting, let existing = projections.first(where: { projection in
+            guard projection.resource == id, reuseInWorkspace == nil || projection.workspaceID == reuseInWorkspace else { return false }
             // Explicit placements must match their projection.
-            return (resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID)
-                && (reuseInWorkspace == nil || projectionMatchesMaterializationDestination($0, keyDestination))
-                && $0.panelID != loadingReservation?.panelID
+            return (resolvedRemoteView == nil || projection.remoteTabID == resolvedRemoteView?.tabID)
+                && (reuseInWorkspace == nil || projectionMatchesMaterializationDestination(projection, keyDestination))
+                && projection.panelID != loadingReservation?.panelID
+                && (loadingReservation == nil || loadingReservation.flatMap { reservation in reservation.materializationDestination.map { destination in projection.workspaceID == reservation.workspaceID && projectionMatchesMaterializationDestination(projection, destination) } } == true)
         }) {
             if let loadingReservation, let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID) {
                 _ = workspace.discardCloudMachineLoadingPanel(
