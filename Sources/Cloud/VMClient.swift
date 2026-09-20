@@ -1997,9 +1997,17 @@ actor VMClient {
             let elapsed = context.map { $0.operation == .list || $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
             let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
             let identity = await self.auth.authenticatedSessionIdentity
+            guard let identity else {
+                let isAuthenticated = await self.auth.isAuthenticated
+                let isRestoringSession = await self.auth.isRestoringSession
+                if isAuthenticated || isRestoringSession {
+                    throw VMClientError.sessionRefreshFailed
+                }
+                throw VMClientError.notSignedIn
+            }
             let teamID = await self.auth.resolvedTeamID
-            let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity?.accountID,
-                generation: identity?.generation, teamID: teamID)
+            let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
+                generation: identity.generation, teamID: teamID)
             let value = try await self.readRequests.read(key, deadline: deadline) {
                 try await CloudOperationContext.$current.withValue(context) {
                     let (data, http) = try await self.requestMeasured(method, path: path, timeoutSeconds: timeoutSeconds)
@@ -2007,10 +2015,8 @@ actor VMClient {
                 }
             }
             try Task.checkCancellation()
-            if let identity {
-                guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity),
-                      await self.auth.resolvedTeamID == teamID else { throw CancellationError() }
-            }
+            guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity),
+                  await self.auth.resolvedTeamID == teamID else { throw CancellationError() }
             try self.checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
             return (value.data, value.http)
         }
@@ -2567,20 +2573,26 @@ actor MachineUsageClient {
             let context = CloudOperationContext.current
             let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero, limit: .seconds(15))
             let identity = await auth.authenticatedSessionIdentity
+            guard let identity else {
+                let isAuthenticated = await auth.isAuthenticated
+                let isRestoringSession = await auth.isRestoringSession
+                if isAuthenticated || isRestoringSession {
+                    throw MachineUsageClientError.sessionRefreshFailed
+                }
+                throw MachineUsageClientError.notSignedIn
+            }
             let selectedTeam = await auth.resolvedTeamID
             let explicitTeam = teamID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let key = CloudReadRequestCoordinator.Key(path: "/api/coderouter/vm-usage/team", accountID: identity?.accountID,
-                generation: identity?.generation, teamID: explicitTeam?.isEmpty == false ? explicitTeam : selectedTeam)
+            let key = CloudReadRequestCoordinator.Key(path: "/api/coderouter/vm-usage/team", accountID: identity.accountID,
+                generation: identity.generation, teamID: explicitTeam?.isEmpty == false ? explicitTeam : selectedTeam)
             let response = try await readRequests.read(key, deadline: deadline) {
                 try await CloudOperationContext.$current.withValue(context) {
                     let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }
             }
-            if let identity {
-                guard await auth.isAuthenticatedSessionIdentityCurrent(identity),
-                      await auth.resolvedTeamID == selectedTeam else { throw CancellationError() }
-            }
+            guard await auth.isAuthenticatedSessionIdentityCurrent(identity),
+                  await auth.resolvedTeamID == selectedTeam else { throw CancellationError() }
             let (data, http) = (response.data, response.http)
             guard (200...299).contains(http.statusCode) else {
                 throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")

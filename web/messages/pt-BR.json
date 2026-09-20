@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "A configuração da Cloud VM não foi concluída",
+      "reason": "A configuração convidada da Cloud VM não foi concluída.",
+      "message": "O cmux não conseguiu concluir a configuração da Cloud VM.",
+      "action": "Tente novamente. Se o problema persistir, entre em contato com o suporte."
+    },
     "createCleanupPending": {
       "title": "Limpeza da VM Cloud pendente",
       "message": "A configuração da VM Cloud falhou e a limpeza ainda está pendente.",

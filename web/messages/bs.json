@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Postavljanje Cloud VM-a nije završeno",
+      "reason": "Postavljanje gosta za Cloud VM nije završeno.",
+      "message": "cmux nije mogao završiti postavljanje Cloud VM-a.",
+      "action": "Pokušajte ponovo. Ako se problem nastavi, obratite se podršci."
+    },
     "createCleanupPending": {
       "title": "Čišćenje Cloud VM-a na čekanju",
       "message": "Postavljanje Cloud VM-a nije uspjelo i čišćenje je još na čekanju.",

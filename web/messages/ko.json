@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM 설정이 완료되지 않았습니다",
+      "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
+      "message": "cmux가 Cloud VM 설정을 완료하지 못했습니다.",
+      "action": "작업을 다시 시도하세요. 문제가 계속되면 지원팀에 문의하세요."
+    },
     "createCleanupPending": {
       "title": "Cloud VM 정리 대기 중",
       "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",

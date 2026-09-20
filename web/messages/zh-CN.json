@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "云端虚拟机设置未完成",
+      "reason": "云端虚拟机的来宾设置未完成。",
+      "message": "cmux 无法完成云端虚拟机的设置。",
+      "action": "请重试此操作。如果问题持续，请联系支持。"
+    },
     "createCleanupPending": {
       "title": "Cloud VM 清理待完成",
       "message": "Cloud VM 设置失败，清理仍未完成。",

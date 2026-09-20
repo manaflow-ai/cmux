@@ -57,6 +57,7 @@ import {
   vmArtifactUnavailableCopy,
   vmDisplayNameCopy,
   vmCreateCleanupPendingCopy,
+  vmGuestInstallCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
@@ -759,6 +760,10 @@ export const vmWorkflowErrorResponders = {
     if (isProviderCreateCleanupError(error.cause)) {
       return vmCreateCleanupPendingResponse(context.locale);
     }
+    const guestInstall = guestCliInstallFailure(error.cause);
+    if (guestInstall) {
+      return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
+    }
     return vmProviderOperationErrorResponse(error);
   },
   VmAccountDeletionInProgressError: (error) =>
@@ -996,6 +1001,71 @@ function providerArtifactUnavailable(cause: unknown): boolean {
   return false;
 }
 
+type GuestCliInstallFailure = {
+  readonly stage?: string;
+  readonly outcome?: string;
+  readonly cleanupFailed: boolean;
+};
+const guestInstallStages = new Set(["upload", "install", "validate", "verify", "browser", "prompt", "publish"]);
+const guestInstallOutcomes = new Set(["missing_status", "invalid_status", "provider_timeout", "guest_exit", "cancelled", "transport_timeout", "transport", "deadline"]);
+
+/** Match the typed guest installer failure without exposing its English diagnostics. */
+function guestCliInstallFailure(cause: unknown): GuestCliInstallFailure | null {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (typeof current === "object") {
+      const record = current as {
+        _tag?: unknown;
+        stage?: unknown;
+        outcome?: unknown;
+        cleanupCause?: unknown;
+        cause?: unknown;
+      };
+      if (record._tag === "GuestCliInstallError") {
+        return {
+          ...(typeof record.stage === "string" && guestInstallStages.has(record.stage) ? { stage: record.stage } : {}),
+          ...(typeof record.outcome === "string" && guestInstallOutcomes.has(record.outcome) ? { outcome: record.outcome } : {}),
+          cleanupFailed: record.cleanupCause !== undefined,
+        };
+      }
+      current = record.cause;
+    } else {
+      current = undefined;
+    }
+  }
+  return null;
+}
+
+/** Keep stage/outcome/cleanup state in operator telemetry while returning only safe copy. */
+async function vmGuestInstallFailureResponse(
+  error: VmProviderOperationError,
+  locale: Locale,
+  failure: GuestCliInstallFailure,
+): Promise<Response> {
+  const copy = await vmGuestInstallCopy(locale);
+  const phase = vmPhaseForOperation(error.operation);
+  const retryAfterSeconds = retryAfterForOperation(error.operation);
+  return vmErrorResponse({
+    error: "vm_guest_install_failed",
+    status: 502,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase,
+    retryable: true,
+    retryAfterSeconds,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true },
+    diagnostics: {
+      provider: error.provider,
+      ...(failure.stage ? { guestInstallStage: failure.stage } : {}),
+      ...(failure.outcome ? { guestInstallOutcome: failure.outcome } : {}),
+      guestInstallCleanupFailed: failure.cleanupFailed,
+    },
+  });
+}
+
 /** Keep manifest diagnostics in server error traces and return only localized setup guidance. */
 async function vmArtifactUnavailableResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
   const copy = await vmArtifactUnavailableCopy(locale);
@@ -1197,7 +1267,7 @@ function normalizedRetryAfterSeconds(value: number | undefined): number | undefi
 }
 
 function vmPhaseForOperation(operation: string): VmLifecyclePhase {
-  if (operation.includes("openAttach")) return "attach";
+  if (operation.includes("openAttach") || operation.includes("openCmuxRemote")) return "attach";
   if (operation.includes("openSSH")) return "ssh";
   // Before the "create" check: createTunnel/createNetwork are network setup,
   // not machine creation, and a client that read them as "create" would show

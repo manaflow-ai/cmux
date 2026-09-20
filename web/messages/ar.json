@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "لم يكتمل إعداد Cloud VM",
+      "reason": "لم يكتمل إعداد الضيف لـ Cloud VM.",
+      "message": "تعذر على cmux إكمال إعداد Cloud VM.",
+      "action": "أعد المحاولة. إذا استمرت المشكلة، تواصل مع الدعم."
+    },
     "createCleanupPending": {
       "title": "تنظيف آلة Cloud الافتراضية معلق",
       "message": "فشل إعداد آلة Cloud الافتراضية وما زال التنظيف معلقًا.",

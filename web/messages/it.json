@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Configurazione della Cloud VM incompleta",
+      "reason": "La configurazione guest della Cloud VM non è stata completata.",
+      "message": "cmux non ha potuto completare la configurazione della Cloud VM.",
+      "action": "Riprova. Se il problema continua, contatta l'assistenza."
+    },
     "createCleanupPending": {
       "title": "Pulizia della VM Cloud in sospeso",
       "message": "La configurazione della VM Cloud non è riuscita e la pulizia è ancora in sospeso.",

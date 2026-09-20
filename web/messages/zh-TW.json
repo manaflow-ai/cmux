@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM 設定未完成",
+      "reason": "Cloud VM 的來賓環境設定未完成。",
+      "message": "cmux 無法完成 Cloud VM 的設定。",
+      "action": "請重試此操作。如果問題持續，請聯絡支援。"
+    },
     "createCleanupPending": {
       "title": "Cloud VM 清理待完成",
       "message": "Cloud VM 設定失敗，清理仍未完成。",

@@ -1,5 +1,11 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud-VM-Einrichtung nicht abgeschlossen",
+      "reason": "Die Gast-Einrichtung der Cloud-VM wurde nicht abgeschlossen.",
+      "message": "cmux konnte die Cloud-VM-Einrichtung nicht abschließen.",
+      "action": "Wiederholen Sie den Vorgang. Wenn der Fehler bestehen bleibt, wenden Sie sich an den Support."
+    },
     "createCleanupPending": {
       "title": "Cloud-VM-Bereinigung ausstehend",
       "message": "Die Einrichtung der Cloud-VM ist fehlgeschlagen. Die Bereinigung steht noch aus.",
