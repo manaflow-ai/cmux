@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import plistlib
 import re
 import shutil
 import signal
@@ -29,6 +30,13 @@ MAX_ARCHIVE = 2 * 1024**3
 MAX_EXPANDED = 16 * 1024**3
 MAX_MEMBERS = 300_000
 DISK_RESERVE = 2 * 1024**3
+GHOSTTY_SEED_RECIPE = "indexed-v1"
+
+
+class CommandFailed(RuntimeError):
+    def __init__(self, executable, status):
+        self.status = status
+        super().__init__(f"{Path(executable).name} failed ({status})")
 
 
 def remaining(deadline):
@@ -53,7 +61,8 @@ def run(command, deadline, *, env=None, cwd=None):
                 raise TimeoutError("cache helper exceeded the preflight time budget") from error
             raise
         if status:
-            raise RuntimeError(f"{Path(command[0]).name} failed ({status})")
+            remaining(deadline)
+            raise CommandFailed(command[0], status)
 
 
 def spm_key(lockfile):
@@ -93,12 +102,31 @@ def fetch(url, output, deadline, limit=MAX_ARCHIVE):
         if output.stat().st_size > limit:
             raise ValueError("cache response exceeded its size limit")
         return True
+    except TimeoutError:
+        output.unlink(missing_ok=True)
+        raise
+    except CommandFailed as error:
+        output.unlink(missing_ok=True)
+        if error.status == 28:
+            raise TimeoutError("cache download reached its transfer timeout") from error
+        return False
     except (RuntimeError, OSError, ValueError):
         output.unlink(missing_ok=True)
         return False
 
 
+def worker(operation, deadline, *arguments):
+    run([sys.executable, str(Path(__file__).resolve()), "--internal-worker", operation,
+         str(deadline), *(str(argument) for argument in arguments)], deadline)
+
+
 def unpack(archive, extension, destination, deadline):
+    # A single tar member can take longer than the remaining budget. Execute
+    # the entire extraction in a killable process group, including zstd.
+    worker("unpack", deadline, archive, extension, destination)
+
+
+def unpack_worker(archive, extension, destination, deadline):
     if not hasattr(tarfile, "data_filter"):
         raise RuntimeError("Python tarfile.data_filter is required for safe cache extraction")
     process = None
@@ -159,11 +187,10 @@ def clone(source, destination, deadline):
                 writable_tree(destination, True)
                 shutil.rmtree(destination)
     if not destination.exists():
-        size = sum(p.stat().st_size for p in source.rglob("*") if p.is_file() and not p.is_symlink())
-        if shutil.disk_usage(destination.parent).free < size + DISK_RESERVE:
-            raise RuntimeError("insufficient disk headroom to copy build cache")
-        shutil.copytree(source, destination, symlinks=True)
-    writable_tree(destination, True)
+        worker("copy", deadline, source, destination)
+    else:
+        worker("writable", deadline, destination, "1")
+    remaining(deadline)
     return method
 
 
@@ -174,6 +201,35 @@ def file_sha256(path, deadline):
             remaining(deadline)
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def internal_worker(arguments):
+    operation, deadline, *paths = arguments
+    deadline = float(deadline)
+    remaining(deadline)
+    if operation == "unpack":
+        unpack_worker(Path(paths[0]), paths[1], Path(paths[2]), deadline)
+    elif operation == "copy":
+        source, destination = map(Path, paths)
+        size = sum(p.stat().st_size for p in source.rglob("*") if p.is_file() and not p.is_symlink())
+        if shutil.disk_usage(destination.parent).free < size + DISK_RESERVE:
+            raise RuntimeError("insufficient disk headroom to copy build cache")
+        shutil.copytree(source, destination, symlinks=True)
+        writable_tree(destination, True)
+    elif operation == "writable":
+        writable_tree(Path(paths[0]), paths[1] == "1")
+    elif operation == "seal-spm":
+        staging, archive, key = Path(paths[0]), Path(paths[1]), paths[2]
+        (staging / "receipt.json").write_text(json.dumps({
+            "schema_version": 1, "key": key, "archive_sha256": file_sha256(archive, deadline),
+        }) + "\n")
+        for downloaded in staging.glob("archive.*"):
+            downloaded.unlink()
+        writable_tree(staging, False)
+    else:
+        raise ValueError("unknown cache worker operation")
+    remaining(deadline)
+    return 0
 
 
 def seed_spm(repo, destination, cache, url, namespace, deadline):
@@ -224,16 +280,11 @@ def seed_spm(repo, destination, cache, url, namespace, deadline):
                     except Exception:
                         shutil.rmtree(data)
                         raise
-                    (staging / "receipt.json").write_text(json.dumps({
-                        "schema_version": 1, "key": candidate,
-                        "archive_sha256": file_sha256(archive, deadline),
-                    }) + "\n")
                     # Consumers use the extracted immutable seed. Keeping the
                     # compressed transport blob doubles long-lived disk usage.
-                    for downloaded in staging.glob("archive.*"):
-                        downloaded.unlink()
+                    worker("seal-spm", deadline, staging, archive, candidate)
+                    remaining(deadline)
                     os.rename(staging, entry)
-                    writable_tree(entry, False)
                     source, matched = entry / "SourcePackages", candidate
                     result["transport"] = "r2"
                     break
@@ -249,11 +300,33 @@ def seed_spm(repo, destination, cache, url, namespace, deadline):
             prepared = Path(temporary) / "SourcePackages"
             method = clone(source, prepared, deadline)
             (prepared / "workspace-state.json").unlink(missing_ok=True)
+            remaining(deadline)
             if destination.exists():
                 destination.rmdir()  # Succeeds only while still empty.
             os.rename(prepared, destination)
     return {**result, "status": "hit", "matched_key": matched,
             "match": "exact" if matched == requested else "prefix", "materialization": method}
+
+
+def prepare_ghostty_index(framework, deadline):
+    with (framework / "Info.plist").open("rb") as stream:
+        libraries = plistlib.load(stream).get("AvailableLibraries", [])
+    indexed = []
+    for library in libraries:
+        if library.get("SupportedPlatform") != "macos":
+            continue
+        archive = framework / library["LibraryIdentifier"] / library["LibraryPath"]
+        if (not archive.resolve().is_relative_to(framework.resolve())
+                or archive.suffix != ".a" or not archive.is_file()):
+            raise ValueError("GhosttyKit macOS archive is missing or outside the framework")
+        # Same selected-toolchain operation as ensure-ghosttykit.sh, applied
+        # before sealing. Info.plist handles both libghostty.a and renamed
+        # ghostty-internal.a distributions without silently skipping either.
+        run(["xcrun", "ranlib", str(archive)], deadline)
+        indexed.append(str(archive.relative_to(framework)))
+    if not indexed:
+        raise ValueError("GhosttyKit has no macOS static archive to prepare")
+    return indexed
 
 
 def seed_ghostty(repo, cache, deadline):
@@ -275,8 +348,9 @@ def seed_ghostty(repo, cache, deadline):
         return {"status": "miss", "reason": "Ghostty revision has no pinned checksum", "verified_install": False}
     root = cache / "ghostty"
     root.mkdir(parents=True, exist_ok=True)
-    entry = root / checksum
-    with locked(root / (checksum + ".lock"), deadline):
+    seed_key = checksum + "-" + GHOSTTY_SEED_RECIPE
+    entry = root / seed_key
+    with locked(root / (seed_key + ".lock"), deadline):
         if managed and destination.resolve() != entry / "GhosttyKit.xcframework":
             return {"status": "existing", "reason": "preserved GhosttyKit from another revision", "verified_install": False}
         if not entry.exists():
@@ -291,13 +365,17 @@ def seed_ghostty(repo, cache, deadline):
                                    GHOSTTYKIT_DOWNLOAD_MAX_TIME=str(max(1, int(remaining(deadline)))))
                 run(["bash", str(repo / "scripts/download-prebuilt-ghosttykit.sh")], deadline,
                     env=environment, cwd=repo)
+                indexed = prepare_ghostty_index(staging / "GhosttyKit.xcframework", deadline)
                 (staging / "receipt.json").write_text(json.dumps({"schema_version": 1, "revision": revision,
-                                                                "archive_sha256": checksum}) + "\n")
+                    "archive_sha256": checksum, "recipe": GHOSTTY_SEED_RECIPE,
+                    "indexed_archives": indexed}) + "\n")
+                worker("writable", deadline, staging, "0")
+                remaining(deadline)
                 os.rename(staging, entry)
-                writable_tree(entry, False)
         receipt = json.loads((entry / "receipt.json").read_text())
         if (receipt.get("schema_version") != 1 or receipt.get("revision") != revision
                 or receipt.get("archive_sha256") != checksum
+                or receipt.get("recipe") != GHOSTTY_SEED_RECIPE or not receipt.get("indexed_archives")
                 or not (entry / "GhosttyKit.xcframework/Info.plist").is_file()):
             raise ValueError("Ghostty seed receipt mismatch")
         if managed:
@@ -308,6 +386,7 @@ def seed_ghostty(repo, cache, deadline):
                 return {"status": "existing", "verified_install": False}
             if destination.exists():
                 destination.rmdir()
+            remaining(deadline)
             destination.symlink_to(entry / "GhosttyKit.xcframework", target_is_directory=True)
     return {"status": "hit", "revision": revision, "archive_sha256": checksum,
             "verified_install": True, "materialization": "immutable-link"}
@@ -346,4 +425,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--internal-worker"]:
+        raise SystemExit(internal_worker(sys.argv[2:]))
     raise SystemExit(main())

@@ -7,6 +7,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import json
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -127,7 +128,7 @@ class PreflightTests(unittest.TestCase):
             info.size = 4
             bundle.addfile(info, BytesIO(b"evil"))
         with patch.object(preflight, "fetch", side_effect=self.fetch_exact):
-            with self.assertRaises(tarfile.FilterError):
+            with self.assertRaises(RuntimeError):
                 self.seed()
         self.assertFalse(self.destination.exists())
         self.assertFalse((self.root / "escape").exists())
@@ -142,14 +143,16 @@ class PreflightTests(unittest.TestCase):
             info.size = 4
             bundle.addfile(info, BytesIO(b"evil"))
         with patch.object(preflight, "fetch", side_effect=self.fetch_exact):
-            with self.assertRaises(tarfile.FilterError):
+            with self.assertRaises(RuntimeError):
                 self.seed()
         self.assertFalse((self.root / "escape").exists())
 
     def test_expansion_budget_rejects_archive(self):
+        limited = self.root / "limited-worker.py"
+        limited.write_text(Path(preflight.__file__).read_text().replace("MAX_EXPANDED = 16 * 1024**3", "MAX_EXPANDED = 1"))
         with patch.object(preflight, "fetch", side_effect=self.fetch_exact), \
-                patch.object(preflight, "MAX_EXPANDED", 1):
-            with self.assertRaisesRegex(ValueError, "expansion"):
+                patch.object(preflight, "__file__", str(limited)):
+            with self.assertRaises(RuntimeError):
                 self.seed()
         self.assertFalse(self.destination.exists())
 
@@ -173,17 +176,30 @@ class PreflightTests(unittest.TestCase):
         revision, checksum = "a" * 40, "b" * 64
         (self.repo / "scripts").mkdir()
         (self.repo / "scripts/ghosttykit-checksums.txt").write_text(revision + " " + checksum + "\n")
-        def download(command, deadline, *, env, cwd):
+        original_run = preflight.run
+        def download(command, deadline, *, env=None, cwd=None):
+            if "--internal-worker" in command:
+                return original_run(command, deadline, env=env, cwd=cwd)
+            if command[:2] == ["xcrun", "ranlib"]:
+                archive = Path(command[2])
+                self.assertTrue(archive.stat().st_mode & 0o200)
+                archive.write_bytes(b"indexed")
+                return
             self.assertEqual(env["GHOSTTY_SHA"], revision)
             self.assertEqual(env["GHOSTTYKIT_DOWNLOAD_RETRIES"], "0")
             output = Path(env["GHOSTTYKIT_OUTPUT_DIR"])
             output.mkdir()
-            (output / "Info.plist").write_text("fixture for already checksum-verified helper output")
+            (output / "macos-arm64").mkdir()
+            (output / "macos-arm64/ghostty-internal.a").write_bytes(b"unindexed")
+            (output / "Info.plist").write_bytes(plistlib.dumps({"AvailableLibraries":[{
+                "SupportedPlatform":"macos", "LibraryIdentifier":"macos-arm64",
+                "LibraryPath":"ghostty-internal.a"}]}))
         with patch.object(preflight.subprocess, "check_output", side_effect=[revision, ""]), \
                 patch.object(preflight, "run", side_effect=download) as helper:
             result = preflight.seed_ghostty(self.repo, self.cache, self.deadline)
         self.assertTrue(result["verified_install"])
-        self.assertEqual(helper.call_count, 1)
+        self.assertEqual(sum(call.args[0][0] == "bash" for call in helper.call_args_list), 1)
+        self.assertEqual((self.repo / "GhosttyKit.xcframework/macos-arm64/ghostty-internal.a").read_bytes(), b"indexed")
         self.assertTrue((self.repo / "GhosttyKit.xcframework").is_symlink())
         with patch.object(preflight.subprocess, "check_output", side_effect=[revision, ""]), \
                 patch.object(preflight, "run", side_effect=AssertionError("must not redownload")):
@@ -241,6 +257,59 @@ class PreflightTests(unittest.TestCase):
             preflight.run([os.sys.executable, "-c", parent], time.monotonic() + .1)
         time.sleep(.5)
         self.assertFalse(marker.exists())
+
+    def test_slow_copy_fallback_cannot_finish_after_deadline(self):
+        source = self.root / "source"
+        source.mkdir()
+        (source / "file").write_text("payload")
+        slow = self.root / "slow-copy-worker.py"
+        slow.write_text(Path(preflight.__file__).read_text().replace(
+            "shutil.copytree(source, destination, symlinks=True)",
+            "time.sleep(1); shutil.copytree(source, destination, symlinks=True)"))
+        original_run, original_copy = preflight.run, shutil.copytree
+        def no_apfs(command, deadline, **kwargs):
+            if command[0] == "cp":
+                raise RuntimeError("clone unavailable")
+            return original_run(command, deadline, **kwargs)
+        def slow_in_process(*args, **kwargs):
+            time.sleep(1)
+            return original_copy(*args, **kwargs)
+        started = time.monotonic()
+        with patch.object(preflight.platform, "system", return_value="Darwin"), \
+                patch.object(preflight, "run", side_effect=no_apfs), \
+                patch.object(preflight, "__file__", str(slow)), \
+                patch.object(preflight.shutil, "copytree", side_effect=slow_in_process):
+            with self.assertRaises(TimeoutError):
+                preflight.clone(source, self.destination, time.monotonic() + .1)
+        self.assertLess(time.monotonic() - started, .8)
+        self.assertFalse((self.destination / "file").exists())
+
+    def test_slow_single_tar_member_cannot_finish_after_deadline(self):
+        with tarfile.open(self.archive, "w:gz") as bundle:
+            member = tarfile.TarInfo("only")
+            member.size = 4
+            bundle.addfile(member, BytesIO(b"data"))
+        self.destination.mkdir()
+        slow = self.root / "slow-extract-worker.py"
+        slow.write_text(Path(preflight.__file__).read_text().replace(
+            'bundle.extract(member, destination, filter="data")',
+            'time.sleep(1); bundle.extract(member, destination, filter="data")'))
+        original_extract = tarfile.TarFile.extract
+        def slow_in_process(*args, **kwargs):
+            time.sleep(1)
+            return original_extract(*args, **kwargs)
+        started = time.monotonic()
+        with patch.object(preflight, "__file__", str(slow)), \
+                patch.object(tarfile.TarFile, "extract", side_effect=slow_in_process):
+            with self.assertRaises(TimeoutError):
+                preflight.unpack(self.archive, "tar.gz", self.destination, time.monotonic() + .1)
+        self.assertLess(time.monotonic() - started, .8)
+        self.assertFalse((self.destination / "only").exists())
+
+    def test_curl_transfer_timeout_retains_actionable_reason(self):
+        with patch.object(preflight, "run", side_effect=preflight.CommandFailed("curl", 28)):
+            with self.assertRaisesRegex(TimeoutError, "transfer timeout"):
+                preflight.fetch("https://example.invalid", self.root / "archive", self.deadline)
 
     def test_deadline_miss_writes_receipt_and_never_compiles(self):
         receipt = self.root / "receipt.json"
