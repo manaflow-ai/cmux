@@ -302888,115 +302888,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عرض صف فرع git المدمج ودليل العمل."
+            "value": "عرض فروع git ومعلومات أجهزة Cloud وأدلة العمل."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikaži ugrađeni red za git granu i radni direktorij."
+            "value": "Prikaži git grane, informacije o Cloud mašinama i radne direktorije."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis den indbyggede git-gren og arbejdsmapperækken."
+            "value": "Vis git-grene, oplysninger om Cloud-maskiner og arbejdsmapper."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die integrierte Git-Branch- und Arbeitsverzeichniszeile anzeigen."
+            "value": "Git-Branches, Informationen zu Cloud-Maschinen und Arbeitsverzeichnisse anzeigen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Display the built-in git branch and working-directory row."
+            "value": "Display git branches, Cloud machine info, and working directories."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar la fila integrada de rama git y directorio de trabajo."
+            "value": "Mostrar ramas de git, información de máquinas Cloud y directorios de trabajo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher la ligne de branche git et de répertoire de travail intégrée."
+            "value": "Afficher les branches git, les informations des machines Cloud et les répertoires de travail."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Visualizza la riga integrata con il branch git e la directory di lavoro."
+            "value": "Mostra i branch git, le informazioni sulle macchine Cloud e le directory di lavoro."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "組み込みのgitブランチと作業ディレクトリの行を表示します。"
+            "value": "gitブランチ、Cloudマシンの情報、作業ディレクトリを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기본 제공 git 브랜치 및 작업 디렉토리 행을 표시합니다."
+            "value": "git 브랜치, Cloud 머신 정보 및 작업 디렉토리를 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis den innebygde git-grenen og arbeidskatalograden."
+            "value": "Vis git-grener, informasjon om Cloud-maskiner og arbeidskataloger."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyświetlaj wbudowany wiersz gałęzi git i katalogu roboczego."
+            "value": "Wyświetlaj gałęzie git, informacje o maszynach Cloud i katalogi robocze."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Exibir a linha integrada de branch git e diretório de trabalho."
+            "value": "Exibir branches git, informações das máquinas Cloud e diretórios de trabalho."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Отображать встроенную строку ветки git и рабочего каталога."
+            "value": "Отображать ветки git, информацию о машинах Cloud и рабочие каталоги."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงแถวสาขา git และไดเรกทอรีทำงานในตัว"
+            "value": "แสดงสาขา git ข้อมูลเครื่อง Cloud และไดเรกทอรีทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yerleşik git dalı ve çalışma dizini satırını göster."
+            "value": "Git dallarını, Cloud makine bilgilerini ve çalışma dizinlerini göster."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відображати вбудований рядок з гілкою git та робочою текою."
+            "value": "Відображати гілки git, інформацію про машини Cloud та робочі каталоги."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示内置的 Git 分支和工作目录行。"
+            "value": "显示 Git 分支、Cloud 机器信息和工作目录。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示內建的 git 分支及工作目錄列。"
+            "value": "顯示 Git 分支、Cloud 機器資訊和工作目錄。"
           }
         }
       }
