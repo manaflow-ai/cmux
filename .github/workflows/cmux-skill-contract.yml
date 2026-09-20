@@ -5,6 +5,9 @@ on:
     paths:
       - "skills/cmux-browser/**"
       - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
+      - "Sources/CmuxSettingsJSONPathSupport.swift"
+      - "tests/test_cmux_settings_supported_paths.py"
       - ".agents/skills"
       - ".claude/skills/**"
       - "skills.sh"
@@ -18,6 +21,9 @@ on:
     paths:
       - "skills/cmux-browser/**"
       - "skills/cmux-settings/**"
+      - "web/data/cmux.schema.json"
+      - "Sources/CmuxSettingsJSONPathSupport.swift"
+      - "tests/test_cmux_settings_supported_paths.py"
       - ".agents/skills"
       - ".claude/skills/**"
       - "skills.sh"
@@ -55,3 +61,6 @@ jobs:
 
       - name: Exercise settings transaction regressions
         run: python3 tests/test_cmux_settings_transactions.py
+
+      - name: Exercise settings skill path validation
+        run: python3 tests/test_cmux_settings_supported_paths.py

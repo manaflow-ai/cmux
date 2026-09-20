@@ -18,9 +18,9 @@ application or determine restart requirements.
 ## Discover and edit
 
 1. Resolve the user's intent with `cmux-settings list-supported` and
-   [all keys](references/all-keys.md). The source owner is
-   `Sources/CmuxSettingsJSONPathSupport.swift`; constraints come from
-   `web/data/cmux.schema.json`, not a separate handwritten registry.
+   [all keys](references/all-keys.md), used in both installed and checkout
+   layouts. Missing references fall back to `Sources/CmuxSettingsJSONPathSupport.swift`.
+   Constraints come from `web/data/cmux.schema.json`.
 2. Read the current path, then use the helper:
 
    ```sh
