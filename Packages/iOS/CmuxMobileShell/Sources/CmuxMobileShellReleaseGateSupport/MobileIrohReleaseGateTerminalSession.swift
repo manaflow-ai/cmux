@@ -26,7 +26,10 @@ public final class MobileIrohReleaseGateTerminalSession {
     public init(client: any MobileIrohReleaseGateTerminalClient) { self.client = client }
 
     deinit {
-        if case let .reading(_, _, task) = state { task.cancel() }
+        if case let .reading(surface, owner, task) = state {
+            client.clearTerminalOutputConsumerOwner(surfaceID: surface, ownerID: owner)
+            task.cancel()
+        }
     }
 
     /// Cancels the current reader and releases its output ownership.

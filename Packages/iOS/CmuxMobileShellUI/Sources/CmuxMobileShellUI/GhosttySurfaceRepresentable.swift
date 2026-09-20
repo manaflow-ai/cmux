@@ -636,15 +636,19 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             let containsText: Bool
                             if self.releaseGateSawNonblankFrame {
                                 containsText = true
-                            } else if !frame.full || self.releaseGateFullFrameInspections >= 2 {
+                            } else if !frame.full {
                                 // Verified deltas are not independently
-                                // observable evidence. Bound inspection to the
-                                // first two full replay frames instead of
-                                // rescanning a large row buffer on every draw.
+                                // observable evidence.
                                 containsText = false
                             } else {
                                 self.releaseGateFullFrameInspections += 1
-                                containsText = frame.rowSpans.contains { span in
+                                // Inspect the first two full frames promptly,
+                                // then every eighth full frame. This keeps the
+                                // main-thread work bounded per frame while
+                                // still noticing text that arrives later.
+                                let shouldInspect = self.releaseGateFullFrameInspections <= 2
+                                    || self.releaseGateFullFrameInspections.isMultiple(of: 8)
+                                containsText = shouldInspect && frame.rowSpans.contains { span in
                                     span.text.contains { !$0.isWhitespace }
                                 }
                                 if containsText {

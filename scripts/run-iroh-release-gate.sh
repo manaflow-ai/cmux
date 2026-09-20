@@ -861,6 +861,13 @@ if ! wait "$REPORT_WAITER_PID"; then
   exit 1
 fi
 REPORT_WAITER_PID=""
+if [[ -n "$UI_CAPTURE_WAITER_PID" ]]; then
+  # The capture helper has acknowledged the terminal frame by this point.
+  # Reap it before cleanup so its PID can never be reused for an unrelated
+  # process that a later trap might signal.
+  wait "$UI_CAPTURE_WAITER_PID" >/dev/null 2>&1 || true
+  UI_CAPTURE_WAITER_PID=""
+fi
 [[ -s "$REPORT_PATH" ]] || {
   echo "error: report-ready signal arrived without an atomic report" >&2
   exit 1
