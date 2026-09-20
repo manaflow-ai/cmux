@@ -104,8 +104,11 @@ impl Mux {
         // grant, and suppression still applies to a prepared-but-unstarted shell.
         let initial_output = reservation.prepared_output.clone().unwrap_or_default();
         let correlation = format!("cloud-terminal-{}", reservation.operation_id);
-        let resolution =
-            self.workspace_registry.lock().unwrap().resolve_resource_creation(&correlation)?;
+        // Reconcile an interrupted prior attempt before choosing the mutation
+        // id. A raw registry lookup can return an old `do_not_retry`/stale
+        // receipt and prevent the durable creation helper from selecting the
+        // fresh attempt key required after a proven non-application.
+        let resolution = self.resource_creation_resolution(&correlation)?;
         let mutation =
             match (resolution["idempotency_key"].as_str(), resolution["recovery"].as_str()) {
                 (Some(_), Some("retry_new_idempotency_key")) => {

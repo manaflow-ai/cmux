@@ -78,7 +78,11 @@ pub(super) fn capture(command: &mut Command, timeout: Duration) -> io::Result<Ou
             continue;
         }
         let mut buffer = [0u8; 1024];
-        let count = pipe.read(&mut buffer)?;
+        let count = match pipe.read(&mut buffer) {
+            Ok(count) => count,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
         if count == 0 {
             break;
         }

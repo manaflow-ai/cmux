@@ -45,6 +45,7 @@ const HOST_EXIT_RECORD_VERSION: u32 = 1;
 const MAX_LAUNCH_PAYLOAD: usize = 1024 * 1024;
 const MAX_STRING: usize = 256 * 1024;
 const MAX_BLOB: usize = crate::surface::VT_REPLAY_MAX_BYTES;
+const MAX_INITIAL_OUTPUT: usize = 16 * 1024;
 const MAX_ARGV: usize = 256;
 const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
@@ -672,6 +673,9 @@ mod unix {
             output.extend_from_slice(&cell_pixels.0.to_le_bytes());
             output.extend_from_slice(&cell_pixels.1.to_le_bytes());
             encode_kitty_graphics_limits(&mut output, self.kitty_graphics_limits)?;
+            if self.initial_output.len() > MAX_INITIAL_OUTPUT {
+                anyhow::bail!("terminal-host initial output is too large");
+            }
             put_blob(&mut output, &self.initial_output)?;
             if output.len() > MAX_LAUNCH_PAYLOAD {
                 anyhow::bail!("terminal-host launch payload is too large");
@@ -707,7 +711,7 @@ mod unix {
             let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
             pty_size(cols, rows, cell_pixels)?;
             let kitty_graphics_limits = decode_kitty_graphics_limits(&mut decoder)?;
-            let initial_output = decoder.bytes_with_limit(16 * 1024)?.to_vec();
+            let initial_output = decoder.bytes_with_limit(MAX_INITIAL_OUTPUT)?.to_vec();
             decoder.finish()?;
             Ok(Self {
                 endpoint,
@@ -7035,6 +7039,27 @@ mod unix {
                 None,
                 "an absent Ghostty blink setting must survive the host boundary"
             );
+        }
+
+        #[test]
+        fn launch_rejects_initial_output_above_the_shared_limit() {
+            let launch = HostLaunch {
+                endpoint: "/tmp/terminal.sock".into(),
+                record_path: "/tmp/terminal.json".into(),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 1_000,
+                cwd: Some("/tmp".into()),
+                command: vec!["/bin/sh".into()],
+                initial_output: vec![b'x'; MAX_INITIAL_OUTPUT + 1],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let error = launch.encode().unwrap_err().to_string();
+            assert!(error.contains("initial output is too large"));
         }
 
         #[test]
