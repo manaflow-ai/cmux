@@ -6,6 +6,7 @@ import CmuxMobileSupport
 import CmuxMobileTransport
 import CmuxRemoteConnections
 import CmuxSSHNative
+import CryptoKit
 import Foundation
 import StackAuth
 
@@ -44,6 +45,8 @@ public struct MobileAuthComposition {
     public let remoteAccountGate: MobileRemoteAccountGate
     /// Native SSH connector shared by SSH, Mosh, and ET bootstrap owners.
     public let remoteSSHConnector: MobileRemoteNativeSSHConnector
+    /// Account-gated remote session service used by the remote connection UI.
+    public let remoteConnectionController: MobileRemoteConnectionController
 
     /// iOS OAuth must not inherit Safari cookies from another cmux build.
     nonisolated static let oauthBrowserSessionPrivacy: OAuthBrowserSessionPrivacy = .ephemeral
@@ -85,7 +88,8 @@ public struct MobileAuthComposition {
         self.appNamespace = appNamespace
         self.keychainAccessGroup = keychainAccessGroup
         self.remoteAccountObserver = MobileRemoteAccountGateObserver()
-        self.remoteSSHConnector = MobileRemoteNativeSSHConnector()
+        let remoteSSHConnector = MobileRemoteNativeSSHConnector()
+        self.remoteSSHConnector = remoteSSHConnector
 
         let sourcedOverrides = Self.authOverrides(
             localConfig: Self.localConfigStringOverrides(in: bundle),
@@ -216,7 +220,7 @@ public struct MobileAuthComposition {
             await push.syncTokenIfPossible()
         }
         self.coordinator = coordinator
-        self.remoteAccountGate = MobileRemoteAccountGate { account in
+        let remoteAccountGate = MobileRemoteAccountGate { account in
             let identity = AuthenticatedSessionIdentity(
                 generation: account.sessionGeneration, accountID: account.accountID
             )
@@ -224,6 +228,25 @@ public struct MobileAuthComposition {
                 throw MobileRemoteAccountGateError.authenticationRequired
             }
         }
+        let remoteHostKeyRoot = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask
+        )[0].appendingPathComponent("cmux/remote-host-keys", isDirectory: true)
+        self.remoteAccountGate = remoteAccountGate
+        self.remoteConnectionController = MobileRemoteConnectionController(
+            accountGate: remoteAccountGate,
+            connector: remoteSSHConnector,
+            hostKeyStoreProvider: { accountID in
+                try FileManager.default.createDirectory(
+                    at: remoteHostKeyRoot, withIntermediateDirectories: true
+                )
+                let digest = SHA256.hash(data: Data(accountID.utf8))
+                    .map { String(format: "%02x", $0) }.joined()
+                return try MobileRemoteHostKeyStore(
+                    databaseURL: remoteHostKeyRoot.appendingPathComponent("\(digest).json"),
+                    accountID: accountID
+                )
+            }
+        )
         self.pushRegistration = push
         self.protectedDataAvailability = availability
         self.taskOwner = MobileAuthTaskOwner(

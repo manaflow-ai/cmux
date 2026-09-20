@@ -133,6 +133,67 @@ import Testing
         #expect(await connector.connectCount == 0)
     }
 
+    @Test func controllerPersistsAnApprovedAskKeyAndSkipsThePromptNextTime() async throws {
+        let gate = try await authenticatedGate()
+        let connector = FakeConnector(challenge: try .init(
+            profileID: profileID, algorithm: "ssh-ed25519", fingerprint: "SHA256:controller"
+        ))
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("controller-host-\(UUID().uuidString).json")
+        let store = try MobileRemoteHostKeyStore(databaseURL: url, accountID: "account-1")
+        let controller = MobileRemoteConnectionController(
+            accountGate: gate, connector: connector, hostKeyStoreProvider: { _ in store }
+        )
+        let profile = try profile()
+        let first = try await controller.connect(
+            profile: profile,
+            credential: MobileRemoteSSHCredentialSource { .password("secret") },
+            approveUnknownHost: { _ in true }
+        )
+        await first.close()
+        let second = try await controller.connect(
+            profile: profile,
+            credential: MobileRemoteSSHCredentialSource { .password("secret") },
+            approveUnknownHost: { _ in
+                Issue.record("remembered host key should not ask again")
+                return false
+            }
+        )
+        await second.close()
+        #expect(await store.observation(for: profileID)?.fingerprint == "SHA256:controller")
+    }
+
+    @Test func controllerStrictPolicyRejectsUnknownKeysBeforeCredentialLoad() async throws {
+        let gate = try await authenticatedGate()
+        let connector = FakeConnector(challenge: try .init(
+            profileID: profileID, algorithm: "ssh-ed25519", fingerprint: "SHA256:strict"
+        ))
+        let store = try MobileRemoteHostKeyStore(
+            databaseURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("controller-strict-\(UUID().uuidString).json"),
+            accountID: "account-1"
+        )
+        let controller = MobileRemoteConnectionController(
+            accountGate: gate, connector: connector, hostKeyStoreProvider: { _ in store }
+        )
+        let strictProfile = try MobileRemoteProfile(
+            id: profileID, host: "example.com", username: "alice",
+            carrier: .ssh, authentication: .password, hostKeyPolicy: .strict
+        )
+        let recorder = LoadRecorder()
+        await #expect(throws: MobileRemoteSSHError.hostKeyRejected) {
+            _ = try await controller.connect(
+                profile: strictProfile,
+                credential: MobileRemoteSSHCredentialSource {
+                    await recorder.mark()
+                    return .password("secret")
+                },
+                approveUnknownHost: { _ in true }
+            )
+        }
+        #expect(await recorder.loaded == false)
+    }
+
     @Test func signOutWhileCredentialLoadsPreventsAuthentication() async throws {
         let gate = try await authenticatedGate()
         let connector = FakeConnector(challenge: try .init(

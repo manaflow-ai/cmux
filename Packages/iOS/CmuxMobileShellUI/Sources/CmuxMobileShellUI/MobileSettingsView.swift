@@ -27,6 +27,7 @@ struct MobileSettingsView: View {
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
+    @Environment(\.mobileRemoteConnectionController) private var remoteConnectionController
     /// Optional like the other app-root stores; without it the row falls
     /// back to the channel-gated binary catalog (never-fetched policy).
     @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter: MobileWhatsNewCenter?
@@ -82,6 +83,19 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
+
+                if let remoteConnectionController {
+                    Section {
+                        NavigationLink {
+                            MobileRemoteConnectionView(controller: remoteConnectionController)
+                        } label: {
+                            Label(L10n.string("mobile.settings.remoteConnections", defaultValue: "Remote Connections"), systemImage: "terminal")
+                        }
+                        .accessibilityIdentifier("MobileSettingsRemoteConnections")
+                    } footer: {
+                        Text(L10n.string("mobile.settings.remoteConnectionsFooter", defaultValue: "Connect to SSH hosts and cmux sessions from this device."))
+                    }
+                }
 
                 // Directly under the account card so release notices stay
                 // discoverable after their one-time launch sheet is

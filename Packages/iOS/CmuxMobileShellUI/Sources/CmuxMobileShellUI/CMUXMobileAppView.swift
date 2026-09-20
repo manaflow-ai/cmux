@@ -1,6 +1,7 @@
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
+import CmuxRemoteConnections
 import SwiftUI
 #if os(iOS)
 import CmuxMobileShellModel
@@ -25,6 +26,7 @@ public struct CMUXMobileAppView: View {
     /// reconnect decision. Root view lifecycle callbacks share this instance.
     @State private var startupConnectionCoordinator = MobileStartupConnectionCoordinator()
     private let signOutHook: MobileSignOutHook
+    private let remoteConnectionController: (any MobileRemoteConnectionServing)?
     #if os(iOS)
     private let onboardingStore: MobileOnboardingStore
     #endif
@@ -46,7 +48,8 @@ public struct CMUXMobileAppView: View {
         browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
         onboardingStore: MobileOnboardingStore = MobileOnboardingStore(defaults: .standard, forceComplete: true),
-        signOutHook: MobileSignOutHook = MobileSignOutHook()
+        signOutHook: MobileSignOutHook = MobileSignOutHook(),
+        remoteConnectionController: (any MobileRemoteConnectionServing)? = nil
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
@@ -54,6 +57,7 @@ public struct CMUXMobileAppView: View {
         _simulatorStreamStore = State(initialValue: simulatorStreamStore)
         self.onboardingStore = onboardingStore
         self.signOutHook = signOutHook
+        self.remoteConnectionController = remoteConnectionController
     }
     #else
     /// Creates the app view on non-iOS platforms.
@@ -67,13 +71,15 @@ public struct CMUXMobileAppView: View {
         browserStore: BrowserSurfaceStore = BrowserSurfaceStore(),
         browserStreamStore: BrowserStreamStore = BrowserStreamStore(),
         simulatorStreamStore: MobileSimulatorStreamStore = MobileSimulatorStreamStore(),
-        signOutHook: MobileSignOutHook = MobileSignOutHook()
+        signOutHook: MobileSignOutHook = MobileSignOutHook(),
+        remoteConnectionController: (any MobileRemoteConnectionServing)? = nil
     ) {
         _store = State(initialValue: store)
         _browserStore = State(initialValue: browserStore)
         _browserStreamStore = State(initialValue: browserStreamStore)
         _simulatorStreamStore = State(initialValue: simulatorStreamStore)
         self.signOutHook = signOutHook
+        self.remoteConnectionController = remoteConnectionController
     }
     #endif
 
@@ -89,6 +95,7 @@ public struct CMUXMobileAppView: View {
             .environment(browserStore)
             .environment(browserStreamStore)
             .environment(simulatorStreamStore)
+            .environment(\.mobileRemoteConnectionController, remoteConnectionController)
         #else
         CMUXMobileRootView(
             store: store,
@@ -98,6 +105,7 @@ public struct CMUXMobileAppView: View {
             .environment(browserStore)
             .environment(browserStreamStore)
             .environment(simulatorStreamStore)
+            .environment(\.mobileRemoteConnectionController, remoteConnectionController)
         #endif
     }
 }
