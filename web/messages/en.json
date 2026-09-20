@@ -288,6 +288,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verify your email to continue",
     "emailUnverifiedBody": "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    "signupPendingBody": "If you already have an account, sign in with the method you used before. If you just created an account, verify your email before signing in.",
     "genericTitle": "Sign-in could not be completed",
     "genericBody": "Please try again. If the problem continues, contact support.",
     "backToSignIn": "Back to sign in"

@@ -26,6 +26,9 @@ final class DeviceRegistryClient {
     private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var observeTask: Task<Void, Never>?
+    private var defaultsObserver: NSObjectProtocol?
+    private var teamScopeObserver: NSObjectProtocol?
+    private var observedIncomingAccess: Bool?
     /// The scope (team + tag + routes) most recently registered, used to skip
     /// redundant POSTs. Keyed on the full scope rather than routes alone so an
     /// account/team switch with unchanged routes still re-registers in the newly
@@ -57,6 +60,26 @@ final class DeviceRegistryClient {
     /// once at the composition root (after `auth` is constructed).
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        if defaultsObserver == nil {
+            defaultsObserver = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.incomingAccessDidChange() }
+            }
+        }
+        if teamScopeObserver == nil {
+            teamScopeObserver = NotificationCenter.default.addObserver(
+                forName: .cmuxCloudTeamScopeDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    // Keep the previous receipt until the ordered publication
+                    // lane withdraws its old-team routes before publishing anew.
+                    self?.updateLeaseRenewal()
+                    self?.enqueuePublication()
+                }
+            }
+        }
+        incomingAccessDidChange()
         startObserving()
         observeAccount()
     }
@@ -89,8 +112,16 @@ final class DeviceRegistryClient {
         return baseline != current
     }
 
+    private func incomingAccessDidChange() {
+        let allowed = MobileRemoteControlPolicy.allowsIncomingAccess()
+        guard observedIncomingAccess != allowed else { return }
+        observedIncomingAccess = allowed
+        updateLeaseRenewal()
+        enqueuePublication()
+    }
+
     private func startObserving() {
-        observeTask?.cancel()
+        guard observeTask == nil else { return }
         observeTask = Task { @MainActor [weak self] in
             for await status in MobileHostService.shared.statusUpdates() {
                 if Task.isCancelled { break }

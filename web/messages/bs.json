@@ -86,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "Potvrdite e-poštu za nastavak",
     "emailUnverifiedBody": "Prijavite se metodom koji ste prvobitno koristili, a zatim potvrdite e-poštu prije korištenja ovog načina prijave.",
+    "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
     "backToSignIn": "Nazad na prijavu"

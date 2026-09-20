@@ -121,7 +121,7 @@ struct MachinesPanelView: View {
         }
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
-        .onChange(of: accountFlow?.selectedTeamID) { _, _ in
+        .onChange(of: accountFlow?.confirmedTeamID) { _, _ in
             viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
