@@ -26,9 +26,8 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.testhost
         CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_CMUXRemoteTestKeychainGroup: "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests"
+        INFOPLIST_FILE: Host/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
   RemoteConnectionsTests:
     type: bundle.unit-test
     platform: iOS
@@ -44,8 +43,8 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.remoteconnections.tests
         CODE_SIGN_ENTITLEMENTS: RemoteConnectionsTests.entitlements
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CMUXRemoteTestKeychainGroup: "$(AppIdentifierPrefix)dev.cmux.remoteconnections.tests"
+        INFOPLIST_FILE: Tests/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
 schemes:
   RemoteConnectionsTests:
     build:
