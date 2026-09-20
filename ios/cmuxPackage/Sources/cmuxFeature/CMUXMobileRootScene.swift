@@ -363,6 +363,7 @@ public struct CMUXMobileRootScene: View {
             .environment(auth.coordinator)
             .environment(macListAuthState)
             .analytics(analytics)
+            .analyticsClientID(analytics.anonymousID)
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .environment(\.mobileAppLog, appLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)

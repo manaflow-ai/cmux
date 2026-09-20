@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export SWIFTPM_MIRROR_CONFIG="${SWIFTPM_MIRROR_CONFIG:-$SCRIPT_DIR/../config/swiftpm/mirrors.json}"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
@@ -895,6 +896,9 @@ Options:
                          builds and prints the app path but does not open it.
   --prod-auth            Point this tagged Debug build at production Stack auth,
                          cmux APIs, and the production Iroh broker.
+                         Without it, tagged builds use the shared dev backend, which
+                         needs a cmuxterm-hq checkout. Outside one, set
+                         CMUX_DEV_BACKEND_MODE=local to use http://localhost:<port>.
   --credentials-file <path>
                          Bake only the path to a current-user-owned 0600 auth file.
                          The credential values never enter argv, Info.plist, or
@@ -1277,8 +1281,11 @@ CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_R
 CMUX_DEV_ORIGIN="http://localhost:${CMUX_DEV_PORT}"
 if [[ -n "$TAG" && "$PROD_AUTH" -eq 0 ]]; then
   source "$PWD/scripts/lib/dev-backend-origin.sh"
-  CMUX_DEV_ORIGIN="$(cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD")" || exit 1
-  export CMUX_DEV_BACKEND_URL="$CMUX_DEV_ORIGIN"
+  CMUX_DEV_ORIGIN="$(cmux_resolve_tagged_backend "$TAG_SLUG" "$PWD" "$CMUX_DEV_ORIGIN")" || exit 1
+  # Local mode has no shared backend to bake into the app or the Iroh broker default.
+  if [[ "${CMUX_DEV_BACKEND_MODE:-remote}" != "local" ]]; then
+    export CMUX_DEV_BACKEND_URL="$CMUX_DEV_ORIGIN"
+  fi
 fi
 CMUX_DEV_API_BASE_URL_VALUE="$(cmux_attach_resolve_dev_api_base_url "$CMUX_DEV_ORIGIN")"
 CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_DEV_BACKEND_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
@@ -1824,6 +1831,12 @@ else
     cmux_tui_install_args+=(
       --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
     )
+  fi
+  # The installer verifies the published manifest's build-provenance attestation
+  # through gh. A dev Mac without an authenticated gh is the one explicit
+  # exception; the installer prints the unattested warning in that case.
+  if ! command -v gh >/dev/null 2>&1 || ! gh auth token >/dev/null 2>&1; then
+    cmux_tui_install_args+=(--allow-unattested)
   fi
   "$PWD/scripts/install-cmux-tui-client.sh" "${cmux_tui_install_args[@]}"
 fi
