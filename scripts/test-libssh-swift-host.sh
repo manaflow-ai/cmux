@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
+runner_temp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+mkdir -p "$runner_temp"
+export RUNNER_TEMP="$runner_temp"
 info="$RUNNER_TEMP/cmux-native-ssh-fixture.json"
 python3 - "$info" <<'PY'
 from pathlib import Path
@@ -10,7 +13,7 @@ PY
 fixture_pid=""
 cleanup() { [[ -z "$fixture_pid" ]] || kill "$fixture_pid" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
-uv run "$root/tests/ssh_native/fixture.py" --server-only --server-info "$info" > "$RUNNER_TEMP/cmux-native-ssh-fixture.log" 2>&1 &
+uv run --script "$root/tests/ssh_native/fixture.py" --server-only --server-info "$info" > "$RUNNER_TEMP/cmux-native-ssh-fixture.log" 2>&1 &
 fixture_pid=$!
 for _ in $(seq 1 100); do
   python3 - "$info" <<'PY' >/dev/null 2>&1 && break
@@ -19,10 +22,14 @@ with open(sys.argv[1]) as file: json.load(file)
 PY
   sleep 0.1
 done
-python3 - "$info" <<'PY' >/dev/null
+if ! python3 - "$info" <<'PY' >/dev/null
 import json,sys
 with open(sys.argv[1]) as file: json.load(file)
 PY
+then
+  cat "$RUNNER_TEMP/cmux-native-ssh-fixture.log" >&2 || true
+  exit 1
+fi
 IFS=$'\t' read -r port password fingerprint ed25519_key < <(python3 - "$info" <<'PY'
 import json,sys
 d=json.load(open(sys.argv[1]))
