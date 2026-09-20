@@ -65,6 +65,37 @@ enum IrxBrokerArmingSupport {
 
 @Suite("broker signing arming")
 struct IrxBrokerArmingTests {
+    @Test(.timeLimit(.minutes(1)))
+    func deactivationCancelsTheActiveRegistrationBehindAQueuedTail() async throws {
+        let started = AsyncStream<Void>.makeStream()
+        let cancelled = AsyncStream<Void>.makeStream()
+        defer { started.continuation.finish(); cancelled.continuation.finish() }
+        let dir = IrxBrokerArmingSupport.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let service = try IrxBrokerService(configuration: .init(
+            baseURL: URL(string: "https://example.invalid")!, clientNamespace: "test.cmux.cancellation",
+            tag: "test", platform: .mac, displayName: nil, cacheDirectory: dir),
+            identity: IrxBrokerArmingSupport.identity(), accessTokenPair: {
+                try await withTaskCancellationHandler {
+                    started.continuation.yield(())
+                    try await Task.sleep(for: .seconds(300))
+                    return nil
+                } onCancel: {
+                    cancelled.continuation.yield(())
+                }
+            }, journal: IrxJournal(subsystem: "dev.cmux.tests", category: "registration-cancellation"))
+        let first = Task { try await service.register(pairingEnabled: true, relayURLHint: nil) }
+        var starts = started.stream.makeAsyncIterator()
+        _ = await starts.next()
+        let second = Task { try await service.register(pairingEnabled: false, relayURLHint: nil) }
+        while !(await service.registrationTailIsDisabled()) { await Task.yield() }
+        await service.deactivate()
+        var cancellations = cancelled.stream.makeAsyncIterator()
+        #expect(await cancellations.next() != nil)
+        _ = await first.result
+        _ = await second.result
+    }
+
     @Test("Mac registrations advertise custom private-path support")
     func registrationCapabilitiesDescribePlatformSupport() {
         #expect(IrxBrokerService.registrationCapabilities(for: .mac).contains(
@@ -107,4 +138,8 @@ struct IrxBrokerArmingTests {
             cacheDirectory: IrxBrokerArmingSupport.temporaryDirectory())
         #expect(await service.hostBrokerClient.bindingAuthorizationID() == nil)
     }
+}
+
+private extension IrxBrokerService {
+    func registrationTailIsDisabled() -> Bool { registrationParameters?.pairingEnabled == false }
 }
