@@ -1,7 +1,6 @@
 import AppKit
 import Darwin
 import Foundation
-
 /// Live delivery-target resolution for agent hook events.
 ///
 /// Invariant (https://github.com/manaflow-ai/cmux/issues/7939): an agent that
@@ -29,7 +28,6 @@ struct AgentDeliveryTargetCandidate: Equatable {
     let workspaceId: UUID
     let surfaceId: UUID
 }
-
 /// Resolves live pid evidence under the requested trust policy.
 ///
 /// The default combines controlling-TTY and start-time-keyed environment
@@ -47,7 +45,6 @@ nonisolated func agentDeliveryTargetCombining(
     if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
     return ttyTarget
 }
-
 /// Pure core of the pid → surface lookup: the unique surface whose pty device
 /// matches the process's controlling terminal. Multiple matches (tty device
 /// reuse across mirrors) or none refuse to guess.
@@ -62,7 +59,6 @@ nonisolated func agentDeliveryTargetMatchingTTYDevice(
     }
     return AgentDeliveryTargetCandidate(workspaceId: first.workspaceId, surfaceId: first.surfaceId)
 }
-
 /// Live identity of a process: its controlling-terminal device
 /// (`proc_bsdinfo.e_tdev`) and its start-time-keyed scope cache key. nil when
 /// the process is gone.
@@ -75,7 +71,6 @@ nonisolated func agentLiveProcessIdentity(pid: pid_t) -> (ttyDevice: Int64?, sco
     let device = Int64(info.e_tdev)
     return (device > 0 ? device : nil, CmuxTopProcessSnapshot.scopeCacheKey(from: info))
 }
-
 @MainActor
 extension Workspace {
     /// TTY metadata writes preserve runtime provenance only when the value is
@@ -99,10 +94,8 @@ extension Workspace {
                 }
         }
     }
-
     /// Cached character-device ids from explicit current-runtime TTY reports.
     var surfaceTTYDevices: [UUID: Int64] { surfaceRegistry.surfaceTTYDevices }
-
     /// Records an explicit `report_tty` from the current terminal runtime.
     /// This stays distinct from dictionary metadata writes because a restored
     /// runtime can legitimately report the same TTY name as its predecessor.
@@ -117,7 +110,6 @@ extension Workspace {
         surfaceRegistry.runtimeReportedTTYSurfaceGenerations[panelId] =
             terminal.surface.runtimeSurfaceGeneration
     }
-
     /// Restores display/port-scan metadata without treating the previous
     /// process's PTY as evidence about the newly created terminal runtime.
     /// A subsequent `report_tty`, even with the same name, populates the live
@@ -408,10 +400,21 @@ extension TerminalController {
                       authenticatedWorkspaceID: remoteWorkspaceId,
                       ttyName: ttyName
                   ),
-                  target.workspaceId == remoteWorkspaceId,
-                  let connectionID = v2UUID(params, WorkspaceRemoteRelayCommandRewriter.connectionIDKey),
-                  authenticatedWorkspace.activeRemoteSessionControllerID == connectionID,
                   authenticatedWorkspace.isRemoteTerminalContext(target.surfaceId) else {
+                return .err(
+                    code: "not_found",
+                    message: String(
+                        localized: "agent.deliveryTarget.error.notFound",
+                        defaultValue: "No live delivery target"
+                    ),
+                    data: nil
+                )
+            }
+            guard self.remoteRelayTTYDeliveryTargetIsCurrent(
+                target,
+                authenticatedWorkspace: authenticatedWorkspace,
+                params: params
+            ) else {
                 return .err(
                     code: "not_found",
                     message: String(
