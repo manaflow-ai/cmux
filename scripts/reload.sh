@@ -1892,8 +1892,11 @@ fi
 if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
   echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
 else
+  # Local Debug builds run on this Mac; fetch only its client slice. The
+  # installer's universal default remains available to distribution workflows.
   cmux_tui_install_args=(
     "$APP_PATH"
+    --arch "$(uname -m)"
     --require-capability wireguard-hub
     --require-capability browser-proxy
   )
