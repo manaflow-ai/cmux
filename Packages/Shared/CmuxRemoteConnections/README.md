@@ -31,10 +31,17 @@ Current behavior:
 - The SSH coordinator approves a credential-free handshake and revalidates the
   live account before loading credentials. Mosh and ET adapters must reuse this
   bootstrap ordering while implementing their own session protocols.
+- `MobileRemoteCmuxProtocolClient` speaks cmux protocol 12 JSON-lines over the
+  SSH `cmux-tui relay` compatibility command. It negotiates `identify`, checks
+  the server identity and protocol version, bounds frames, and exposes ordered
+  workspace and render-attach requests. iOS ships no cmux-tui executable.
 
-This is not a complete encrypted vault. Signing, device enrollment, recovery,
-key rotation, membership, whole-database rollback protection, SSH, account
-authentication integration, sync, and the app integration remain unimplemented.
+This is not a complete encrypted vault or remote terminal product. Signed
+membership chains now authenticate personal and team writers, enforce explicit
+organization recovery, and require key rotation for authority removal. Durable
+anti-rollback persistence, device enrollment UI, recovery execution, SSH app
+integration, Mosh/ET, native Noise remote-link, sync transport, and the app
+integration remain unimplemented.
 The Keychain adapter is storage-only and its signed iOS integration suite still
 requires the hosted iOS runner. Never advertise these helpers as proof of
 secure cross-device synchronization.

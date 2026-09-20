@@ -90,4 +90,37 @@ import Testing
         )
         await session.close()
     }
+
+    @Test func liveCmuxProtocolRelayAgainstFixture() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let port = Int(environment["CMUX_NATIVE_SSH_PORT"] ?? ""),
+              let password = environment["CMUX_NATIVE_SSH_PASSWORD"],
+              let expectedFingerprint = environment["CMUX_NATIVE_SSH_FINGERPRINT"] else {
+            return
+        }
+        let gate = MobileRemoteAccountGate(validate: { _ in })
+        try await gate.setAuthenticatedAccount(accountID: "fixture-account", sessionGeneration: 1)
+        let coordinator = MobileRemoteSSHConnectionCoordinator(
+            accountGate: gate, connector: MobileRemoteNativeSSHConnector(),
+            hostKeyApprover: { challenge, _ in
+                challenge.fingerprint == expectedFingerprint ? .accept : .reject
+            }
+        )
+        let profile = try MobileRemoteProfile(
+            id: UUID(), host: "127.0.0.1", port: port, username: "fixture",
+            carrier: .ssh, authentication: .password,
+            sessionBackend: .cmuxTUI, sessionName: "main"
+        )
+        let session = try await coordinator.connect(
+            profile: profile,
+            credential: MobileRemoteSSHCredentialSource { .password(password) }
+        )
+        let native = try #require(session as? MobileRemoteNativeSSHSession)
+        let client = try native.cmuxProtocolClient()
+        try await client.connect()
+        let workspaces = try await client.listWorkspaces()
+        #expect(workspaces.objectValue?["workspaces"]?.arrayValue?.count == 1)
+        _ = try await client.attachSurface(surface: 1)
+        await client.close()
+    }
 }

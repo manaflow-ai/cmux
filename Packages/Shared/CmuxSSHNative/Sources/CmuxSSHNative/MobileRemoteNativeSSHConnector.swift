@@ -15,7 +15,7 @@ public actor MobileRemoteNativeSSHConnector: MobileRemoteSSHConnecting {
             }
         }
         guard let raw else { throw MobileRemoteNativeSSHError.creationFailed }
-        let handle = MobileRemoteNativeSSHHandle(raw: raw)
+        let handle = MobileRemoteNativeSSHHandle(raw: raw, cmuxRemoteCommand: configuration.cmuxRemoteCommand)
         do {
             try await handle.connect(timeout: configuration.connectTimeout)
             return MobileRemoteNativeSSHHandshake(handle: handle, profile: request.profile)
@@ -26,8 +26,25 @@ public actor MobileRemoteNativeSSHConnector: MobileRemoteSSHConnecting {
 /// Native connector timing limits.
 public struct MobileRemoteNativeSSHConfiguration: Sendable {
     public let connectTimeout: Duration
+    /// Remote executable used for cmux protocol sessions.
+    public let cmuxRemoteCommand: String
+
+    /// Creates native SSH engine limits and the cmux remote entrypoint.
+    /// - Parameters:
+    ///   - connectTimeout: Maximum time spent completing the SSH transport.
+    ///   - cmuxRemoteCommand: Fixed remote command selected by the app. The
+    ///     default is the compatibility JSON-lines relay; a future native
+    ///     Noise command can be injected without changing the SSH boundary.
+    public init(
+        connectTimeout: Duration,
+        cmuxRemoteCommand: String = "cmux-tui relay"
+    ) {
+        self.connectTimeout = connectTimeout
+        self.cmuxRemoteCommand = cmuxRemoteCommand
+    }
+
+    /// Conservative production defaults for direct SSH and cmux sessions.
     public static let defaultConfiguration = Self(connectTimeout: .seconds(30))
-    public init(connectTimeout: Duration) { self.connectTimeout = connectTimeout }
 }
 
 private struct NativeCString: Sendable {
@@ -44,8 +61,12 @@ fileprivate actor MobileRemoteNativeSSHHandle {
     // libssh handles are accessed only through this actor; deinit is the final
     // native teardown path after all actor-isolated operations complete.
     private nonisolated(unsafe) var raw: OpaquePointer?
+    private let cmuxRemoteCommand: String
     private var closed = false
-    init(raw: OpaquePointer) { self.raw = raw }
+    init(raw: OpaquePointer, cmuxRemoteCommand: String) {
+        self.raw = raw
+        self.cmuxRemoteCommand = cmuxRemoteCommand
+    }
     deinit { if let raw { cmux_ssh_destroy(raw) } }
     func connect(timeout: Duration) async throws {
         let start = ContinuousClock.now
@@ -96,14 +117,24 @@ fileprivate actor MobileRemoteNativeSSHHandle {
         for (name, value) in profile.environment {
             guard try await repeatAuthentication({ cmux_ssh_environment(raw, name, value) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
         }
+        let ptyEnabled: Bool
         switch profile.sessionBackend {
         case .shell:
             guard try await repeatAuthentication({ cmux_ssh_request_pty(raw, 80, 24) }) == Int32(CMUX_SSH_OK),
                   try await repeatAuthentication({ cmux_ssh_request_shell(raw) }) == Int32(CMUX_SSH_OK) else { throw MobileRemoteNativeSSHError.nativeFailure }
-        case .tmux, .zellij, .herdr, .cmuxTUI:
+            ptyEnabled = true
+        case .cmuxTUI:
+            let command = try NativeCString(Self.cmuxCommand(base: cmuxRemoteCommand, session: profile.sessionName))
+            guard try await repeatAuthentication({
+                command.withPointer { cmux_ssh_request_exec(raw, $0) }
+            }) == Int32(CMUX_SSH_OK) else {
+                throw MobileRemoteNativeSSHError.nativeFailure
+            }
+            ptyEnabled = false
+        case .tmux, .zellij, .herdr:
             throw MobileRemoteNativeSSHError.unsupportedSessionBackend(profile.sessionBackend)
         }
-        return MobileRemoteNativeSSHSession(handle: self)
+        return MobileRemoteNativeSSHSession(handle: self, ptyEnabled: ptyEnabled)
     }
 
     private func authenticateKeyboardInteractively(
@@ -138,6 +169,12 @@ fileprivate actor MobileRemoteNativeSSHHandle {
             state = try await repeatAuthentication { cmux_ssh_auth_keyboard(raw) }
         }
         return state
+    }
+
+    private static func cmuxCommand(base: String, session: String?) -> String {
+        guard let session else { return base }
+        let escaped = session.replacingOccurrences(of: "'", with: "'\\''")
+        return "\(base) --session '\(escaped)'"
     }
 
     private func repeatAuthentication(_ operation: () -> Int32) async throws -> Int32 {
@@ -232,6 +269,11 @@ public protocol MobileRemoteSFTPProviding: Sendable {
 /// Authenticated shell session backed by libssh.
 public struct MobileRemoteNativeSSHSession: MobileRemoteSSHSession, MobileRemoteSFTPProviding {
     fileprivate let handle: MobileRemoteNativeSSHHandle
+    private let ptyEnabled: Bool
+    fileprivate init(handle: MobileRemoteNativeSSHHandle, ptyEnabled: Bool) {
+        self.handle = handle
+        self.ptyEnabled = ptyEnabled
+    }
     public func output() -> AsyncThrowingStream<Data, any Error> {
         AsyncThrowingStream { continuation in
             Task {
@@ -251,12 +293,21 @@ public struct MobileRemoteNativeSSHSession: MobileRemoteSSHSession, MobileRemote
         }
     }
     public func sendInput(_ data: Data) async throws { try await handle.write(data) }
-    public func resize(columns: Int, rows: Int) async throws { try await handle.resize(columns: columns, rows: rows) }
+    public func resize(columns: Int, rows: Int) async throws {
+        guard ptyEnabled else { throw MobileRemoteNativeSSHError.execSessionDoesNotSupportResize }
+        try await handle.resize(columns: columns, rows: rows)
+    }
     public func readFile(path: String, maxBytes: Int = 64 * 1024 * 1024) async throws -> Data {
         try await handle.sftpReadFile(path: path, maxBytes: maxBytes)
     }
     public func listDirectory(path: String, maxEntries: Int = 10_000, maxBytes: Int = 4 * 1024 * 1024) async throws -> [String] {
         try await handle.sftpList(path: path, maxEntries: maxEntries, maxBytes: maxBytes)
+    }
+    /// Creates the cmux protocol client for this non-PTY exec session.
+    /// - Throws: When this is an ordinary shell PTY session.
+    public func cmuxProtocolClient() throws -> MobileRemoteCmuxProtocolClient {
+        guard !ptyEnabled else { throw MobileRemoteNativeSSHError.cmuxProtocolRequiresExecSession }
+        return MobileRemoteCmuxProtocolClient(session: self)
     }
     public func close() async { await handle.close() }
 }
@@ -271,4 +322,8 @@ public enum MobileRemoteNativeSSHError: Error, Equatable, Sendable {
     case unsupportedSessionBackend(MobileRemoteSessionBackend)
     case invalidSFTPRequest
     case sftpFailure
+    /// The authenticated channel is a cmux protocol exec stream, not a PTY.
+    case execSessionDoesNotSupportResize
+    /// A cmux protocol client requires the profile's non-PTY exec backend.
+    case cmuxProtocolRequiresExecSession
 }

@@ -68,6 +68,26 @@ class FixtureServer(asyncssh.SSHServer):
 
 async def fixture_process(proc):
     command = proc.command
+    if command and command.startswith("cmux-tui relay"):
+        async for line in proc.stdin:
+            try:
+                request = json.loads(line)
+                request_id = request.get("id")
+                name = request.get("cmd")
+                if name == "identify":
+                    response = {"id": request_id, "ok": True, "data": {"app": "cmux-tui", "protocol": 12}}
+                elif name == "set-client-info":
+                    response = {"id": request_id, "ok": True, "data": {}}
+                elif name == "list-workspaces":
+                    response = {"id": request_id, "ok": True, "data": {"workspaces": [{"id": "fixture-workspace"}]}}
+                elif name == "attach-surface":
+                    response = {"id": request_id, "ok": True, "data": {"lease": "fixture-lease"}}
+                else:
+                    response = {"id": request_id, "ok": False, "error": "unknown command"}
+                proc.stdout.write(json.dumps(response) + "\n")
+            except Exception:
+                proc.stdout.write("{not-json}\n")
+        return
     if command == "printf cmux-fixed-output":
         proc.stdout.write("cmux-fixed-output\n")
         proc.exit(0)

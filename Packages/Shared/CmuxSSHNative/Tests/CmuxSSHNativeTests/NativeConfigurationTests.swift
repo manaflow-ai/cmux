@@ -4,7 +4,10 @@ import CSSHNative
 
 @Suite struct NativeConfigurationTests {
     @Test func defaultConnectionTimeoutIsPositive() {
-        #expect(NativeDurationProbe.isPositive(MobileRemoteNativeSSHConfiguration.defaultConfiguration.connectTimeout))
+        #expect(NativeDurationProbe.isPositive(
+            MobileRemoteNativeSSHConfiguration.defaultConfiguration.connectTimeout
+        ))
+        #expect(MobileRemoteNativeSSHConfiguration.defaultConfiguration.cmuxRemoteCommand == "cmux-tui relay")
     }
 
     @Test func CShimCreatesAndDestroysAnIsolatedSessionWithoutReadingUserConfig() {

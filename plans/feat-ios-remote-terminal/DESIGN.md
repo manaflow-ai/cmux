@@ -25,12 +25,14 @@ There are two SSH consumers:
   fulfill this requirement.
 
 The current daemon exposes `remote-link --stdio` (framed Noise/session/services)
-and `relay --session` (raw JSON lines for an already-running owner).
-The relay is documented as a diagnostic bypass of managed preparation and
-identity checks, so it is not silently substituted for a supported client.
-The implementation must choose and test a supported noninteractive protocol
-entrypoint, including version negotiation, startup, terminal continuity,
-geometry ownership, and permission failures.
+and `relay --session` (raw JSON lines for an already-running owner). Over an SSH
+carrier, the pinned SSH host key and SSH authentication already provide the
+carrier boundary, so the Swift package uses the supported protocol-12 relay
+compatibility stream rather than nesting a second handshake. It negotiates
+`identify`, bounds frames, preserves ordered requests, and sets up render
+attachments. Direct WebSocket, Iroh, and relay-provider carriers still require
+the framed Noise client, including version negotiation, startup, terminal
+continuity, geometry ownership, and permission failures.
 
 Mosh and ET are native session adapters, bootstrapped with the shared SSH
 authentication service. Mosh synchronizes terminal state over UDP; it cannot
@@ -175,7 +177,8 @@ features alongside each other; transport and UI prerequisites still gate both:
 
 1. Native SSH with verified host identity, authentication matrix, plain shell,
    terminal input/resize/backpressure, and saved credential/profile management.
-2. Native cmux Swift protocol client and remote workspace/terminal lifecycle.
+2. Protocol-12 Swift SSH client and remote workspace/terminal lifecycle, then
+   the native cmux Noise client for non-SSH carriers.
 3. Mosh/ET sessions, multiplexer discovery and recovery, SFTP, tunnels, input
    tooling, and all reference terminal features.
 4. Encrypted device enrollment, personal and team vaults in parallel,

@@ -50,6 +50,25 @@ import Testing
         }
     }
 
+    @Test(arguments: ["main", "dev-1", "a_b.c"])
+    func acceptsSafeCmuxSessionNames(sessionName: String) throws {
+        let profile = try MobileRemoteProfile(
+            id: profileID, host: "example.com", username: "alice",
+            sessionBackend: .cmuxTUI, sessionName: sessionName
+        )
+        #expect(profile.sessionName == sessionName)
+    }
+
+    @Test(arguments: ["main; rm -rf /", "name with spaces", "name'quote", String(repeating: "x", count: 129)])
+    func rejectsCmuxSessionShellSyntax(sessionName: String) {
+        #expect(throws: MobileRemoteProfileError.invalidSessionName) {
+            try MobileRemoteProfile(
+                id: profileID, host: "example.com", username: "alice",
+                sessionBackend: .cmuxTUI, sessionName: sessionName
+            )
+        }
+    }
+
     @Test func environmentValuesRemainDataAndCannotContainNUL() throws {
         let data = "line one\nline two; $(never executed)"
         let profile = try MobileRemoteProfile(

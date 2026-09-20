@@ -188,6 +188,15 @@ public struct MobileRemoteProfile: Codable, Equatable, Identifiable, Sendable {
                 throw MobileRemoteProfileError.invalidPort(eternalTerminalPort)
             }
         }
+        if let sessionName {
+            guard (1...128).contains(sessionName.utf8.count),
+                  sessionName.utf8.allSatisfy({
+                      ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 90)
+                          || ($0 >= 97 && $0 <= 122) || $0 == 45 || $0 == 46 || $0 == 95
+                  }) else {
+                throw MobileRemoteProfileError.invalidSessionName
+            }
+        }
         if jumpHostProfileID == id {
             throw MobileRemoteProfileError.selfReferentialJumpHost
         }

@@ -6,6 +6,8 @@ public enum MobileRemoteProfileError: Error, Equatable, Sendable {
     case invalidPort(Int)
     /// UDP interval is outside the valid port range.
     case invalidUDPRange
+    /// A cmux session selector contains shell syntax or exceeds its bound.
+    case invalidSessionName
     /// A profile cannot use itself as its SSH jump host.
     case selfReferentialJumpHost
     /// Environment name is not a shell identifier.
