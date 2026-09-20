@@ -3659,6 +3659,7 @@
 		D017093861349E48BF816E02 /* VMRemoteWorkspaceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */; };
 		142CC5D4A966D7EF32E2889F /* VMResourceStatsStore+Entry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69879F55D8ABC32BD1538457 /* VMResourceStatsStore+Entry.swift */; };
 		141CC77C279D12D2CBAC100D /* VMResourceStatsStore+Request.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87AC4F0A7C5E79CCAA7AE47 /* VMResourceStatsStore+Request.swift */; };
+		F8F833CD21A74AE6B74391D4 /* VMResourceStatsStore+RetentionToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FF6D6E2E1B848E49FA2028E /* VMResourceStatsStore+RetentionToken.swift */; };
 		B41A034E9988FF28D678DD7C /* VMResourceStatsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC1FC55E8DA750AD0DABABF4 /* VMResourceStatsStore.swift */; };
 		65C5955B618A20A4C25BE6C0 /* VMResourceStatsStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EEC2ED3EAC6FC7CAE7A9375 /* VMResourceStatsStoreTests.swift */; };
 		01570D43E7D9E66A29DF0D19 /* VMResourceStatsSubscription.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16379FF80A4A19F633F00413 /* VMResourceStatsSubscription.swift */; };
@@ -7544,6 +7545,7 @@
 		BA2691D26BF6676FF32FBC54 /* VMRemoteWorkspaceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMRemoteWorkspaceResolver.swift; sourceTree = "<group>"; };
 		69879F55D8ABC32BD1538457 /* VMResourceStatsStore+Entry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMResourceStatsStore+Entry.swift"; sourceTree = "<group>"; };
 		E87AC4F0A7C5E79CCAA7AE47 /* VMResourceStatsStore+Request.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMResourceStatsStore+Request.swift"; sourceTree = "<group>"; };
+		9FF6D6E2E1B848E49FA2028E /* VMResourceStatsStore+RetentionToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMResourceStatsStore+RetentionToken.swift"; sourceTree = "<group>"; };
 		BC1FC55E8DA750AD0DABABF4 /* VMResourceStatsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMResourceStatsStore.swift"; sourceTree = "<group>"; };
 		0EEC2ED3EAC6FC7CAE7A9375 /* VMResourceStatsStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMResourceStatsStoreTests.swift"; sourceTree = "<group>"; };
 		16379FF80A4A19F633F00413 /* VMResourceStatsSubscription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMResourceStatsSubscription.swift"; sourceTree = "<group>"; };
@@ -8406,6 +8408,7 @@
 				FA1253800000000000000002 /* VMStats.swift */,
 				69879F55D8ABC32BD1538457 /* VMResourceStatsStore+Entry.swift */,
 				E87AC4F0A7C5E79CCAA7AE47 /* VMResourceStatsStore+Request.swift */,
+				9FF6D6E2E1B848E49FA2028E /* VMResourceStatsStore+RetentionToken.swift */,
 				D2B86EB1C6213098139EF45F /* MachinePlanSnapshot+FreeAccessBanner.swift */,
 				16379FF80A4A19F633F00413 /* VMResourceStatsSubscription.swift */,
 				B12B8221BA9A4271E0919C72 /* MachinePlanSnapshot.swift */,
@@ -14805,6 +14808,7 @@
 				F1C699902D31503EE3D492DF /* VMMachineKind.swift in Sources */,
 				142CC5D4A966D7EF32E2889F /* VMResourceStatsStore+Entry.swift in Sources */,
 				141CC77C279D12D2CBAC100D /* VMResourceStatsStore+Request.swift in Sources */,
+				F8F833CD21A74AE6B74391D4 /* VMResourceStatsStore+RetentionToken.swift in Sources */,
 				B41A034E9988FF28D678DD7C /* VMResourceStatsStore.swift in Sources */,
 				01570D43E7D9E66A29DF0D19 /* VMResourceStatsSubscription.swift in Sources */,
 				B12438030000000000000001 /* VMSnapshotResult.swift in Sources */,

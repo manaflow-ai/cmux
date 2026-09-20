@@ -4,11 +4,6 @@ import Foundation
 /// snapshot presentation ordered without per-panel optimistic copies or timers.
 @MainActor
 final class VMResourceStatsStore {
-    struct RetentionToken: Sendable {
-        fileprivate let generation: UInt64
-        fileprivate let sequence: UInt64
-    }
-
     private var entries: [String: Entry] = [:]
     private var fleetMachineIDs: Set<String> = []
     private var unlistedInsertionOrder: [String] = []

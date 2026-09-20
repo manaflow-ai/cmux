@@ -5,23 +5,9 @@ private func validCPU(_ percent: Double) -> Double? {
     return percent
 }
 
-private enum CapacityResource {
-    case memory
-    case disk
-
-    func detail(used: Int, total: Int) -> String {
-        switch self {
-        case .memory:
-            return String(localized: "cloudTree.stats.memory", defaultValue: "Mem \(gb(used))/\(gb(total)) GB")
-        case .disk:
-            return String(localized: "cloudTree.stats.disk", defaultValue: "Disk \(gb(used))/\(gb(total)) GB")
-        }
-    }
-}
-
 private func capacity(
     label: String,
-    resource: CapacityResource,
+    resource: CloudMachineResourcePresentation.CapacityResource,
     used: Int?,
     total: Int?,
     unavailable: String,
@@ -42,7 +28,7 @@ private func capacity(
     return .init(
         label: label,
         percent: percent,
-        detail: "\(resource.detail(used: used, total: total)) (\(value))",
+        detail: "\(resource.detail(used: gb(used), total: gb(total))) (\(value))",
         inlineDetail: "\(capacity) (\(value))",
         placeholder: placeholder
     )
