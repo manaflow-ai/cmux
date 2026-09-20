@@ -35,6 +35,11 @@ LARGE_SUITE_METHOD_THRESHOLD = 40
 DEFAULT_TIMINGS_PATH = Path(__file__).resolve().parent / "cmux-unit-test-timings.json"
 FALLBACK_TEST_MS = 200
 FOCUSED_GATE_SELECTORS = {
+    "cmuxTests/AgentNotificationRegressionTests",
+    "cmuxTests/AgentJournalLifecycleCenterTests",
+    "cmuxTests/FeedWaiterRegistryTests",
+    "cmuxTests/ClaudeBackgroundWorkNotifyTests",
+    "cmuxTests/OpenCodeHookRegressionTests",
     "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",

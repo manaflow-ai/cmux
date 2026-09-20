@@ -104,6 +104,59 @@ else:
                 result, _ = self.run_gate("zero", suite)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
 
+    def run_packages(self, warning_package=""):
+        script = step_script("swift-package-tests", "Run Swift package unit tests")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for package in (ROOT / "Packages").glob("*/*"):
+                if package.is_dir():
+                    (root / package.relative_to(ROOT)).mkdir(parents=True)
+            helpers = root / "scripts/ci"
+            helpers.mkdir(parents=True)
+            isolated = helpers / "run-swift-testing-suites.sh"
+            isolated.write_text('#!/bin/bash\nexec swift test --package-path "$1"\n')
+            isolated.chmod(0o755)
+            bindir = root / "bin"
+            bindir.mkdir()
+            cargo = bindir / "cargo"
+            cargo.write_text("#!/bin/bash\nexit 0\n")
+            cargo.chmod(0o755)
+            swift = bindir / "swift"
+            swift.write_text("""#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+with open(os.environ['CALLS'], 'a') as f:
+    f.write(json.dumps(args) + '\\n')
+package = Path(args[args.index('--package-path') + 1]).name
+if package == os.environ['WARNING_PACKAGE'] and '-warnings-as-errors' in args:
+    print('error: compiler warning promoted to an error')
+    sys.exit(1)
+print('Test run with 4 tests in 1 suite passed after 0.1 seconds.')
+""")
+            swift.chmod(0o755)
+            calls = root / "calls.jsonl"
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}",
+                       CALLS=str(calls), WARNING_PACKAGE=warning_package)
+            result = subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
+                                    text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            return result, [json.loads(line) for line in calls.read_text().splitlines()]
+
+    def test_package_warning_gates_run_once(self):
+        result, calls = self.run_packages()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
+            matching = [args for args in calls if args[args.index('--package-path') + 1].endswith('/' + package)]
+            self.assertEqual(len(matching), 1)
+            args = matching[0]
+            self.assertEqual(args[args.index('-Xswiftc') + 1], '-warnings-as-errors')
+
+    def test_package_warning_is_still_fatal(self):
+        for package in ("CMUXAgentLaunch", "CmuxAgentJournal"):
+            with self.subTest(package=package):
+                result, _ = self.run_packages(package)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
