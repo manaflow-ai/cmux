@@ -27,13 +27,13 @@ struct CloudTreeLayoutMetricsTests {
 
     @Test("title width receives space after stable trailing content")
     func titleWidthReservesControls() {
-        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 244)
-        #expect(metrics.titleWidth(rowWidth: 176, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
+        #expect(metrics.titleWidth(rowWidth: 420, leadingContentWidth: 92, trailingContentWidth: 76) == 240)
+        #expect(metrics.titleWidth(rowWidth: 180, leadingContentWidth: 92, trailingContentWidth: 76) == 0)
     }
 
-    @Test("the content inset matches the tuned Cloud row default")
-    func referenceInsetIsEightPoints() {
-        #expect(metrics.referenceInset == 8)
+    @Test("the content inset matches the former setup entry")
+    func referenceInsetIsTwelvePoints() {
+        #expect(metrics.referenceInset == 12)
         #expect(CloudTreeStyle.compact.rowGrid.trailingPadding == metrics.referenceInset)
     }
 
