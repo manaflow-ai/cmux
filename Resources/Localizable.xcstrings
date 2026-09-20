@@ -538355,55 +538355,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux forwards ports without Cloud VPN. Safari, Chrome, and other Mac apps need Cloud VPN to reach services bound to the machine’s private address."
+            "value": "cmux forwards ports without Cloud VPN. Web browsers and other Mac apps need Cloud VPN to reach services bound to the machine’s private address."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux leitet Ports ohne Cloud-VPN weiter. Safari, Chrome und andere Mac-Apps benötigen Cloud-VPN, um Dienste an der privaten Adresse der Maschine zu erreichen."
+            "value": "cmux leitet Ports ohne Cloud-VPN weiter. Webbrowser und andere Mac-Apps benötigen Cloud-VPN, um Dienste an der privaten Adresse der Maschine zu erreichen."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux transfère les ports sans VPN Cloud. Safari, Chrome et les autres apps Mac ont besoin du VPN Cloud pour atteindre les services liés à l’adresse privée de la machine."
+            "value": "cmux transfère les ports sans VPN Cloud. Les navigateurs web et les autres apps Mac ont besoin du VPN Cloud pour atteindre les services liés à l’adresse privée de la machine."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعيد cmux توجيه المنافذ دون Cloud VPN. تحتاج Safari وChrome وتطبيقات Mac الأخرى إلى Cloud VPN للوصول إلى الخدمات المرتبطة بالعنوان الخاص للجهاز."
+            "value": "يعيد cmux توجيه المنافذ دون Cloud VPN. تحتاج متصفحات الويب وتطبيقات Mac الأخرى إلى Cloud VPN للوصول إلى الخدمات المرتبطة بالعنوان الخاص للجهاز."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux reenvía puertos sin Cloud VPN. Safari, Chrome y otras apps de Mac necesitan Cloud VPN para acceder a servicios enlazados a la dirección privada de la máquina."
+            "value": "cmux reenvía puertos sin Cloud VPN. Los navegadores web y otras apps de Mac necesitan Cloud VPN para acceder a servicios enlazados a la dirección privada de la máquina."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 可轉送連接埠，不需要 Cloud VPN。Safari、Chrome 和其他 Mac App 需要 Cloud VPN，才能存取繫結至機器私人位址的服務。"
+            "value": "cmux 可轉送連接埠，不需要 Cloud VPN。網頁瀏覽器和其他 Mac App 需要 Cloud VPN，才能存取繫結至機器私人位址的服務。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 可转发端口，无需 Cloud VPN。Safari、Chrome 和其他 Mac 应用需要 Cloud VPN，才能访问绑定到机器专用地址的服务。"
+            "value": "cmux 可转发端口，无需 Cloud VPN。网页浏览器和其他 Mac 应用需要 Cloud VPN，才能访问绑定到机器专用地址的服务。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux는 Cloud VPN 없이 포트를 전달합니다. Safari, Chrome 및 다른 Mac 앱이 머신의 비공개 주소에 바인딩된 서비스에 접근하려면 Cloud VPN이 필요합니다."
+            "value": "cmux는 Cloud VPN 없이 포트를 전달합니다. 웹 브라우저 및 다른 Mac 앱이 머신의 비공개 주소에 바인딩된 서비스에 접근하려면 Cloud VPN이 필요합니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux は Cloud VPN なしでポートを転送します。Safari、Chrome、その他の Mac アプリからマシンのプライベートアドレスにバインドされたサービスにアクセスするには Cloud VPN が必要です。"
+            "value": "cmux は Cloud VPN なしでポートを転送します。Web ブラウザやその他の Mac アプリからマシンのプライベートアドレスにバインドされたサービスにアクセスするには Cloud VPN が必要です。"
           }
         }
       }

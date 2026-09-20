@@ -62,20 +62,12 @@ extension CmuxTuiSnapshotParser {
             }
     }
 
-    /// Whether a listener is reachable through a private machine address.
-    /// Kept pure so the provider can apply it before publishing a resource.
+    /// Whether a listener can be opened through the authenticated guest-loopback browser proxy.
     static func reachableListeningPorts(
         fromSocketListing text: String,
         privateAddress: String?
     ) -> [Int] {
-        var loopbackOnlyByPort: [Int: Bool] = [:]
-        for binding in listeningPortBindings(fromSocketListing: text) {
-            loopbackOnlyByPort[binding.port] =
-                (loopbackOnlyByPort[binding.port] ?? true) && binding.isLoopbackOnly
-        }
-        return loopbackOnlyByPort.keys
-            .filter { privateAddress == nil || loopbackOnlyByPort[$0] == false }
-            .sorted()
+        CloudPortScanResult(socketListing: text)?.ports ?? []
     }
 }
 
