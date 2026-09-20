@@ -80,9 +80,9 @@ guest_welcome_auto() {
          rm -f "\$cmux_welcome_pending" 2>/dev/null || return 0 ;;
     esac
   fi
-  ( set -C; umask 077; printf '%s\\n' "\$" > "\$cmux_welcome_pending" ) 2>/dev/null || return 0
+  ( set -C; umask 077; printf '%s\\n' "\$\$" > "\$cmux_welcome_pending" ) 2>/dev/null || return 0
   if guest_welcome_render; then
-    cmux_welcome_marker_tmp="\$cmux_welcome_marker.tmp.\$"
+    cmux_welcome_marker_tmp="\$cmux_welcome_marker.tmp.\$\$"
     if printf '%s\\n' "\$cmux_welcome_identity" > "\$cmux_welcome_marker_tmp" 2>/dev/null && mv -f "\$cmux_welcome_marker_tmp" "\$cmux_welcome_marker" 2>/dev/null; then
       rm -f "\$cmux_welcome_pending" 2>/dev/null || true
       return 0
