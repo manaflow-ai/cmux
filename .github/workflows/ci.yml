@@ -18,6 +18,15 @@ on:
           - default
           - github
           - warp
+      release_archs:
+        description: Architectures the Release check compiles. `default` follows the CI_RELEASE_BUILD_ARCHS repository variable, which is universal when unset.
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - universal
+          - arm64
 
 permissions:
   contents: read
@@ -279,6 +288,9 @@ jobs:
 
       - name: Validate pull request caches are read-only
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      - name: Validate Release check architectures
+        run: ./tests/test_ci_release_build_archs.sh
 
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
@@ -2922,13 +2934,28 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      - name: Build universal app (Release)
+      # Nightly always builds the shipped universal app. A maintainer can set
+      # CI_RELEASE_BUILD_ARCHS=arm64 to drop the Intel whole-module compile from
+      # this pre-merge check, leaving Intel-only compile breaks to nightly.
+      - name: Resolve Release check architectures
+        id: release-archs
+        env:
+          REQUESTED_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS }}
+        run: |
+          set -euo pipefail
+          archs="$(./scripts/ci/release-build-archs.sh "$REQUESTED_ARCHS")"
+          echo "Release check architectures: $archs"
+          echo "archs=$archs" >> "$GITHUB_OUTPUT"
+
+      - name: Build app (Release)
+        env:
+          RELEASE_ARCHS: ${{ steps.release-archs.outputs.archs }}
         run: |
           set -euo pipefail
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
-            ARCHS="arm64 x86_64" \
+            ARCHS="$RELEASE_ARCHS" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
@@ -2955,6 +2982,8 @@ jobs:
           ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
 
       - name: Validate Release artifact slices
+        env:
+          RELEASE_ARCHS: ${{ steps.release-archs.outputs.archs }}
         run: |
           set -euo pipefail
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
@@ -2973,12 +3002,20 @@ jobs:
           file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$CMUX_CUA_BINARY" "$DIFF_SIDECAR"
           SDK_VERSION="$(otool -l "$APP_BINARY" | awk '/LC_BUILD_VERSION/ { in_version=1; next } in_version && /sdk / { print $2; exit }')"
           echo "App SDK version: $SDK_VERSION"
-          lipo "$APP_BINARY" -verify_arch arm64 x86_64
-          lipo "$CLI_BINARY" -verify_arch arm64 x86_64
+          # The helper and the TUI client are prebuilt downloads, so they are
+          # universal whichever architectures this check compiled.
           lipo "$HELPER_BINARY" -verify_arch arm64 x86_64
-          lipo "$CMUX_CUA_BINARY" -verify_arch arm64 x86_64
+          if [[ "$RELEASE_ARCHS" == "arm64 x86_64" ]]; then
+            lipo "$APP_BINARY" -verify_arch arm64 x86_64
+            lipo "$CLI_BINARY" -verify_arch arm64 x86_64
+            lipo "$CMUX_CUA_BINARY" -verify_arch arm64 x86_64
+          else
+            lipo "$APP_BINARY" -verify_arch arm64
+            lipo "$CLI_BINARY" -verify_arch arm64
+            lipo "$CMUX_CUA_BINARY" -verify_arch arm64
+          fi
           codesign --verify --strict --verbose=4 "$CMUX_CUA_BINARY"
-          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
+          ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR" --archs "$RELEASE_ARCHS"
           [[ "$SDK_VERSION" == 26.* ]]
 
   ci-status:
