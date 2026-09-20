@@ -994,7 +994,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
     assert "for scheme in cmux-unit cmux-numeric-locale; do" in compile_script
-    assert "actions/cache@27d5ce7" in admission
+    assert "actions/cache/restore@27d5ce7" in admission
+    assert "actions/cache@" not in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "app_host_test_products.py stamp" in admission
     assert "framework_root=\"$(dirname \"$framework_source\")\"" in admission

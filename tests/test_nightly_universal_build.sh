@@ -149,23 +149,23 @@ if ! awk '
 fi
 
 CI_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+# A cache saved from a pull request is readable only by that pull request, and
+# each save pushes the main seeds out of a size-capped store. Pull request
+# Release builds read the cache warmed from main and never write one.
 if ! awk '
   /^  release-build:/ { in_release=1; next }
   in_release && /^  [a-zA-Z0-9_-]+:/ { in_release=0 }
+  in_release && /uses: actions\/cache/ { uses=$0 }
+  in_release && /uses: actions\/cache/ && !/uses: actions\/cache\/restore@/ { saw_save=1 }
   in_release && /path: build-universal\/CompilationCache\.noindex/ { saw_path=1 }
   in_release && /!build-universal\/CompilationCache\.noindex/ { saw_parent_exclusion=1 }
   in_release && /key: xcode-compilation-release-/ { saw_key=1 }
   in_release && /restore-keys:/ { saw_restore=1 }
   in_release && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_cache_flag=1 }
   in_release && /COMPILATION_CACHE_LIMIT_SIZE=3221225472/ { saw_runtime_limit=1 }
-  in_release && /max_cache_kib=\$\(\(5 \* 1024 \* 1024\)\)/ { saw_save_limit=1 }
-  in_release && /python3 scripts\/ci\/prune-xcode-compilation-cache\.py "\$cache_path" \\$/ { saw_prune=NR }
-  in_release && saw_prune && NR == saw_prune + 1 && /^ +\|\| echo "::warning::Xcode compilation cache pruning failed/ { saw_prune_nonfatal=1 }
-  in_release && /cache_kib=\$\(du -sk "\$cache_path"/ { saw_measure=NR }
-  in_release && /rm -rf "\$cache_path"/ { saw_skip_save=1 }
-  END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && saw_save_limit && saw_prune && saw_prune_nonfatal && saw_measure && saw_prune < saw_measure && saw_skip_save) }
+  END { exit !(saw_path && saw_parent_exclusion && saw_key && saw_restore && saw_cache_flag && saw_runtime_limit && !saw_save) }
 ' "$CI_WORKFLOW_FILE"; then
-  echo "FAIL: PR release builds must restore and update the bounded cache warmed from main, pruned of dead CAS generations, without archiving it twice"
+  echo "FAIL: PR release builds must restore the cache warmed from main read-only, without archiving it twice"
   exit 1
 fi
 
@@ -577,7 +577,7 @@ fi
 # An oversize cache silently freezes the nightly cache at the last saved entry:
 # every later build restores that entry, exceeds the bound again, and never
 # saves. Surface the skip as a workflow warning so the freeze is visible.
-for cache_workflow in "$WORKFLOW_FILE" "$CI_WORKFLOW_FILE"; do
+for cache_workflow in "$WORKFLOW_FILE"; do
   if grep -Fq 'echo "Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow" \
     || ! grep -Fq 'echo "::warning::Xcode compilation cache exceeds 5 GiB; skipping cache save"' "$cache_workflow"; then
     echo "FAIL: $(basename "$cache_workflow") must report an oversize compilation cache as a workflow warning"
