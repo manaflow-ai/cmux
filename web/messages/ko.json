@@ -6,9 +6,9 @@
     "welcomeIntro": "cmux Cloud에 오신 것을 환영합니다\n코딩 에이전트를 위한 클라우드 머신",
     "welcomeCodeRouter": "\n에이전트\ncodex\t연결된 CodeRouter 계정으로 Codex를 평소처럼 실행하세요.\nclaude\tCodeRouter를 통해 Claude Code를 평소처럼 실행하세요.\ncmux cr accounts\t연결된 계정\ncmux cr models\t사용 가능한 모델\n\nMac에서 계정 추가\ncmux cr add codex\tChatGPT 계정 연결\ncmux cr add claude\tClaude 계정 연결",
     "welcomeWorkspaces": "\n내 머신\n워크스페이스\t한 머신에서 여러 워크스페이스와 터미널을 사용할 수 있습니다. Mac의 패널을 닫아도 원격 터미널은 계속 실행됩니다.\n절전 및 저장 공간\t절전 중에는 연산이 일시 정지됩니다. 다시 연결하면 깨어납니다. 실행 시간과 보관 한도는 요금제에 따릅니다. 삭제 전에 백업하세요.",
-    "welcomeDisplays": "Displays → Desktop\tMac에서 GUI 앱과 브라우저를 여세요.",
-    "welcomeNoDisplays": "Displays → Desktop\t지원되는 머신에서는 Mac에서 GUI 앱과 브라우저를 열 수 있습니다.",
-    "welcomePorts": "Ports\tMac에서 개발 서버를 비공개로 미리 보세요. 다른 사람에게 접근을 허용하려면 Share를 명시적으로 사용하세요.",
+    "welcomeDisplays": "디스플레이 → 데스크톱\tMac에서 GUI 앱과 브라우저를 여세요.",
+    "welcomeNoDisplays": "디스플레이 → 데스크톱\t지원되는 머신에서는 Mac에서 GUI 앱과 브라우저를 열 수 있습니다.",
+    "welcomePorts": "포트\tMac에서 개발 서버를 비공개로 미리 보세요. 다른 사람에게 접근을 허용하려면 공유를 명시적으로 사용하세요.",
     "welcomeFiles": "\n프로젝트\ngit clone <repo-url>\t여기에 프로젝트를 복제하고 작업하세요.\n\nMac에서 파일 전송\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
     "welcomeReplay": "\n가이드\tcmux welcome\n도움말\tcmux --help\n문서\thttps://cmux.com/docs"
   },

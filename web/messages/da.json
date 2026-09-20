@@ -6,9 +6,9 @@
     "welcomeIntro": "Velkommen til cmux Cloud\nDin maskine til kodeagenter",
     "welcomeCodeRouter": "\nAgenter\ncodex\tKør Codex som normalt med dine CodeRouter-konti.\nclaude\tKør Claude Code som normalt gennem CodeRouter.\ncmux cr accounts\tTilknyttede konti\ncmux cr models\tTilgængelige modeller\n\nTilføj konti på din Mac\ncmux cr add codex\tTilknyt en ChatGPT-konto\ncmux cr add claude\tTilknyt en Claude-konto",
     "welcomeWorkspaces": "\nDin maskine\nArbejdsområder\tÉn maskine, mange arbejdsområder og terminaler. Hvis du lukker et panel på din Mac, fortsætter fjernterminalerne.\nDvale og lagring\tDvale sætter beregning på pause; forbind igen for at vække maskinen. Grænser for køretid og opbevaring følger dit abonnement. Tag en sikkerhedskopi før sletning.",
-    "welcomeDisplays": "Displays → Desktop\tÅbn grafiske apps og browsere fra din Mac.",
-    "welcomeNoDisplays": "Displays → Desktop\tGrafiske apps og browsere fra din Mac, når de er tilgængelige.",
-    "welcomePorts": "Ports\tÅbn en privat forhåndsvisning af en udviklingsserver på din Mac. Brug Share aktivt for at give andre adgang.",
+    "welcomeDisplays": "Skærme → Skrivebord (Displays → Desktop)\tÅbn grafiske apps og browsere fra din Mac.",
+    "welcomeNoDisplays": "Skærme → Skrivebord (Displays → Desktop)\tGrafiske apps og browsere fra din Mac, når de er tilgængelige.",
+    "welcomePorts": "Porte\tÅbn en privat forhåndsvisning af en udviklingsserver på din Mac. Brug Del aktivt for at give andre adgang.",
     "welcomeFiles": "\nProjekter\ngit clone <repo-url>\tKlon dit projekt, og arbejd her.\n\nOverfør filer fra din Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
     "welcomeReplay": "\nGuide\tcmux welcome\nHjælp\tcmux --help\nDokumentation\thttps://cmux.com/docs"
   },

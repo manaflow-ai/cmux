@@ -6,9 +6,9 @@
     "welcomeIntro": "Dobro došli u cmux Cloud\nVaša mašina za agente za programiranje",
     "welcomeCodeRouter": "\nAgenti\ncodex\tPokrenite Codex kao i obično uz svoje CodeRouter račune.\nclaude\tPokrenite Claude Code kao i obično putem CodeRoutera.\ncmux cr accounts\tPovezani računi\ncmux cr models\tDostupni modeli\n\nDodajte račune na svom Macu\ncmux cr add codex\tPovežite ChatGPT račun\ncmux cr add claude\tPovežite Claude račun",
     "welcomeWorkspaces": "\nVaša mašina\nRadni prostori\tJedna mašina, više radnih prostora i terminala. Zatvaranje panela na Macu ne zaustavlja udaljene terminale.\nMirovanje i pohrana\tMirovanje pauzira obradu; ponovo se povežite za nastavak. Ograničenja rada i čuvanja podataka zavise od plana. Napravite sigurnosnu kopiju prije brisanja.",
-    "welcomeDisplays": "Displays → Desktop\tOtvorite grafičke aplikacije i preglednike sa svog Maca.",
-    "welcomeNoDisplays": "Displays → Desktop\tGrafičke aplikacije i preglednici sa svog Maca, kada su dostupni.",
-    "welcomePorts": "Ports\tOtvorite privatni pregled razvojnog servera na Macu. Izričito koristite Share da drugima odobrite pristup.",
+    "welcomeDisplays": "Ekrani → Radna površina (Displays → Desktop)\tOtvorite grafičke aplikacije i preglednike sa svog Maca.",
+    "welcomeNoDisplays": "Ekrani → Radna površina (Displays → Desktop)\tGrafičke aplikacije i preglednici sa svog Maca, kada su dostupni.",
+    "welcomePorts": "Portovi\tOtvorite privatni pregled razvojnog servera na Macu. Izričito koristite Podijeli da drugima odobrite pristup.",
     "welcomeFiles": "\nProjekti\ngit clone <repo-url>\tKlonirajte projekat i radite ovdje.\n\nPrenesite datoteke sa svog Maca\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
     "welcomeReplay": "\nVodič\tcmux welcome\nPomoć\tcmux --help\nDokumentacija\thttps://cmux.com/docs"
   },

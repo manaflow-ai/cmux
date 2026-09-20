@@ -6,9 +6,9 @@
     "welcomeIntro": "Boas-vindas ao cmux Cloud\nSua máquina para agentes de programação",
     "welcomeCodeRouter": "\nAgentes\ncodex\tExecute o Codex normalmente com suas contas do CodeRouter.\nclaude\tExecute o Claude Code normalmente pelo CodeRouter.\ncmux cr accounts\tContas conectadas\ncmux cr models\tModelos disponíveis\n\nAdicionar contas no seu Mac\ncmux cr add codex\tConectar uma conta do ChatGPT\ncmux cr add claude\tConectar uma conta do Claude",
     "welcomeWorkspaces": "\nSua máquina\nEspaços de trabalho\tUma máquina, vários espaços de trabalho e terminais. Fechar um painel no Mac mantém os terminais remotos em execução.\nSuspensão e armazenamento\tA suspensão pausa o processamento; reconecte para retomar. Os limites de execução e retenção dependem do plano. Faça backup antes de excluir.",
-    "welcomeDisplays": "Displays → Desktop\tAbra aplicativos gráficos e navegadores pelo Mac.",
-    "welcomeNoDisplays": "Displays → Desktop\tAplicativos gráficos e navegadores pelo Mac, quando disponíveis.",
-    "welcomePorts": "Ports\tAbra um servidor de desenvolvimento como prévia privada no Mac. Use Share explicitamente para dar acesso a outras pessoas.",
+    "welcomeDisplays": "Telas → Área de trabalho (Displays → Desktop)\tAbra aplicativos gráficos e navegadores pelo Mac.",
+    "welcomeNoDisplays": "Telas → Área de trabalho (Displays → Desktop)\tAplicativos gráficos e navegadores pelo Mac, quando disponíveis.",
+    "welcomePorts": "Portas\tAbra um servidor de desenvolvimento como prévia privada no Mac. Use Compartilhar explicitamente para dar acesso a outras pessoas.",
     "welcomeFiles": "\nProjetos\ngit clone <repo-url>\tClone seu projeto e trabalhe aqui.\n\nTransferir arquivos do Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
     "welcomeReplay": "\nGuia\tcmux welcome\nAjuda\tcmux --help\nDocumentação\thttps://cmux.com/docs"
   },

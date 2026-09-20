@@ -6,9 +6,9 @@
     "welcomeIntro": "Te damos la bienvenida a cmux Cloud\nTu máquina para agentes de programación",
     "welcomeCodeRouter": "\nAgentes\ncodex\tEjecuta Codex normalmente con tus cuentas de CodeRouter.\nclaude\tEjecuta Claude Code normalmente mediante CodeRouter.\ncmux cr accounts\tCuentas conectadas\ncmux cr models\tModelos disponibles\n\nAñadir cuentas desde tu Mac\ncmux cr add codex\tConectar una cuenta de ChatGPT\ncmux cr add claude\tConectar una cuenta de Claude",
     "welcomeWorkspaces": "\nTu máquina\nEspacios de trabajo\tUna máquina, muchos espacios de trabajo y terminales. Cerrar un panel del Mac deja los terminales remotos en ejecución.\nSuspensión y almacenamiento\tLa suspensión pausa el cómputo; reconecta para reanudar. Los límites de ejecución y conservación dependen de tu plan. Haz una copia antes de eliminar.",
-    "welcomeDisplays": "Displays → Desktop\tAbre aplicaciones gráficas y navegadores desde tu Mac.",
-    "welcomeNoDisplays": "Displays → Desktop\tAplicaciones gráficas y navegadores desde tu Mac, cuando estén disponibles.",
-    "welcomePorts": "Ports\tAbre un servidor de desarrollo como vista previa privada en tu Mac. Usa Share explícitamente para dar acceso a otras personas.",
+    "welcomeDisplays": "Pantallas → Escritorio\tAbre aplicaciones gráficas y navegadores desde tu Mac.",
+    "welcomeNoDisplays": "Pantallas → Escritorio\tAplicaciones gráficas y navegadores desde tu Mac, cuando estén disponibles.",
+    "welcomePorts": "Puertos\tAbre un servidor de desarrollo como vista previa privada en tu Mac. Usa Compartir explícitamente para dar acceso a otras personas.",
     "welcomeFiles": "\nProyectos\ngit clone <repo-url>\tClona tu proyecto y trabaja aquí.\n\nTransferir archivos desde tu Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
     "welcomeReplay": "\nGuía\tcmux welcome\nAyuda\tcmux --help\nDocumentación\thttps://cmux.com/docs"
   },

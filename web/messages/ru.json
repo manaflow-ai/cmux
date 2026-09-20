@@ -6,9 +6,9 @@
     "welcomeIntro": "Добро пожаловать в cmux Cloud\nВаша машина для агентов программирования",
     "welcomeCodeRouter": "\nАгенты\ncodex\tЗапускайте Codex как обычно с аккаунтами CodeRouter.\nclaude\tЗапускайте Claude Code как обычно через CodeRouter.\ncmux cr accounts\tПодключённые аккаунты\ncmux cr models\tДоступные модели\n\nДобавление аккаунтов на Mac\ncmux cr add codex\tПодключить аккаунт ChatGPT\ncmux cr add claude\tПодключить аккаунт Claude",
     "welcomeWorkspaces": "\nВаша машина\nРабочие пространства\tОдна машина — много рабочих пространств и терминалов. Закрытие панели на Mac не останавливает удалённые терминалы.\nСон и хранение\tСон приостанавливает вычисления; подключитесь снова для пробуждения. Лимиты работы и хранения зависят от тарифа. Перед удалением сделайте резервную копию.",
-    "welcomeDisplays": "Displays → Desktop\tОткрывайте графические приложения и браузеры с Mac.",
-    "welcomeNoDisplays": "Displays → Desktop\tГрафические приложения и браузеры с Mac, если доступны.",
-    "welcomePorts": "Ports\tОткройте приватный предпросмотр сервера разработки на Mac. Для доступа других людей явно используйте Share.",
+    "welcomeDisplays": "Экраны → Рабочий стол (Displays → Desktop)\tОткрывайте графические приложения и браузеры с Mac.",
+    "welcomeNoDisplays": "Экраны → Рабочий стол (Displays → Desktop)\tГрафические приложения и браузеры с Mac, если доступны.",
+    "welcomePorts": "Порты\tОткройте приватный предпросмотр сервера разработки на Mac. Для доступа других людей явно используйте Поделиться.",
     "welcomeFiles": "\nПроекты\ngit clone <repo-url>\tКлонируйте проект и работайте здесь.\n\nПередача файлов с Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
     "welcomeReplay": "\nРуководство\tcmux welcome\nПомощь\tcmux --help\nДокументация\thttps://cmux.com/docs"
   },
