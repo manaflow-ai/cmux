@@ -404,7 +404,7 @@ struct JSONConfigStoreTests {
     }
 
 
-    @Test func setTargetsEffectiveLastDuplicateKey() async throws {
+    @Test func setTargetsFoundationEffectiveDuplicateKey() async throws {
         let (store, fileURL, _) = makeStore()
         let source = """
         {
@@ -420,9 +420,32 @@ struct JSONConfigStoreTests {
         try await store.set("dark", for: key)
 
         let updated = try String(contentsOf: fileURL, encoding: .utf8)
-        #expect(updated.contains("\"appearance\": \"shadowed\""))
+        #expect(updated.contains("\"appearance\": \"system\""))
         #expect(updated.contains("\"appearance\": \"dark\""))
         #expect(await store.value(for: key) == "dark")
+    }
+
+    @Test(arguments: [
+        #"{"app": 1, "app": {"appearance": "shadowed"}}"#,
+        #"{"app": {"appearance": "old"}, "app": {"appearance": "shadowed"}}"#,
+        #"{"app": {"appearance": "old"}, "app": 1}"#,
+        #"{"app": {"appearance": "old", "appearance": "shadowed"}}"#,
+    ])
+    func setDuplicatePathsAgreesWithFreshFoundationRead(source: String) async throws {
+        let (store, fileURL, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        try Data(source.utf8).write(to: fileURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        try await store.set("light", for: key)
+        #expect(await store.value(for: key) == "light")
+        #expect(await JSONConfigStore(fileURL: fileURL).value(for: key) == "light")
+        let bytes = try Data(contentsOf: fileURL)
+        let root = try #require(JSONSerialization.jsonObject(with: JSONCSanitizer().sanitize(bytes)) as? [String: Any])
+        let app = try #require(root["app"] as? [String: Any])
+        #expect(app["appearance"] as? String == "light")
+        if source.contains("shadowed") {
+            #expect(String(decoding: bytes, as: UTF8.self).contains("shadowed"))
+        }
     }
 
     @Test func resetDuplicateKeysDoesNotExposeShadowedValue() async throws {
