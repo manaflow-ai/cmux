@@ -12,15 +12,22 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `35ae29b7c2`, the pin cmux `main`
-adopted in cmux #12669. It is the merge of fork `main` at `3869e81a0` into the
-Cloud loopback link-detection branch (`46428d790` bare localhost port links,
+The submodule pinned by this branch is `a268ca0714`, a merge of the current
+cmux pin `35ae29b7c2` with the merged embedded-environment lifetime fix from
+Ghostty PR #227 and the localhost-port punctuation fix from Ghostty PR #218.
+It preserves the Cloud loopback link-detection changes from cmux #12669 while
+adding owned POSIX environment snapshots for embedded hosts. The integration
+commit is reachable from the `teamleaderleo/ghostty`
+`fix-localhost-port-punctuation` branch pending maintainer integration.
+
+The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
+Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
 `59112c1aa` its test). Fork `main` at that point carried, on top of cmux's
 previous pin `4a0e9e185` (cmux #12842): the NFD Hangul shaping fix (fork PR
 #221, merged as `3869e81a0`; its branch tip `370f08cf1` is `4a0e9e185` merged
 into the Hangul commits), the targeted upstream picks of fork PR #224 (input
-encoding, erase/scroll state, termio lifetime), the write-pool FIFO fix of
-fork PR #223, and the `clear_screen` scrollback change of fork PR #213. It
+encoding, erase/scroll state, termio lifetime), the write-pool FIFO fix of fork
+PR #223, and the `clear_screen` scrollback change of fork PR #213. It
 includes the incremental embedded configuration propagation and Fish SSH
 feature-gating fixes described below, plus the renderer/API compatibility pin
 and the repeated word-selection drag anchor fix. Its tree includes the prior
@@ -35,10 +42,12 @@ resolution.
     through merge commit `3869e81a0`; the pin itself is one merge ahead of
     fork `main`, on the Cloud loopback link-detection branch)
 - Commit:
-  - `35ae29b7c2` (merge of fork `main` `3869e81a0` into `46428d790`; pinned by
-    cmux #12669)
+  - `a268ca0714` (Ghostty #218 punctuation fix on top of the current cmux pin
+    and the Ghostty #227 environment lifetime fix; preserves Cloud loopback)
 - Summary:
-  - Adds the NFD Hangul shaping fix and jamo/style coverage, the fork PR #224
+  - Fixes localhost-port sentence punctuation and owns POSIX environment
+    snapshots retained by embedded Ghostty, on top of the
+    the NFD Hangul shaping fix and jamo/style coverage, the fork PR #224
     upstream picks, the write-pool FIFO fix, `clear_screen` scrollback erasure
     and bare localhost port-link detection on top of cmux's prior pin,
     preserving incremental embedded configuration propagation and Fish SSH
