@@ -106,9 +106,10 @@ final class MachineCreateCoordinator {
         requests[attempt.operationID] = request
         launches[attempt.operationID] = launch
 #if DEBUG
+        let presentationWorkspace = request.presentationWorkspaceID?.uuidString ?? "none"
         cmuxDebugLog(
             "cloud.create.accepted operation=\(attempt.operationID.uuidString) " +
-            "workspace=\(request.presentationWorkspaceID?.uuidString ?? \"none\") " +
+            "workspace=\(presentationWorkspace) " +
             "time=\(Date().timeIntervalSince1970)"
         )
 #endif
@@ -230,9 +231,10 @@ final class MachineCreateCoordinator {
             let id = finished.operation.id
             handles[id] = nil
 #if DEBUG
+            let presentationWorkspace = finished.operation.request.presentationWorkspaceID?.uuidString ?? "none"
             cmuxDebugLog(
                 "cloud.create.completed operation=\(id.uuidString) " +
-                "workspace=\(finished.operation.request.presentationWorkspaceID?.uuidString ?? \"none\") " +
+                "workspace=\(presentationWorkspace) " +
                 "outcome=\(String(describing: finished.outcome)) " +
                 "elapsed=\(Date().timeIntervalSince(finished.operation.startedAt))"
             )
