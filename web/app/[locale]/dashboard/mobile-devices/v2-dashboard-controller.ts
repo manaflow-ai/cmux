@@ -31,11 +31,11 @@ type DashboardOptions = {
 };
 
 type Ticket = { readonly token: string; readonly expiresAt: number; readonly refreshAfter: number };
-type Connected = { readonly schemaId: "dashboard.connected.v1"; readonly teamRevision: number; readonly expiresAt: number };
 type ErrorResponse = { readonly schemaId: "error.v1"; readonly code: string; readonly retryable: boolean; readonly retryAfterMs?: number };
 type Frame = { readonly schemaId?: string; readonly requestId?: string; readonly response?: unknown; readonly directory?: DashboardDirectory; readonly revision?: number; readonly deliveryReceipt?: { readonly sequence: number; readonly token: string } } & Record<string, unknown>;
 
 const REQUEST_TIMEOUT_MS = 10_000;
+const MAX_RECONNECT_ATTEMPTS = 5;
 // Only the three managed Workers may receive browser Stack tokens. A generic
 // workers.dev suffix would also trust another account's Worker.
 const ORIGIN_ALLOWED = /^https:\/\/cmux-iroh-v2(?:-development|-staging)?\.debussy\.workers\.dev$/u;
@@ -44,17 +44,19 @@ export class V2DashboardController {
   private readonly options: DashboardOptions;
   private readonly clientInstanceId: string;
   private socket: WebSocket | null = null;
+  private readonly cancellation = new AbortController();
   private stopped = false;
   private revision: number | undefined;
   private ticket: Ticket | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelayMs = 1_000;
+  private reconnectAttempts = 0;
   private requestCounter = 0;
   private pending = new Map<string, { resolve: (frame: Frame) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
   constructor(options: DashboardOptions) {
-    if (!ORIGIN_ALLOWED.test(options.origin)) throw new Error("IROH Dashboard origin is not an approved Cloudflare Worker");
+    if (!ORIGIN_ALLOWED.test(options.origin)) throw new Error("Dashboard origin is not an approved device service");
     this.options = options;
     const storageKey = "cmux-iroh-v2.dashboard.client-instance";
     const storage = typeof sessionStorage === "undefined" ? null : sessionStorage;
@@ -68,11 +70,12 @@ export class V2DashboardController {
       this.ticket = await this.openSession();
       await this.connect(this.ticket);
       this.scheduleRefresh();
-    } catch (cause) { this.fail(cause); }
+    } catch (cause) { this.fail(cause); this.scheduleReconnect(cause); }
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.cancellation.abort();
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = null;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -99,24 +102,37 @@ export class V2DashboardController {
   }
 
   private async openSession(): Promise<Ticket> {
-    const stackToken = await this.options.getStackToken();
-    if (!stackToken) throw new Error("Dashboard sign-in expired");
+    let stackToken: string | null;
+    try { stackToken = await this.options.getStackToken(); }
+    catch (cause) {
+      const retryable = !(cause instanceof Error && (cause as Error & { retryable?: boolean }).retryable === false);
+      throw this.errorFrom({ code: "token_unavailable", retryable });
+    }
+    if (!stackToken) throw this.errorFrom({ code: "unauthorized", retryable: false });
     const requestId = this.nextRequestId();
-    const response = await fetch(`${this.options.origin}/v2/dashboard/session`, {
-      method: "POST", mode: "cors", credentials: "omit",
-      headers: { authorization: `Bearer ${stackToken}`, "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ schemaId: "dashboard.open.v1", requestId, clientInstanceId: this.clientInstanceId, environment: this.options.environment, projectId: this.options.projectId, teamId: this.options.teamId, userId: this.options.userId }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    const body = await this.readJSON(response) as Record<string, unknown>;
-    if (!response.ok || body.schemaId !== "dashboard.ready.v1") throw this.errorFrom(body);
-    if (!isTicket(body.ticket)) throw new Error("Dashboard session returned an invalid ticket");
-    return body.ticket;
+    const request = makeRequestSignal(this.cancellation.signal);
+    try {
+      const response = await fetch(`${this.options.origin}/v2/dashboard/session`, {
+        method: "POST", mode: "cors", credentials: "omit",
+        headers: { authorization: `Bearer ${stackToken}`, "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify({ schemaId: "dashboard.open.v1", requestId, clientInstanceId: this.clientInstanceId, environment: this.options.environment, projectId: this.options.projectId, teamId: this.options.teamId, userId: this.options.userId }),
+        signal: request.signal,
+      });
+      const body = await this.readJSON(response) as Record<string, unknown>;
+      if (!response.ok || body.schemaId !== "dashboard.ready.v1") throw this.errorFrom(body);
+      if (!isTicket(body.ticket)) throw this.errorFrom({ code: "invalid_ticket", retryable: false });
+      return body.ticket;
+    } finally {
+      request.cleanup();
+    }
   }
 
   private async connect(ticket: Ticket): Promise<void> {
+    if (this.stopped) return;
     const previous = this.socket;
-    const socket = new WebSocket(`${this.options.origin}/v2/dashboard/socket`, ["cmux-v2-dashboard", `ticket.${ticket.token}`]);
+    const url = new URL("/v2/dashboard/socket", this.options.origin);
+    url.protocol = "wss:";
+    const socket = new WebSocket(url.href, ["cmux-v2-dashboard", `ticket.${ticket.token}`]);
     this.socket = socket;
     try {
       await new Promise<void>((resolve, reject) => {
@@ -131,10 +147,12 @@ export class V2DashboardController {
         }
         if (frame.schemaId === "dashboard.connected.v1") {
           connected = true;
-          this.reconnectDelayMs = 1_000;
           clearTimeout(timeout);
           resolve();
-          void this.requestDirectory().catch(cause => this.fail(cause));
+          void this.requestDirectory().catch(cause => {
+            this.fail(cause);
+            this.scheduleReconnect(cause);
+          });
           return;
         }
         this.resolvePending(frame);
@@ -145,13 +163,13 @@ export class V2DashboardController {
       socket.onerror = () => { clearTimeout(timeout); reject(new Error("Dashboard socket failed")); };
       socket.onclose = event => {
         clearTimeout(timeout);
-        if (this.stopped || this.socket !== socket) return;
         if (!connected) reject(new Error(`Dashboard socket closed (${event.code})`));
-        else this.scheduleReconnect();
+        else if (!this.stopped && this.socket === socket) this.scheduleReconnect();
       };
       });
     } catch (error) {
       if (this.socket === socket) this.socket = previous;
+      socket.close();
       throw error;
     }
     // Retire the old connection only after the replacement emitted its
@@ -184,6 +202,10 @@ export class V2DashboardController {
     if (frame.directory.nextCursor) {
       await this.requestDirectory(frame.directory.nextCursor, seenCursors, snapshot);
     } else {
+      // A complete directory proves the connection is healthy. Handshake-only
+      // sockets keep the retry budget so they cannot loop forever without data.
+      this.reconnectAttempts = 0;
+      this.reconnectDelayMs = 1_000;
       this.options.onDirectory({ ...frame.directory, devices: snapshot.devices, managedDeviceIds: snapshot.managedDeviceIds, nextCursor: null });
     }
   }
@@ -208,6 +230,7 @@ export class V2DashboardController {
   }
 
   private scheduleRefresh() {
+    if (this.stopped) return;
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     const delay = Math.max(10_000, ((this.ticket?.refreshAfter ?? 0) * 1000) - Date.now());
     this.refreshTimer = setTimeout(() => {
@@ -216,9 +239,12 @@ export class V2DashboardController {
     }, delay);
   }
 
-  private scheduleReconnect() {
+  private scheduleReconnect(cause?: unknown) {
     if (this.stopped || this.reconnectTimer) return;
-    const delay = this.reconnectDelayMs;
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) return;
+    const retryAfter = cause instanceof Error ? (cause as Error & { retryAfterMs?: number }).retryAfterMs : undefined;
+    const delay = Math.max(this.reconnectDelayMs, Math.min(retryAfter ?? 0, 60_000));
+    this.reconnectAttempts += 1;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 60_000);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -235,7 +261,7 @@ export class V2DashboardController {
       this.scheduleRefresh();
     } catch (cause) {
       this.fail(cause);
-      this.scheduleReconnect();
+      this.scheduleReconnect(cause);
     }
   }
 
@@ -247,22 +273,37 @@ export class V2DashboardController {
       this.ticket = replacement;
       this.scheduleRefresh();
     }
-    catch (cause) { this.fail(cause); this.refreshTimer = setTimeout(() => void this.refreshTicketMakeBeforeBreak(), 60_000); }
+    catch (cause) { this.fail(cause); this.scheduleReconnect(cause); }
   }
 
-  private fail(cause: unknown) { this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed"); }
+  private fail(cause: unknown) {
+    if (this.stopped) return;
+    this.options.onError(cause instanceof Error ? cause.message : "Dashboard request failed");
+    if (cause instanceof Error && (cause as Error & { retryable?: boolean }).retryable === false) void this.stop();
+  }
   private nextRequestId() { this.requestCounter += 1; return `${this.clientInstanceId}:${this.requestCounter}`; }
   private expectSuccess(frame: Frame, requestId: string) { if (frame.requestId !== requestId || frame.schemaId === "error.v1") throw this.errorFrom(frame); }
   private errorFrom(body: unknown): Error {
     const error = body as Partial<ErrorResponse>;
     const result = new Error(error.code === "permission_denied" ? "You do not have permission to change this device" : error.code === "team_access_revoked" ? "Team access was removed" : `Dashboard request failed (${error.code ?? "unknown"})`);
-    if (typeof error.code === "string") Object.assign(result, { code: error.code });
+    Object.assign(result, { code: error.code, retryable: error.retryable === true,
+      ...(typeof error.retryAfterMs === "number" && Number.isFinite(error.retryAfterMs) && error.retryAfterMs >= 0 ? { retryAfterMs: error.retryAfterMs } : {}) });
     return result;
   }
-  private async readJSON(response: Response): Promise<unknown> { try { return await response.json(); } catch { throw new Error(`Dashboard returned HTTP ${response.status}`); } }
+  private async readJSON(response: Response): Promise<unknown> { try { return await response.json(); } catch { throw this.errorFrom({ code: "invalid_response", retryable: response.status === 429 || response.status >= 500 }); } }
 }
 
 function parseFrame(value: unknown): Frame | null { try { const parsed = typeof value === "string" ? JSON.parse(value) : value; return parsed && typeof parsed === "object" ? parsed as Frame : null; } catch { return null; } }
+function makeRequestSignal(cancellation: AbortSignal): { signal: AbortSignal; cleanup: () => void } {
+  if (typeof AbortSignal.any === "function" && typeof AbortSignal.timeout === "function") {
+    return { signal: AbortSignal.any([cancellation, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]), cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException("Dashboard request timed out", "TimeoutError")), REQUEST_TIMEOUT_MS);
+  const cancel = () => controller.abort(cancellation.reason);
+  if (cancellation.aborted) cancel(); else cancellation.addEventListener("abort", cancel, { once: true });
+  return { signal: controller.signal, cleanup: () => { clearTimeout(timeout); cancellation.removeEventListener("abort", cancel); } };
+}
 function isTicket(value: unknown): value is Ticket { return !!value && typeof value === "object" && typeof (value as Ticket).token === "string" && typeof (value as Ticket).expiresAt === "number" && typeof (value as Ticket).refreshAfter === "number"; }
 function isDirectory(value: unknown): value is DashboardDirectory { if (!value || typeof value !== "object") return false; const candidate = value as DashboardDirectory; return typeof candidate.teamId === "string" && Number.isSafeInteger(candidate.revision) && Array.isArray(candidate.devices) && Array.isArray(candidate.relayURLs) && typeof candidate.canManageTeam === "boolean" && Array.isArray(candidate.managedDeviceIds); }
 function errorCode(value: unknown): string | undefined { return value instanceof Error && typeof (value as Error & { code?: unknown }).code === "string" ? (value as Error & { code: string }).code : undefined; }
