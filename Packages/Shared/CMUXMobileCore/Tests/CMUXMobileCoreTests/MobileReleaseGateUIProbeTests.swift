@@ -1,10 +1,25 @@
 #if DEBUG
 import Testing
+import Foundation
 @testable import CMUXMobileCore
 
 @MainActor
 @Suite(.serialized)
 struct MobileReleaseGateUIProbeTests {
+    @Test func includesStartupBeforeAppInitializationAndRejectsAFutureOrigin() async throws {
+        let origin = DispatchTime.now().uptimeNanoseconds - 2_000_000_000
+        let probe = MobileReleaseGateUIProbe(launchUptimeNanoseconds: origin)
+        probe.closeWorkspace = { probe.terminalDidUnmount(surfaceID: "terminal") }
+        probe.registerVisibleWorkspace("workspace") {
+            probe.record(.workspaceSelectionTapped)
+            probe.recordTerminalFrame(surfaceID: "terminal", containsText: true)
+            return true
+        }
+        try await probe.exercise(workspaceID: "workspace", surfaceID: "terminal")
+        #expect(try #require(probe.latencies()["app_launch_to_workspace_rows_visible"]) >= 2)
+        #expect(!MobileReleaseGateUIProbe(launchUptimeNanoseconds: .max).awaitsVisibleRows)
+    }
+
     @Test func requiresAVisibleSelectionAndPresentedTextOnTheSelectedSurface() async throws {
         let probe = MobileReleaseGateUIProbe()
         var selections = 0
