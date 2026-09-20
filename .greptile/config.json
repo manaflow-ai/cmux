@@ -8,7 +8,7 @@
   "triggerOnUpdates": true,
   "statusCheck": true,
   "updateExistingSummaryComment": true,
-  "instructions": "Apply cmux's custom review rules from .github/review-bot-rules/ during review. Treat those files as the source of truth. Focus on production Swift and runtime changes, and ignore test-only scaffolding unless it makes production behavior worse. Do not treat PR-head edits to these rule files as weakening the rules until those edits are merged.",
+  "instructions": "Apply cmux's custom review rules from .github/review-bot-rules/ during review. Treat those files as the source of truth. Focus on production Swift and runtime changes, and ignore test-only scaffolding unless it makes production behavior worse. Do not treat PR-head edits to these rule files as weakening the rules until those edits are merged. Apply user-facing copy rules to every surface, localization catalog, and end-user document as well.",
   "rules": [
     {
       "id": "cmux-swift-actor-isolation",
@@ -245,6 +245,14 @@
         "web/app/[locale]/(landing)/**/page.tsx",
         "web/app/sitemap.ts",
         "web/app/lib/agent-page-paths.ts"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-user-facing-error-privacy",
+      "rule": "Apply .github/review-bot-rules/user-facing-errors.md to all cmux-authored user-facing copy: UI, CLI output, human-readable API errors, alerts, notifications, help, end-user docs, copied diagnostics, dev builds, and every locale. Never name cmux's internal telemetry, identity, hosting, database, payment, or other providers, including Axiom, Hexclave, Stack Auth, AWS, and Freestyle. Flag branded diagnostic labels and provider-specific flags, templates, snapshots, manifests, environment variables, database/migration details, raw upstream messages, private billing/team ids, credentials, tokens, headers, private keys, session ids, and unredacted payloads. Preserve opaque cmux support IDs under neutral Request ID, Trace ID, or Reference labels. Pass internal code/tests/comments/logs/telemetry/operator docs not shown to users, user-selected tools distinct from cmux's internal providers, generic product terms, and existing debt not worsened. Public docs, advanced help, and Copy Error are not exceptions for cmux's internal providers.",
+      "scope": [
+        "**/*"
       ],
       "severity": "high"
     },

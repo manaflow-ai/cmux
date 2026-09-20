@@ -1,3 +1,5 @@
+import { withVmErrorReference } from "./errorReference";
+
 const MAX_AUTH_ERROR_METADATA_NODES = 64;
 const MAX_AUTH_ERROR_METADATA_DEPTH = 8;
 const AUTH_RETRY_AFTER_SECONDS = 60;
@@ -18,9 +20,9 @@ export function authProviderErrorResponse(
     reason: rateLimited ? "rate_limited" : "unavailable",
   });
   return new Response(
-    JSON.stringify({
+    JSON.stringify(withVmErrorReference({
       error: rateLimited ? "rate_limited" : "authentication_unavailable",
-    }),
+    })),
     {
       status,
       headers: {

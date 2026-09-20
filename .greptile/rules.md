@@ -17,7 +17,7 @@ Review production Swift and runtime changes for:
 - User-facing text that is not fully internationalized across every supported app or web locale.
 - SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.
 - Architectural fixes that patch symptoms while leaving bad state representable.
-- User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
+- User-facing copy in any locale that names cmux's internal providers or exposes implementation details, including copied support diagnostics.
 - Algorithmic complexity regressions on scalable user-owned collections.
 - Expensive synchronous agent-history disk, JSON, transcript, trajectory, JSONL, directory, or syscall loads (such as `RestorableAgentSessionIndex.load()`, hook/session stores, `agent-turn-diff-baselines.json`, transcripts, trajectory files, and workstream/event logs) on the main actor or interactive paths instead of an off-main cached/background accessor.
 - Substituting a cached value for a fresh authoritative read in persistence/history/undo paths without handling cold and stale caches.
@@ -54,13 +54,15 @@ Flag Swift UI, menu, alert, tooltip, error, recovery, or command text that is no
 
 Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, exact protocol/config tokens, and existing untranslated strings the PR does not introduce or worsen.
 
-## User-Facing Error Messages
+## User-Facing Copy and Error Privacy
 
-For production user-facing errors, alerts, command output, API error bodies, and recovery copy, do not expose implementation details.
+Apply `.github/review-bot-rules/user-facing-errors.md` to all cmux-authored user-facing copy: UI, CLI output, human-readable API errors, alerts, notifications, help, end-user docs, copied diagnostics, dev builds, and every locale.
 
-Flag copy that includes upstream vendor or service names, internal provider names, provider-specific flags, templates, snapshots, manifests, environment variable names, database or migration details, raw upstream error messages, stack traces, request ids from third-party systems unless the user supplied that exact id, billing item ids, billing customer ids, team ids not supplied by the user, credentials, tokens, headers, private keys, refresh tokens, session ids, or unredacted payload dumps.
+Never name cmux's internal telemetry, identity, hosting, database, payment, or other providers, including Axiom, Hexclave, Stack Auth, AWS, and Freestyle. Flag branded diagnostic labels, provider-specific flags, templates, snapshots, manifests, environment variables, database/migration details, raw upstream messages, stack traces, third-party request ids, private billing/team ids, credentials, tokens, headers, private keys, session ids, and unredacted payloads.
 
-Error copy should say what happened in cmux terms, provide concrete user actionables, and keep only safe minimal diagnostics in `details`. Provider, billing, database, and auth implementation details belong in sanitized logs or internal telemetry.
+Use neutral product wording and preserve opaque cmux support IDs under `Request ID`, `Trace ID`, or `Reference`. Flag labels such as `Axiom trace`; renaming the label must not remove or change the ID.
+
+Pass internal code/tests/comments/logs/telemetry/operator docs not shown to users, user-selected tools distinct from cmux's internal providers, generic product terms, and existing debt not worsened. Public docs, advanced help, and Copy Error are not exceptions for cmux's internal providers.
 
 ## Algorithmic Complexity
 

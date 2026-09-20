@@ -75,7 +75,9 @@ extension SocketClient {
                         message: message,
                         action: action,
                         reason: error["reason"] as? String,
-                        details: safeV2Details(error["details"])
+                        details: safeV2Details(error["details"]),
+                        requestID: (data?["request_id"] as? String) ?? (data?["requestId"] as? String),
+                        traceID: (data?["trace_id"] as? String) ?? (data?["traceId"] as? String)
                     ),
                     v2Code: error["code"] as? String,
                     isStructuredProtocolResponse: true,
@@ -138,7 +140,9 @@ extension SocketClient {
         message: String,
         action: String? = nil,
         reason: String? = nil,
-        details: String? = nil
+        details: String? = nil,
+        requestID: String? = nil,
+        traceID: String? = nil
     ) -> String {
         let header: String
         if code == "vm_error" {
@@ -157,6 +161,15 @@ extension SocketClient {
         }
         if let details = trimmedNonEmptyV2Text(details) {
             sections.append("Details:\n\(indentV2ErrorLines(details))")
+        }
+        if let requestID = trimmedNonEmptyV2Text(requestID) {
+            sections.append("Request ID: \(requestID)")
+        }
+        if let traceID = trimmedNonEmptyV2Text(traceID) {
+            sections.append(String(
+                format: String(localized: "cloudVM.error.traceId", defaultValue: "Trace ID: %@"),
+                traceID
+            ))
         }
         return sections.joined(separator: "\n\n")
     }

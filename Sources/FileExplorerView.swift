@@ -905,7 +905,7 @@ final class FileExplorerContainerView: NSView {
     private var searchFieldHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
-    private var currentProviderIsLocal = false
+    private var currentSearchScope: FileSearchScope = .unsupported
     private var currentWorkspaceRootIdentity: UUID?
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
@@ -1225,11 +1225,11 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateHeader(store: FileExplorerStore) {
-        let nextRootPath = store.rootPath, nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextRootPath = store.rootPath, nextSearchScope = FileSearchScope(provider: store.provider)
         let nextWorkspaceRootIdentity = store.workspaceRootIdentity, nextContentRevision = store.contentRevision
         let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity, contentRevisionChanged = nextContentRevision != currentContentRevision
-        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextProviderIsLocal != currentProviderIsLocal
-        currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
+        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextSearchScope != currentSearchScope
+        currentRootPath = nextRootPath; currentSearchScope = nextSearchScope
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
         headerView.update(displayPath: store.displayRootPath)
         if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
@@ -1388,7 +1388,7 @@ final class FileExplorerContainerView: NSView {
 #if DEBUG
         dlog(
             "file.search.request queryLen=\(searchField.stringValue.count) " +
-            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) local=\(currentProviderIsLocal ? 1 : 0) " +
+            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) scope=\(String(describing: currentSearchScope)) " +
             "revision=\(currentContentRevision) results=\(searchSnapshot.results.count) " +
             "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width))"
         )
@@ -1396,7 +1396,7 @@ final class FileExplorerContainerView: NSView {
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
-            isLocal: currentProviderIsLocal,
+            scope: currentSearchScope,
             contentRevision: currentContentRevision
         )
     }

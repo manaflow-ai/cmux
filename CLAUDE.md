@@ -202,6 +202,8 @@ Each of these has full detail in the skill named in parentheses.
 
 ## Shared behavior policy
 
+**Never name cmux's internal providers in user-facing copy.** This includes Axiom, Hexclave, Stack Auth, AWS, Freestyle, and any other telemetry, identity, hosting, database, or payment vendor. Apply this to app and web UI, CLI output, alerts, notifications, human-readable API errors, help, end-user documentation, and copied support diagnostics, in every locale and in dev builds. Use cmux/product terms such as "Cloud service", "sign-in service", "Request ID", and "Trace ID". Keep support IDs intact but never label them with a provider name. Provider names belong in internal code, sanitized logs, telemetry, and operator documentation; an advanced-help or copied-error path is not an exception. Follow `.github/review-bot-rules/user-facing-errors.md`.
+
 When a behavior is exposed through multiple entrypoints (shortcut, command palette, context menu, CLI, settings, debug menu), implement one shared action path and verify every entrypoint. Do not patch one surface and leave the others with duplicated logic.
 
 For optimistic UI or CLI updates, keep one mutation path, record pending state with a request id or previous snapshot, reconcile from the authoritative result, and roll back explicitly on failure. Do not let each entrypoint keep its own optimistic copy.
