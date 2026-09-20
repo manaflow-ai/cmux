@@ -112,8 +112,9 @@ if [ "${1:-}" = "-version" ]; then
 fi
 printf '%s\n' "$@" >> "$STUB_XCODEBUILD_ARGS"
 echo "---" >> "$STUB_XCODEBUILD_ARGS"
-# Resolution reports success every time, and writes the binary artifacts only
-# from the attempt named by STUB_RESOLVE_ARTIFACTS_FROM.
+# Resolution fails for the first STUB_RESOLVE_FAILS_UNTIL attempts, then reports
+# success, and writes the binary artifacts only from the attempt named by
+# STUB_RESOLVE_ARTIFACTS_FROM.
 packages=""
 resolving=0
 while [ "$#" -gt 0 ]; do
@@ -125,6 +126,11 @@ while [ "$#" -gt 0 ]; do
 done
 if [ "$resolving" -eq 1 ]; then
   echo x >> "$STUB_RESOLVE_ATTEMPTS"
+  if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -le "${STUB_RESOLVE_FAILS_UNTIL:-0}" ]; then
+    # A failed resolve that leaves a partial clone behind.
+    mkdir -p "$packages/checkouts/partial-clone"
+    exit 74
+  fi
   if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ge "${STUB_RESOLVE_ARTIFACTS_FROM:-1}" ]; then
     mkdir -p "$packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" \
       "$packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework"
@@ -183,6 +189,13 @@ if ! STUB_RESOLVE_ARTIFACTS_FROM=2 run_script resolve "$TMP_DIR/derived" "$TMP_D
   || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
   || [ -d "$TMP_DIR/stale-packages/checkouts" ]; then
   echo "FAIL: resolve must clear the package cache and retry when the binary artifacts are missing"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+if ! STUB_RESOLVE_FAILS_UNTIL=1 STUB_RESOLVE_ARTIFACTS_FROM=2 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/failed-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
+  || [ -d "$TMP_DIR/failed-packages/checkouts/partial-clone" ]; then
+  echo "FAIL: resolve must clear the partial clone a failed attempt leaves and retry"
   exit 1
 fi
 : > "$STUB_RESOLVE_ATTEMPTS"
