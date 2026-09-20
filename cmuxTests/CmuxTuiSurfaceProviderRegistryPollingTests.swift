@@ -152,6 +152,76 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         #expect(status.leases == 1, "Cloud availability keeps the prepared hub alive with no machines")
     }
 
+    @Test("Repeated empty-fleet discovery does not restart failed automatic preparation")
+    @MainActor
+    func failedAutomaticPreparationWaitsForExplicitDemand() async throws {
+        let allowed = Switch()
+        let firstAttempt = CloudLinkFirstValue<Bool>()
+        let attempts = CloudWireGuardHubTests.AttemptCounter()
+        let h = makeHub {
+            let attempt = await attempts.next()
+            if attempt == 1 {
+                firstAttempt.resolve(true)
+                throw VMClientError.httpStatus(
+                    400,
+                    #"{"error":"vm_tunnel_invalid_key","message":"Invalid public key"}"#
+                )
+            }
+            return .init(configPath: "/tmp/cmux-preparation.conf", routes: ["10.0.0.0/8"])
+        }
+        let registry = CmuxTuiSurfaceProviderRegistry(
+            links: CloudMachineLinkManager(clientURL: nil, hub: h.hub, hostThemeColors: { nil }),
+            wireGuardHub: h.hub,
+            allowsBackgroundWork: { allowed.isOn },
+            listPage: { VMListPage(vms: [], limits: nil) },
+            notificationCenter: NotificationCenter()
+        )
+        registry.start(catalog: SurfaceCatalog())
+        #expect(registry.isPolling == false)
+
+        // A forced empty-fleet read is still authenticated Cloud use, so it
+        // starts the one automatic preparation sequence without waiting for a VM.
+        allowed.isOn = true
+        #expect(await registry.refresh(force: true))
+        #expect(await received(firstAttempt))
+        for _ in 0..<2_000 {
+            if await h.hub.status().lastError != nil { break }
+            await Task.yield()
+        }
+        #expect(await h.hub.status().lastError != nil)
+        #expect(await attempts.value == 1)
+
+        // Later empty-fleet reads reuse the completed preparation task. They must
+        // not rearm enrollment after a permanent automatic-start failure.
+        for _ in 0..<3 {
+            #expect(await registry.refresh(force: true))
+            await Task.yield()
+        }
+        #expect(await attempts.value == 1)
+
+        // An explicit terminal demand is allowed to retry and, once successful,
+        // the account-level preparation claim keeps the hub resident.
+        let demand = try await h.hub.acquire()
+        #expect(await attempts.value == 2)
+        #expect(await h.hub.status().leases == 2)
+        await h.hub.release(demand.lease)
+        #expect(await h.hub.status().leases == 1)
+
+        // Stopping and reactivating Cloud starts a fresh automatic sequence.
+        await registry.accessDidEnd()
+        allowed.isOn = false
+        registry.start(catalog: SurfaceCatalog())
+        #expect(registry.isPolling == false)
+        allowed.isOn = true
+        #expect(await registry.refresh(force: true))
+        for _ in 0..<2_000 {
+            if await attempts.value == 3 { break }
+            await Task.yield()
+        }
+        #expect(await attempts.value == 3)
+        await registry.accessDidEnd()
+    }
+
     @Test("Disabling Cloud or signing out cancels preparation before a helper can start", arguments: [false, true])
     @MainActor
     func endingAccessCancelsPendingPreparation(signOut: Bool) async {
