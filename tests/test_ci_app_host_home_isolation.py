@@ -147,6 +147,25 @@ def require_step(job_name: str, step_name: str) -> dict:
     return matches[0]
 
 
+def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
+    """Return why a step condition is not gated on preparation, or ""."""
+    if not isinstance(condition, str):
+        return "has no condition"
+    expression = condition.strip()
+    if expression.startswith("${{") and expression.endswith("}}"):
+        expression = expression[3:-2]
+    if "||" in expression:
+        return "must not offer an alternative to its gates"
+    terms = {"".join(term.split()) for term in expression.split("&&")}
+    if "always()" in terms:
+        return "must not run after a cancelled job"
+    if "!cancelled()" not in terms:
+        return "must keep !cancelled() so it still runs after an earlier test failure"
+    if f"steps.{preparation_id}.outcome=='success'" not in terms:
+        return "must require successful app-host preparation"
+    return ""
+
+
 def main() -> int:
     override_fixture = """\
 <Scheme>
@@ -239,7 +258,43 @@ def main() -> int:
     ) != "${{ steps." + preparation_id + ".outcome }}":
         raise SystemExit("FAIL: cleanup must receive the actual preparation outcome")
 
-    # Execute the workflow body with no checkout, as on a failed checkout job.
+    # The acceptance gate overrides the implicit success() so an earlier test
+    # failure cannot hide it. It must then name preparation itself, or it would
+    # also run after a failed checkout with no app-host home to test against.
+    for rejected, fixture in {
+        "a missing condition": None,
+        "an implicit success() gate": (
+            "${{ steps." + preparation_id + ".outcome == 'success' }}"
+        ),
+        "a gate without preparation": "${{ !cancelled() && matrix.shard == 1 }}",
+        "another step's outcome": (
+            "${{ !cancelled() && steps.other.outcome == 'success' }}"
+        ),
+        "a failed preparation": (
+            "${{ !cancelled() && steps." + preparation_id + ".outcome != 'success' }}"
+        ),
+        "an always() gate": (
+            "${{ always() && steps." + preparation_id + ".outcome == 'success' }}"
+        ),
+        "an alternative gate": (
+            "${{ !cancelled() && steps."
+            + preparation_id
+            + ".outcome == 'success' || matrix.shard == 1 }}"
+        ),
+    }.items():
+        if not acceptance_gate_problem(fixture, preparation_id):
+            raise SystemExit(f"FAIL: acceptance gate guard must reject {rejected}")
+    acceptance_step = require_step(
+        "app-host-unit-tests", "Run Cloud machine ordering acceptance"
+    )
+    acceptance_problem = acceptance_gate_problem(
+        acceptance_step.get("if"), preparation_id
+    )
+    if acceptance_problem:
+        raise SystemExit(
+            f"FAIL: Cloud machine ordering acceptance {acceptance_problem}"
+        )
+
     # Once preparation starts, the console-user cleanup must still run even if
     # preparation fails or is cancelled, and its failures must remain visible.
     with tempfile.TemporaryDirectory() as workspace:
