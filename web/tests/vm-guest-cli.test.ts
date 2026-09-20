@@ -601,9 +601,9 @@ print(json.dumps({"failed": failed.returncode != 0, "unclaimed": unclaimed,
       expect(ja.stdout).toContain("終了コード");
     });
 
-    test("reads models through the configured HTTPS edge", () => {
+    test.each(["coderouter", "cr"])("%s reads models through the configured HTTPS edge", (command) => {
       const models = runShim(
-        ["coderouter", "models"],
+        [command, "models"],
         USAGE_ENV,
         (directory) => {
           const curl = join(directory, "curl");
@@ -641,7 +641,7 @@ print(json.dumps({"failed": failed.returncode != 0, "unclaimed": unclaimed,
       expect(run.argv).toEqual(["--session", "cloud", "agent", "list"]);
     });
 
-    test("lists only the VM team's account responses and exposes its fixed organization", () => {
+    test.each(["coderouter", "cr"])("%s lists only the VM team's account responses and exposes its fixed organization", (command) => {
       const setup = (directory: string) => {
         const curl = join(directory, "curl");
         writeFileSync(curl, `#!/bin/sh
@@ -655,14 +655,14 @@ esac
         chmodSync(curl, 0o755);
       };
       const env = { CMUX_CODEROUTER_URL: "https://coderouter.cmux.internal" };
-      const listed = runShim(["coderouter", "accounts", "--json"], env, setup);
+      const listed = runShim([command, "accounts", "--json"], env, setup);
       expect(listed.status).toBe(0);
       expect(JSON.parse(listed.stdout)).toMatchObject({ teamId: "team-a", accounts: [{ id: "native-a" }, { id: "claude-a" }] });
-      const current = runShim(["coderouter", "org", "current", "--json"], env, setup);
+      const current = runShim([command, "org", "current", "--json"], env, setup);
       expect(current.status).toBe(0);
       expect(JSON.parse(current.stdout)).toEqual({ teamId: "team-a", fixed: true });
-      expect(runShim(["coderouter", "org", "switch", "team-b"], env, setup).status).toBe(2);
-      expect(runShim(["coderouter", "accounts", "--team", "team-b"], env, setup).status).toBe(2);
+      expect(runShim([command, "org", "switch", "team-b"], env, setup).status).toBe(2);
+      expect(runShim([command, "accounts", "--team", "team-b"], env, setup).status).toBe(2);
     });
 
     test("does not merge account lists from different teams", () => {

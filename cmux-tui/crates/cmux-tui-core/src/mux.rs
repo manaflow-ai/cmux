@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod cloud_bootstrap;
 mod public_projections;
 mod resource_content;
 mod resource_topology;

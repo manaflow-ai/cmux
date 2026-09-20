@@ -557,6 +557,7 @@ export function cmuxTuiAttachBundleCommand(options: {
   readonly readyGate?: string;
   readonly deviceFingerprint?: string;
   readonly binary?: string;
+  readonly cloudWelcome?: boolean;
 }): string {
   // The enrolled-device list lives in the DAEMON's state dir, so every call
   // here has to be the daemon's user and HOME. Reading it as root on a
@@ -576,6 +577,7 @@ export function cmuxTuiAttachBundleCommand(options: {
     // the entire attach bundle before the probe, device, and invitation sections.
     ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
     cmuxTuiLayoutSelector(),
+    cmuxTuiCloudBootstrapCommand(bin, options.cloudWelcome === true),
     `echo ${BUNDLE_MARKERS.probe}`,
     `${run("remote-probe --json")}; echo`,
     `echo ${BUNDLE_MARKERS.devices}`,
@@ -584,6 +586,18 @@ export function cmuxTuiAttachBundleCommand(options: {
     cmuxTuiTrustedListenerProbe(),
     `echo ${BUNDLE_MARKERS.end}`,
   ].join("; ");
+}
+
+/** The daemon owns the reserved first workspace; this never sends shell input. */
+export function cmuxTuiCloudBootstrapCommand(binary: string, welcome: boolean): string {
+  const request = shellQuote(JSON.stringify({ cmd: "cloud-bootstrap", welcome }));
+  const command = cmuxTuiAsDaemonUser(`${binary} --session ${CMUX_TUI_SESSION} raw command --request-json ${request}`);
+  // An old daemon retains its already-running starter shell. A real bootstrap
+  // failure on a capable daemon must remain retryable instead of falling
+  // through to a second terminal created by the client.
+  return `if cmux_bootstrap_result=$(${command} 2>&1); then :; else `
+    + `case "$cmux_bootstrap_result" in *'unknown variant'*|*'unknown command'*|*'Unknown command'*) : ;; `
+    + `*) printf '%s\\n' "$cmux_bootstrap_result" >&2; exit 1 ;; esac; fi`;
 }
 
 export type CmuxTuiAttachBundle = {

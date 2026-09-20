@@ -1070,6 +1070,11 @@ enum Command {
     BrowserActivate {
         surface: SurfaceId,
     },
+    /// Finish the daemon-owned first Cloud workspace after guest preparation.
+    CloudBootstrap {
+        #[serde(default)]
+        welcome: bool,
+    },
     NewWorkspace {
         #[serde(default)]
         name: Option<String>,
@@ -12092,6 +12097,13 @@ fn handle_command_with_cancellation(
             surface.browser_activate()?;
             Ok(json!({}))
         }
+        Command::CloudBootstrap { welcome } => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("Cloud bootstrap requires a trusted local connection");
+            }
+            mux.start_cloud_initial_terminal(welcome)?;
+            Ok(json!({}))
+        }
         Command::NewWorkspace { name, cols, rows } => {
             let surface = mux.new_workspace(name, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
@@ -13884,6 +13896,19 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn cloud_bootstrap_rejects_remote_clients_before_starting_a_shell() {
+        let mux = test_mux();
+        mux.reserve_cloud_initial_workspace().unwrap();
+        let command: Command = serde_json::from_value(json!({
+            "cmd": "cloud-bootstrap", "welcome": true,
+        }))
+        .unwrap();
+        let error = handle_command(&mux, 42, command, &test_writer()).unwrap_err();
+        assert!(error.to_string().contains("trusted local connection"));
+        assert!(mux.with_state(|state| state.surfaces.is_empty()));
     }
 
     fn sizing_browser(mux: &Arc<Mux>, size: (u16, u16)) -> Arc<crate::Surface> {

@@ -1453,14 +1453,14 @@ export class FreestyleProvider implements VMProvider {
             + (options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "");
           let bundleResult = await this.execResult(
             vm,
-            promptSetup + cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
+            promptSetup + cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint, cloudWelcome: options?.providerMetadata?.cloudWelcomeEligible === true }),
             DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS + EXEC_DEFAULT_TIMEOUT_MS,
           );
           let healed = false;
           if (!bundleResult || bundleResult.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
             healed = true;
             await this.ensureCmuxTuiRunning(vm, vmId);
-            bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
+            bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint, cloudWelcome: options?.providerMetadata?.cloudWelcomeEligible === true }));
           }
           if (!healed && bundleResult?.exitCode === 0) {
             // Healthy existing machines skip daemon healing, but still need
