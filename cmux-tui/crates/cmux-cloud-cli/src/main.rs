@@ -1,7 +1,7 @@
 //! Cloud command facade. CodeRouter owns its grammar and presentation; the
 //! guest adapter owns Cloud/session commands and delegates to cmux-tui.
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
@@ -61,15 +61,35 @@ fn main() -> ExitCode {
 
 fn same_file(candidate: &OsStr, program: &OsStr) -> bool {
     let current = std::env::current_exe().unwrap_or_else(|_| program.into());
+    let candidate = resolve_command(candidate);
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        if let (Ok(a), Ok(b)) = (std::fs::metadata(candidate), current.metadata()) {
+        if let (Ok(a), Ok(b)) = (std::fs::metadata(&candidate), current.metadata()) {
             return a.dev() == b.dev() && a.ino() == b.ino();
         }
     }
-    let (Ok(a), Ok(b)) = (Path::new(candidate).canonicalize(), current.canonicalize()) else {
+    let (Ok(a), Ok(b)) = (candidate.canonicalize(), current.canonicalize()) else {
         return false;
     };
     a == b
+}
+
+/// `Command::new` searches PATH for a bare executable name. Resolve the same
+/// way before comparing identities so an override cannot recurse through an
+/// alias such as `CMUX_CODEROUTER_BIN=cr`.
+fn resolve_command(candidate: &OsStr) -> PathBuf {
+    let path = Path::new(candidate);
+    if path.is_absolute() || path.components().count() > 1 {
+        return path.to_path_buf();
+    }
+    if let Some(path_var) = std::env::var_os("PATH") {
+        for directory in std::env::split_paths(&path_var) {
+            let resolved = directory.join(path);
+            if resolved.is_file() {
+                return resolved;
+            }
+        }
+    }
+    path.to_path_buf()
 }

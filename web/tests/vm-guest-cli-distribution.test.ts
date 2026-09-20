@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readlinkSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readlinkSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
@@ -27,6 +27,14 @@ describe("Cloud CLI distribution", () => {
       }
       writeFileSync(readlinkSync(join(lib,"cmux-coderouter")),"corrupt");
       expect(run(true).status).toBe(1);expect(run().status).toBe(0);expect(run(true).status).toBe(0);
+      for (let index = 0; index < 4; index += 1) {
+        mkdirSync(join(lib, `cmux-cloud-${String(index).repeat(64)}`));
+      }
+      const activeRelease = readlinkSync(join(lib,"cmux-coderouter"));
+      expect(run().status).toBe(0);
+      const releases = readdirSync(lib).filter(name => name.startsWith("cmux-cloud-") && !name.startsWith(".cmux-"));
+      expect(releases.length).toBeLessThanOrEqual(3);
+      expect(releases.map(name => join(lib, name))).toContain(dirname(activeRelease));
       const rejected=spawnSync("sh",["-c",guestCliDistributionCommand(false,{...manifest,archiveSha256:"0".repeat(64)},lib,bin)],{encoding:"utf8"});
       expect(rejected.status).not.toBe(0);expect(rejected.stderr).toContain("checksum mismatch");expect(run(true).status).toBe(0);
     } finally { rmSync(root,{recursive:true,force:true}); }

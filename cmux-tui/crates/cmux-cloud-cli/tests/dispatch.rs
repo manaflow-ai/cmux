@@ -53,5 +53,11 @@ fn cloud_dispatch_all_spellings_preserve_arguments_and_exit_status() {
     let recursive =
         Command::new(dir.join("cr")).env("CMUX_CODEROUTER_BIN", dir.join("cmux")).output().unwrap();
     assert_eq!(recursive.status.code(), Some(127));
+    let recursive_bare = Command::new(dir.join("cr"))
+        .env("CMUX_CODEROUTER_BIN", "cr")
+        .env("PATH", format!("{}:/usr/bin:/bin", dir.display()))
+        .output()
+        .unwrap();
+    assert_eq!(recursive_bare.status.code(), Some(127));
     fs::remove_dir_all(dir).unwrap();
 }

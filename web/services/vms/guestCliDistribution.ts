@@ -74,6 +74,15 @@ for path, target in links.items():
         os.replace(temporary, path)
     finally:
         if os.path.lexists(temporary): os.unlink(temporary)
+release_dirs = []
+for candidate in libexec.iterdir():
+    suffix = candidate.name.removeprefix('cmux-cloud-')
+    if candidate == release or candidate.is_symlink() or not candidate.is_dir() or len(suffix) != 64 or any(char not in '0123456789abcdef' for char in suffix):
+        continue
+    release_dirs.append(candidate)
+release_dirs.sort(key=lambda path: path.stat().st_mtime_ns, reverse=True)
+for obsolete in release_dirs[2:]:
+    shutil.rmtree(obsolete, ignore_errors=True)
 `;
   return `python3 -c '${script.replace(/'/g, `'\\''`)}'`;
 }
