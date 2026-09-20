@@ -12,7 +12,7 @@ XCTEST_START = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' started\.")
 XCTEST_FAIL = re.compile(r"Test Case '-\[([^]]+) ([^]]+)\]' failed")
 SWIFT_START = re.compile(r"(?:◇|▶) Test (.+?) started\.")
 SWIFT_ISSUE = re.compile(r"✘ Test (.+?) recorded an issue(?: at .*?)?(?::\s*(.*))?$|✘ Test (.+?) recorded an issue(?: \(.*\))?$")
-SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?:\.\s*)?(?::\s*(.*))?$")
+SWIFT_KNOWN_ISSUE = re.compile(r"✘ Test (.+?) recorded a known issue(?: at .*?)?(?: \(.*?\))?(?:\.\s*)?(?::\s*(.*))?$")
 SWIFT_FAIL = re.compile(r"✘ Test (.+?) failed(?: after| with)\b")
 RESTART = "Restarting after unexpected exit"
 KNOWN = re.compile(r"known issue|XCTExpectFailure", re.IGNORECASE)
@@ -97,17 +97,18 @@ def parse_log(text, run_id="unknown", job_id=None):
 def _run_id_for_file(path):
     # Job and shard filenames often contain their own numeric IDs. Only an
     # explicit run-<id> marker is safe to use for cross-shard deduplication.
-    match = re.search(r"run[-_](\d{6,})", path.name)
+    match = re.fullmatch(r"(\d{6,})-shard\d+\.log", path.name)
     if match:
         return match.group(1)
     # shard*.log files in a directory are one captured run.
     return "log-dir"
 
 
-def read_log_dir(directory):
+def read_log_dir(directory, explicit_run_id=None):
     records = []
     for path in sorted(Path(directory).glob("*.log")):
-        records.append(parse_log(path.read_text(errors="replace"), _run_id_for_file(path), path.name))
+        run_id = explicit_run_id or _run_id_for_file(path)
+        records.append(parse_log(path.read_text(errors="replace"), run_id, path.name))
     if not records:
         raise SystemExit("no .log files found in {}".format(directory))
     return records
@@ -175,12 +176,15 @@ def table(report):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_ids", nargs="*", help="ci.yml workflow run IDs")
-    parser.add_argument("--log-dir", type=Path, help="read existing .log files instead of downloading")
+    parser.add_argument("--log-dir", type=Path, help="read existing .log files; use <run-id>-shard<k>.log names or --log-run-id to identify one workflow run")
+    parser.add_argument("--log-run-id", help="workflow run ID applied to every file in --log-dir")
     parser.add_argument("--json-only", action="store_true", help="omit the text table")
     args = parser.parse_args(argv)
+    if args.log_run_id and not args.log_dir:
+        parser.error("--log-run-id requires --log-dir")
     if bool(args.log_dir) == bool(args.run_ids):
         parser.error("provide run IDs or --log-dir, but not both")
-    records = read_log_dir(args.log_dir) if args.log_dir else download_runs(args.run_ids)
+    records = read_log_dir(args.log_dir, args.log_run_id) if args.log_dir else download_runs(args.run_ids)
     if not records:
         raise SystemExit("no app-host unit-test logs were available")
     report = summarize(records)

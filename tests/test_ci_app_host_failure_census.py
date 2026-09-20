@@ -37,8 +37,9 @@ def test_swift_testing_known_issue_is_excluded():
 
 
 def test_local_job_filenames_share_an_explicit_run_id_only():
-    assert census._run_id_for_file(Path("run-35427062807-shard6-job105.log")) == "35427062807"
-    assert census._run_id_for_file(Path("shard6-job105.log")) == "log-dir"
+    assert census._run_id_for_file(Path("35427062807-shard6.log")) == "35427062807"
+    assert census._run_id_for_file(Path("run-35427062807-shard6-job105.log")) == "log-dir"
+    assert census.read_log_dir.__defaults__ == (None,)
 
 
 def test_remote_mode_rejects_empty_download(monkeypatch=None):
@@ -56,6 +57,7 @@ def test_remote_mode_rejects_empty_download(monkeypatch=None):
 
 
 if __name__ == "__main__":
-    test_parses_xctest_swift_and_restart()
-    test_known_issue_is_excluded_and_runs_are_deduplicated()
+    for name, function in sorted(globals().items()):
+        if name.startswith("test_") and callable(function):
+            function()
     print("ok")
