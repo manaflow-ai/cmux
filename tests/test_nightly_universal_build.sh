@@ -458,7 +458,7 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const shouldPublish = (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
+if ! grep -Fq "const shouldPublish = !seedOnly && (isMainRef || isRcRef) && !buildOnly && !fastBuild;" "$WORKFLOW_FILE" \
   || ! grep -Fq "core.setOutput('should_publish', shouldPublish ? 'true' : 'false');" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly decide step must expose should_publish only for main and rc/ refs that are not measurement or fast runs"
   exit 1
@@ -546,7 +546,7 @@ fi
 # not depend on the nightly tag (a build-only dispatch on main would otherwise
 # skip when the tag already matches HEAD) and must ignore the fast arm64 path.
 for expected in \
-  "const shouldBuild = buildOnly || !isMainRef || forceBuild || nightlySha !== headSha;" \
+  "const shouldBuild = !seedOnly && (buildOnly || !isMainRef || forceBuild || nightlySha !== headSha);" \
   "const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';"; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: build_only must always build the universal app: $expected"
