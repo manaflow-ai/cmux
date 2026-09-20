@@ -50,9 +50,6 @@ on:
         required: false
         default: "120"
 
-env:
-  SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
-
 jobs:
   tests:
     # Depot is retired for cmux CI. Keep this reusable test lane on the
