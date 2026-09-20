@@ -22,7 +22,7 @@ struct CloudPortsStatusPresentation: Equatable {
             case .connecting:
                 return Self(
                     title: String(localized: "cloudTree.ports.loading", defaultValue: "Discovering ports…"),
-                    message: String(localized: "cloudTree.ports.loading", defaultValue: "cmux is reading the machine’s listening services."),
+                    message: String(localized: "cloudTree.ports.loading.detail", defaultValue: "cmux is reading the machine’s listening services."),
                     action: .none,
                     actionTitle: nil
                 )
@@ -36,14 +36,14 @@ struct CloudPortsStatusPresentation: Equatable {
             case .asleep:
                 return Self(
                     title: String(localized: "cloudTree.ports.asleep", defaultValue: "Machine is asleep"),
-                    message: String(localized: "cloudTree.ports.asleep", defaultValue: "Wake the machine to discover its listening services."),
+                    message: String(localized: "cloudTree.ports.asleep.detail", defaultValue: "Wake the machine to discover its listening services."),
                     action: .openMachine,
                     actionTitle: String(localized: "cloudTree.ports.action.wake", defaultValue: "Wake Machine")
                 )
             case .unavailable:
                 return Self(
                     title: String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable"),
-                    message: String(localized: "cloudTree.ports.unavailable", defaultValue: "Refresh to retry port discovery."),
+                    message: String(localized: "cloudTree.ports.unavailable.detail", defaultValue: "Refresh to retry port discovery."),
                     action: .refresh,
                     actionTitle: String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")
                 )
@@ -52,8 +52,8 @@ struct CloudPortsStatusPresentation: Equatable {
             }
         }
         let routeNote = String(
-            localized: "cloud.vpn.setup.howItWorks.body",
-            defaultValue: "Connect Safari, Chrome, and other apps to your Cloud machines. Each machine keeps its private IP address and original ports. Only traffic to your Cloud network uses this encrypted connection. cmux terminals, Ports, and Desktop work without it."
+            localized: "cloudTree.ports.routeNote",
+            defaultValue: "cmux’s authenticated in-app forwarding works without the system-wide Cloud VPN. Safari, Chrome, and other Mac apps using the machine’s private address do require Cloud VPN."
         )
         switch info.portDiscoveryState {
         case .notRequested:
@@ -66,7 +66,7 @@ struct CloudPortsStatusPresentation: Equatable {
         case .loading:
             return Self(
                 title: String(localized: "cloudTree.ports.loading", defaultValue: "Discovering ports…"),
-                message: String(localized: "cloudTree.ports.loading", defaultValue: "cmux is reading the machine’s listening services."),
+                message: String(localized: "cloudTree.ports.loading.detail", defaultValue: "cmux is reading the machine’s listening services."),
                 action: .none,
                 actionTitle: nil
             )
@@ -116,7 +116,7 @@ struct CloudPortsStatusPresentation: Equatable {
             case .machineAsleep:
                 return Self(
                     title: String(localized: "cloudTree.ports.asleep", defaultValue: "Open the machine to discover ports"),
-                    message: String(localized: "cloudTree.ports.asleep", defaultValue: "Wake the machine to discover its listening services."),
+                    message: String(localized: "cloudTree.ports.asleep.detail", defaultValue: "Wake the machine to discover its listening services."),
                     action: .openMachine,
                     actionTitle: String(localized: "cloudTree.ports.action.wake", defaultValue: "Wake Machine")
                 )

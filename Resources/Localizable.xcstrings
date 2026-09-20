@@ -528055,6 +528055,242 @@
           }
         }
       }
+    },
+    "cloudTree.ports.routeNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’s authenticated in-app forwarding works without the system-wide Cloud VPN. Safari, Chrome, and other Mac apps using the machine’s private address do require Cloud VPN."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die authentifizierte Weiterleitung in cmux funktioniert ohne das systemweite Cloud-VPN. Safari, Chrome und andere Mac-Apps, die die private Adresse der Maschine verwenden, benötigen Cloud-VPN."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le transfert authentifié intégré à cmux fonctionne sans le VPN Cloud du système. Safari, Chrome et les autres apps Mac utilisant l’adresse privée de la machine nécessitent le VPN Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعمل إعادة التوجيه الموثّقة داخل cmux دون Cloud VPN على مستوى النظام. تحتاج Safari وChrome وتطبيقات Mac الأخرى التي تستخدم العنوان الخاص للجهاز إلى Cloud VPN."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El reenvío autenticado integrado de cmux funciona sin la VPN de Cloud de todo el sistema. Safari, Chrome y otras apps de Mac que usan la dirección privada de la máquina sí necesitan Cloud VPN."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的已驗證應用程式內轉送不需要全系統 Cloud VPN。Safari、Chrome 和其他使用機器私人位址的 Mac App 則需要 Cloud VPN。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的已验证应用内转发无需系统范围的 Cloud VPN。Safari、Chrome 和其他使用机器专用地址的 Mac 应用则需要 Cloud VPN。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux의 인증된 앱 내 전달은 시스템 전체 Cloud VPN 없이 작동합니다. 머신의 비공개 주소를 사용하는 Safari, Chrome 및 다른 Mac 앱에는 Cloud VPN이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux の認証済みアプリ内転送はシステム全体の Cloud VPN なしで動作します。マシンのプライベートアドレスを使う Safari、Chrome、その他の Mac アプリには Cloud VPN が必要です。"
+          }
+        }
+      }
+    },
+    "cloudTree.ports.loading.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is reading the machine’s listening services."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux liest die lauschenden Dienste der Maschine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lit les services en écoute de la machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يقرأ cmux الخدمات المستمعة على الجهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux está leyendo los servicios que escuchan en la máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在讀取機器上監聽的服務。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 正在读取机器上监听的服务。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 머신의 수신 대기 서비스를 읽고 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がマシンの待ち受けサービスを読み取っています。"
+          }
+        }
+      }
+    },
+    "cloudTree.ports.asleep.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake the machine to discover its listening services."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivieren Sie die Maschine, um ihre lauschenden Dienste zu ermitteln."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réveillez la machine pour découvrir ses services en écoute."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أيقظ الجهاز لاكتشاف الخدمات المستمعة عليه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activa la máquina para descubrir sus servicios en escucha."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "喚醒機器以探索其監聽服務。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "唤醒机器以发现其监听服务。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신을 깨워 수신 대기 서비스를 검색하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを起動して待ち受けサービスを検出します。"
+          }
+        }
+      }
+    },
+    "cloudTree.ports.unavailable.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine did not return a complete port scan. Refresh to retry."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine hat keinen vollständigen Portscan zurückgegeben. Aktualisieren Sie, um es erneut zu versuchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine n’a pas renvoyé une analyse complète des ports. Actualisez pour réessayer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يُرجع الجهاز فحصًا كاملاً للمنافذ. حدّث للمحاولة مجددًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina no devolvió un escaneo de puertos completo. Actualiza para volver a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器未回傳完整的連接埠掃描結果。請重新整理以重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器未返回完整的端口扫描结果。请刷新以重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 완전한 포트 검색 결과를 반환하지 않았습니다. 새로 고쳐 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンが完全なポートスキャンを返しませんでした。更新して再試行してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

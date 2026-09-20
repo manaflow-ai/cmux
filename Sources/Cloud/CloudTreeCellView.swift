@@ -80,15 +80,15 @@ final class CloudTreeCellView: NSTableCellView {
                 .frame(maxWidth: .infinity, alignment: .leading)
         )
         if let status {
-            let view = portsStatus ?? makePortsStatus()
+            let view = portsStatus ?? makePortsStatus(style: style)
             view.isHidden = false
             view.configure(presentation: status, style: style) { [weak self, weak node] in
                 guard let self, let node else { return }
                 switch status.action {
                 case .none: break
-                case .refresh: self.nodeActions.refreshMachine(node.machine)
-                case .openMachine: self.nodeActions.newTerminal(node.machine, nil)
-                case .openShell: self.machineActions.openShell(node.machine.rawValue)
+                case .refresh: nodeActions.refreshMachine(node.machine)
+                case .openMachine: nodeActions.newTerminal(node.machine, nil)
+                case .openShell: machineActions.openShell(node.machine.rawValue)
                 }
             }
         } else {
@@ -165,13 +165,13 @@ final class CloudTreeCellView: NSTableCellView {
         return host
     }
 
-    private func makePortsStatus() -> CloudPortsStatusContent {
+    private func makePortsStatus(style: CloudTreeStyle) -> CloudPortsStatusContent {
         let view = CloudPortsStatusContent(frame: .zero)
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CloudTreeRowGrid.trailingPadding),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -style.rowGrid.trailingPadding),
             view.topAnchor.constraint(equalTo: topAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
