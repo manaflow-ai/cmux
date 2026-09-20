@@ -21,6 +21,10 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
 }
 
 @Suite struct ReftableGitMetadataTests {
+    // These real-process tests assert Git semantics, not UI latency. Keep them
+    // bounded while allowing process scheduling during the parallel package run.
+    private static let integrationWallTime: TimeInterval = 15
+
     @Test func expiredReferenceDeadlineRemainsUnreadable() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
@@ -185,7 +189,12 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         )
         #expect(head.trimmingCharacters(in: .whitespacesAndNewlines) == "ref: refs/heads/.invalid")
 
-        let service = GitMetadataService()
+        let service = GitMetadataService(
+            fileStatusReader: SystemGitFileStatusReader(),
+            safetyConfiguration: GitMetadataSafetyConfiguration(
+                gitStatusWallTime: Self.integrationWallTime
+            )
+        )
         let initialMetadata = await service.workspaceMetadata(for: worktree.path)
         #expect(initialMetadata.branch == initialBranch)
         #expect(await service.checkedOutBranch(forDirectory: worktree.path) == .branch(initialBranch))
@@ -223,7 +232,9 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         let repository = try #require(
             GitMetadataService.resolveGitRepository(containing: repositoryRoot.path)
         )
-        let snapshot = SystemGitReferenceReader().snapshot(repository: repository)
+        let snapshot = SystemGitReferenceReader(
+            boundedCommandWallTimeLimit: Self.integrationWallTime
+        ).snapshot(repository: repository)
 
         #expect(snapshot.checkedOutBranch == .branch(branch))
         #expect(snapshot.currentCommit == nil)
@@ -377,11 +388,20 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         environment["GIT_CONFIG_KEY_0"] = "core.worktree"
         environment["GIT_CONFIG_VALUE_0"] = unrelated.path
         let reader = SystemGitReferenceReader(
-            runner: SystemWorkspaceChangesGitRunner(environment: environment)
+            runner: SystemWorkspaceChangesGitRunner(
+                // Use the executable that successfully created this repository;
+                // backend fallback has its own test below.
+                executableURL: fixture.gitExecutableURL,
+                environment: environment
+            )
         )
 
-        let snapshot = reader.snapshot(repository: intendedRepository)
+        let snapshot = reader.snapshot(
+            repository: intendedRepository,
+            deadline: .now() + Self.integrationWallTime
+        )
 
+        #expect(snapshot.usesGitPlumbing)
         #expect(snapshot.checkedOutBranch == .branch(intendedBranch))
     }
 
@@ -411,7 +431,10 @@ private struct NeverDirectoryProbe: GitReferenceStorageProbing {
         let snapshot = SystemGitReferenceReader(runners: [
             SystemWorkspaceChangesGitRunner(executableURL: URL(fileURLWithPath: "/usr/bin/false")),
             SystemWorkspaceChangesGitRunner(executableURL: fixture.gitExecutableURL),
-        ]).snapshot(repository: repository)
+        ]).snapshot(
+            repository: repository,
+            deadline: .now() + Self.integrationWallTime
+        )
 
         #expect(snapshot.checkedOutBranch == .branch(branch))
     }
