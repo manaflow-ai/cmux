@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-archive="$RUNNER_TEMP/app-host-products/app-host-products.aar"
-echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
-"$(dirname "$0")/app-host-products-archive.sh" unpack "$archive" "$CMUX_DERIVED_DATA_PATH"
+if [ "${CMUX_LAYER_RESTORED:-}" = "true" ]; then
+  # Layer assembly already verified provider and inner archive integrity. Keep
+  # the real producer warning evidence and the ordinary restore validations.
+  python3 scripts/ci/app_host_layer_transport.py restore-warning-log "$CMUX_DERIVED_DATA_PATH"
+  python3 scripts/swift_warning_budget.py --log "$CMUX_DERIVED_DATA_PATH/cmux-build.log"
+else
+  archive="$RUNNER_TEMP/app-host-products/app-host-products.aar"
+  echo "$EXPECTED_SHA256  $archive" | shasum -a 256 -c -
+  "$(dirname "$0")/app-host-products-archive.sh" unpack "$archive" "$CMUX_DERIVED_DATA_PATH"
+fi
 products="$CMUX_DERIVED_DATA_PATH/Build/Products/Debug"
 stable="$RUNNER_TEMP/cmux-app-host-package-frameworks"
 stable_system="/private/tmp/cmux-app-host-package-frameworks"

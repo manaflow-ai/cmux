@@ -21,6 +21,8 @@ usage() {
 usage: app-host-products-archive.sh pack DERIVED_DATA ARCHIVE
        app-host-products-archive.sh list ARCHIVE
        app-host-products-archive.sh unpack ARCHIVE DESTINATION
+       app-host-products-archive.sh pack-layers DERIVED_DATA OUTPUT_DIRECTORY --identity IDENTITY_JSON
+       app-host-products-archive.sh restore-layers MANIFEST NEW_DERIVED_DATA --identity IDENTITY_JSON
 
 pack    archives DERIVED_DATA/Build/Products into ARCHIVE
 list    prints the archive entries as JSON without extracting anything
@@ -140,5 +142,7 @@ case "$command_name" in
   pack) [ "$#" -eq 2 ] || usage; pack "$1" "$2" ;;
   list) [ "$#" -eq 1 ] || usage; list "$1" ;;
   unpack) [ "$#" -eq 2 ] || usage; unpack "$1" "$2" ;;
+  pack-layers) exec python3 "$(dirname "$0")/app_host_layered_products.py" pack "$@" ;;
+  restore-layers) exec python3 "$(dirname "$0")/app_host_layered_products.py" restore "$@" ;;
   *) usage ;;
 esac
