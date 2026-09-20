@@ -172,6 +172,11 @@
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
     },
+    "displayName": {
+      "title": "Invalid machine name",
+      "message": "Machine names must be printable text of at most {maxLength} characters.",
+      "action": "Use a shorter name without control characters, or leave it empty to clear it."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
@@ -283,6 +288,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verify your email to continue",
     "emailUnverifiedBody": "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    "signupPendingBody": "If you already have an account, sign in with the method you used before. If you just created an account, verify your email before signing in.",
     "genericTitle": "Sign-in could not be completed",
     "genericBody": "Please try again. If the problem continues, contact support.",
     "backToSignIn": "Back to sign in"

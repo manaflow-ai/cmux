@@ -1,17 +1,16 @@
 import CmuxFoundation
 import SwiftUI
 enum CloudTreeRowGrid {
-    /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
+    /// Width of the outline's native disclosure control; content starts
+    /// `disclosureGap` after it. The native caret keeps its own artwork.
     static let disclosureSlot: CGFloat = 16
-    /// Small separation between a disclosure control and its row content.
-    /// Keeping this below the tree indent makes group headers read as one
-    /// shared outline rather than disconnected columns.
-    static let disclosureGap: CGFloat = 4
-    /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
-    static let dotSlot: CGFloat = 10
-    static let dotGap: CGFloat = 8
+    /// A gap smaller than the tree indent keeps carets and content together
+    /// so group headers read as one shared outline.
+    static let disclosureGap: CGFloat = 2
+    /// Gap between a machine name and its inline badge or status text.
+    static let dotGap: CGFloat = 4
     /// Space between a title and its dim detail text.
-    static let detailGap: CGFloat = 6
+    static let detailGap: CGFloat = 5
     /// Trailing accessories (open marker): gap after the text, a fixed slot, then padding.
     static let trailingGap: CGFloat = 10
     static let trailingSlot: CGFloat = 16
@@ -325,7 +324,7 @@ struct CloudTreeTerminalRowContent: View {
             tint: CloudTreeIconPalette.terminal,
             title: row.displayTitle.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : row.displayTitle,
             titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
-            detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) }
+            detail: row.directoryText
         ) {
             if showsDetachedState {
                 // Zero views: still running on the machine, no daemon tab shows it.
@@ -347,7 +346,7 @@ struct CloudTreeTerminalRowContent: View {
         }
         // Agent state stays on hover and in `cmux vm tree`; the row itself
         // carries only the unread dot.
-        .help(agentLabel ?? "")
+        .help([row.directoryHelp, agentLabel].compactMap { $0 }.joined(separator: "\n"))
     }
 
     /// The view-count badge a pool row shows: the count when several daemon tabs
@@ -403,74 +402,6 @@ enum CloudTreeBrowserDetail {
     static func text(for row: CloudTreeBrowserRow) -> String? {
         if let url = row.resource.url, let host = URL(string: url)?.host, !host.isEmpty { return host }
         return row.workspaceTitle
-    }
-}
-
-/// This Mac's header row, on the same grid as the cloud machine row. Single- or
-/// two-line per the style; no status dot (the local machine needs no link).
-struct CloudTreeLocalMachineRowContent: View {
-    let row: CloudTreeLocalMachineRow
-    var style: CloudTreeStyle = CloudTreeStyleStore.current
-
-    var body: some View {
-        switch style.machineRowLayout {
-        case .singleLine:
-            CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
-                    Image(systemName: "laptopcomputer")
-                        .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                        .foregroundStyle(style.iconTreatment == .monochrome ? AnyShapeStyle(.secondary) : AnyShapeStyle(CloudTreeIconPalette.machine))
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
-                    Text(row.name)
-                        .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(row.name)
-        case .twoLine:
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                Image(systemName: "laptopcomputer")
-                    .font(.system(size: 9, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
-                    Text(row.name)
-                        .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineNameLineHeight)
-                    Text(Self.summary(row))
-                        .cmuxFont(size: style.detailSize + 0.5, design: style.fontDesign)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(height: style.machineSubtitleLineHeight)
-                }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
-            }
-            .padding(.vertical, style.machineVerticalPadding)
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(row.name)
-        }
-    }
-
-    /// "3 terminals · 1 browser"
-    static func summary(_ row: CloudTreeLocalMachineRow) -> String {
-        var parts = [CloudTreeRowContentView.count(row.terminalCount)]
-        if row.browserCount > 0 {
-            parts.append(
-                row.browserCount == 1
-                    ? String(localized: "cloudTree.local.browserCount.one", defaultValue: "1 browser")
-                    : String(format: String(localized: "cloudTree.local.browserCount.other", defaultValue: "%d browsers"), row.browserCount)
-            )
-        }
-        return parts.joined(separator: " · ")
     }
 }
 

@@ -10,23 +10,38 @@
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
 #     [--expected-commit <sha>] [--require-capability <name>]...
+#     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
+#
+# Every remote install authenticates the downloaded manifest before any value in it is
+# trusted: `gh attestation verify` must find a Sigstore build-provenance attestation for
+# the manifest bytes, signed by the publishing workflow in its repository (default
+# manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml; override with
+# --attest-signer-workflow) and, with --expected-commit, built from that source commit.
+# The manifest's sha256 pins then cover the binaries, so an artifact host cannot
+# substitute a build. Only --allow-unattested skips this, for local development on a
+# machine without an authenticated gh; CI never passes it. A CMUX_TUI_CLIENT_LOCAL
+# binary is not downloaded and is not subject to it.
 #
 # Env: CMUX_TUI_CLIENT_MANIFEST_URL overrides the manifest, CMUX_TUI_CLIENT_LOCAL points at
 # a prebuilt universal binary to install instead of downloading (offline/dev builds).
 set -euo pipefail
 
-usage() { sed -n '2,13p' "$0"; }
+usage() { sed -n '2,22p' "$0"; }
 
 APP_PATH=""
 MANIFEST_URL="${CMUX_TUI_CLIENT_MANIFEST_URL:-https://files.cmux.com/cmux-tui/latest/manifest.json}"
 CACHE_DIR="${CMUX_TUI_CLIENT_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-client}"
 EXPECTED_COMMIT=""
+ATTEST_SIGNER_WORKFLOW="manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml"
+ALLOW_UNATTESTED=0
 REQUIRED_CAPABILITIES=()
 while (( $# )); do
   case "$1" in
     --manifest-url) shift; MANIFEST_URL="${1:?--manifest-url needs a value}" ;;
     --cache-dir) shift; CACHE_DIR="${1:?--cache-dir needs a value}" ;;
     --expected-commit) shift; EXPECTED_COMMIT="${1:?--expected-commit needs a value}" ;;
+    --attest-signer-workflow) shift; ATTEST_SIGNER_WORKFLOW="${1:?--attest-signer-workflow needs a value}" ;;
+    --allow-unattested) ALLOW_UNATTESTED=1 ;;
     --require-capability) shift; REQUIRED_CAPABILITIES+=("${1:?--require-capability needs a value}") ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option: $1" >&2; usage >&2; exit 64 ;;
@@ -35,11 +50,31 @@ while (( $# )); do
   shift
 done
 [[ -n "$APP_PATH" && -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at '${APP_PATH:-<missing>}'" >&2; exit 1; }
+[[ "$ATTEST_SIGNER_WORKFLOW" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$ ]] || {
+  echo "error: --attest-signer-workflow must look like owner/repo/.github/workflows/name.yml: $ATTEST_SIGNER_WORKFLOW" >&2
+  exit 64
+}
 DEST_DIR="$APP_PATH/Contents/Resources/bin"
 DEST="$DEST_DIR/cmux-tui"
 mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+# Fail closed: without a valid attestation nothing from the manifest is used, so
+# no binary it names is downloaded or executed.
+verify_manifest_attestation() {
+  local repo="${ATTEST_SIGNER_WORKFLOW%%/.github/*}"
+  local -a args=(--repo "$repo" --signer-workflow "$ATTEST_SIGNER_WORKFLOW")
+  command -v gh >/dev/null 2>&1 || {
+    echo "error: verifying the cmux-tui manifest attestation needs the GitHub CLI (gh); pass --allow-unattested only for local development" >&2
+    exit 1
+  }
+  [[ -n "$EXPECTED_COMMIT" ]] && args+=(--source-digest "$EXPECTED_COMMIT")
+  gh attestation verify "$MANIFEST" "${args[@]}" >&2 || {
+    echo "error: no valid build-provenance attestation for the cmux-tui manifest at $MANIFEST_URL (signer $ATTEST_SIGNER_WORKFLOW)" >&2
+    exit 1
+  }
+}
 
 verify_probe() {
   local probe capability
@@ -77,6 +112,11 @@ fi
 mkdir -p "$CACHE_DIR"
 MANIFEST="$CACHE_DIR/manifest.$(printf '%s' "$MANIFEST_URL" | shasum -a 256 | cut -c1-12).json"
 curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$MANIFEST_URL" -o "$MANIFEST"
+if (( ALLOW_UNATTESTED )); then
+  echo "warning: installing an unattested cmux-tui manifest from $MANIFEST_URL (--allow-unattested)" >&2
+else
+  verify_manifest_attestation
+fi
 COMMIT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$MANIFEST")"
 [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "error: manifest at $MANIFEST_URL has no commit" >&2; exit 1; }
 if [[ -n "$EXPECTED_COMMIT" && "$COMMIT" != "$EXPECTED_COMMIT" ]]; then

@@ -12,12 +12,39 @@ on:
       - Sources/TerminalNotification*.swift
       - Sources/AgentFeedSemanticInput.swift
       - Sources/Feed/**
-      - cmuxTests/**
+      # The files that define a suite in unit_test_suites below. ci.yml's shards
+      # run all of cmuxTests, so a broader pattern only adds a second run.
+      - cmuxTests/AgentDeliveryTTYBindingTests.swift
+      - cmuxTests/AgentJournalLifecycleCenterTests.swift
+      - cmuxTests/AgentNotificationLiveRetargetTests.swift
+      - cmuxTests/AgentNotificationMoveRaceTests.swift
+      - cmuxTests/AgentNotificationMutationBoundaryTests.swift
+      - cmuxTests/AgentRelayTTYOwnershipTests.swift
+      - cmuxTests/AgentSemanticNotificationDeliveryTests.swift
+      - cmuxTests/ClaudeBackgroundWorkNotifyTests.swift
+      - cmuxTests/FeedWaiterRegistryTests.swift
+      - cmuxTests/MemoryPressureNotificationTests.swift
+      - cmuxTests/NativeNotificationFallbackCommandTests.swift
+      - cmuxTests/OpenCodeHookRegressionTests.swift
+      # Shared helpers those suite files use.
+      - cmuxTests/AgentHookTestNotificationPipeline.swift
+      - cmuxTests/AgentJournalTestSupport.swift
+      - cmuxTests/BundledCLILinkageTests.swift
+      - cmuxTests/ClaudeHookLiveDeliveryTargetTestSupport.swift
+      - cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
+      - cmuxTests/ClaudeNotificationStatusLifecycleTests.swift
+      - cmuxTests/TerminalControllingTTYWaiter.swift
       - Packages/macOS/CMUXAgentLaunch/**
       - .github/workflows/test-depot.yml
       - scripts/ci/classify-app-host-test-output.py
       - Sources/AgentJournalLifecycleCenter*.swift
       - .github/workflows/agent-notification-tests.yml
+# A new push cancels the previous run for the same pull request. Other events
+# key on the run id, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 jobs:
