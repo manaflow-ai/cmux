@@ -20,6 +20,8 @@ extension CmxAttachEndpoint {
             return "peer:\(relaySummary):\(addressSummary)"
         case let .url(url):
             return url
+        case let .v3Peer(identity):
+            return "v3-peer:\(identity.addresses.count)-addresses"
         }
     }
 }

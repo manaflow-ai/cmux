@@ -1,0 +1,28 @@
+[package]
+name = "cmux-v3-relay-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+cmux-v3-grants = { path = "../grants" }
+cmux-v3-transport = { path = "../transport" }
+ed25519-dalek.workspace = true
+axum.workspace = true
+clap.workspace = true
+futures.workspace = true
+hex.workspace = true
+libp2p.workspace = true
+reqwest.workspace = true
+prometheus-client.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+subtle.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

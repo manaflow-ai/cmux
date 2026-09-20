@@ -441,6 +441,11 @@ extension CmxAttachRoute {
                 "type": "url",
                 "url": url
             ]
+        case let .v3Peer(identity):
+            endpointPayload = [
+                "type": "v3_peer",
+                "v3": ["peer_id": identity.peerID, "addresses": identity.addresses]
+            ]
         }
 
         return [

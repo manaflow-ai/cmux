@@ -698,6 +698,8 @@ final class HostSettingsActions: SettingsHostActions {
     /// Localized transport label for a pairing route shown in diagnostics.
     nonisolated private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
+        case .v3:
+            return String(localized: "settings.mobile.route.v3", defaultValue: "libp2p v3")
         case .tailscale:
             return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
         case .debugLoopback:

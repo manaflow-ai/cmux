@@ -1,0 +1,4 @@
+Native/
+Sources/CmuxV3Native/
+.build/
+.native-build.lock

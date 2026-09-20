@@ -9,6 +9,8 @@ public enum CmxAttachEndpoint: Equatable, Sendable {
     case hostPort(host: String, port: Int)
     /// An authenticated Iroh identity plus untrusted reachability hints.
     case peer(identity: CmxIrohPeerIdentity, pathHints: [CmxIrohPathHint])
+    /// A libp2p v3 identity plus untrusted directory addresses.
+    case v3Peer(CmxV3PeerIdentity)
     /// A URL-based transport endpoint.
     case url(String)
 }
@@ -24,12 +26,14 @@ extension CmxAttachEndpoint: Codable {
         case relayURL = "relay_url"
         case pathHints = "path_hints"
         case url
+        case v3
     }
 
     private enum EndpointType: String, Codable {
         case hostPort = "host_port"
         case peer
         case url
+        case v3Peer = "v3_peer"
     }
 
     /// Decodes and validates an attach endpoint.
@@ -64,6 +68,8 @@ extension CmxAttachEndpoint: Codable {
             }
         case .url:
             self = try .url(container.decode(String.self, forKey: .url))
+        case .v3Peer:
+            self = try .v3Peer(container.decode(CmxV3PeerIdentity.self, forKey: .v3))
         }
     }
 
@@ -112,6 +118,9 @@ extension CmxAttachEndpoint: Codable {
         case let .url(url):
             try container.encode(EndpointType.url, forKey: .type)
             try container.encode(url, forKey: .url)
+        case let .v3Peer(identity):
+            try container.encode(EndpointType.v3Peer, forKey: .type)
+            try container.encode(identity, forKey: .v3)
         }
     }
 }
@@ -206,10 +215,13 @@ public struct CmxAttachRoute: Codable, Equatable, Sendable {
             guard !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CmxAttachRouteError.emptyURL
             }
+        case .v3Peer:
+            break
         }
 
         switch (kind, endpoint) {
-        case (.tailscale, .hostPort), (.debugLoopback, .hostPort), (.iroh, .peer), (.websocket, .url):
+        case (.tailscale, .hostPort), (.debugLoopback, .hostPort), (.iroh, .peer),
+             (.v3, .v3Peer), (.websocket, .url):
             break
         default:
             throw CmxAttachRouteError.endpointMismatch(kind: kind, endpoint: endpoint)

@@ -86,7 +86,7 @@ public struct MobileShellRouteAuthPolicy {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
-        case (.tailscale, .hostPort), (.iroh, .peer):
+        case (.tailscale, .hostPort), (.iroh, .peer), (.v3, .v3Peer):
             return false
         default:
             return false

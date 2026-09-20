@@ -19,9 +19,9 @@ struct CompactAttachEndpoint: Codable {
     let u: String?
 
     init(_ endpoint: CmxAttachEndpoint) {
-        t = nil
         switch endpoint {
         case let .hostPort(host, port):
+            t = nil
             h = host
             p = port
             i = nil
@@ -31,6 +31,7 @@ struct CompactAttachEndpoint: Codable {
             ph = nil
             u = nil
         case let .peer(identity, _):
+            t = nil
             h = nil
             p = nil
             i = identity.endpointID
@@ -42,7 +43,18 @@ struct CompactAttachEndpoint: Codable {
             ru = nil
             ph = nil
             u = nil
+        case let .v3Peer(identity):
+            t = "v3_peer"
+            h = nil
+            p = nil
+            i = identity.peerID
+            rh = nil
+            da = identity.addresses
+            ru = nil
+            ph = nil
+            u = nil
         case let .url(url):
+            t = nil
             h = nil
             p = nil
             i = nil
@@ -72,6 +84,9 @@ struct CompactAttachEndpoint: Codable {
                 )
             }
             return try .peer(id: i, relayHint: rh, directAddrs: da ?? [], relayURL: ru)
+        case "v3_peer":
+            guard let i else { throw Self.corruptedEndpoint("v3 peer endpoint requires i") }
+            return .v3Peer(try CmxV3PeerIdentity(peerID: i, addresses: da ?? []))
         case "url":
             guard let u else {
                 throw Self.corruptedEndpoint("url endpoint requires u")

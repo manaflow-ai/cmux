@@ -1,0 +1,94 @@
+name: Transport v3
+
+on:
+  pull_request:
+    paths:
+      - services/transport-v3/**
+      - Packages/Shared/CmuxV3Transport/**
+      - Packages/Shared/CMUXMobileCore/**
+      - .github/workflows/transport-v3.yml
+  push:
+    branches: [main]
+    paths:
+      - services/transport-v3/**
+      - Packages/Shared/CmuxV3Transport/**
+      - Packages/Shared/CMUXMobileCore/**
+      - .github/workflows/transport-v3.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transport-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  protocol:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: v3test
+          POSTGRES_PASSWORD: v3-disposable-test
+          POSTGRES_DB: v3test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U v3test -d v3test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: services/transport-v3
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.21.0'
+      - name: Install Rust
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+      - run: cargo fmt --all --check
+      - run: python3 -m unittest discover -s ops/tests -v
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - name: PostgreSQL authorization and revocation
+        env:
+          CMUX_V3_TEST_DATABASE_URL: postgres://v3test:v3-disposable-test@127.0.0.1:5432/v3test
+        run: cargo test -p cmux-v3-control-server --test database --locked -- --ignored
+      - name: Audit dependency vulnerabilities
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          python3 ops/audit.py
+      - run: cargo build -p cmux-v3-transport --example browser_fixture --locked
+      - name: Browser interoperability
+        working-directory: services/transport-v3/interop
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+
+  apple:
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/transport-v3
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install Rust and Apple targets
+        run: rustup toolchain install 1.98.1 --profile minimal --target aarch64-apple-ios --target aarch64-apple-ios-sim
+      - run: cargo test --workspace --locked
+      - run: cargo build -p cmux-v3-transport --lib --target aarch64-apple-ios --locked
+      - run: cargo check -p cmux-v3-transport --target aarch64-apple-ios-sim --locked
+      - name: Generate native Apple artifact and test Swift adapter
+        run: |
+          python3 ops/apple/build.py --package ../../Packages/Shared/CmuxV3Transport --target-dir "$RUNNER_TEMP/v3-apple" --release
+          swift test --package-path ../../Packages/Shared/CmuxV3Transport

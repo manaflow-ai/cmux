@@ -430,7 +430,9 @@ final class MobileHostService {
 
     private let defaults: UserDefaults
     private let runtimeOverride: (any MobileHostPairingRuntime)?
-    private var pairingRuntime: any MobileHostPairingRuntime { runtimeOverride ?? MobileHostIrxRuntime.shared }
+    private var pairingRuntime: any MobileHostPairingRuntime {
+        runtimeOverride ?? (MobileHostV3Runtime.isEnabled ? MobileHostV3Runtime.shared : MobileHostIrxRuntime.shared)
+    }
 
     init(defaults: UserDefaults = .standard, runtime: (any MobileHostPairingRuntime)? = nil) {
         self.defaults = defaults
@@ -877,8 +879,8 @@ final class MobileHostService {
 
         let id = UUID()
         let defaultFirstFrameTimeout: UInt64 = switch authorization {
-        case .irohAdmission:
-            // Iroh owns admission and native connection liveness. A delayed
+        case .irohAdmission, .v3Admission:
+            // Native admission owns transport connection liveness. A delayed
             // first control frame is valid while the admitted session is
             // settling, so an application timer must not retire it.
             0
@@ -908,9 +910,11 @@ final class MobileHostService {
             },
             onUsableSession: {
                 guard await promoteUsableSession() else { return false }
-                await Self.retireSupersededIrohConnections(
-                    newestConnectionID: id
-                )
+                if case .irohAdmission = authorization {
+                    await Self.retireSupersededIrohConnections(
+                        newestConnectionID: id
+                    )
+                }
                 return true
             },
             handleRequest: { request in
@@ -985,7 +989,7 @@ final class MobileHostService {
         case .stackBearer:
             guard requiresAuthorization(method: request.method) else { return nil }
             return await stackAuthorization(request)
-        case .irohAdmission:
+        case .irohAdmission, .v3Admission:
             return nil
         }
     }
@@ -1015,6 +1019,12 @@ final class MobileHostService {
                     : Set(),
                 phonePushAdmission: phonePushStatus.0,
                 phonePushQueuePersistenceStatus: phonePushStatus.1
+            )
+        case .v3Admission:
+            return MobileHostPublicStatusCache.result(
+                includeIdentity: true,
+                deviceID: hostDeviceID,
+                additionalCapabilities: []
             )
         }
     }

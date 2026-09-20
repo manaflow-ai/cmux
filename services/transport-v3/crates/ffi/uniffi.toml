@@ -1,0 +1,4 @@
+[bindings.swift]
+module_name = "CmuxV3Native"
+ffi_module_name = "CmuxV3NativeFFI"
+generate_module_map = true
