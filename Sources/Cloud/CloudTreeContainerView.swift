@@ -90,8 +90,12 @@ final class CloudTreeContainerView: NSView {
             : 0
         let documentHeight = layoutMetrics.documentHeight(
             viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
-        if abs(outlineView.frame.width - documentWidth) > 0.5 || abs(outlineView.frame.height - documentHeight) > 0.5 {
+        let widthChanged = abs(outlineView.frame.width - documentWidth) > 0.5
+        if widthChanged || abs(outlineView.frame.height - documentHeight) > 0.5 {
             outlineView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
+        }
+        if widthChanged, outlineView.numberOfRows > 0 {
+            outlineView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<outlineView.numberOfRows))
         }
         outlineView.sizeLastColumnToFit()
     }

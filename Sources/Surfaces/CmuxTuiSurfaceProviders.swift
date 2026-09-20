@@ -149,6 +149,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         capabilities.ports || summary.preferredPrivateAddress != nil
     }
 
+    func requestPortDiscovery() { guard supportsPortPreviews else { return }; info.portDiscoveryState = .loading; catalog.updateMachine(info, from: self) }
+
     func update(summary: VMSummary) {
         guard let current = catalog.provider(for: machine), ObjectIdentifier(current) == ObjectIdentifier(self) else { return }
         isFeatureSuspended = false

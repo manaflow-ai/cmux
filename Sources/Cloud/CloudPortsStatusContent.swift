@@ -13,8 +13,9 @@ final class CloudPortsStatusContent: NSView {
     override var isFlipped: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !actionButton.isHidden, actionButton.frame.contains(point) else { return nil }
-        return actionButton.hitTest(actionButton.convert(point, from: self))
+        let localPoint = convert(point, from: superview)
+        guard !actionButton.isHidden, actionButton.frame.contains(localPoint) else { return nil }
+        return actionButton.hitTest(localPoint)
     }
 
     override init(frame frameRect: NSRect) {

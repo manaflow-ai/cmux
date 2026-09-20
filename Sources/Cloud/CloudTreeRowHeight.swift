@@ -18,7 +18,7 @@ struct CloudTreeRowHeight {
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         case .placeholder(_, let placeholder) where placeholder.portStatus != nil:
             guard let presentation = placeholder.portStatus else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
-            let cellWidth = outlineView.tableColumns.first?.width ?? outlineView.bounds.width
+            let cellWidth = max(180, (outlineView.tableColumns.first?.width ?? outlineView.bounds.width) - style.rowGrid.trailingPadding - style.indentPerLevel * CGFloat(max(0, outlineView.level(forRow: outlineView.row(forItem: node)))))
             return CloudPortsStatusContent.height(
                 width: max(180, cellWidth),
                 presentation: presentation,
