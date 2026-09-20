@@ -197,10 +197,26 @@ async fn serve_browser_connection(
     let mut first = [0_u8; 1];
     tokio::time::timeout(BROWSER_PROXY_HEADER_TIMEOUT, socket.peek(&mut first)).await??;
     if first[0] == b'G' {
-        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token, Vec::new())
-            .await;
+        return serve_websocket_bridge(
+            socket,
+            client,
+            workspace,
+            allowed_hosts,
+            websocket_token,
+            Vec::new(),
+        )
+        .await;
     }
-    serve_connect_connection(socket, client, workspace, allowed_hosts, credentials, websocket_token, proxy_port).await
+    serve_connect_connection(
+        socket,
+        client,
+        workspace,
+        allowed_hosts,
+        credentials,
+        websocket_token,
+        proxy_port,
+    )
+    .await
 }
 
 async fn serve_connect_connection(
@@ -258,7 +274,15 @@ async fn serve_connect_connection(
     }
     if port == proxy_port {
         socket.write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n").await?;
-        return serve_websocket_bridge(socket, client, workspace, allowed_hosts, websocket_token, initial_payload).await;
+        return serve_websocket_bridge(
+            socket,
+            client,
+            workspace,
+            allowed_hosts,
+            websocket_token,
+            initial_payload,
+        )
+        .await;
     }
     if !allowed_hosts.iter().any(|allowed| allowed == &host) {
         socket.write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n").await?;
@@ -413,7 +437,10 @@ async fn serve_websocket_bridge(
         })
         .unwrap_or("");
     let auth_protocol = format!("cmux-proxy-{websocket_token}");
-    if !protocol_header.split(',').any(|value| constant_time_equal(value.trim().as_bytes(), auth_protocol.as_bytes())) {
+    if !protocol_header
+        .split(',')
+        .any(|value| constant_time_equal(value.trim().as_bytes(), auth_protocol.as_bytes()))
+    {
         return Err(anyhow!("WebSocket bridge authentication failed"));
     }
 
@@ -561,17 +588,27 @@ async fn read_http_headers(
 }
 
 fn split_http_headers(data: Vec<u8>) -> anyhow::Result<(String, Vec<u8>)> {
-    let end = data.windows(4).position(|part| part == b"\r\n\r\n")
-        .ok_or_else(|| anyhow!("incomplete WebSocket headers"))? + 4;
-    if end > 32 * 1024 { return Err(anyhow!("WebSocket headers too large")); }
+    let end = data
+        .windows(4)
+        .position(|part| part == b"\r\n\r\n")
+        .ok_or_else(|| anyhow!("incomplete WebSocket headers"))?
+        + 4;
+    if end > 32 * 1024 {
+        return Err(anyhow!("WebSocket headers too large"));
+    }
     let header = std::str::from_utf8(&data[..end])
-        .map_err(|_| anyhow!("WebSocket headers were not UTF-8"))?.to_owned();
+        .map_err(|_| anyhow!("WebSocket headers were not UTF-8"))?
+        .to_owned();
     Ok((header, data[end..].to_vec()))
 }
 
 fn application_protocols(header: &str, authentication: &str) -> String {
-    header.split(',').map(str::trim).filter(|p| !p.is_empty() && *p != authentication)
-        .collect::<Vec<_>>().join(", ")
+    header
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && *p != authentication)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]
@@ -580,7 +617,13 @@ mod tests {
 
     #[test]
     fn websocket_protocols_preserve_application_negotiation_without_proxy_secret() {
-        assert_eq!(application_protocols("graphql-transport-ws, chat, cmux-proxy-secret", "cmux-proxy-secret"), "graphql-transport-ws, chat");
+        assert_eq!(
+            application_protocols(
+                "graphql-transport-ws, chat, cmux-proxy-secret",
+                "cmux-proxy-secret"
+            ),
+            "graphql-transport-ws, chat"
+        );
         assert_eq!(application_protocols("cmux-proxy-secret", "cmux-proxy-secret"), "");
     }
 
@@ -588,11 +631,13 @@ mod tests {
     fn websocket_binary_frames_follow_upgrade_without_utf8_decoding() {
         let headers = b"HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Protocol: chat\r\n\r\n";
         let frame = [0x82, 0x03, 0xff, 0xfe, 0x00];
-        let (parsed, remainder) = split_http_headers([headers.as_slice(), &frame].concat()).unwrap();
+        let (parsed, remainder) =
+            split_http_headers([headers.as_slice(), &frame].concat()).unwrap();
         assert_eq!(parsed.as_bytes(), headers);
         assert_eq!(remainder, frame);
         let large_frame = vec![0xff; 65536];
-        let (_, remainder) = split_http_headers([headers.as_slice(), &large_frame].concat()).unwrap();
+        let (_, remainder) =
+            split_http_headers([headers.as_slice(), &large_frame].concat()).unwrap();
         assert_eq!(remainder, large_frame);
         assert!(split_http_headers(b"HTTP/1.1 101\r\n".to_vec()).is_err());
     }
