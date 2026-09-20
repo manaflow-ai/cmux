@@ -217,6 +217,13 @@ final class MobileIrohReleaseGateRunner {
                     try await uiProbe.exercise(
                         workspaceID: identity.workspace, surfaceID: identity.surface
                     )
+                    // UI evidence returns to the list so the compositor can
+                    // prove teardown. Restore the exact measured target before
+                    // transport work, rather than relying on a stale selection
+                    // or a compact-navigation side effect.
+                    store.selectedWorkspaceID = identity.workspace
+                    store.selectedTerminalID = identity.surface
+                    await Task.yield()
                     let terminalSession = MobileIrohReleaseGateTerminalSession(client: store)
                     defer { terminalSession.reset() }
                     return try await soakRunner.run(
