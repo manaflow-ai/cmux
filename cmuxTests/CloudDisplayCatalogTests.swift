@@ -17,7 +17,7 @@ struct CloudDisplayCatalogTests {
     func creationRetryKeepsRequestIdentity() async throws {
         var creates: [String] = []
         let service = CloudDisplayCoordinator { command, _ in
-            if command.hasSuffix(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
             creates.append(command)
             if creates.count == 1 { throw URLError(.networkConnectionLost) }
             return .init(exitCode: 0, stdout: created, stderr: "")
@@ -36,7 +36,7 @@ struct CloudDisplayCatalogTests {
         let started = CloudLinkFirstValue<Bool>()
         let response = CloudLinkFirstValue<Bool>()
         let service = CloudDisplayCoordinator { command, _ in
-            if command.hasSuffix(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
+            if command.contains(" list") { return .init(exitCode: 0, stdout: initial, stderr: "") }
             started.resolve(true)
             _ = await response.result
             return .init(exitCode: 0, stdout: created, stderr: "")

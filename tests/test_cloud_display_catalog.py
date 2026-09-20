@@ -14,7 +14,7 @@ import uuid
 sys.dont_write_bytecode = True
 loader = importlib.machinery.SourceFileLoader(
     "cmux_display", str(Path(__file__).resolve().parents[1] /
-                        "web/services/vms/images/devbox/desktop/cmux-display"))
+                        "tests/fixtures/cmux-display"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 display = importlib.util.module_from_spec(spec)
 loader.exec_module(display)
@@ -95,20 +95,34 @@ class CloudDisplayCatalogTests(unittest.TestCase):
         service = display.DisplayService(catalog, self.root / "runtime")
         environments = []
 
-        def run(_command, **options):
-            environments.append(options["env"])
+        class Process:
+            def terminate(self):
+                pass
 
-        with mock.patch.object(display.subprocess, "run", side_effect=run), mock.patch.object(display, "ready", return_value=True):
+        def spawn(_command, **options):
+            environments.append(options["env"].copy())
+            return Process()
+
+        def launch(_command, **_options):
+            return mock.Mock(stdout=f"DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/bus-{len(environments)}'\nDBUS_SESSION_BUS_PID=1\n")
+
+        with mock.patch.object(display.subprocess, "Popen", side_effect=spawn), \
+             mock.patch.object(display.subprocess, "run", side_effect=launch), \
+             mock.patch.object(display.shutil, "which", side_effect=lambda name: name), \
+             mock.patch.object(service, "wait_for_port", return_value=True), \
+             mock.patch.object(display, "ready", return_value=True):
             try:
                 first = service.handle({"action": "create", "request": str(uuid.uuid4())})
                 second = service.handle({"action": "create", "request": str(uuid.uuid4())})
                 self.assertEqual(first["created"], "display:2")
                 self.assertEqual(second["created"], "display:3")
                 self.assertEqual(len(second["displays"]), 3)
-                self.assertEqual([env["DISPLAY"] for env in environments], [":2", ":3"])
-                self.assertNotEqual(environments[0]["CMUX_DESKTOP_RUNTIME_DIR"], environments[1]["CMUX_DESKTOP_RUNTIME_DIR"])
-                for env in environments:
-                    self.assertNotIn("DBUS_SESSION_BUS_ADDRESS", env)
+                displays = sorted({env["DISPLAY"] for env in environments})
+                self.assertEqual(displays, [":2", ":3"])
+                by_display = {env["DISPLAY"]: env for env in environments}
+                self.assertNotEqual(by_display[":2"]["CMUX_DESKTOP_RUNTIME_DIR"], by_display[":3"]["CMUX_DESKTOP_RUNTIME_DIR"])
+                self.assertNotEqual(by_display[":2"]["DBUS_SESSION_BUS_ADDRESS"], by_display[":3"]["DBUS_SESSION_BUS_ADDRESS"])
+                for env in by_display.values():
                     self.assertNotIn("NOTIFY_SOCKET", env)
             finally:
                 service.shutdown.set()

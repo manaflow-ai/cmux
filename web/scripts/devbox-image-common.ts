@@ -195,7 +195,6 @@ export const devboxDesktopDir = path.join(devboxDir, "desktop");
 export const DEVBOX_DESKTOP_FILES = [
   "WALLPAPER.md",
   "cmux-desktop-boot",
-  "cmux-display",
   "cmux-desktop.service",
   "desktop-env.sh",
   "ghostty-cmux.desktop",
@@ -228,7 +227,6 @@ export const DEVBOX_DESKTOP_INSTALLS: readonly DevboxDesktopInstall[] = [
   { source: "desktop/wallpaper.jpg", target: "/usr/share/backgrounds/cmux/wallpaper.jpg", mode: 0o644 },
   { source: "desktop/start-vnc.sh", target: "/usr/local/bin/start-vnc.sh", mode: 0o755 },
   { source: "desktop/cmux-desktop-boot", target: "/usr/local/bin/cmux-desktop-boot", mode: 0o755 },
-  { source: "desktop/cmux-display", target: "/usr/local/bin/cmux-display", mode: 0o755 },
   { source: "desktop/cmux-desktop.service", target: "/etc/systemd/system/cmux-desktop.service", mode: 0o644 },
   { source: "desktop/desktop-env.sh", target: "/etc/cmux/desktop-env.sh", mode: 0o644 },
 ];

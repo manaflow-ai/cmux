@@ -1,10 +1,16 @@
+import Foundation
+
+/// Installs and invokes the VM-scoped display helper through the existing authorized exec route.
+@MainActor
+enum CloudGuestDisplayScript {
+    private static let source = #"""
 #!/usr/bin/env python3
-"""Guest-owned display catalog and supervisor; invoked by the desktop service.
+\"\"\"Guest-owned display catalog and supervisor; invoked by the desktop service.
 
 The existing :1 desktop remains owned by start-vnc.sh. Additional records each
 own an X server, session bus, window manager and noVNC listener. The control
 socket is local to this guest and only accessible to its work user.
-"""
+\"\"\"
 import argparse
 import fcntl
 import http.client
@@ -38,7 +44,7 @@ def listening(port):
 
 
 def ready(number):
-    """A bound HTTP port alone does not prove that an X/RFB server exists."""
+    \"\"\"A bound HTTP port alone does not prove that an X/RFB server exists.\"\"\"
     try:
         with socket.create_connection(("127.0.0.1", 5900 + number), timeout=0.5) as rfb:
             version = b""
@@ -60,7 +66,7 @@ def ready(number):
 
 
 class DisplayCatalog:
-    """Serializes allocation and persists request receipts before starting work."""
+    \"\"\"Serializes allocation and persists request receipts before starting work.\"\"\"
 
     def __init__(self, directory, occupied=None):
         self.directory = Path(directory)
@@ -124,6 +130,7 @@ class DisplayService:
         self.lock = threading.Lock()
         self.jobs = {}
         self.states = {}
+        self.processes = {}
         self.shutdown = threading.Event()
 
     def start(self, number):
@@ -136,28 +143,84 @@ class DisplayService:
             threading.Thread(target=self.supervise, args=(number, finished), daemon=True).start()
             return finished
 
+    def terminate(self, number):
+        for process in self.processes.pop(number, []):
+            try:
+                process.terminate()
+            except OSError:
+                pass
+
+    @staticmethod
+    def wait_for_port(port, timeout=20):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if listening(port):
+                return True
+            time.sleep(0.1)
+        return False
+
+    def start_components(self, number, environment, runtime):
+        self.terminate(number)
+        vnc = shutil.which("Xvnc") or shutil.which("Xtigervnc")
+        websockify = shutil.which("websockify")
+        if not vnc or not websockify:
+            raise RuntimeError("display runtime unavailable")
+        rfb_port, novnc_port = 5900 + number, 6900 + number
+        processes = []
+        processes.append(subprocess.Popen(
+            [vnc, f":{number}", "-geometry", os.environ.get("CMUX_VNC_GEOMETRY", "1440x900"),
+             "-depth", "24", "-rfbport", str(rfb_port), "-localhost",
+             "-SecurityTypes", "None", "-AlwaysShared"],
+            env=environment, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        self.processes[number] = processes
+        if not self.wait_for_port(rfb_port):
+            raise RuntimeError("Xvnc did not become ready")
+        bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
+                             capture_output=True, text=True, check=True).stdout
+        for line in bus.splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            environment[key] = value.strip().strip("'")
+        for executable, args in [
+            ("openbox", []), ("tint2", ["-c", "/etc/cmux/tint2rc"]),
+            ("vncconfig", ["-nowin"]),
+            (websockify, ["--web", "/usr/share/novnc", "--heartbeat", "30",
+                          f"[::]:{novnc_port}", f"127.0.0.1:{rfb_port}"]),
+        ]:
+            path = executable if "/" in executable else shutil.which(executable)
+            if not path:
+                if executable == "vncconfig":
+                    continue
+                raise RuntimeError(f"missing display component: {executable}")
+            process = subprocess.Popen([path] + args, env=environment,
+                                       stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            processes.append(process)
+        if not self.wait_for_port(novnc_port, timeout=10):
+            raise RuntimeError("noVNC did not become ready")
+        (runtime / "env").write_text(f"export DISPLAY=:{number}\n")
+
     def supervise(self, number, finished):
         runtime = self.runtime / str(number)
         runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
         environment = dict(os.environ, DISPLAY=f":{number}", CMUX_DESKTOP_RUNTIME_DIR=str(runtime))
-        # Each display starts a separate session bus; it must not inherit :1's.
         for key in ("NOTIFY_SOCKET", "DBUS_SESSION_BUS_ADDRESS", "DBUS_SESSION_BUS_PID",
                     "AT_SPI_BUS_ADDRESS", "AT_SPI_BUS"):
             environment.pop(key, None)
         while not self.shutdown.is_set():
             try:
-                subprocess.run(["bash", self.starter], env=environment, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               timeout=50, check=True)
+                self.start_components(number, environment, runtime)
                 state = "running" if ready(number) else "unavailable"
-            except (OSError, subprocess.SubprocessError):
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                self.terminate(number)
                 state = "unavailable"
             with self.lock:
                 self.states[number] = state
             finished.set()
-            # This is supervision, not readiness: a failed listener is reported
-            # immediately, and the next pass heals only this display's processes.
             self.shutdown.wait(30)
+        self.terminate(number)
 
     def snapshot(self):
         with self.lock:
@@ -253,3 +316,23 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+"""#
+    private static let path = "$HOME/.cmux/cmux-display"
+
+    static func command(action: String, requestID: UUID? = nil) -> String {
+        let encoded = Data(source.utf8).base64EncodedString()
+        let argument = requestID.map { " --request-id \($0.uuidString.lowercased())" } ?? ""
+        return """
+        set -eu
+        path=\"\(path)\"
+        mkdir -p \"$HOME/.cmux\"
+        if [ ! -x \"$path\" ]; then printf '%s' \"\(encoded)\" | base64 -d > \"$path\"; chmod 700 \"$path\"; fi
+        if ! pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1; then
+          nohup \"$path\" serve > \"$HOME/.cmux/display-service.log\" 2>&1 &
+          for i in $(seq 1 100); do [ -S /run/cmux-desktop/display-control.sock ] && break; sleep 0.1; done
+        fi
+        \"$path\" \(action)\(argument)
+        """
+    }
+}

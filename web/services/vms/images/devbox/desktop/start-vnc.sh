@@ -47,18 +47,12 @@ unset NOTIFY_SOCKET
 
 DISPLAY="${DISPLAY:-:1}"
 export DISPLAY
-DISPLAY_NUMBER="${DISPLAY#:}"
-case "$DISPLAY_NUMBER" in ''|*[!0-9]*) echo "Invalid display number" >&2; exit 1;; esac
-if [ "$DISPLAY_NUMBER" -lt 1 ] || [ "$DISPLAY_NUMBER" -gt 16 ]; then exit 1; fi
-RFB_PORT=$((5900 + DISPLAY_NUMBER))
-NOVNC_PORT=$((6900 + DISPLAY_NUMBER))
 GEOMETRY="${CMUX_VNC_GEOMETRY:-1440x900}"
 RUNTIME_DIR="${CMUX_DESKTOP_RUNTIME_DIR:-/run/cmux-desktop}"
 # Never let an unwritable HOME keep the desktop down: fall back to a per-user
 # tmp dir for logs and session state.
 STATE_DIR="$HOME/.cmux"
-if [ "$DISPLAY_NUMBER" -ne 1 ]; then STATE_DIR="$STATE_DIR/displays/$DISPLAY_NUMBER"; fi
-mkdir -p "$STATE_DIR/desktop-logs" 2>/dev/null || { STATE_DIR="/tmp/cmux-desktop-$(id -u)-$DISPLAY_NUMBER"; mkdir -p "$STATE_DIR/desktop-logs"; }
+mkdir -p "$STATE_DIR/desktop-logs" 2>/dev/null || { STATE_DIR="/tmp/cmux-desktop-$(id -u)"; mkdir -p "$STATE_DIR/desktop-logs"; }
 LOG_DIR="$STATE_DIR/desktop-logs"
 
 # The supervisor re-runs this every 30 s, so cap each component log here: a
@@ -73,19 +67,7 @@ done
 VNC_BIN="$(command -v Xvnc || command -v Xtigervnc)" || exit 0
 
 listening() { ss -tln 2>/dev/null | grep -q ":$1 "; }
-# Process names alone would reuse :1's window manager and session bus on :2.
-# Filter every component by the exact DISPLAY inherited at process creation.
-display_pids() {
-  pgrep -u "$(id -u)" "$@" 2>/dev/null | while read -r pid; do
-    [ -r "/proc/$pid/environ" ] || continue
-    if tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | grep -Fxq "DISPLAY=$DISPLAY"; then echo "$pid"; fi
-  done
-}
-export -f display_pids
-mine() { [ -n "$(display_pids "$@")" ]; }
-# Refuse a port owned by another session rather than aliasing its screen.
-if [ "$DISPLAY_NUMBER" -ne 1 ] && listening "$RFB_PORT" && ! mine -x 'Xvnc|Xtigervnc'; then exit 1; fi
-if [ "$DISPLAY_NUMBER" -ne 1 ] && listening "$NOVNC_PORT" && ! mine -f "websockify.*127.0.0.1:$RFB_PORT"; then exit 1; fi
+mine() { pgrep -u "$(id -u)" "$@" >/dev/null 2>&1; }
 # Bounded wait for a listener that has no readiness signal of its own
 # (websockify): probes the socket table until the port is bound or the
 # deadline (seconds) passes. Returns the port's state at the deadline.
@@ -102,14 +84,14 @@ wait_listening() {
 # moment it accepts connections, so nothing below talks to X too early. The
 # descriptor is a FIFO opened read/write here (so neither side blocks on the
 # open) and read with a deadline.
-if ! listening "$RFB_PORT"; then
+if ! listening 5901; then
   ready_fifo="$STATE_DIR/xvnc-ready.fifo"
   rm -f "$ready_fifo"
   if mkfifo -m 600 "$ready_fifo" 2>/dev/null && exec {ready_fd}<>"$ready_fifo"; then
     "$VNC_BIN" "$DISPLAY" \
       -geometry "$GEOMETRY" \
       -depth 24 \
-      -rfbport "$RFB_PORT" \
+      -rfbport 5901 \
       -localhost \
       -SecurityTypes None \
       -AlwaysShared \
@@ -122,12 +104,12 @@ if ! listening "$RFB_PORT"; then
     "$VNC_BIN" "$DISPLAY" \
       -geometry "$GEOMETRY" \
       -depth 24 \
-      -rfbport "$RFB_PORT" \
+      -rfbport 5901 \
       -localhost \
       -SecurityTypes None \
       -AlwaysShared \
       >>"$LOG_DIR/xvnc.log" 2>&1 &
-    wait_listening "$RFB_PORT" 20 || true
+    wait_listening 5901 20 || true
   fi
 fi
 
@@ -199,7 +181,7 @@ if ! mine -f cmux-desktop-resize-watch; then
       case $line in
         *RRScreenChangeNotify*)
           feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 || true
-          display_pids -x tint2 | xargs -r kill -USR1 >/dev/null 2>&1 || true
+          pkill -USR1 -U "$(id -u)" -x tint2 >/dev/null 2>&1 || true
           ;;
       esac
     done
@@ -207,8 +189,8 @@ if ! mine -f cmux-desktop-resize-watch; then
 fi
 
 # noVNC uses a dual-stack listener so either private address can reach the desktop.
-if ! listening "$NOVNC_PORT"; then
-  websockify --web /usr/share/novnc --heartbeat 30 "[::]:$NOVNC_PORT" "127.0.0.1:$RFB_PORT" \
+if ! listening 6901; then
+  websockify --web /usr/share/novnc --heartbeat 30 '[::]:6901' 127.0.0.1:5901 \
     >>"$LOG_DIR/websockify.log" 2>&1 &
 fi
 
@@ -243,8 +225,8 @@ fi
 # Repeating it on later passes is harmless; a pass that finds something
 # down leaves the unit's state to systemd (Restart=always) and this loop.
 if [ -n "$CMUX_NOTIFY_SOCKET" ] && command -v systemd-notify >/dev/null 2>&1; then
-  if listening "$RFB_PORT" && wait_listening "$NOVNC_PORT" 10 && [ "$published" = 1 ]; then
-    NOTIFY_SOCKET="$CMUX_NOTIFY_SOCKET" systemd-notify --ready --status="desktop up on $DISPLAY: RFB $RFB_PORT (loopback), noVNC $NOVNC_PORT" 2>>"$LOG_DIR/notify.log" || true
+  if listening 5901 && wait_listening 6901 10 && [ "$published" = 1 ]; then
+    NOTIFY_SOCKET="$CMUX_NOTIFY_SOCKET" systemd-notify --ready --status="desktop up on $DISPLAY: RFB 5901 (loopback), noVNC 6901" 2>>"$LOG_DIR/notify.log" || true
   fi
 fi
 

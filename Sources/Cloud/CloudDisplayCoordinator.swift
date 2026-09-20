@@ -24,7 +24,7 @@ final class CloudDisplayCoordinator {
         generation &+= 1
         let token = generation
         do {
-            let response = try await execute("/usr/local/bin/cmux-display list", 10_000)
+            let response = try await execute(CloudGuestDisplayScript.command(action: "list"), 10_000)
             let snapshot = try CloudGuestDisplaySnapshot(data: Data(response.stdout.utf8))
             guard token == generation, !Task.isCancelled else { return }
             self.snapshot = snapshot
@@ -48,7 +48,7 @@ final class CloudDisplayCoordinator {
         // create a second guest display when the first receipt was lost.
         let task = Task { [weak self, execute] in
             try Task.checkCancellation()
-            let response = try await execute("/usr/local/bin/cmux-display create --request-id \(request.uuidString.lowercased())", 65_000)
+            let response = try await execute(CloudGuestDisplayScript.command(action: "create", requestID: request), 65_000)
             let snapshot = try CloudGuestDisplaySnapshot(data: Data(response.stdout.utf8))
             try Task.checkCancellation()
             guard let self, self.generation == token else { throw CancellationError() }

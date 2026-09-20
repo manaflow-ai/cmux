@@ -138,7 +138,7 @@ describe("devbox desktop layer", () => {
   });
 
   test("keeps the desktop port contract: RFB 5901 loopback-only, noVNC on 6901", () => {
-    // Independent target allocation is executed in vm-display-catalog.test.ts.
+    expect(startVnc).toContain(`-rfbport ${DEVBOX_DESKTOP_RFB_PORT}`);
     expect(startVnc).toContain("-SecurityTypes None");
     expect(startVnc).toContain("-localhost");
     // Listener reachability is exercised by verify-devbox-image over both
@@ -227,6 +227,7 @@ describe("devbox desktop layer", () => {
     expect(startVnc).toContain("*RRScreenChangeNotify*");
     expect(startVnc).not.toContain("sleep 2");
     expect(startVnc).not.toContain("sleep 0.2");
+    expect(startVnc).toContain("wait_listening 6901 10");
     expect(startVnc).toContain('eval "$(dbus-launch --sh-syntax');
     expect(startVnc).toContain('kill -0 "$DBUS_SESSION_BUS_PID"');
     expect(startVnc).toContain("/usr/libexec/at-spi-bus-launcher");
