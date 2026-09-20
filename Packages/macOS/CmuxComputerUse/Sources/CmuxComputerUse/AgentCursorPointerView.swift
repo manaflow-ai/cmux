@@ -115,7 +115,12 @@ public final class AgentCursorPointerView: NSView {
     /// Consumers such as Cloud presence can reuse the cursor without creating
     /// an interactive view or duplicating the asset geometry.
     public static func drawPointer(in context: CGContext) {
-        ComputerUseCursorArtwork.drawPointer(in: context)
+        ComputerUseCursorArtwork.draw(
+            in: context,
+            scale: Self.skyScale,
+            outlineColor: NSColor.white.cgColor,
+            outlineWidth: 1.7
+        )
     }
 
     /// The is opaque exposed to the host application.
