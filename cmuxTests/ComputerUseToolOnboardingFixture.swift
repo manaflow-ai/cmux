@@ -43,7 +43,7 @@ final class ComputerUseToolOnboardingFixture {
         )
     }()
 
-    init() throws {
+    init(hasLiveSession: Bool = true) throws {
         persistence = try ComputerUseOnboardingFixture()
         // A fixture bundle with no helper prevents this test from ever launching
         // the test host's real helper or touching the user's TCC grants.
@@ -84,9 +84,10 @@ final class ComputerUseToolOnboardingFixture {
             processIdentityProvider: { $0 == Int(pid) ? identity : nil }
         )
         #expect(index.liveEntries().count == 1)
+        let loadedIndex = hasLiveSession ? index : .empty
         liveIndex = SharedLiveAgentIndex(
             indexLoader: {
-                (index, [], [], [])
+                (loadedIndex, [], [], [])
             },
             hookStoreDirectoryProvider: { hookDirectory.path }
         )

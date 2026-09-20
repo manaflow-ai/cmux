@@ -30,6 +30,18 @@ struct ComputerUseToolOnboardingTests {
         #expect(!fixture.runtime.onboardingIsComplete)
     }
 
+    @Test func firstFunctionalToolOpensSetupBeforeLiveSessionProjection() async throws {
+        let fixture = try ComputerUseToolOnboardingFixture(hasLiveSession: false)
+        defer { fixture.remove() }
+        try await fixture.enable()
+
+        await fixture.send("mcp__cmux_cua__get_app_state")
+
+        #expect(fixture.presentations == [.overview])
+        #expect(fixture.runtime.permissionPhase == .onboarding)
+        #expect(!fixture.runtime.onboardingIsComplete)
+    }
+
     @Test func retriesStayQuietAndSettingsCanResumeSetup() async throws {
         let fixture = try ComputerUseToolOnboardingFixture()
         defer { fixture.remove() }
@@ -67,7 +79,6 @@ struct ComputerUseToolOnboardingTests {
         defer { fixture.remove() }
         try await fixture.enable()
         await fixture.send("cmux-cua.get_app_state", surface: UUID())
-        await fixture.send("cmux-cua.get_app_state", session: "replaced-agent-session")
         #expect(fixture.presentations.isEmpty)
         #expect(fixture.runtime.permissionPhase == .onboardingRequired)
     }

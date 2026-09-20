@@ -328,6 +328,21 @@ final class ComputerUseUXCoordinator {
             event.hookEventName == .stop
                 || event.hookEventName == .sessionEnd
         guard isComputerUseInvocation || isCompletion else { return }
+        if isComputerUseInvocation,
+           Self.computerUseToolName(event) != "check_permissions",
+           event.surfaceId.flatMap(UUID.init(uuidString:)) != nil,
+           featureEnabled(),
+           runtimeService.desiredEnabled,
+           runtimeService.acceptsNewLaunches {
+            // Presentation is owned by authenticated cmux hook ingress, not by
+            // the live-session projection. A first MCP call can arrive before
+            // process binding/index refresh finishes; waiting here loses the
+            // deterministic first-use boundary while the proxy waits on the
+            // daemon's bounded onboarding admission.
+            ensureOnboardingCoordinator().requestFromToolInvocation(
+                onboarding: runtimeService.onboarding
+            )
+        }
         if isComputerUseInvocation, Self.computerUseToolName(event) != "check_permissions",
            featureEnabled(), runtimeService.desiredEnabled,
            runtimeService.permissionPhase == .onboardingRequired {
@@ -377,13 +392,6 @@ final class ComputerUseUXCoordinator {
                 )
             }
             watchTargetController?.driverSessionDidStart(driverSessionID)
-            if featureEnabled(), runtimeService.desiredEnabled,
-               runtimeService.acceptsNewLaunches,
-               Self.computerUseToolName(event) != "check_permissions" {
-                ensureOnboardingCoordinator().requestFromToolInvocation(
-                    onboarding: runtimeService.onboarding
-                )
-            }
         case .stop, .sessionEnd:
             activityLifecycle.recordCompletion(
                 driverSessionID: driverSessionID,
