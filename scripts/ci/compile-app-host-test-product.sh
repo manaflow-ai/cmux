@@ -35,7 +35,8 @@ fingerprint() {
 
 # `build` disables package resolution, so a resolve that reports success
 # without the Sparkle and Sentry binary artifacts would fail it. A restored
-# source-packages cache can do that; clear it and resolve again.
+# source-packages cache can do that, and a failed resolve can leave a partial
+# clone behind, so every retry starts from an empty package directory.
 resolve() {
   local derived_data="$1" source_packages="$2" attempt
   for attempt in 1 2 3; do
@@ -48,11 +49,11 @@ resolve() {
         && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
         return 0
       fi
-      echo "Resolve succeeded but binary artifacts are missing; clearing and retrying" >&2
-      rm -rf "$source_packages"
+      echo "Resolve succeeded but binary artifacts are missing" >&2
     fi
     [ "$attempt" -lt 3 ] || break
-    echo "Package resolution failed on attempt $attempt, retrying..." >&2
+    echo "Package resolution failed on attempt $attempt; clearing packages and retrying" >&2
+    rm -rf "$source_packages"
   done
   echo "Failed to resolve Swift packages after 3 attempts" >&2
   return 1
