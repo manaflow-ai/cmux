@@ -15,7 +15,7 @@ permissions:
 jobs:
   agent-pr-review-complete:
     name: agent-pr-review-complete
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       # pull_request_target loads this workflow from the default branch. The
       # checker is read from the base branch, so PR authors cannot replace the
