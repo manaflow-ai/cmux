@@ -9818,7 +9818,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         }
 
-        installBrowserPanelSubscription(browserPanel)
+        installBrowserPanelSubscription(browserPanel); reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "browserTabCreate")
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
 
         return browserPanel
@@ -12443,7 +12443,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // Canvas-inline-hosted webviews live in the pane hierarchy; portal
             // rebinds/refreshes here would steal them back into the portal.
             if browserPanel.canvasInlineHostingActive { continue }
-            let shouldBeVisible = visiblePanelIds.contains(browserPanel.id)
+            let shouldBeVisible = visiblePanelIds.contains(browserPanel.id); browserPanel.noteWebViewVisibility(shouldBeVisible, reason: reason)
             let anchorView = browserPanel.portalAnchorView
             let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
             if shouldBeVisible {
