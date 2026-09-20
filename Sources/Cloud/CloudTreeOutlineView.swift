@@ -69,9 +69,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
+            pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id)),
             source: source,
-            devicesSection: devicesSection,
-            pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id))
+            devicesSection: devicesSection
         ))
         context.coordinator.reveal(reveal)
     }
