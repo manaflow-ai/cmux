@@ -166,8 +166,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          git -C ghostty fetch origin fa8f99a31fa3c212e75ecbd194db46d8bdf9c550
-          git -C ghostty checkout fa8f99a31fa3c212e75ecbd194db46d8bdf9c550
+          git -C ghostty fetch origin f44c09ab9ffc0f7e8d05f0f73eafad80554c2f03
+          git -C ghostty checkout f44c09ab9ffc0f7e8d05f0f73eafad80554c2f03
           ./scripts/install-zig-ci.sh
           (cd ghostty && zig test src/os/EnvironSnapshots.zig)
           (cd ghostty && zig build test -Dapp-runtime=none -Demit-macos-app=false -Dsentry=false -Di18n=false -Dtest-filter="url regex bare localhost ports" --summary all)
