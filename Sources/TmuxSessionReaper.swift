@@ -103,6 +103,71 @@ enum TmuxSessionReaper {
         return agent.sessionPrefix + indexed
     }
 
+    /// Lowercase ASCII letters and digits, every other run folded to one hyphen, trimmed.
+    ///
+    /// Mirrors `slugify()` in `cmux-lane-session` (`sed -E 's/[^a-z0-9]+/-/g'`).
+    static func laneSlug(_ value: String) -> String {
+        var out = ""
+        var pendingHyphen = false
+        for scalar in value.lowercased().unicodeScalars {
+            if ("a"..."z").contains(scalar) || ("0"..."9").contains(scalar) {
+                if pendingHyphen && !out.isEmpty { out.append("-") }
+                pendingHyphen = false
+                out.unicodeScalars.append(scalar)
+            } else {
+                pendingHyphen = true
+            }
+        }
+        return out
+    }
+
+    /// The name the wrappers pick today, from the workspace title.
+    ///
+    /// The instance index is a per-host counter, so a name built on it differs between
+    /// Macs for the same workspace. `cmux-lane-session name` is the source of truth; this
+    /// must agree with it exactly:
+    ///
+    /// - no title: the legacy basename-and-instance name;
+    /// - a title that names the repo (`rodchristiansen · cmux`, `Personal - Nutrition`,
+    ///   optionally ending in a duplicate's ` (N)`): the legacy name, unchanged;
+    /// - any other title: the slugified title, duplicate suffix included.
+    static func sessionName(
+        directory: String,
+        title: String,
+        instanceIndex: Int,
+        agent: WorkspaceAgent
+    ) -> String {
+        let legacy = sessionName(directory: directory, instanceIndex: instanceIndex, agent: agent)
+        let titled = laneSlug(title)
+        guard !titled.isEmpty else { return legacy }
+        let core = laneSlug(title.replacingOccurrences(
+            of: #" \([0-9]+\)$"#, with: "", options: .regularExpression
+        ))
+        let base = laneSlug((directory as NSString).lastPathComponent)
+        if !base.isEmpty, core == base || core.hasSuffix("-" + base) {
+            return legacy
+        }
+        return agent.sessionPrefix + titled
+    }
+
+    /// Every name a live session of this workspace may carry, current rule first.
+    ///
+    /// Sessions started before the title rule keep their legacy name until they end, so
+    /// both spellings belong to the workspace for reattach and the orphan check.
+    static func sessionNames(
+        directory: String,
+        title: String,
+        instanceIndex: Int,
+        agent: WorkspaceAgent
+    ) -> [String] {
+        let current = sessionName(directory: directory, title: title,
+                                  instanceIndex: instanceIndex, agent: agent)
+        let legacy = sessionName(directory: directory, instanceIndex: instanceIndex, agent: agent)
+        return [current, legacy].reduce(into: [String]()) { names, name in
+            if !name.isEmpty, !names.contains(name) { names.append(name) }
+        }
+    }
+
     /// tmux arguments for killing exactly one session.
     ///
     /// The `=` prefix forces an exact match. A bare `-t name` falls back to prefix and
@@ -132,7 +197,13 @@ enum TmuxSessionReaper {
         orphans(live: liveSessions(), ownedSessions: ownedSessions)
     }
 
-    private static func run(_ launchPath: String, _ arguments: [String]) -> String? {
+    /// Run a command and return its stdout, or nil on failure or timeout.
+    ///
+    /// Never uses `waitUntilExit`: it spins the current run loop, and on the main
+    /// thread that re-entered SwiftUI layout mid-update and froze the app for hours.
+    /// Output is drained on a background queue and the wait is a plain semaphore, so a
+    /// hung child costs at most `timeout` and is then terminated.
+    static func run(_ launchPath: String, _ arguments: [String], timeout: TimeInterval = 3) -> String? {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: launchPath)
@@ -140,14 +211,26 @@ enum TmuxSessionReaper {
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
 
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
         do {
             try process.run()
         } catch {
             return nil
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        var data = Data()
+        let drained = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            data = pipe.fileHandleForReading.readDataToEndOfFile()
+            drained.signal()
+        }
+
+        guard exited.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            return nil
+        }
+        guard drained.wait(timeout: .now() + 1) == .success else { return nil }
         guard process.terminationStatus == 0 else { return nil }
         return String(data: data, encoding: .utf8)
     }

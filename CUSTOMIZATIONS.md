@@ -52,7 +52,7 @@ Key commits:
 - `607e6617` Rebuild: reset to one pane before restore (fixes compounding on repeat rebuilds)
 - `827e602b` Rebuild: actually run the panel commands (resolve panels by custom title post-restore)
 
-Files: `Sources/WorkspaceSetImporter.swift`, hooks in `Sources/AppDelegate.swift`, menu items in `Sources/cmuxApp.swift`. External docs in `~/Documents/Create/Setup/cmux-workspace-restore.md`.
+Files: `Sources/WorkspaceSetImporter.swift`, hooks in `Sources/AppDelegate.swift`, menu items in `Sources/cmuxApp.swift`. External docs in `~/Developer/Setup/cmux/cmux-workspace-restore.md`.
 
 ### AutoApply: per-workspace commands on tab switch
 Workspace-level hook that runs a configured command the first time a workspace is focused in a session. Tracks per-session, fires once per workspace regardless of layout.
@@ -100,7 +100,7 @@ Fixes:
 ## Workflow
 
 - **Sync-upstream gateway:** Always go through the permanent `sync-upstream` branch when pulling from `upstream/main`. Full merge of current upstream delta requires manual resolution in `Sources/ContentView.swift` (sidebar section rendering vs upstream's richer `TabItemView`), `Sources/GhosttyTerminalView.swift` (theme-sync + upstream's ZDOTDIR fix), `Sources/Workspace.swift` (Tahoe tab-bar hide vs upstream's configurable `tabTitleFontSize`), plus submodule bumps for `ghostty` and `vendor/bonsplit`.
-- **Release:** Bump via `./scripts/bump-version.sh <version>` (explicit version skips the upstream appcast curl). Build / sign / notarize / install locally with `~/Documents/Create/Setup/cmux-build-install.sh`. The upstream `scripts/build-sign-upload.sh` hardcodes manaflow signing/Sparkle/upload paths — the local script strips those.
+- **Release:** Bump via `./scripts/bump-version.sh <version>` (explicit version skips the upstream appcast curl). Build / sign / notarize / install locally with `~/Developer/Setup/cmux/cmux-build-install.sh`. The upstream `scripts/build-sign-upload.sh` hardcodes manaflow signing/Sparkle/upload paths — the local script strips those.
 
 ---
 

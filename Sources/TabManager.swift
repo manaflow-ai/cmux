@@ -6044,9 +6044,12 @@ extension TabManager {
     }
 
     func sessionSnapshot(includeScrollback: Bool) -> SessionTabManagerSnapshot {
-        let restorableTabs = tabs
-            .filter { !$0.isRemoteWorkspace }
-            .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        let allRestorable = tabs.filter { !$0.isRemoteWorkspace }
+        let restorableTabs = allRestorable.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+        if allRestorable.count > restorableTabs.count {
+            NSLog("[SessionPersistence] window has %d workspaces; only the first %d are saved",
+                  allRestorable.count, restorableTabs.count)
+        }
         let workspaceSnapshots = restorableTabs
             .map { $0.sessionSnapshot(includeScrollback: includeScrollback) }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in

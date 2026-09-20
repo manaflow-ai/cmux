@@ -435,15 +435,10 @@ extension Workspace {
     }
 
     private func sessionSurfaceUUID(for surfaceId: TabID) -> UUID? {
-        struct EncodedSurfaceID: Decodable {
-            let id: UUID
-        }
-
-        guard let data = try? JSONEncoder().encode(surfaceId),
-              let decoded = try? JSONDecoder().decode(EncodedSurfaceID.self, from: data) else {
-            return nil
-        }
-        return decoded.id
+        // TabID exposes its UUID directly. This used to JSON-encode the TabID and
+        // decode it again, once per surface for every tab of every pane, which made
+        // the session autosave tick dominate the main thread on large sidebars.
+        surfaceId.uuid
     }
 
     private func sessionPanelSnapshot(panelId: UUID, includeScrollback: Bool) -> SessionPanelSnapshot? {

@@ -2407,6 +2407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     /// Last lane set written by `recordActiveLaneSnapshot`, to skip redundant writes.
     private var lastRecordedLanes: [ActiveLaneSnapshot.Lane]?
+    private var laneSnapshotInFlight = false
     private var laneSnapshotTimer: DispatchSourceTimer?
     /// The lane set found on disk at launch — what a restore offers to bring back.
     ///
@@ -4024,20 +4025,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Apply the workspace-set `windows` declarations.
     ///
-    /// On fresh launch (`initial: true`) every declared entry produces a new
-    /// window pre-populated by moving the named workspaces out of the primary
-    /// window. On reload (`initial: false`) only declared entries whose names
-    /// don't already match an existing `windowSetName` are created — reload is
-    /// additive and never auto-closes or yanks workspaces from user-arranged
-    /// secondary windows; the source pool is the primary (unnamed) window.
+    /// Each declared window gets its workspaces: ones already in it stay, ones
+    /// in the primary window move over, and ones open in no window at all are
+    /// created from their `sections` entry. A declared window is found by its
+    /// persisted name, or else adopted from an unnamed secondary window already
+    /// holding its workspaces (a session saved before names were persisted),
+    /// and only created when neither exists. Reload never closes a window and
+    /// never pulls a workspace out of a window other than the primary.
     private func applyWindowSet(initial: Bool, primaryWindow: NSWindow? = nil) {
-        guard let declarations = WorkspaceSetImporter.windowDeclarations(),
+        guard let declarations = WorkspaceSetImporter.resolvedWindowDeclarations(),
               !declarations.isEmpty else { return }
 
-        // Source workspaces from the unnamed window. On fresh launch this is
-        // the only window in existence; on reload it's whichever window the
-        // import populated.
-        guard let primaryContext = mainWindowContexts.values.first(where: { $0.windowSetName == nil }) else {
+        // The source pool is the unnamed window holding the most workspaces.
+        // Dictionary order is arbitrary and a restored secondary window can be
+        // unnamed too, so "the first unnamed window" could be the small one.
+        guard let primaryContext = mainWindowContexts.values
+            .filter({ $0.windowSetName == nil })
+            .max(by: { $0.tabManager.tabs.count < $1.tabManager.tabs.count }) else {
             return
         }
         let primaryManager = primaryContext.tabManager
@@ -4054,40 +4058,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for windowDecl in declarations {
             let trimmedName = windowDecl.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedName.isEmpty else { continue }
-            if existingByName[trimmedName.lowercased()] != nil { continue }
-
-            let targets: [Workspace] = windowDecl.workspaces.compactMap { rawName in
-                let needle = rawName
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased()
-                guard !needle.isEmpty else { return nil }
-                return primaryManager.tabs.first(where: { workspace in
-                    if let custom = workspace.customTitle?.lowercased(), custom == needle { return true }
-                    return workspace.title.lowercased() == needle
-                })
+            let nameKey = trimmedName.lowercased()
+            for missing in windowDecl.unmatched {
+                NSLog("[WorkspaceSet.windows] '%@': '%@' is declared in no section; skipping", trimmedName, missing)
             }
-            if targets.isEmpty {
-                NSLog(
-                    "[WorkspaceSet.windows] '%@': no matching workspaces in primary window; skipping",
-                    trimmedName
-                )
+
+            var destContext = existingByName[nameKey]
+            if destContext == nil {
+                let claimed = Set(existingByName.values.map(\.windowId))
+                destContext = mainWindowContexts.values
+                    .filter { $0.windowSetName == nil && $0.windowId != primaryContext.windowId && !claimed.contains($0.windowId) }
+                    .map { ctx in
+                        (ctx, ctx.tabManager.tabs.filter { ws in
+                            windowDecl.entries.contains { WorkspaceSetImporter.workspace(ws, matchesByDirectory: $0.entry) }
+                        }.count)
+                    }
+                    .filter { $0.1 > 0 }
+                    .max(by: { $0.1 < $1.1 })?.0
+                if let adopted = destContext {
+                    adopted.windowSetName = trimmedName
+                    adopted.window?.title = trimmedName
+                    existingByName[nameKey] = adopted
+                }
+            }
+
+            var toMove: [(workspace: Workspace, sectionName: String)] = []
+            var toCreate: [WorkspaceSetImporter.ResolvedWindowEntry] = []
+            var takenIds = Set<UUID>()
+            for item in windowDecl.entries {
+                let holders = mainWindowContexts.values.flatMap { ctx in
+                    ctx.tabManager.tabs.filter { !takenIds.contains($0.id) }.map { (ctx, $0) }
+                }
+                let hit = holders.first(where: { WorkspaceSetImporter.workspace($0.1, matchesByName: item.entry) })
+                    ?? holders.first(where: { WorkspaceSetImporter.workspace($0.1, matchesByDirectory: item.entry) })
+                guard let (holder, workspace) = hit else {
+                    toCreate.append(item)
+                    continue
+                }
+                takenIds.insert(workspace.id)
+                if holder.windowId == primaryContext.windowId {
+                    toMove.append((workspace, item.sectionName))
+                }
+            }
+
+            if destContext == nil, toMove.isEmpty, toCreate.isEmpty {
+                NSLog("[WorkspaceSet.windows] '%@': nothing to place; skipping", trimmedName)
                 continue
             }
 
-            let newWindowId = createMainWindow()
-            guard let destContext = mainWindowContexts.values.first(where: { $0.windowId == newWindowId }) else { continue }
-            destContext.windowSetName = trimmedName
-            destContext.window?.title = trimmedName
-            existingByName[trimmedName.lowercased()] = destContext
+            var bootstrapId: UUID?
+            if destContext == nil {
+                let newWindowId = createMainWindow()
+                guard let created = mainWindowContexts.values.first(where: { $0.windowId == newWindowId }) else { continue }
+                created.windowSetName = trimmedName
+                created.window?.title = trimmedName
+                existingByName[nameKey] = created
+                bootstrapId = created.tabManager.tabs.first?.id
+                destContext = created
+            }
+            guard let destContext else { continue }
 
-            let bootstrapId = destContext.tabManager.tabs.first?.id
             var movedCount = 0
-            for workspace in targets
-                where moveWorkspaceToWindow(workspaceId: workspace.id, windowId: newWindowId, focus: false)
+            for item in toMove
+                where moveWorkspaceToWindow(workspaceId: item.workspace.id, windowId: destContext.windowId, focus: false)
             {
+                WorkspaceSetImporter.fileWorkspace(item.workspace, underSection: item.sectionName, in: destContext.tabManager)
                 movedCount += 1
             }
-            if movedCount > 0, let bootstrapId,
+            var createdCount = 0
+            for item in toCreate
+                where WorkspaceSetImporter.createBootstrapWorkspace(
+                    for: item.entry, sectionName: item.sectionName, in: destContext.tabManager
+                ) != nil
+            {
+                createdCount += 1
+            }
+            if movedCount + createdCount > 0, let bootstrapId,
                let bootstrap = destContext.tabManager.tabs.first(where: { $0.id == bootstrapId }),
                destContext.tabManager.tabs.count > 1 {
                 destContext.tabManager.closeWorkspace(bootstrap)
@@ -4097,12 +4143,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             dlog(
                 "windowSet.\(initial ? "fresh" : "reload") name='\(trimmedName)' " +
-                    "requested=\(windowDecl.workspaces.count) moved=\(movedCount)"
+                    "requested=\(windowDecl.entries.count) moved=\(movedCount) created=\(createdCount)"
             )
 #endif
             NSLog(
-                "[WorkspaceSet.windows] '%@': moved %d of %d workspaces (%@)",
-                trimmedName, movedCount, windowDecl.workspaces.count,
+                "[WorkspaceSet.windows] '%@': moved %d, created %d of %d workspaces (%@)",
+                trimmedName, movedCount, createdCount, windowDecl.entries.count,
                 initial ? "fresh launch" : "reload"
             )
         }
@@ -4237,6 +4283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             SessionPersistencePolicy.sanitizedSidebarWidth(snapshot.sidebar.width)
         )
         context.sidebarSelectionState.selection = snapshot.sidebar.selection.sidebarSelection
+        restoreWindowSetName(snapshot.windowSetName, to: context)
 
         if let restoredFrame = resolvedWindowFrame(from: snapshot), let window {
             window.setFrame(restoredFrame, display: true)
@@ -4247,6 +4294,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
 #endif
         }
+    }
+
+    private func restoreWindowSetName(_ name: String?, to context: MainWindowContext) {
+        guard let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        context.windowSetName = name
+        context.window?.title = name
     }
 
     private func resolvedWindowFrame(from snapshot: SessionWindowSnapshot?) -> NSRect? {
@@ -4631,7 +4684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timer.schedule(deadline: .now() + 30, repeating: 30, leeway: .seconds(5))
         timer.setEventHandler { [weak self] in
             guard let self, !self.isTerminatingApp else { return }
-            self.recordActiveLaneSnapshot()
+            self.recordActiveLaneSnapshotInBackground()
         }
         laneSnapshotTimer = timer
         timer.resume()
@@ -5051,7 +5104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         isVisible: context.sidebarState.isVisible,
                         selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
                         width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+                    ),
+                    windowSetName: context.windowSetName
                 )
             }
 
@@ -5178,6 +5232,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let isVisible: Bool
         let workspaceCount: Int
         let selectedWorkspaceId: UUID?
+        /// The workspace-set window name, when the window has one. Stable across
+        /// relaunches, unlike `windowId`, so another machine can address the window by it.
+        let name: String?
+        let frame: NSRect?
     }
 
     struct WindowMoveTarget: Identifiable {
@@ -5212,9 +5270,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 isKeyWindow: window?.isKeyWindow ?? false,
                 isVisible: window?.isVisible ?? false,
                 workspaceCount: ctx.tabManager.tabs.count,
-                selectedWorkspaceId: ctx.tabManager.selectedTabId
+                selectedWorkspaceId: ctx.tabManager.selectedTabId,
+                name: ctx.windowSetName,
+                frame: window?.frame
             )
         }
+    }
+
+    /// Name a main window (nil or empty clears it). Returns false when no such window.
+    func setMainWindowName(windowId: UUID, name: String?) -> Bool {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else {
+            return false
+        }
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            context.windowSetName = nil
+        } else {
+            restoreWindowSetName(trimmed, to: context)
+        }
+        return true
+    }
+
+    /// Move and resize a main window. Returns false when no such window.
+    func setMainWindowFrame(windowId: UUID, frame: NSRect) -> Bool {
+        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+              let window = context.window ?? windowForMainWindowId(windowId) else {
+            return false
+        }
+        window.setFrame(frame, display: true)
+        return true
     }
 
     /// Every tmux session currently claimed by an open workspace, across all windows.
@@ -5248,12 +5332,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // workspace's as the bare Claude one, and omitting it would offer a live
                 // Codex conversation up to the orphan reaper.
                 for agent in WorkspaceAgent.allCases {
-                    let name = TmuxSessionReaper.sessionName(
+                    derived.formUnion(TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
+                        title: workspace.title,
                         instanceIndex: workspace.instanceIndex,
                         agent: agent
-                    )
-                    if !name.isEmpty { derived.insert(name) }
+                    ))
                 }
             }
         }
@@ -5285,9 +5369,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Agents in declaration order, Claude first: a workspace has one agent
                 // pane, so if both a Claude and a Codex session are live on this
                 // directory only one can be rebuilt onto, and the template's default wins.
-                for agent in WorkspaceAgent.allCases {
-                    let name = TmuxSessionReaper.sessionName(
+                agents: for agent in WorkspaceAgent.allCases {
+                    let names = TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
+                        title: workspace.title,
                         instanceIndex: workspace.instanceIndex,
                         agent: agent
                     )
@@ -5296,14 +5381,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     // is exactly what makes it a usable "not yet reattached" signal. Skipping
                     // these keeps the command idempotent and safe to invoke at any time, not
                     // only after a crash.
-                    if workspace.ownedTmuxSessions.contains(name) { break }
+                    if names.contains(where: workspace.ownedTmuxSessions.contains) { break }
                     // One workspace per session: two workspaces on the same directory and
                     // instance would otherwise both rebuild onto the same session, and the
                     // second would steal the pane from the first.
-                    guard live.contains(name), !claimed.contains(name) else { continue }
-                    claimed.insert(name)
-                    matches.append((workspace, name, agent))
-                    break
+                    for name in names where live.contains(name) && !claimed.contains(name) {
+                        claimed.insert(name)
+                        matches.append((workspace, name, agent))
+                        break agents
+                    }
                 }
             }
         }
@@ -5346,6 +5432,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Resolved against the live tmux session list rather than registration alone: see
     /// `ActiveLaneSnapshot.lanes(from:live:)` for why registration is not usable on its own.
     func currentActiveLanes() -> [ActiveLaneSnapshot.Lane] {
+        let candidates = activeLaneCandidates()
+        guard !candidates.isEmpty else { return [] }
+        return ActiveLaneSnapshot.lanes(
+            from: candidates,
+            live: TmuxSessionReaper.liveSessionsWithPaths()
+        )
+    }
+
+    /// The in-memory half of lane capture: every workspace as a candidate. Cheap, and
+    /// the only part that has to run on the main thread.
+    private func activeLaneCandidates() -> [ActiveLaneSnapshot.Candidate] {
         var candidates: [ActiveLaneSnapshot.Candidate] = []
         var seen: Set<UUID> = []
         for context in mainWindowContexts.values {
@@ -5362,21 +5459,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
         }
-        guard !candidates.isEmpty else { return [] }
-        return ActiveLaneSnapshot.lanes(
-            from: candidates,
-            live: TmuxSessionReaper.liveSessionsWithPaths()
-        )
+        return candidates
+    }
+
+    /// Timer form of `recordActiveLaneSnapshot`: gather candidates on the main thread,
+    /// list tmux sessions on a background queue, and write back on the main thread.
+    ///
+    /// Listing tmux shells out, so it must never block the main thread. When it did, a
+    /// wedged `tmux list-sessions` left the whole app unresponsive.
+    private func recordActiveLaneSnapshotInBackground() {
+        let candidates = activeLaneCandidates()
+        guard !candidates.isEmpty, !laneSnapshotInFlight else { return }
+        laneSnapshotInFlight = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let live = TmuxSessionReaper.liveSessionsWithPaths()
+            let lanes = ActiveLaneSnapshot.lanes(from: candidates, live: live)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.laneSnapshotInFlight = false
+                self.persistLaneSnapshot(lanes)
+            }
+        }
     }
 
     /// Persist the current lane set, so a restart can offer to bring it back.
     ///
-    /// Cheap by construction: it reads registrations already held in memory and never
-    /// shells out to tmux, which is what makes it safe to run on the autosave tick as
-    /// well as at termination. The tick is the one that matters — a panic or a power cut
-    /// never reaches `applicationWillTerminate`.
+    /// Synchronous, for termination only: the periodic tick uses
+    /// `recordActiveLaneSnapshotInBackground`. The tmux listing here is bounded by
+    /// `TmuxSessionReaper.run`'s timeout, so quitting cannot hang on it.
     func recordActiveLaneSnapshot() {
-        let lanes = currentActiveLanes()
+        persistLaneSnapshot(currentActiveLanes())
+    }
+
+    private func persistLaneSnapshot(_ lanes: [ActiveLaneSnapshot.Lane]) {
         // The lane set changes only when a pane opens or closes, while the tick that
         // calls this runs constantly. Comparing first keeps the steady state free of
         // disk writes, which is what makes it safe on the typing-sensitive autosave path.
@@ -7779,6 +7894,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState
         )
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            restoreWindowSetName(sessionWindowSnapshot?.windowSetName, to: context)
+        }
         installFileDropOverlay(on: window, tabManager: tabManager)
         if TerminalController.shouldSuppressSocketCommandActivation() {
             window.orderFront(nil)

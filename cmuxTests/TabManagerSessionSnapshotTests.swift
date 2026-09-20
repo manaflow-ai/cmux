@@ -34,6 +34,24 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
     }
 
+    /// A long-lived sidebar passed 128 workspaces in one window, and everything past
+    /// that was silently dropped from the saved session and gone after a relaunch.
+    func testSessionSnapshotKeepsWorkspacesBeyondOneHundredTwentyEight() {
+        let manager = TabManager()
+        for index in 1...200 {
+            manager.addWorkspace(select: false).setCustomTitle("Workspace \(index)")
+        }
+        XCTAssertEqual(manager.tabs.count, 201)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.workspaces.count, 201)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+        XCTAssertEqual(restored.tabs.count, 201)
+        XCTAssertEqual(restored.tabs.last?.customTitle, "Workspace 200")
+    }
+
     func testRestoreSessionSnapshotWithNoWorkspacesKeepsSingleFallbackWorkspace() {
         let manager = TabManager()
         let emptySnapshot = SessionTabManagerSnapshot(
