@@ -111,6 +111,13 @@ final class CloudTerminalCreationCoordinator {
                     }
                     self.onSuccess()
                 }
+            } catch is CancellationError {
+                guard self.generation == operationGeneration else { return }
+                // A transport can throw cancellation without cancelling this UI
+                // intent. Keep its pane retryable and settle dependent shortcuts.
+                if Task.isCancelled { self.onCancel() }
+                else { self.onFailure(CloudDiagnosticFailure.cancelled) }
+                return
             } catch {
                 guard self.generation == operationGeneration else { return }
                 if CloudDiagnosticFailure.classify(error) == .cancelled {

@@ -29,6 +29,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
+    private var networkObserver: CloudReadRecoveryObserver?
     private var featureFlagObserver: NSObjectProtocol?
     private let notificationCenter: NotificationCenter
     /// Whether the periodic fleet read may run right now.
@@ -161,6 +162,10 @@ final class CmuxTuiSurfaceProviderRegistry {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncPollingToActivationPolicy() }
+        }
+        networkObserver = CloudReadRecoveryObserver(notificationCenter: notificationCenter) { [weak self] in
+            guard let self, !self.isRetired, self.allowsBackgroundWork() else { return }
+            _ = await self.refresh(force: false)
         }
         syncPollingToActivationPolicy()
     }
@@ -471,6 +476,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     }
 
     func accessDidEnd() async {
+        networkObserver = nil
         isRetired = true
         accessEpoch &+= 1
         refreshGeneration &+= 1

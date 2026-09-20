@@ -18,13 +18,11 @@ extension TerminalSurface {
     public func setRenderHealthChangeHandler(_ handler: (@Sendable (TerminalSurfaceRenderHealth) -> Void)?) {
         onRenderHealthChanged = handler
     }
-
     /// Re-applies the active window background through the surface view.
     @MainActor
     public func applyWindowBackgroundIfActive() {
         surfaceView.applyWindowBackgroundIfActive()
     }
-
     /// Keep `desiredFocusState` in sync when the hosted view's responder chain
     /// calls `ghostty_surface_set_focus` directly (bypassing `setFocus`).
     /// Without this, `createSurface` would replay a stale state on recreation.
@@ -368,6 +366,10 @@ extension TerminalSurface {
         guard rendererPortalVisible,
               hasLiveSurface,
               (rendererPresentationPhase != .presented || renderHealth != .rendering) else { return }
+        // Later activity is a new opportunity after a failed probe.
+        if renderHealth == .notRendering {
+            rendererPresentationState.recoveryAttempted = false
+        }
         ensureRendererPresented(presentationReady: presentationReady)
     }
 

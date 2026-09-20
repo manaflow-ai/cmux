@@ -103,6 +103,14 @@ extension Workspace {
             attachment: attachment
         )
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
+        // The tab-strip spinner clears on real attachment, not on adoption.
+        let panelID = reservation.panelID
+        attachment.onStateChange = { [weak self, weak attachment] state in
+            guard state == .attached || state == .ended else { return }
+            attachment?.onStateChange = nil
+            self?.setCloudManualMirrorTabLoading(panelID: panelID, false)
+        }
+        if attachment.state == .attached { attachment.onStateChange?(.attached) }
         panel.surface.flushPendingManualSizeReportIfAttached()
         return (id, panel.id, panel.surface)
     }
@@ -111,6 +119,11 @@ extension Workspace {
     /// reused another one, in which case the now-redundant reservation closes.
     func completeReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, adoptedPanelID: UUID) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
+        if let projection = SurfaceCatalog.shared.projection(forPanel: adoptedPanelID) {
+            reservation.resolution.complete(.success(projection))
+        } else {
+            reservation.resolution.complete(.failure(CloudDiagnosticFailure.notFound))
+        }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
         reservation.retry = nil
         reservation.cancel = nil
@@ -126,6 +139,8 @@ extension Workspace {
     /// explain inside it, with Reconnect wired to the same request's retry.
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
+        reservation.resolution.complete(.failure(error))
+        setCloudManualMirrorTabLoading(panelID: reservation.panelID, false)
         let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
@@ -137,9 +152,9 @@ extension Workspace {
     /// A retry started: the pane is pending again.
     func restartReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
+        reservation.resolution.retry()
         clearCloudMaterializationFailure(surfaceID: reservation.panelID)
-        // Keep the reserved tab visually stable while retrying. The pane itself
-        // reports any failure through its reconnect affordance.
+        setCloudManualMirrorTabLoading(panelID: reservation.panelID, true)
     }
 
     /// Reconnect pressed on a reserved pane's failure card replays the request.
@@ -153,25 +168,12 @@ extension Workspace {
     /// the machine already created stays alive, like closing any other pane.
     func cancelReservedCloudTerminalPane(panelID: UUID) {
         guard let reservation = cloudPendingCreations.removeValue(forKey: panelID) else { return }
+        reservation.resolution.complete(.failure(CloudDiagnosticFailure.notFound))
         reservation.inputRelay.discard()
         let cancel = reservation.cancel
         reservation.cancel = nil
         reservation.retry = nil
         cancel?()
-    }
-
-    /// Drops a reservation when its remote workspace is invalidated before the
-    /// provider create can begin. The pane is owned by this request, so leaving
-    /// it visible would strand a loading surface after cancellation.
-    func discardReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
-        guard cloudPendingCreations[reservation.panelID] === reservation else { return }
-        cloudPendingCreations.removeValue(forKey: reservation.panelID)
-        reservation.inputRelay.discard()
-        let cancel = reservation.cancel
-        reservation.cancel = nil
-        reservation.retry = nil
-        cancel?()
-        _ = closePanel(reservation.panelID, force: true)
     }
 
     /// Workspace teardown: every pending request ends without touching remote terminals.

@@ -11,7 +11,7 @@ import Testing
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceRendererCallbackTests {
     @Test func registeredPresentationCallbackAcknowledgesThePendingToken() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
 
@@ -23,7 +23,7 @@ import Testing
     }
 
     @Test func registeredFailureCallbackForwardsTokenAndTriggersOneRecoveryProbe() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
 
@@ -40,8 +40,44 @@ import Testing
         #expect(surface.renderHealth == .notRendering)
     }
 
+    @Test func laterRendererActivityRetriesAfterRecoveryProbeExhaustion() {
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
+        defer { fixture.tearDown() }
+        let surface = fixture.surface
+        let context = installCallbackContext(on: surface)
+        #expect(ghostty_surface_set_render_presented_callback(
+            fixture.runtimeSurface,
+            terminalRendererPresentedCallback,
+            context.toOpaque()
+        ))
+        #expect(ghostty_surface_set_render_failed_callback(
+            fixture.runtimeSurface,
+            terminalRendererFailedCallback,
+            context.toOpaque()
+        ))
+
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: true)
+        #expect(cmux_test_ghostty_renderer_fail(
+            fixture.runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_BACKEND_FAILED.rawValue)
+        ))
+        #expect(cmux_test_ghostty_renderer_fail(
+            fixture.runtimeSurface,
+            Int32(GHOSTTY_RENDER_PRESENTATION_DISCARDED.rawValue)
+        ))
+        #expect(surface.renderHealth == .notRendering)
+
+        // A later activity edge must be allowed to arm a fresh probe. Before
+        // this regression fix, the one-shot recovery latch made this a no-op.
+        surface.retryRendererPresentationAfterActivity(presentationReady: true)
+        #expect(surface.renderHealth == .awaitingFrame)
+        #expect(cmux_test_ghostty_renderer_present(fixture.runtimeSurface))
+        #expect(surface.renderHealth == .rendering)
+        #expect(surface.isRendererPresented)
+    }
+
     @Test func shellExitHealthSurvivesRendererRebuildAndPresentation() {
-        let fixture = PresentedSurfaceFixture()
+        let fixture = PresentedSurfaceFixture(configureRendererCallbacks: false)
         defer { fixture.tearDown() }
         let surface = fixture.surface
 
