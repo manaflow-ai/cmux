@@ -29,6 +29,10 @@ export class GuestCliInstallError extends Data.TaggedError("GuestCliInstallError
   }
 }
 
+function rollbackErrorName(value: unknown): string | undefined {
+  return typeof value === "string" && /^[A-Za-z]{1,40}$/.test(value) ? value : undefined;
+}
+
 function guestFailure(result: unknown): GuestCliInstallError | undefined {
   const response = result && typeof result === "object" ? result as Record<string, unknown> : {};
   const status = response.statusCode;
@@ -50,9 +54,7 @@ function guestFailure(result: unknown): GuestCliInstallError | undefined {
           + (Number.isInteger(detail.errno) ? ` errno=${detail.errno}` : "")
           + (Number.isInteger(detail.exitCode) ? ` exit=${detail.exitCode}` : "");
       }
-      if (typeof detail.rollbackError === "string" && /^[A-Za-z]{1,40}$/.test(detail.rollbackError)) {
-        failure.rollbackError = detail.rollbackError;
-      }
+      failure.rollbackError = rollbackErrorName(detail.rollbackError);
     } catch { /* Unknown provider output is not evidence of an install stage. */ }
   }
   return new GuestCliInstallError({
