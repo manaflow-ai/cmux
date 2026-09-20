@@ -15,6 +15,8 @@ settings:
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGN_STYLE: Manual
     DEVELOPMENT_TEAM: ""
+    ENTITLEMENTS_ALLOWED: YES
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
     TARGETED_DEVICE_FAMILY: "1,2"
 targets:
   RemoteConnectionsTestHost:
