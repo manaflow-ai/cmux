@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import Foundation
 
 enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
@@ -8,7 +9,7 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
 
     var label: String {
         switch self {
-        case .authentication, .sessionRefresh:
+        case .authentication:
             return String(localized: "cloud.operation.failure.auth", defaultValue: "Cloud could not verify your session. Sign in again.")
         case .permission:
             return String(localized: "cloud.operation.failure.permission", defaultValue: "Cloud access was denied. Check your permissions.")
@@ -16,7 +17,7 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
             return String(localized: "cloud.operation.failure.plan", defaultValue: "Your plan does not allow this Cloud operation.")
         case .rateLimit:
             return String(localized: "cloud.operation.failure.rateLimit", defaultValue: "Cloud received too many requests. Wait before you retry.")
-        case .network, .timeout:
+        case .network, .timeout, .sessionRefresh:
             return String(localized: "cloud.operation.failure.network", defaultValue: "The Cloud connection did not complete. Check your connection and try again.")
         case .conflict:
             return String(localized: "cloud.operation.failure.conflict", defaultValue: "Another operation changed this machine. Refresh its state.")
@@ -36,6 +37,14 @@ enum CloudDiagnosticFailure: String, Codable, Sendable, Error {
     static func classify(_ error: Error) -> Self {
         if let failure = error as? Self { return failure }
         if error is CancellationError { return .cancelled }
+        if let error = error as? AuthError {
+            switch error {
+            case .cancelled: return .cancelled
+            case .timedOut: return .timeout
+            case .offline, .networkError, .serverError: return .sessionRefresh
+            default: return .authentication
+            }
+        }
         if let error = error as? URLError {
             if error.code == .cancelled { return .cancelled }
             return error.code == .timedOut ? .timeout : .network

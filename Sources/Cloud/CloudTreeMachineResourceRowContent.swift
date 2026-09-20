@@ -8,7 +8,7 @@ struct CloudTreeMachineResourceRowContent: View {
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
-        HStack(spacing: scaled(CloudTreeRowGrid.detailGap)) {
+        HStack(spacing: scaled(style.rowGrid.detailGap)) {
             // Resource values are text-only. Starting directly in the shared
             // leading column lines them up with the icons of nested terminal,
             // Desktop, and port rows without adding a second indentation.
@@ -24,7 +24,7 @@ struct CloudTreeMachineResourceRowContent: View {
             Spacer(minLength: 0)
         }
         .lineLimit(1)
-        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+        .padding(.trailing, style.rowGrid.trailingPadding)
         .help(row.accessibilityLabel)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.accessibilityLabel)
