@@ -5,9 +5,10 @@ import Foundation
 @MainActor
 final class ComputerUseExternalApplicationFixture {
     private enum LaunchError: Error {
-        case noApplicationBundle
+        case noApplicationBundle(URL)
         case failedToLaunch(underlying: Error?)
-        case missingLaunchDate
+        case reusedApplication
+        case incompleteIdentity
     }
 
     let application: NSRunningApplication
@@ -18,8 +19,13 @@ final class ComputerUseExternalApplicationFixture {
     /// ``NSRunningApplication``: the watcher validates the PID, bundle ID,
     /// launch date, and localized name through AppKit before it can activate
     /// an application.
-    init() async throws {
-        let applicationURL = try Self.applicationURL()
+    init(applicationURL: URL) async throws {
+        guard FileManager.default.fileExists(atPath: applicationURL.path) else {
+            throw LaunchError.noApplicationBundle(applicationURL)
+        }
+        let existingProcessIdentifiers = Set(
+            NSWorkspace.shared.runningApplications.map(\.processIdentifier)
+        )
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = false
         configuration.hides = true
@@ -27,6 +33,7 @@ final class ComputerUseExternalApplicationFixture {
         configuration.createsNewApplicationInstance = true
         configuration.promptsUserIfNeeded = false
         configuration.addsToRecentItems = false
+        configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]
 
         let application = try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<NSRunningApplication, Error>) in
@@ -43,9 +50,17 @@ final class ComputerUseExternalApplicationFixture {
                 continuation.resume(returning: application)
             }
         }
-        guard application.launchDate != nil else {
+        guard application.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+              !existingProcessIdentifiers.contains(application.processIdentifier) else {
+            // A reused application belongs to someone else; never terminate it.
+            throw LaunchError.reusedApplication
+        }
+        guard !application.isTerminated,
+              application.launchDate != nil,
+              application.bundleIdentifier?.isEmpty == false,
+              application.localizedName?.isEmpty == false else {
             _ = application.forceTerminate()
-            throw LaunchError.missingLaunchDate
+            throw LaunchError.incompleteIdentity
         }
         self.application = application
     }
@@ -54,19 +69,5 @@ final class ComputerUseExternalApplicationFixture {
     func terminate() {
         guard !application.isTerminated else { return }
         _ = application.forceTerminate()
-    }
-
-    private static func applicationURL() throws -> URL {
-        let candidates = [
-            "/System/Applications/TextEdit.app",
-            "/System/Applications/Calculator.app",
-            "/System/Library/CoreServices/Finder.app",
-        ]
-        guard let path = candidates.first(where: {
-            FileManager.default.fileExists(atPath: $0)
-        }) else {
-            throw LaunchError.noApplicationBundle
-        }
-        return URL(fileURLWithPath: path, isDirectory: true)
     }
 }

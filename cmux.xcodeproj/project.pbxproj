@@ -1588,6 +1588,7 @@
 		C7A561000000000000000002 /* CompositorBlurWindowLifetimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A561000000000000000001 /* CompositorBlurWindowLifetimeTests.swift */; };
 		C0A7101A0000000000000002 /* ComputerUseAppDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A7101A0000000000000001 /* ComputerUseAppDragSource.swift */; };
 		C0A7101B0000000000000002 /* ComputerUseAppDragSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A7101B0000000000000001 /* ComputerUseAppDragSourceView.swift */; };
+		F12789020000000000000002 /* ComputerUseAuthenticatedStateFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12789020000000000000001 /* ComputerUseAuthenticatedStateFixture.swift */; };
 		C0A716940000000000000002 /* ComputerUseCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A716940000000000000001 /* ComputerUseCommandPaletteTests.swift */; };
 		C0A710020000000000000002 /* ComputerUseCuaState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710020000000000000001 /* ComputerUseCuaState.swift */; };
 		C0A710A00000000000000002 /* ComputerUseCursorOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */; };
@@ -1618,6 +1619,7 @@
 		C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710120000000000000001 /* ComputerUseUXTests.swift */; };
 		C0A713010000000000000002 /* ComputerUseWatchTargetActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */; };
 		D1F00A100000000000000002 /* ComputerUseWatchTargetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */; };
+		F12789030000000000000002 /* ComputerUseWatchTargetRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12789030000000000000001 /* ComputerUseWatchTargetRuntimeTests.swift */; };
 		C0A710190000000000000002 /* ComputerUseWindowDragRegion.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */; };
 		3023A1013023A1013023A101 /* ConfigSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1013023B1013023B101 /* ConfigSettingsView.swift */; };
 		3023A1003023A1003023A100 /* ConfigSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3023B1003023B1003023B100 /* ConfigSource.swift */; };
@@ -5577,6 +5579,7 @@
 		C7A561000000000000000001 /* CompositorBlurWindowLifetimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositorBlurWindowLifetimeTests.swift; sourceTree = "<group>"; };
 		C0A7101A0000000000000001 /* ComputerUseAppDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseAppDragSource.swift; sourceTree = "<group>"; };
 		C0A7101B0000000000000001 /* ComputerUseAppDragSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseAppDragSourceView.swift; sourceTree = "<group>"; };
+		F12789020000000000000001 /* ComputerUseAuthenticatedStateFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseAuthenticatedStateFixture.swift; sourceTree = "<group>"; };
 		C0A716940000000000000001 /* ComputerUseCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ComputerUseCommandPaletteTests.swift"; sourceTree = "<group>"; };
 		C0A710020000000000000001 /* ComputerUseCuaState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseCuaState.swift; sourceTree = "<group>"; };
 		C0A710A00000000000000001 /* ComputerUseCursorOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseCursorOverlayController.swift; sourceTree = "<group>"; };
@@ -5607,6 +5610,7 @@
 		C0A710120000000000000001 /* ComputerUseUXTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseUXTests.swift; sourceTree = "<group>"; };
 		C0A713010000000000000001 /* ComputerUseWatchTargetActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetActivity.swift; sourceTree = "<group>"; };
 		D1F00A100000000000000001 /* ComputerUseWatchTargetController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWatchTargetController.swift; sourceTree = "<group>"; };
+		F12789030000000000000001 /* ComputerUseWatchTargetRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ComputerUseWatchTargetRuntimeTests.swift; sourceTree = "<group>"; };
 		C0A710190000000000000001 /* ComputerUseWindowDragRegion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ComputerUseWindowDragRegion.swift; sourceTree = "<group>"; };
 		3023B1013023B1013023B101 /* ConfigSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSettingsView.swift; sourceTree = "<group>"; };
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
@@ -11679,6 +11683,8 @@
 				96063440572D43F6AB2B499D /* CmuxPopoverGroupTests.swift */,
 				C0A710120000000000000001 /* ComputerUseUXTests.swift */,
 				F12789010000000000000001 /* ComputerUseExternalApplicationFixture.swift */,
+				F12789030000000000000001 /* ComputerUseWatchTargetRuntimeTests.swift */,
+				F12789020000000000000001 /* ComputerUseAuthenticatedStateFixture.swift */,
 				C0A717100000000000000001 /* ExternalWindowSamplingServiceTests.swift */,
 				C0A716950000000000000001 /* ComputerUseOnboardingWindowTests.swift */,
 				C0A716940000000000000001 /* ComputerUseCommandPaletteTests.swift */,
@@ -16038,10 +16044,12 @@
 				E5807290DBD44C26BFC5434E /* CompletedRestoredAgentGenerationTests.swift in Sources */,
 				A91C0D100000000000000002 /* CompletedRestoredAgentInputRoutingTests.swift in Sources */,
 				C7A561000000000000000002 /* CompositorBlurWindowLifetimeTests.swift in Sources */,
+				F12789020000000000000002 /* ComputerUseAuthenticatedStateFixture.swift in Sources */,
 				C0A716940000000000000002 /* ComputerUseCommandPaletteTests.swift in Sources */,
 				F12789010000000000000002 /* ComputerUseExternalApplicationFixture.swift in Sources */,
 				C0A716950000000000000002 /* ComputerUseOnboardingWindowTests.swift in Sources */,
 				C0A710120000000000000002 /* ComputerUseUXTests.swift in Sources */,
+				F12789030000000000000002 /* ComputerUseWatchTargetRuntimeTests.swift in Sources */,
 				B88356000000000000000003 /* ControlledPastePreparationDeadlines.swift in Sources */,
 				B88356000000000000000001 /* ControlledPastePreparationOperation.swift in Sources */,
 				C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */,

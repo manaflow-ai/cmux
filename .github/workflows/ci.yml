@@ -1180,8 +1180,7 @@ jobs:
             NewCloudWorkspaceShortcutTests \
             CloudPortAccessLateCoordinatorTests \
             KeyboardShortcutSpaceKeyTests \
-            ComputerUseUXTests/computerUseFilesystemCallbacksHopSafelyToMainActor \
-            ComputerUseUXTests/backgroundActivityCannotFrontItsTargetAndViewResumesIt \
+            ComputerUseWatchTargetRuntimeTests \
             BrowserDesignModeScreenshotEvaluatorTests/smoothScrollingPageCapturesRequestedRegionAndRestoresOffset \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasUsesCmuxRemoteWhenProviderSSHIsUnmanaged \
             CLINotifyProcessIntegrationRegressionTests/testVMSSHAliasPreservesProviderFailureThatMentionsUnsupportedSSH \
