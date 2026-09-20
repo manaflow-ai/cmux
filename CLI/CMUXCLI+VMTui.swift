@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxFoundation
 import Foundation
 
 /// Cloud machines attach through their cmux-tui remote daemon
@@ -218,9 +219,7 @@ extension CMUXCLI {
     }
 
     static func vmTuiDeviceName() -> String {
-        let raw = ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? "mac"
-        let cleaned = raw.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : Character("-") }
-        return "cmux-" + String(cleaned).prefix(40)
+        RemoteClientDeviceName().value
     }
 
     // MARK: - cmux vm tui <id>  (and the default for cmux vm shell)

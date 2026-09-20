@@ -1,12 +1,11 @@
 "use client";
 
-import { useStackApp, useUser } from "@stackframe/stack";
+import { useStackApp, useUser } from "@hexclave/next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import {
   persistCoderouterOrganizationScope,
-  coderouterOrganizationFromCookieHeader,
 } from "@/services/coderouter/organizationScope";
 import { V2DashboardController, type DashboardDirectory } from "./v2-dashboard-controller";
 
@@ -39,11 +38,7 @@ function AuthenticatedIrohDashboard({ user, userId, userEmail, stack }: Props & 
   const teams = user.useTeams();
 
   useEffect(() => {
-    const cookieTeam = coderouterOrganizationFromCookieHeader(
-      typeof document === "undefined" ? null : document.cookie,
-      userId,
-    );
-    setTeamId(cookieTeam ?? user.selectedTeam?.id ?? teams[0]?.id ?? null);
+    setTeamId(user.selectedTeam?.id ?? teams[0]?.id ?? null);
   }, [userId, user.selectedTeam?.id, teams]);
 
   useEffect(() => {
@@ -70,8 +65,14 @@ function AuthenticatedIrohDashboard({ user, userId, userEmail, stack }: Props & 
     };
   }, [stack, teamId, userId]);
 
-  const chooseTeam = (next: string) => {
+  const chooseTeam = async (next: string) => {
     if (!next || next === teamId) return;
+    const response = await fetch("/api/subrouter/teams", {
+      method: "PATCH",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ teamId: next }),
+    });
+    if (!response.ok) return;
     persistCoderouterOrganizationScope(userId, next);
     setTeamId(next);
     router.refresh();
