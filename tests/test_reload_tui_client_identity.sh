@@ -163,4 +163,47 @@ if identity "$ROLLING_URL" "$SNAPSHOT" >/dev/null 2>&1; then
 fi
 [[ ! -e "$SNAPSHOT" ]] || fail "a failed identity left a stale manifest snapshot"
 
+# Interleave two reloads for the same tag at the production identity-resolution
+# boundary. Execute reload.sh's real allocation/resolution block so this catches
+# accidentally sharing a snapshot even though the installer itself is correct.
+SNAPSHOT_SETUP="$(python3 - "$ROOT/scripts/reload.sh" <<'PYCODE'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+start = source.index('RELOAD_RECEIPT_DIR=')
+end = source.index('RELOAD_INPUT_DIGEST=', start)
+print(source[start:end])
+PYCODE
+)"
+resolve_reload_snapshot() {
+  local DERIVED_DATA="$TEST_DIR/shared-derived-data" TAG_SLUG="same-tag"
+  local APP_PATH="$BUILT_APP" CMUX_TUI_CLIENT_MANIFEST_URL_VALUE="$ROLLING_URL"
+  local TMPDIR="$TEST_DIR"
+  eval "$SNAPSHOT_SETUP"
+}
+
+cp "$TEST_DIR/manifest-one.json" "$SERVE/manifest.json"
+PATH="$FAKEBIN:$PATH" resolve_reload_snapshot
+FIRST_SNAPSHOT="$RELOAD_TUI_CLIENT_MANIFEST"
+FIRST_IDENTITY="$RELOAD_TUI_CLIENT_IDENTITY"
+cp "$TEST_DIR/manifest-two.json" "$SERVE/manifest.json"
+PATH="$FAKEBIN:$PATH" resolve_reload_snapshot
+SECOND_SNAPSHOT="$RELOAD_TUI_CLIENT_MANIFEST"
+SECOND_IDENTITY="$RELOAD_TUI_CLIENT_IDENTITY"
+[[ "$FIRST_IDENTITY" != "$SECOND_IDENTITY" ]] || fail "interleaved reloads did not resolve distinct clients"
+install_snapshot "$TEST_DIR/FirstReload.app" "$FIRST_SNAPSHOT" --allow-unattested > "$TEST_DIR/first.log" 2>&1 \
+  || fail "first interleaved reload failed: $(cat "$TEST_DIR/first.log")"
+cmp -s "$TEST_DIR/FirstReload.app/Contents/Resources/bin/cmux-tui" "$SERVE/$COMMIT_ONE/cmux-tui-aarch64-apple-darwin" \
+  || fail "second reload replaced the first reload's resolved manifest"
+
+# A third reload failing resolution must not remove either earlier snapshot.
+rm "$SERVE/manifest.json"
+PATH="$FAKEBIN:$PATH" resolve_reload_snapshot
+[[ "$RELOAD_TUI_CLIENT_RESOLVED" -eq 0 ]] || fail "missing manifest unexpectedly resolved"
+[[ -f "$FIRST_SNAPSHOT" && -f "$SECOND_SNAPSHOT" ]] || fail "failed reload removed another reload's snapshot"
+install_snapshot "$TEST_DIR/SecondReload.app" "$SECOND_SNAPSHOT" --allow-unattested > "$TEST_DIR/second.log" 2>&1 \
+  || fail "second interleaved reload failed: $(cat "$TEST_DIR/second.log")"
+cmp -s "$TEST_DIR/SecondReload.app/Contents/Resources/bin/cmux-tui" "$SERVE/$COMMIT_TWO/cmux-tui-aarch64-apple-darwin" \
+  || fail "second reload did not install its own resolved client"
+
 echo "PASS: reload cmux-tui client identity follows the client content"
