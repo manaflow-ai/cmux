@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspaces
 import Foundation
 import Testing
 import UniformTypeIdentifiers
@@ -558,5 +559,47 @@ struct CrashDiagnosticSessionPolicyTests {
             ofItemAtPath: url.path
         )
         return url
+    }
+}
+
+// The immutable DispatchSpecificKey lacks Sendable annotation; observed contexts
+// are protected by the lock. No store state is accessed without that lock.
+private final class PersistenceQueueProbeStore: SessionSnapshotStoring, @unchecked Sendable {
+    typealias SnapshotValue = AppSessionSnapshot
+    private let key: DispatchSpecificKey<Bool>
+    private let lock = NSLock()
+    private var recordedContexts: [Bool] = []
+
+    init(key: DispatchSpecificKey<Bool>) { self.key = key }
+    var contexts: [Bool] { lock.withLock { recordedContexts } }
+
+    func removeSnapshot(fileURL: URL?) {
+        let isOnPersistenceQueue = DispatchQueue.getSpecific(key: key) == true
+        lock.withLock { recordedContexts.append(isOnPersistenceQueue) }
+    }
+
+    func save(_ snapshot: AppSessionSnapshot, fileURL: URL?) -> Bool { false }
+    func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<AppSessionSnapshot> { .missing }
+    func load(fileURL: URL?) -> AppSessionSnapshot? { nil }
+    func loadReopenSessionSnapshot(fileURL: URL?) -> AppSessionSnapshot? { nil }
+    func syncManualRestoreSnapshotCache() {}
+    func loadStartupSnapshot() -> AppSessionSnapshot? { nil }
+    func defaultSnapshotFileURL() -> URL? { nil }
+    func manualRestoreSnapshotFileURL() -> URL? { nil }
+}
+
+extension CrashDiagnosticSessionPolicyTests {
+    @Test("Shutdown persistence shares the autosave serial executor")
+    func synchronousPersistenceUsesAutosaveQueue() {
+        let queue = DispatchQueue(label: "cmux.tests.snapshot-persistence")
+        let key = DispatchSpecificKey<Bool>()
+        queue.setSpecific(key: key, value: true)
+        let store = PersistenceQueueProbeStore(key: key)
+        let writer = SessionSnapshotPersistenceWriter(store: store, queue: queue)
+
+        writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: false)
+        writer.persist(nil, removeWhenEmpty: true, persistedGeometryData: nil, synchronously: true)
+        queue.sync {}
+        #expect(store.contexts == [true, true])
     }
 }
