@@ -261273,6 +261273,65 @@
         }
       }
     },
+    "mobile.pairing.error.preparationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing could not finish. Check your connection and try again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopplung konnte nicht abgeschlossen werden. Prüfe deine Verbindung und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le jumelage n’a pas pu aboutir. Vérifiez votre connexion et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إكمال الاقتران. تحقق من اتصالك وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo completar el emparejamiento. Comprueba la conexión e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法完成配對。請檢查連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法完成配对。请检查连接后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링을 완료할 수 없습니다. 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングを完了できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.pairing.error.listenerOffline": {
       "extractionState": "manual",
       "localizations": {

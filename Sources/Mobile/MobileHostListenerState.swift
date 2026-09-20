@@ -26,6 +26,7 @@ protocol MobileHostPairingRuntime: AnyObject, Sendable {
     var isNetworkingAllowed: Bool { get }
     func configure(auth: AuthCoordinator)
     func applyManagedNetworkingPolicy() async
+    /// Invalidates admission immediately and starts owned, asynchronous cleanup.
     func prepareForStop()
     func stopHost() async
     func foreground() async
