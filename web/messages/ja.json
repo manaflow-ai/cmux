@@ -626,8 +626,8 @@
   "vault": {
     "overview": {
       "eyebrow": "cmux Vault",
-      "title": "モバイルデバイス",
-      "description": "接続済みのコンピュータ、スマートフォン、タブレットへのアクセスを管理します。",
+      "title": "Vault概要",
+      "description": "同期済みセッションのストレージ使用量とアップロード状況です。",
       "emptyTitle": "同期済みセッションはまだありません",
       "emptyBody": "ローカルのエージェントセッションがあるマシンでCLIの同期コマンドを実行してください。",
       "totalSessions": "合計セッション",
