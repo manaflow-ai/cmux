@@ -1,6 +1,6 @@
 import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
-import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
+import { resolveCoderouterControlContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
 import {
   addCoderouterBreadcrumb,
@@ -12,7 +12,7 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function createDeleteAccountHandler(dependencies: {
-  readonly resolve: typeof resolveCodeRouterRequestContext;
+  readonly resolve: typeof resolveCoderouterControlContext;
   readonly remove: (input: {
     readonly teamId: string;
     readonly accountId: string;
@@ -84,7 +84,7 @@ export function createDeleteAccountHandler(dependencies: {
 }
 
 export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accounts/[accountId]", createDeleteAccountHandler({
-  resolve: resolveCodeRouterRequestContext,
+  resolve: resolveCoderouterControlContext,
   remove: async ({ teamId, accountId, stackUserId }) =>
     await removeAccount(teamId, accountId, stackUserId),
 }));
