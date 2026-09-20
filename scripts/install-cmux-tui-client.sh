@@ -11,7 +11,7 @@
 #
 #   scripts/install-cmux-tui-client.sh <app-path> [--manifest-url <url>] [--cache-dir <dir>]
 #     [--expected-commit <sha>] [--require-capability <name>]...
-#     [--arch <arm64|x86_64|universal>]
+#     [--arch <native|arm64|x86_64|universal>]
 #     [--attest-signer-workflow <owner/repo/.github/workflows/name.yml>] [--allow-unattested]
 #
 # Every remote install authenticates the downloaded manifest before any value in it is
@@ -55,9 +55,22 @@ while (( $# )); do
   esac
   shift
 done
+# uname reports the process architecture under Rosetta. Prefer the Apple
+# Silicon hardware capability, matching build-ghostty-cli-helper.sh.
+if [[ "$ARCH" == native ]]; then
+  ARCH="$(uname -m)"
+  case "$ARCH" in
+    aarch64) ARCH=arm64 ;;
+    x86_64)
+      if [[ "$(sysctl -in hw.optional.arm64 2>/dev/null || true)" == 1 ]]; then
+        ARCH=arm64
+      fi
+      ;;
+  esac
+fi
 case "$ARCH" in
   arm64|x86_64|universal) ;;
-  *) echo "error: unsupported cmux-tui architecture '$ARCH' (expected arm64, x86_64, or universal)" >&2; exit 64 ;;
+  *) echo "error: unsupported cmux-tui architecture '$ARCH' (expected native, arm64, x86_64, or universal)" >&2; exit 64 ;;
 esac
 [[ -n "$APP_PATH" && -d "$APP_PATH/Contents" ]] || { echo "error: app bundle not found at '${APP_PATH:-<missing>}'" >&2; exit 1; }
 [[ "$ATTEST_SIGNER_WORKFLOW" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/\.github/workflows/[A-Za-z0-9._-]+\.ya?ml$ ]] || {

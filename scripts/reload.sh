@@ -1896,7 +1896,7 @@ else
   # installer's universal default remains available to distribution workflows.
   cmux_tui_install_args=(
     "$APP_PATH"
-    --arch "$(uname -m)"
+    --arch native
     --require-capability wireguard-hub
     --require-capability browser-proxy
   )
