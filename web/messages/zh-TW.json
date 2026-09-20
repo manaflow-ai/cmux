@@ -23,6 +23,11 @@
       "message": "雲端虛擬機需要 cmux Pro 方案。",
       "action": "請前往 {upgradeUrl} 升級至 cmux Pro 以建立雲端虛擬機。"
     },
+    "displayName": {
+      "title": "機器名稱無效",
+      "message": "機器名稱必須是不超過 {maxLength} 個字元的可列印文字。",
+      "action": "請使用不含控制字元的較短名稱，或留空以清除名稱。"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 的機器需要 cmux {plan}。目前方案最多支援 {max} GiB。",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "驗證電子郵件後繼續",
     "emailUnverifiedBody": "請使用最初註冊時的方式登入，然後驗證電子郵件，再使用此登入方式。",
+    "signupPendingBody": "如果你已有帳戶，請使用之前的方法登入。如果你剛建立帳戶，請在登入前驗證電子郵件。",
     "genericTitle": "無法完成登入",
     "genericBody": "請重試。如果問題仍然存在，請聯絡支援。",
     "backToSignIn": "返回登入"

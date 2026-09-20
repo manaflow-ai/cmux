@@ -1,6 +1,6 @@
 "use client";
 
-import { StackProvider } from "@stackframe/stack";
+import { StackProvider } from "@hexclave/next";
 import { ThemeProvider } from "next-themes";
 import { stackClientApp } from "../lib/stack-client";
 import { PostHogProvider } from "./posthog";

@@ -23,6 +23,11 @@
       "message": "Cloud VM을 사용하려면 cmux Pro 플랜이 필요합니다.",
       "action": "{upgradeUrl}에서 cmux Pro로 업그레이드하면 Cloud VM을 만들 수 있습니다."
     },
+    "displayName": {
+      "title": "잘못된 머신 이름",
+      "message": "머신 이름은 {maxLength}자 이하의 표시 가능한 텍스트여야 합니다.",
+      "action": "제어 문자가 없는 더 짧은 이름을 사용하거나, 비워 두어 이름을 지우세요."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB 머신에는 cmux {plan}이 필요합니다. 현재 요금제는 최대 {max} GiB를 지원합니다.",
@@ -81,6 +86,7 @@
   "authError": {
     "emailUnverifiedTitle": "계속하려면 이메일을 인증하세요",
     "emailUnverifiedBody": "처음 가입할 때 사용한 방법으로 로그인한 다음, 이 로그인 방법을 사용하기 전에 이메일을 인증하세요.",
+    "signupPendingBody": "이미 계정이 있다면 이전에 사용한 방법으로 로그인하세요. 방금 계정을 만들었다면 로그인하기 전에 이메일을 인증하세요.",
     "genericTitle": "로그인을 완료할 수 없습니다",
     "genericBody": "다시 시도해 주세요. 문제가 계속되면 지원팀에 문의하세요.",
     "backToSignIn": "로그인으로 돌아가기"

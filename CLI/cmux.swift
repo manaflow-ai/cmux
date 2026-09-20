@@ -70,7 +70,6 @@ private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -
     if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
         return NSString(string: explicit).expandingTildeInPath
     }
-
     if let socketPath {
         let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
         if socketName.hasPrefix("cmux-debug-"), socketName.hasSuffix(".sock") {
@@ -80,15 +79,12 @@ private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -
                 .path
         }
     }
-
     if let lastPath = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8),
        let normalized = agentHookDebugNonEmpty(lastPath) {
         return NSString(string: normalized).expandingTildeInPath
     }
-
     return "/tmp/cmux-debug.log"
 }
-
 private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
           !trimmed.isEmpty else {
@@ -96,18 +92,15 @@ private func agentHookDebugNonEmpty(_ value: String?) -> String? {
     }
     return trimmed
 }
-
 private func agentHookDebugShort(_ value: String?) -> String {
     guard let value = agentHookDebugNonEmpty(value) else { return "nil" }
     return String(value.prefix(12))
 }
-
 private func agentHookDebugSocketName(_ socketPath: String?) -> String {
     guard let socketPath = agentHookDebugNonEmpty(socketPath) else { return "nil" }
     return URL(fileURLWithPath: socketPath).lastPathComponent
 }
 #endif
-
 struct ClaudeHookSessionRecord: Codable {
     /// Persisted beside the session record because it is only meaningful as
     /// the command identity for this record's Cursor approval lifecycle.
@@ -4204,12 +4197,12 @@ struct CMUXCLI {
         return VMMachineKind.defaultKind
     }
     private static let cloudVMDesktopPort = 6901
-    /// `vm shell <id>` and `vm open <id>`: the shared cloud open path through the
-    /// machine's cmux-tui remote daemon. Desktop panes are opened explicitly.
+    /// Opens the machine shell through cmux-tui, honoring explicit background attachment.
     func openVMWorkspaceShell(
         vmId: String,
         windowRaw: String?,
         targetWorkspaceId: String?,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -4220,7 +4213,7 @@ struct CMUXCLI {
             windowRaw: windowRaw,
             targetWorkspaceId: targetWorkspaceId,
             forceSSH: false,
-            shouldPinWorkspaceToTop: false,
+            shouldPinWorkspaceToTop: false, focus: focus,
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat
@@ -4452,14 +4445,17 @@ struct CMUXCLI {
         return directAgentKeys.contains { normalizedEnvValue(environment[$0]) != nil }
     }
 
-    private static func vmCreateIdempotencySignature(image: String?, provider: String?) -> String {
+    private static func vmCreateIdempotencySignature(image: String?, provider: String?, workspace: String?) -> String {
         let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalizedProvider = provider?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
-        return "image=\(normalizedImage)\u{1f}provider=\(normalizedProvider)"
+        let normalizedWorkspace = workspace?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        if normalizedWorkspace.isEmpty { return "image=\(normalizedImage)\u{1f}provider=\(normalizedProvider)" }
+        return "image=\(normalizedImage)\u{1f}provider=\(normalizedProvider)\u{1f}workspace=\(normalizedWorkspace)"
     }
-
     private static func normalizedVMProvider(_ provider: String?) throws -> String? {
         guard let trimmed = provider?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -4474,11 +4470,8 @@ struct CMUXCLI {
         }
         return normalized
     }
-
     private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
-
     private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
-
     private static func validatedVMSessionIdentifier(_ value: String?, flag: String) throws -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
@@ -4517,9 +4510,9 @@ struct CMUXCLI {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
+    private static func activeVMCreateIdempotency(image: String?, provider: String?, workspace: String? = nil) throws -> ActiveVMCreateIdempotency {
         let url = vmCreateIdempotencyStoreURL()
-        let signature = vmCreateIdempotencySignature(image: image, provider: provider)
+        let signature = vmCreateIdempotencySignature(image: image, provider: provider, workspace: workspace)
         let now = Date().timeIntervalSince1970
         var store = loadVMCreateIdempotencyStore(from: url)
         store.records = store.records.filter { _, record in
@@ -4916,6 +4909,7 @@ struct CMUXCLI {
         }
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "socket-status" { try runSocketControlStatusCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, environment: processEnv); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
@@ -5317,7 +5311,6 @@ struct CMUXCLI {
             }
         }
         defer { client.close() }
-
         try authenticateClientIfNeeded(
             client,
             explicitPassword: socketPasswordArg,
@@ -5325,7 +5318,6 @@ struct CMUXCLI {
             responseTimeout: cursorHookSocketTimeout,
             deadline: cursorHookDeadline
         )
-
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
         // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
         // beside renumberable refs unless the caller explicitly chooses a format.
@@ -5341,33 +5333,26 @@ struct CMUXCLI {
                 throw error
             }
         }
-
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
         case "automation":
             try runAutomationCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
-
         case "__sidebar_footer_icon_balance":
             let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
             print(response)
-
         case "__internal_flags":
             let response = try sendV1Command("__internal_flags", client: client)
             print(response)
-
         case "ping":
             let response = try sendV1Command("ping", client: client)
             print(response)
-
         case "iroh-diag":
             let response = try sendV1Command("iroh_diag", client: client)
             print(response)
-
         case "capabilities":
             let response = try client.sendV2(method: "system.capabilities")
             print(jsonString(formatIDs(response, mode: idFormat)))
-
         case "agent-hibernation":
             try runAgentHibernation(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
@@ -5465,9 +5450,17 @@ struct CMUXCLI {
                 } else {
                     print("Sign-out requested but state hasn't cleared yet. Run `cmux auth status` to confirm.")
                 }
-
+            case "team":
+                try runAuthTeamCommand(
+                    commandArgs: Array(authArgs.dropFirst()),
+                    client: client,
+                    jsonOutput: jsonOutput
+                )
             default:
-                throw CLIError(message: "Usage: cmux auth <status|login|logout>")
+                throw CLIError(message: String(
+                    localized: "cli.auth.usage",
+                    defaultValue: "Usage: cmux auth <status|login|logout|team>"
+                ))
             }
 
         case "agent":
@@ -5634,7 +5627,7 @@ struct CMUXCLI {
                     try openVMWorkspaceShell(
                         vmId: vmId,
                         windowRaw: windowOpt ?? windowId,
-                        targetWorkspaceId: workspaceOpt,
+                        targetWorkspaceId: workspaceOpt, focus: focus ?? true,
                         client: client,
                         jsonOutput: jsonOutput,
                         idFormat: idFormat
@@ -5791,8 +5784,7 @@ struct CMUXCLI {
                     memoryMb = nil
                 }
                 let remaining = rem3.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
-                // The kind is what the CLI asks for; the backend picks the image. The
-                // machine gets its screen streamed into a browser split beside the shell.
+                // The backend resolves the machine kind to its image.
                 let machineName = nameOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
@@ -5841,6 +5833,7 @@ struct CMUXCLI {
                 // not expose sizing ignore this optional field; providers that do use it
                 // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
+                if let machineName, !machineName.isEmpty { params["display_name"] = machineName }
                 // Freestyle is the default and only deployed provider. It does not support
                 // persistent home volumes, so leave both volume flags out of this request.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
@@ -5848,7 +5841,8 @@ struct CMUXCLI {
                 // successful create clears it, so the next `vm new` makes a new machine.
                 let idempotency = try Self.activeVMCreateIdempotency(
                     image: imageOptRaw ?? "kind=\(machineKind.rawValue)",
-                    provider: normalizedProvider
+                    provider: normalizedProvider,
+                    workspace: targetWorkspaceOpt
                 )
                 params["idempotency_key"] = idempotency.key
                 let vmCreateStartedAt = Date()
@@ -5885,8 +5879,8 @@ struct CMUXCLI {
                 let id = (response["id"] as? String) ?? "?"
                 let provider = (response["provider"] as? String) ?? "?"
                 let image = (response["image"] as? String) ?? "?"
-                // The label is display-only and best-effort: the machine exists either way.
-                if let machineName, !machineName.isEmpty {
+                // Older backends ignore create-time naming; preserve their rename behavior.
+                if let machineName, !machineName.isEmpty, response["displayName"] as? String != machineName {
                     _ = try? client.sendV2(
                         method: "vm.rename",
                         params: ["id": id, "display_name": machineName],
@@ -18195,13 +18189,14 @@ struct CMUXCLI {
         case "billing":
             return "Usage: cmux billing checkout --plan <go|pro|max> [--no-open]\n\nCreate checkout for the signed-in cmux account. Max is $200/month. Payment requires browser confirmation. --no-open or --json returns the URL without opening a browser."
         case "auth":
-            return """
-            Usage: cmux auth <status|login|logout>
+            return String(localized: "cli.auth.help", defaultValue: """
+            Usage: cmux auth <status|login|logout|team>
 
             status   Print whether the user is signed in (add `cmux --json` for JSON).
             login    Open the sign-in popup on the cmux web app and wait for it to finish.
             logout   Clear the current session.
-            """
+            team     List teams or select one (`team list|use <team-id>|create <name>`).
+            """)
         case "login":
             return """
             Usage: cmux login
@@ -18471,6 +18466,8 @@ struct CMUXCLI {
 
             Print whether cmux browser creation and link interception are enabled.
             """
+        case "socket-status":
+            return String(localized: "cli.socketControlStatus.help", defaultValue: "Usage: cmux socket-status [--json]")
         case "agent-hibernation":
             return """
             Usage: cmux agent-hibernation <on|off> [--json]
@@ -41126,6 +41123,7 @@ export default CMUXSessionRestore;
           config <doctor|check|validate|path|paths|docs|documentation|reload>
           shortcuts
           disable-browser | enable-browser | browser-status
+          \(String(localized: "cli.socketControlStatus.command", defaultValue: "socket-status [--json]"))
           agent-hibernation <on|off>
           \(restoreCommandUsageLine)
           \(forkCommandUsageLine)
@@ -41153,7 +41151,7 @@ export default CMUXSessionRestore;
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           automation <list|show|test|enable|disable|logs|reload> [args]
-          auth <status|login|logout>
+          auth <status|login|logout|team>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())
