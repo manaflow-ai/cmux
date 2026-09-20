@@ -3994,9 +3994,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Reload workspace-set.json into the active window's TabManager.
     /// Called from the menu bar.
-    func reloadWorkspaceSet(agent: WorkspaceAgent? = nil) {
+    ///
+    /// Structure only: rows, sections and missing panels. It takes no agent,
+    /// because a reload is the sidebar's cascade and not a place to re-point
+    /// every workspace at once — each workspace owns that pick, through its own
+    /// Agent menu or `setWorkspaceAgent`.
+    func reloadWorkspaceSet() {
         guard let tabManager = mainWindowContexts.values.first?.tabManager else { return }
-        let result = WorkspaceSetImporter.importFromFile(into: tabManager, agent: agent)
+        let result = WorkspaceSetImporter.importFromFile(into: tabManager)
         switch result {
         case .success(let summary):
 #if DEBUG
@@ -4192,6 +4197,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             refreshTerminalSurfacesAfterGhosttyConfigReload(source: "rebuildWorkspace")
         } else {
             NSLog("[WorkspaceSetImporter] rebuild: no defaultPanels in workspace-set.json")
+        }
+        workspaceSetReconciledIds.insert(workspace.id)
+    }
+
+    /// Point one workspace's agent pane at `agent` and rebuild it from the
+    /// template so the pane comes up on it — the per-workspace pick, available
+    /// on any workspace at any time, not only when one is duplicated.
+    ///
+    /// `agent` nil means "forget the pick": the remembered preference is
+    /// cleared, so the workspace goes back to whatever its workspace-set entry
+    /// names. Passing nil straight to the importer would instead mean "leave
+    /// the preference alone", which is why this clears it first.
+    func setWorkspaceAgent(tabId: UUID, in tabManager: TabManager, agent: WorkspaceAgent?) {
+        guard let workspace = tabManager.tabs.first(where: { $0.id == tabId }) else { return }
+        if agent == nil { workspace.preferredAgent = nil }
+        if let count = WorkspaceSetImporter.rebuildWorkspaceFromTemplate(workspace, agent: agent) {
+            NSLog("[WorkspaceSetImporter] agent: '%@' -> %@, recreated %d panels",
+                  workspace.title, agent?.id ?? "template", count)
+            refreshTerminalSurfacesAfterGhosttyConfigReload(source: "setWorkspaceAgent")
+        } else {
+            NSLog("[WorkspaceSetImporter] agent: no template panels for '%@'", workspace.title)
         }
         workspaceSetReconciledIds.insert(workspace.id)
     }
@@ -5331,7 +5357,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Every agent's spelling: a Codex lane's `cx-` session is as much this
                 // workspace's as the bare Claude one, and omitting it would offer a live
                 // Codex conversation up to the orphan reaper.
-                for agent in WorkspaceAgent.allCases {
+                for agent in WorkspaceAgent.roster {
                     derived.formUnion(TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
                         title: workspace.title,
@@ -5369,7 +5395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Agents in declaration order, Claude first: a workspace has one agent
                 // pane, so if both a Claude and a Codex session are live on this
                 // directory only one can be rebuilt onto, and the template's default wins.
-                agents: for agent in WorkspaceAgent.allCases {
+                agents: for agent in WorkspaceAgent.roster {
                     let names = TmuxSessionReaper.sessionNames(
                         directory: workspace.currentDirectory,
                         title: workspace.title,

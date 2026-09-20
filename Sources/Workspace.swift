@@ -301,7 +301,7 @@ extension Workspace {
             isPinned: isPinned,
             currentDirectory: currentDirectory,
             instanceIndex: instanceIndex,
-            preferredAgent: preferredAgent?.rawValue,
+            preferredAgent: preferredAgent?.id,
             focusedPanelId: focusedPanelId,
             layout: layout,
             panels: panelSnapshots,
@@ -344,11 +344,20 @@ extension Workspace {
         setCustomColor(snapshot.customColor)
         isPinned = snapshot.isPinned
 
-        // Status entries and agent PIDs are ephemeral runtime state tied to running
-        // processes (e.g. claude_code "Running"). Don't restore them across app
-        // restarts because the processes that set them are gone.
+        // Status entries are ephemeral runtime state tied to running processes
+        // (e.g. claude_code "Running"). Don't restore them across app restarts
+        // because the processes that set them are gone.
         statusEntries.removeAll()
-        agentPIDs.removeAll()
+        // Agent PIDs are NOT persisted in the snapshot, so clearing them does
+        // nothing on a cold launch — but `restoreSessionSnapshot` also runs
+        // mid-session (Restore Previous Sessions, and the Reload Workspace Set
+        // import path), where a blanket wipe threw away the registration of an
+        // agent that is still very much alive. The launcher only registers once,
+        // just before it execs tmux, so nothing ever put it back and the
+        // workspace stayed invisible under the sidebar's Active filter for the
+        // rest of the session. Reap only the PIDs whose process is actually
+        // gone; that is the same aliveness test the filter itself applies.
+        agentPIDs = agentPIDs.filter { $0.value > 0 && kill($0.value, 0) == 0 }
         // Same reasoning: a session name captured before the restart may no longer
         // correspond to anything. The launcher re-registers when the panel relaunches
         // and `tmux new-session -A` reattaches the still-live session, so dropping it

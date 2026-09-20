@@ -13826,8 +13826,16 @@ private struct TabItemView: View, Equatable {
         }
 
         if !isMulti {
+            WorkspaceAgentMenu(current: tab.preferredAgent) { agent in
+                AppDelegate.shared?.setWorkspaceAgent(tabId: tab.id, in: tabManager, agent: agent)
+            }
+
             Menu(String(localized: "contextMenu.duplicateWorkspace", defaultValue: "Duplicate Workspace")) {
-                ForEach(WorkspaceAgent.allCases, id: \.self) { agent in
+                Button(String(localized: "contextMenu.duplicateWorkspace.sameAgent", defaultValue: "Same Agent")) {
+                    AppDelegate.shared?.duplicateWorkspace(tabId: tab.id, in: tabManager)
+                }
+                Divider()
+                ForEach(WorkspaceAgent.roster) { agent in
                     Button(agent.panelTitle) {
                         AppDelegate.shared?.duplicateWorkspace(
                             tabId: tab.id, in: tabManager, agent: agent

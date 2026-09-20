@@ -4177,8 +4177,10 @@ class TerminalController {
     ///     leaves existing ones alone, only doing a full rebuild when the
     ///     workspace has never been materialized.
     ///
-    /// `agent` ("claude" / "codex") retargets the agent pane the same way
-    /// Duplicate Workspace does, leaving other panels untouched.
+    /// `agent` is an id from the workspace-set's `agents:` roster — whatever it
+    /// lists, `claude-remote` and `codex` alike — and retargets the agent pane
+    /// the same way the workspace's own Agent menu does, leaving other panels
+    /// untouched. The pick is remembered on the workspace.
     private func v2WorkspaceRebuildFromTemplate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -4878,7 +4880,7 @@ class TerminalController {
                             message: "Unknown agent",
                             data: [
                                 "agent": agentRaw,
-                                "supported_agents": WorkspaceAgent.allCases.map(\.rawValue)
+                                "supported_agents": WorkspaceAgent.roster.map(\.id)
                             ]
                         )
                         return
@@ -4908,7 +4910,7 @@ class TerminalController {
                     "duplicate_id": duplicate.id.uuidString,
                     "duplicate_ref": v2Ref(kind: .workspace, uuid: duplicate.id),
                     "instance_index": duplicate.instanceIndex,
-                    "agent": v2OrNull(requestedAgent?.rawValue)
+                    "agent": v2OrNull(requestedAgent?.id)
                 ])
 
             case "rename":
