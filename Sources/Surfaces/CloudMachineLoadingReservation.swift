@@ -9,8 +9,8 @@ struct CloudMachineLoadingReservation: Sendable {
     let workspaceID: UUID
     let panelID: UUID
     let machineID: String
-    let expectedRemoteWorkspaceID: String?
-    let expectedRemoteTabID: String?
+    var expectedRemoteWorkspaceID: String?
+    var expectedRemoteTabID: String?
 
     @MainActor
     init?(_ resource: SurfaceResourceID, at destination: SurfaceDestination, remoteView: SurfaceRemoteView? = nil) {
@@ -60,5 +60,12 @@ struct CloudMachineLoadingReservation: Sendable {
     var materializationDestination: SurfaceDestination? {
         guard let paneID = SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) else { return nil }
         return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+    }
+
+    func withRemotePlacement(_ remoteView: SurfaceRemoteView?, remoteWorkspaceID: String?) -> Self {
+        var copy = self
+        copy.expectedRemoteWorkspaceID = remoteView?.workspace.id ?? remoteWorkspaceID
+        copy.expectedRemoteTabID = remoteView?.tabID
+        return copy
     }
 }

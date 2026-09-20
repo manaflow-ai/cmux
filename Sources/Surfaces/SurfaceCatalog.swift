@@ -637,6 +637,10 @@ final class SurfaceCatalog {
             resolvedRemoteView = nil
         }
         let loadingReservation = providedLoadingReservation ?? CloudMachineLoadingReservation(id, at: destination, remoteView: resolvedRemoteView)
+        if let loadingPanelID = loadingReservation?.panelID,
+           inFlightProjects.keys.contains(where: { $0.loadingPanelID == loadingPanelID && $0.resource != id }) {
+            throw CancellationError()
+        }
         let keyDestination = loadingReservation?.materializationDestination ?? destination
         let materializationKey = MaterializationKey(resource: id, remoteTabID: resolvedRemoteView?.tabID, destination: keyDestination, workspaceID: reuseInWorkspace, loadingPanelID: loadingReservation?.panelID)
         if let loadingReservation { _ = try loadingReservation.loadingPanel(at: destination, machineID: id.machine.cloudMachineID) }
