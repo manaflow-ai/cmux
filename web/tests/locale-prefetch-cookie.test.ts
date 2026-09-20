@@ -5,6 +5,8 @@ import middleware from "../proxy";
 describe("locale preference during prefetch", () => {
   const prefetchHeaders: Record<string, string>[] = [
     { "next-router-prefetch": "1", rsc: "1" },
+    { "next-router-prefetch": "2", rsc: "1" },
+    { "next-router-prefetch": "3", rsc: "1" },
     { purpose: "prefetch" },
   ];
   for (const headers of prefetchHeaders) {

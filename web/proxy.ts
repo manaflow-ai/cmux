@@ -76,11 +76,12 @@ function routeRequest(incomingRequest: NextRequest) {
 
   response = intlMiddleware(request);
   if (
-    request.headers.get("next-router-prefetch") === "1" ||
+    request.headers.has("next-router-prefetch") ||
     request.headers.get("purpose") === "prefetch"
   ) {
     // A delayed prefetch for the previous locale must not overwrite a newer
-    // explicit choice. Keep next-intl's routing, but do not publish its cookie.
+    // explicit choice. The header also covers runtime/shell prefetch variants.
+    // Keep next-intl's routing, but do not publish its cookie.
     // Rebuild the response so later cookie writes cannot resurrect that cookie
     // from NextResponse's internal cookie map.
     const headers = new Headers(response.headers);
