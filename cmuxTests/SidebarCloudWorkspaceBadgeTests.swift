@@ -127,7 +127,8 @@ struct SidebarCloudWorkspaceBadgeTests {
         defaults.set(compact, forKey: "sidebarHideAllDetails")
         let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
         let workspace = Workspace(title: "Same project with a long workspace name",
-            workingDirectory: "/home/cmux", initialSurface: .cloudVMLoading)
+            workingDirectory: "/home/cmux", initialSurface: .terminal)
+        defer { for panel in workspace.panels.values { panel.close() } }
         workspace.isPinned = isPinned
         let factory = SidebarWorkspaceSnapshotFactory(workspace: workspace, settings: settings, showsAgentActivity: false)
         let localSnapshot = factory.makeSnapshot()
