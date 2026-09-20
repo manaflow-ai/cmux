@@ -6,17 +6,21 @@ struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
 
     var body: some View {
-        if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
-            MachineCreateLoadingContent(operation: operation, actions: .bound(coordinator: .shared))
-        } else {
-            baseContent
+        TimelineView(.periodic(from: panel.startedAt, by: 1)) { context in
+            let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
+            if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
+                MachineCreateLoadingContent(
+                    operation: operation,
+                    actions: .bound(coordinator: .shared),
+                    elapsedSeconds: max(0, Int(context.date.timeIntervalSince(operation.startedAt).rounded(.down)))
+                )
+            } else {
+                baseContent(elapsedSeconds: elapsedSeconds)
+            }
         }
     }
 
-    private var baseContent: some View {
-        let schedule: PeriodicTimelineSchedule = .periodic(from: panel.startedAt, by: 1)
-        return TimelineView(schedule) { context in
-            let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
+    private func baseContent(elapsedSeconds: Int) -> some View {
             VStack(spacing: 14) {
                 switch panel.phase {
                 case .loading(let loadingHeadline):
@@ -26,10 +30,10 @@ struct CloudVMLoadingPanelView: View {
                         Text(loadingHeadline)
                             .cmuxFont(size: 14, weight: .semibold)
                             .foregroundStyle(.primary)
-                        Text(String(format: String(
+                        Text(String(
                             localized: "panel.cloudVM.loading.elapsed",
-                            defaultValue: "%ds elapsed"
-                        ), elapsedSeconds))
+                            defaultValue: "\(elapsedSeconds)s elapsed"
+                        ))
                         .cmuxFont(size: 12, weight: .medium)
                         .foregroundStyle(.secondary)
                     } else {
@@ -75,10 +79,10 @@ struct CloudVMLoadingPanelView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                         }
-                        Text(String(format: String(
+                        Text(String(
                             localized: "panel.cloudVM.loading.failed.elapsed",
-                            defaultValue: "Waited %ds before stopping."
-                        ), failedElapsedSeconds))
+                            defaultValue: "Waited \(failedElapsedSeconds)s before stopping."
+                        ))
                         .cmuxFont(size: 11)
                         .foregroundStyle(.tertiary)
                 }
@@ -86,7 +90,6 @@ struct CloudVMLoadingPanelView: View {
             .padding(32)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: GhosttyApp.shared.defaultBackgroundColor))
-        }
     }
 }
 
@@ -95,10 +98,10 @@ private struct CloudVMLoadingStatusView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Text(String(format: String(
+            Text(String(
                 localized: "panel.cloudVM.loading.elapsed",
-                defaultValue: "%ds elapsed"
-            ), elapsedSeconds))
+                defaultValue: "\(elapsedSeconds)s elapsed"
+            ))
             .cmuxFont(size: 12, weight: .medium)
             .foregroundStyle(.secondary)
 

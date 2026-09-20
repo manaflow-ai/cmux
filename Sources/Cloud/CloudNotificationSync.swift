@@ -257,10 +257,10 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
-    /// Rows whose first delivery attempt had no local placement. A catalog
-    /// change may make one of these rows placeable, so equal feed snapshots
-    /// still retry only this small set instead of refolding every row.
-    private var unresolvedPlacementIDs: Set<String> = []
+    /// Rows whose delivery was transiently declined or had no local placement.
+    /// A catalog change or later feed fold retries only this small set instead
+    /// of refolding every unchanged row.
+    private var retryableDeliveryIDs: Set<String> = []
     private var flushTask: Task<Void, Never>?
     private var flushRequested = false
     /// Set by `retire()`: a replaced sync must not write the shared per-machine
@@ -300,19 +300,19 @@ final class CloudNotificationSync {
     @discardableResult
     func apply(rows incoming: [CloudVMNotificationRow]) -> Bool {
         guard !retired else { return false }
-        guard rows != incoming || !unresolvedPlacementIDs.isEmpty else { return false }
+        guard rows != incoming || !retryableDeliveryIDs.isEmpty else { return false }
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
         var placed: [(CloudVMNotificationRow, CloudNotificationDeliveryTarget)] = []
-        unresolvedPlacementIDs.removeAll(keepingCapacity: true)
+        retryableDeliveryIDs.removeAll(keepingCapacity: true)
         for row in plan.deliver {
             if let target = resolveTarget(row) {
                 placed.append((row, target))
             } else {
                 // Not consumed: the next fold retries placement.
                 next.delivered.removeAll { $0 == row.id }
-                unresolvedPlacementIDs.insert(row.id)
+                retryableDeliveryIDs.insert(row.id)
             }
         }
         // Commit before delivering: the store can call back into this sync
@@ -331,6 +331,7 @@ final class CloudNotificationSync {
                 break
             case .declined:
                 undelivered.append(row.id)
+                retryableDeliveryIDs.insert(row.id)
             case .suppressed:
                 suppressed.append(row.id)
             }

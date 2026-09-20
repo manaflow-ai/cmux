@@ -64,7 +64,10 @@ struct CloudBrowserAccessView<Content: View>: View {
     }
 
     private var showsNativeContent: Bool {
-        panel.cloudAccess.unavailable != nil || panel.cloudAccess.failureMessage != nil
+        let state = panel.cloudAccess
+        return state.unavailable != nil
+            || state.failureMessage != nil
+            || (state.isDesktop && !state.showsPage)
     }
 
     private func navigateIfReady() {

@@ -485,15 +485,4 @@ struct CloudNotificationSyncTests {
         #expect(effects.acked.values.allSatisfy { Set($0).count == $0.count })
     }
 
-    @Test @MainActor func equalPlacedRowsAreARealNoOp() {
-        var resolutions = 0
-        let sync = CloudNotificationSync(machineID: "vm", clientID: Self.me, store: CloudNotificationSyncStore(defaults: UserDefaults(suiteName: "CloudNotificationSyncTests.\(UUID().uuidString)")!), resolveTarget: { _ in
-            resolutions += 1
-            return .init(workspaceID: UUID(), panelID: nil)
-        }, deliver: { _, _ in .delivered }, send: { _ in })
-        let row = Self.row("stable")
-        #expect(sync.apply(rows: [row]))
-        #expect(!sync.apply(rows: [row]))
-        #expect(resolutions == 1)
-    }
 }

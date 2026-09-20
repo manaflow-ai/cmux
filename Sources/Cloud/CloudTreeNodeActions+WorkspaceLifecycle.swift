@@ -41,7 +41,7 @@ extension CloudTreeNodeActions {
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
         onReceipt: @MainActor (SurfaceRemoteWorkspace, SurfaceResource?) -> Void = { _, _ in },
-        onRollback: @MainActor () -> Void = {}
+        onRollback: @MainActor (Bool) -> Void = { _ in }
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
@@ -65,6 +65,9 @@ extension CloudTreeNodeActions {
         // unavailable or its active window changed during admission.
         guard !openLocally || reservation != nil else { throw CancellationError() }
         var committed = false
+        // A receipt remains retryable until newly-created remote state has been
+        // confirmed closed. Existing receipts are intentionally retained.
+        var remoteCleanupConfirmed = true
         defer {
             if !committed, let reservation {
                 if !rollbackLocalWorkspace(reservation) {
@@ -75,17 +78,20 @@ extension CloudTreeNodeActions {
                         ))
                 }
             }
-            if !committed { onRollback() }
+            if !committed { onRollback(remoteCleanupConfirmed) }
         }
 
         let createdRemoteWorkspace = existingWorkspace == nil
         let workspace: SurfaceRemoteWorkspace = if let existingWorkspace { existingWorkspace } else { try await provider.createRemoteWorkspace(name: name) }
+        remoteCleanupConfirmed = false
 #if DEBUG
         logWorkspaceTiming("remote_workspace")
 #endif
         onReceipt(workspace, nil)
         guard !openLocally || isLiveReservation(reservation) else {
-            if createdRemoteWorkspace { await cleanupRemoteWorkspaceCreation(provider: provider, workspace: workspace, terminal: nil) }
+            if createdRemoteWorkspace {
+                remoteCleanupConfirmed = await cleanupRemoteWorkspaceCreation(provider: provider, workspace: workspace, terminal: nil)
+            }
             throw CancellationError()
         }
         // createRemoteWorkspace installs its committed workspace/terminal receipt
@@ -101,8 +107,15 @@ extension CloudTreeNodeActions {
             terminal = existing
             createdRemoteTerminal = createdRemoteWorkspace && existingTerminal == nil
         } else {
-            terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
-            createdRemoteTerminal = true
+            do {
+                terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+                createdRemoteTerminal = true
+            } catch {
+                if createdRemoteWorkspace {
+                    remoteCleanupConfirmed = await cleanupRemoteWorkspaceCreation(provider: provider, workspace: workspace, terminal: nil)
+                }
+                throw error
+            }
         }
         onReceipt(workspace, terminal)
 #if DEBUG
@@ -144,7 +157,7 @@ extension CloudTreeNodeActions {
         }
         guard isLiveReservation(reservation) else {
             if createdRemoteTerminal || createdRemoteWorkspace {
-                await cleanupRemoteWorkspaceCreation(
+                remoteCleanupConfirmed = await cleanupRemoteWorkspaceCreation(
                     provider: provider,
                     workspace: workspace,
                     terminal: createdRemoteTerminal ? terminal : nil
@@ -152,12 +165,24 @@ extension CloudTreeNodeActions {
             }
             throw CancellationError()
         }
-        let projections = try await catalog.projectGroup(
-            group,
-            into: .workspace(id: reservation.workspaceID, placement: .split),
-            focus: focus,
-            optimistic: .app
-        )
+        let projections: [SurfaceProjection]
+        do {
+            projections = try await catalog.projectGroup(
+                group,
+                into: .workspace(id: reservation.workspaceID, placement: .split),
+                focus: focus,
+                optimistic: .app
+            )
+        } catch {
+            if createdRemoteTerminal || createdRemoteWorkspace {
+                remoteCleanupConfirmed = await cleanupRemoteWorkspaceCreation(
+                    provider: provider,
+                    workspace: workspace,
+                    terminal: createdRemoteTerminal ? terminal : nil
+                )
+            }
+            throw error
+        }
 #if DEBUG
         logWorkspaceTiming("projection")
 #endif
@@ -166,7 +191,7 @@ extension CloudTreeNodeActions {
             SurfacePaneFactory.close(panelID: reservation.loadingPanelID, in: reservation.workspaceID)
         } else {
             if createdRemoteTerminal || createdRemoteWorkspace {
-                await cleanupRemoteWorkspaceCreation(
+                remoteCleanupConfirmed = await cleanupRemoteWorkspaceCreation(
                     provider: provider,
                     workspace: workspace,
                     terminal: createdRemoteTerminal ? terminal : nil
@@ -257,13 +282,20 @@ extension CloudTreeNodeActions {
         return workspace.panels[reservation.loadingPanelID] is CloudVMLoadingPanel
     }
 
+    @discardableResult
     private static func cleanupRemoteWorkspaceCreation(
         provider: any SurfaceProvider,
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource?
-    ) async {
-        if let terminal { try? await provider.closeTerminal(terminal.id) }
-        try? await provider.closeRemoteWorkspace(id: workspace.id)
+    ) async -> Bool {
+        var succeeded = true
+        if let terminal {
+            do { try await provider.closeTerminal(terminal.id) }
+            catch { succeeded = false }
+        }
+        do { try await provider.closeRemoteWorkspace(id: workspace.id) }
+        catch { succeeded = false }
+        return succeeded
     }
 
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and

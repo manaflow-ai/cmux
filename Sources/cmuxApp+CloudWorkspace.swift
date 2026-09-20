@@ -43,8 +43,10 @@ extension cmuxApp {
                         let previousTerminal = pendingReceipts[id]?.terminal
                         pendingReceipts[id] = (workspace, terminal ?? previousTerminal)
                     },
-                    onRollback: {
-                        pendingReceipts[id] = nil
+                    onRollback: { remoteCleanupConfirmed in
+                        if remoteCleanupConfirmed {
+                            pendingReceipts[id] = nil
+                        }
                     }
                 )
                 pendingReceipts[id] = nil
