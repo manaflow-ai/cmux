@@ -2,6 +2,7 @@
 """Guard app-host XCTest against persistent console-user configuration."""
 
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -146,6 +147,25 @@ def require_step(job_name: str, step_name: str) -> dict:
     return matches[0]
 
 
+def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
+    """Return why a step condition is not gated on preparation, or ""."""
+    if not isinstance(condition, str):
+        return "has no condition"
+    expression = condition.strip()
+    if expression.startswith("${{") and expression.endswith("}}"):
+        expression = expression[3:-2]
+    if "||" in expression:
+        return "must not offer an alternative to its gates"
+    terms = {"".join(term.split()) for term in expression.split("&&")}
+    if "always()" in terms:
+        return "must not run after a cancelled job"
+    if "!cancelled()" not in terms:
+        return "must keep !cancelled() so it still runs after an earlier test failure"
+    if f"steps.{preparation_id}.outcome=='success'" not in terms:
+        return "must require successful app-host preparation"
+    return ""
+
+
 def main() -> int:
     override_fixture = """\
 <Scheme>
@@ -232,11 +252,97 @@ def main() -> int:
     )
     if cleanup_step.get("if") != "${{ always() }}":
         raise SystemExit("FAIL: app-host home cleanup must run after failures")
-    if cleanup_step.get("run") != (
-        "scripts/ci/run-in-console-session.sh "
-        "scripts/ci/cleanup-app-host-home.sh"
-    ):
-        raise SystemExit("FAIL: app-host home cleanup must run as the console user")
+    preparation_id = setup_step.get("id")
+    if not preparation_id or cleanup_step.get("env", {}).get(
+        "CMUX_APP_HOST_PREPARATION_OUTCOME"
+    ) != "${{ steps." + preparation_id + ".outcome }}":
+        raise SystemExit("FAIL: cleanup must receive the actual preparation outcome")
+
+    # The acceptance gate overrides the implicit success() so an earlier test
+    # failure cannot hide it. It must then name preparation itself, or it would
+    # also run after a failed checkout with no app-host home to test against.
+    for rejected, fixture in {
+        "a missing condition": None,
+        "an implicit success() gate": (
+            "${{ steps." + preparation_id + ".outcome == 'success' }}"
+        ),
+        "a gate without preparation": "${{ !cancelled() && matrix.shard == 1 }}",
+        "another step's outcome": (
+            "${{ !cancelled() && steps.other.outcome == 'success' }}"
+        ),
+        "a failed preparation": (
+            "${{ !cancelled() && steps." + preparation_id + ".outcome != 'success' }}"
+        ),
+        "an always() gate": (
+            "${{ always() && steps." + preparation_id + ".outcome == 'success' }}"
+        ),
+        "an alternative gate": (
+            "${{ !cancelled() && steps."
+            + preparation_id
+            + ".outcome == 'success' || matrix.shard == 1 }}"
+        ),
+    }.items():
+        if not acceptance_gate_problem(fixture, preparation_id):
+            raise SystemExit(f"FAIL: acceptance gate guard must reject {rejected}")
+    acceptance_step = require_step(
+        "app-host-unit-tests", "Run Cloud machine ordering acceptance"
+    )
+    acceptance_problem = acceptance_gate_problem(
+        acceptance_step.get("if"), preparation_id
+    )
+    if acceptance_problem:
+        raise SystemExit(
+            f"FAIL: Cloud machine ordering acceptance {acceptance_problem}"
+        )
+
+    # Once preparation starts, the console-user cleanup must still run even if
+    # preparation fails or is cancelled, and its failures must remain visible.
+    with tempfile.TemporaryDirectory() as workspace:
+        for outcome in ("skipped", ""):
+            result = subprocess.run(
+                ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_step["run"]],
+                cwd=workspace,
+                env={**os.environ, "CMUX_APP_HOST_PREPARATION_OUTCOME": outcome},
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise SystemExit(
+                    f"FAIL: cleanup with preparation {outcome!r} must skip an "
+                    f"empty checkout: {result.stderr}"
+                )
+
+        wrapper = Path(workspace) / "scripts/ci/run-in-console-session.sh"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_text(
+            '#!/bin/bash\n'
+            'printf "%s\\n" "$@" > cleanup-invocation\n'
+            'exit "${CLEANUP_TEST_EXIT_CODE:-0}"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        invocation = Path(workspace) / "cleanup-invocation"
+        for outcome in ("success", "failure", "cancelled"):
+            for exit_code in (0, 23):
+                invocation.unlink(missing_ok=True)
+                result = subprocess.run(
+                    ["/bin/bash", "-e", "-o", "pipefail", "-c", cleanup_step["run"]],
+                    cwd=workspace,
+                    env={
+                        **os.environ,
+                        "CMUX_APP_HOST_PREPARATION_OUTCOME": outcome,
+                        "CLEANUP_TEST_EXIT_CODE": str(exit_code),
+                    },
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != exit_code or not invocation.is_file():
+                    raise SystemExit(
+                        f"FAIL: cleanup after preparation {outcome} must run "
+                        f"and preserve exit {exit_code}: {result.stderr}"
+                    )
+                if invocation.read_text() != "scripts/ci/cleanup-app-host-home.sh\n":
+                    raise SystemExit("FAIL: cleanup must run as the console user")
 
     # Resolve the real shell identity format, then rebase its system-temp-relative
     # suffix under macOS /private/tmp when this guard runs on Linux.
