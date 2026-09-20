@@ -241,6 +241,186 @@ struct CloudTerminalPlacementTests {
         }
     }
 
+    @Test("Staged Cloud identity wins over a local restore placeholder", arguments: [false, true])
+    func restoredCloudOwnership(hasLocalPlaceholder: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let workspace = app.workspace
+            let source = try #require(workspace.focusedPanelId)
+            let catalog = SurfaceCatalog.shared
+            let machine = SurfaceMachineID.cloud("restore-\(UUID())")
+            defer {
+                catalog.endProjections(panelID: source, reason: .replaced)
+                catalog.unregister(machine: machine)
+                app.tearDown()
+            }
+            if hasLocalPlaceholder {
+                catalog.record(SurfaceProjection(
+                    resource: SurfaceResourceID(machine: .local, kind: .terminal, key: source.uuidString),
+                    workspaceID: workspace.id, panelID: source
+                ))
+            }
+            catalog.restore([SurfaceProjectionRecord(
+                panelID: source, resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "source"),
+                remoteWorkspaceID: "restored-workspace", remoteTabID: "restored-tab"
+            )], workspaceID: workspace.id)
+            let placement = try #require(workspace.cloudTerminalSourcePlacement(forPanel: source))
+            #expect(placement.machine == machine)
+            #expect(placement.remoteWorkspaceID == "restored-workspace")
+            #expect(placement.remoteTabID == "restored-tab")
+            let before = Set(workspace.panels.keys)
+            for action in ["tab", "split", "button", "socketTab", "socketSplit"] {
+                perform(action, workspace: workspace, expectsAcceptance: false)
+                #expect(Set(workspace.panels.keys) == before)
+                #expect(workspace.cloudPaneCreationFailureStore.failure?.machine == machine)
+            }
+        }
+    }
+
+    @Test("Staged Cloud ownership is scoped to the saved workspace")
+    func staleRestoreFromAnotherWorkspaceIsNotASource() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let workspace = app.workspace
+            let source = try #require(workspace.focusedPanelId)
+            let catalog = SurfaceCatalog.shared
+            let machine = SurfaceMachineID.cloud("stale-\(UUID())")
+            defer {
+                catalog.endProjections(panelID: source, reason: .replaced)
+                catalog.unregister(machine: machine)
+                app.tearDown()
+            }
+            catalog.restore([SurfaceProjectionRecord(
+                panelID: source, resource: SurfaceResourceID(machine: machine, kind: .terminal, key: "source"),
+                remoteWorkspaceID: "other-remote", remoteTabID: "other-tab"
+            )], workspaceID: UUID())
+            #expect(workspace.cloudTerminalSourcePlacement(forPanel: source) == nil)
+        }
+    }
+
+    @Test("A local catalog placeholder cannot hide an active Cloud reservation")
+    func pendingCreationRemainsCloudThroughLocalSnapshot() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let workspace = app.workspace
+            let catalog = SurfaceCatalog.shared
+            let provider = CloudTerminalPlacementTestProvider()
+            catalog.register(provider)
+            defer {
+                workspace.cloudPaneCreationFailureStore.cancelAll()
+                provider.release.resolve(true)
+                catalog.unregister(machine: provider.machine)
+                app.tearDown()
+            }
+            #expect(workspace.openCloudTerminalOptimistically(on: provider.machine, remoteWorkspaceID: provider.remote.id))
+            let parent = try #require(workspace.focusedPanelId)
+            catalog.record(SurfaceProjection(
+                resource: SurfaceResourceID(machine: .local, kind: .terminal, key: parent.uuidString),
+                workspaceID: workspace.id, panelID: parent
+            ))
+            #expect(workspace.newTerminalSplitOutcome(from: parent, orientation: .horizontal).isAccepted)
+            #expect(workspace.cloudPendingCreations.count == 2)
+            provider.release.resolve(true)
+            try await settled { provider.materialized.count == 2 && !workspace.cloudPaneCreationFailureStore.hasActiveRequests }
+            #expect(provider.layoutSources.map(\.tabID) == ["tab-created-0"])
+            #expect(provider.materialized.allSatisfy {
+                $0.resource.machine == provider.machine && $0.remoteWorkspaceID == provider.remote.id
+            })
+        }
+    }
+
+    @Test("Cloud sidebar creates use the group's workspace and localize invalid receipts", arguments: ["terminal", "group", "workspace"])
+    func sidebarCreationValidation(action: String) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let catalog = SurfaceCatalog()
+            let provider = CloudTerminalPlacementTestProvider(catalog: catalog)
+            catalog.register(provider)
+            defer { provider.release.resolve(true); catalog.unregister(machine: provider.machine) }
+            provider.returnedWorkspaceID = "wrong-workspace"
+            var failures: [String] = []
+            var finished = false
+            // No live local destination makes these exercise the awaited sidebar path.
+            let actions = CloudTreeNodeActions.bound(
+                catalog: { catalog }, selectedWorkspaceID: { UUID() }, selectLocalWorkspace: { _ in },
+                onWillMutate: { _ in }, onDidMutate: { finished = true },
+                onFailure: { failures.append($0) }, refresh: {}
+            )
+            let group = SurfaceResourceGroup(title: "source", resources: [], remoteWorkspaceID: provider.remote.id)
+            switch action {
+            case "terminal": actions.newTerminal(provider.machine, provider.remote.id)
+            case "group": actions.openGroup(provider.machine, group, .tab, nil)
+            default: actions.openGroupAsWorkspace(provider.machine, group, nil)
+            }
+            try await settled { provider.requestedWorkspaces.count == 1 }
+            #expect(provider.requestedWorkspaces == [provider.remote.id])
+            provider.release.resolve(true)
+            try await settled { finished }
+            #expect(failures == [CloudDiagnosticFailure.placement.label])
+            #expect(provider.materialized.isEmpty)
+        }
+    }
+
+    @Test("An empty local sidebar group does not require a remote workspace")
+    func emptyLocalGroupRetainsLocalBehavior() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let catalog = SurfaceCatalog()
+            let provider = CloudTerminalPlacementTestProvider(machine: .local, catalog: catalog)
+            catalog.register(provider)
+            defer { provider.release.resolve(true); catalog.unregister(machine: .local) }
+            let originalDestination = UUID()
+            var selectedDestination = originalDestination
+            var failures: [String] = []
+            var finished = false
+            let actions = CloudTreeNodeActions.bound(
+                catalog: { catalog }, selectedWorkspaceID: { selectedDestination }, selectLocalWorkspace: { _ in },
+                onWillMutate: { _ in }, onDidMutate: { finished = true },
+                onFailure: { failures.append($0) }, refresh: {}
+            )
+            actions.openGroup(.local, SurfaceResourceGroup(title: "local", resources: []), .tab, nil)
+            selectedDestination = UUID()
+            provider.release.resolve(true)
+            try await settled { finished }
+            #expect(failures.isEmpty)
+            #expect(provider.requestedWorkspaces.count == 1 && provider.requestedWorkspaces[0] == nil)
+            #expect(provider.materialized.count == 1)
+            #expect(provider.materialized.first?.resource.machine == .local)
+            #expect(provider.materialized.first?.workspaceID == originalDestination)
+        }
+    }
+
+    @Test("A machine-level pending parent resolves its own workspace and tab", arguments: [false, true])
+    func machineLevelParent(omitsTab: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let app = try VaultPaneAppFixture()
+            let workspace = app.workspace
+            let provider = CloudTerminalPlacementTestProvider()
+            provider.returnedWorkspaceID = provider.remote.id
+            provider.omitRemoteViews = omitsTab
+            SurfaceCatalog.shared.register(provider)
+            defer {
+                workspace.cloudPaneCreationFailureStore.cancelAll()
+                provider.release.resolve(true)
+                SurfaceCatalog.shared.unregister(machine: provider.machine)
+                app.tearDown()
+            }
+            #expect(workspace.openCloudTerminalOptimistically(on: provider.machine, remoteWorkspaceID: nil))
+            let parent = try #require(workspace.focusedPanelId)
+            #expect(workspace.newTerminalSplitOutcome(from: parent, orientation: .vertical).isAccepted)
+            let child = try #require(workspace.focusedPanelId)
+            provider.release.resolve(true)
+            if omitsTab {
+                try await settled { workspace.cloudMaterializationFailures[child] != nil }
+                #expect(provider.requestedWorkspaces.count == 1)
+                #expect(provider.layoutSources.isEmpty)
+                #expect(workspace.terminalPanel(for: child)?.surface.ioMode == .manualMirror)
+            } else {
+                try await settled { provider.materialized.count == 2 && !workspace.cloudPaneCreationFailureStore.hasActiveRequests }
+                #expect(provider.layoutSources.map(\.tabID) == ["tab-created-0"])
+                #expect(SurfaceCatalog.shared.projection(forPanel: child)?.remoteWorkspaceID == provider.remote.id)
+            }
+        }
+    }
+
     private func perform(_ action: String, workspace: Workspace, expectsAcceptance: Bool = true) {
         guard let sourceID = workspace.focusedPanelId,
               let paneID = workspace.paneId(forPanelId: sourceID) else {

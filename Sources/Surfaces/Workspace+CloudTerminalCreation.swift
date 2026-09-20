@@ -44,24 +44,17 @@ extension Workspace {
     func cloudTerminalSourcePlacement(forPanel panelID: UUID) -> CloudTerminalSourcePlacement? {
         guard panels[panelID] != nil else { return nil }
         let catalog = SurfaceCatalog.shared
-        // `projectionRecord` intentionally gives a staged remote restore identity
-        // precedence over a temporary local placeholder. A live projection still
-        // fences the record to this workspace when it is available.
-        if let record = catalog.projectionRecord(forPanel: panelID), !record.resource.machine.isLocal {
-            if let projection = catalog.projection(forPanel: panelID), projection.workspaceID != id {
-                return nil
-            }
-            let resource = catalog.resources[record.resource]
-            let inferredRemoteWorkspaceID = resource.flatMap {
+        if let projection = catalog.projectionIncludingPendingRestore(forPanel: panelID),
+           !projection.resource.machine.isLocal {
+            guard projection.workspaceID == id else { return nil }
+            let resource = catalog.resources[projection.resource]
+            let remoteWorkspaceID = projection.remoteWorkspaceID ?? resource.flatMap {
                 catalog.cloudPlacementCoordinator.creationWorkspaceID(in: id, near: $0)
             }
             return CloudTerminalSourcePlacement(
-                machine: record.resource.machine, resource: resource,
-                remoteWorkspaceID: record.remoteWorkspaceID ?? inferredRemoteWorkspaceID, remoteTabID: record.remoteTabID
+                machine: projection.resource.machine, resource: resource,
+                remoteWorkspaceID: remoteWorkspaceID, remoteTabID: projection.remoteTabID
             )
-        }
-        if let projection = catalog.projection(forPanel: panelID) {
-            guard projection.workspaceID == id, !projection.resource.machine.isLocal else { return nil }
         }
         if let reservation = cloudPendingCreations[panelID] {
             return CloudTerminalSourcePlacement(

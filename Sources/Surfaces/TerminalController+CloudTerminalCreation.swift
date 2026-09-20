@@ -18,12 +18,12 @@ extension TerminalController {
         let token = await catalog.cloudWorkspaceProjectionCoordinator.beginLocalMutation(on: machine)
         do {
         let resource = try await provider.createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
-        try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID).validate(created: resource)
+        let remoteView = try CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID).remoteView(of: resource)
         var payload: [String: Any] = [
             "resource": resource.id.rawValue,
             "terminal_id": resource.id.key,
             "machine": machine.rawValue,
-            "remote_workspace_id": resource.remoteWorkspace?.id ?? NSNull(),
+            "remote_workspace_id": remoteView?.workspace.id ?? resource.remoteWorkspace?.id ?? NSNull(),
         ]
         if let destination {
             let opened = try await catalog.project(
@@ -31,7 +31,7 @@ extension TerminalController {
                 into: destination,
                 focus: focus,
                 reuseExisting: false,
-                remoteView: resource.remoteViews?.count == 1 ? resource.remoteViews?.first : nil
+                remoteView: remoteView
             )
             payload["workspace_id"] = opened.projection.workspaceID.uuidString
             payload["surface_id"] = opened.projection.panelID.uuidString

@@ -9,7 +9,8 @@ import Testing
 /// Holds every create behind a barrier so pending-pane races need no timing guesses.
 @MainActor
 final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
-    let machine = SurfaceMachineID.cloud("placement-\(UUID().uuidString)")
+    let machine: SurfaceMachineID
+    let catalog: SurfaceCatalog
     let remote = SurfaceRemoteWorkspace(id: "ws-source", name: "source", index: 0, focused: true)
     let release = CloudLinkFirstValue<Bool>()
     private(set) var requestedWorkspaces: [String?] = []
@@ -20,6 +21,11 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     var projectedMachine: SurfaceMachineID?
     var omitRemoteViews = false
     var contradictoryViewWorkspaceID: String?
+
+    init(machine: SurfaceMachineID = .cloud("placement-\(UUID())"), catalog: SurfaceCatalog? = nil) {
+        self.machine = machine
+        self.catalog = catalog ?? SurfaceCatalog.shared
+    }
 
     var info: SurfaceMachineInfo {
         SurfaceMachineInfo(
@@ -35,8 +41,8 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
         return SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: key),
             title: "shell", detail: "/remote/project", lifecycle: .running, agent: nil,
-            remoteWorkspace: workspace,
-            remoteViews: [SurfaceRemoteView(tabID: "tab-\(key)", workspace: workspace)],
+            remoteWorkspace: machine.isLocal ? nil : workspace,
+            remoteViews: machine.isLocal ? nil : [SurfaceRemoteView(tabID: "tab-\(key)", workspace: workspace)],
             port: nil, url: nil
         )
     }
@@ -57,7 +63,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
             let other = SurfaceRemoteWorkspace(id: contradictoryViewWorkspaceID, name: "other", index: 1, focused: false)
             created.remoteViews = [SurfaceRemoteView(tabID: "tab-\(key)", workspace: other)]
         }
-        SurfaceCatalog.shared.upsert(created, from: self)
+        catalog.upsert(created, from: self)
         return created
     }
 
@@ -74,11 +80,10 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
         _ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination,
         focus: Bool, adopting reservation: CloudTerminalPaneReservation?
     ) async throws -> SurfaceProjection {
-        let reservation = try #require(reservation)
         var identity = resource.id
         identity.machine = projectedMachine ?? resource.machine
         let projection = SurfaceProjection(
-            resource: identity, workspaceID: reservation.workspaceID, panelID: reservation.panelID,
+            resource: identity, workspaceID: reservation?.workspaceID ?? destination.workspaceID, panelID: reservation?.panelID ?? UUID(),
             remoteWorkspaceID: projectedWorkspaceID ?? remoteView?.workspace.id,
             remoteTabID: remoteView?.tabID
         )

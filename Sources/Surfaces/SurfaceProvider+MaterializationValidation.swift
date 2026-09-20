@@ -16,6 +16,7 @@ extension SurfaceProvider {
             resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation
         )
         let expectedWorkspace = reservation?.remoteWorkspaceID ?? remoteView?.workspace.id
+            ?? (reservation == nil ? nil : resource.remoteWorkspace?.id)
         if projection.remoteWorkspaceID == nil,
            let expectedWorkspace,
            resource.remoteWorkspace?.id == expectedWorkspace {
