@@ -19,6 +19,32 @@ layout mistakes and feature-flag policy violations. For example, adding
 `cmuxTests/NewTests.swift` without target membership fails immediately with the
 filename, before an expensive build or a misleading zero-test run.
 
+## Select checks from changed inputs
+
+```sh
+python3 scripts/verify-local.py --affected
+python3 scripts/verify-local.py --affected origin/main --list
+python3 scripts/verify-local.py --affected origin/main --receipt -
+```
+
+`--affected` selects from local edits, including new and deleted files. Supply a
+base ref to include committed branch changes since its merge-base with HEAD.
+`--list` explains the static selection without running checks. Combine
+`--affected` with `--swift-changed` to also parse changed Swift files, or use
+`--only` instead when you want to choose checks yourself.
+
+Selection covers the eight checks below. Each checker declares its file inputs
+in `CHECK_INPUTS` in `scripts/verify-local.py`; update those declarations when a
+checker gains dependencies. Unknown paths select all eight checks. Known prose
+changes omit unrelated checks, while feature-flag expiry policy always runs
+because its result depends on today's date. This does not select native tests
+or the separate CI workflow guards.
+
+The receipt records changed paths, selection reasons, and omitted checks as
+`skipped`, with `executed: false`. An omitted check has no cached passing result.
+Before/after hashes detect changes to the selected diff's file contents, including
+untracked files; matching observations still do not establish an exact snapshot.
+
 ## Iterate on a smaller scope
 
 ```sh

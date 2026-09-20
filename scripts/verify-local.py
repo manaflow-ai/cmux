@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run CMUX's fast CI static checks locally, before a native build or push."""
 import argparse
+import fnmatch
 import hashlib
 import json
 import math
@@ -15,6 +16,8 @@ import sys
 import tempfile
 import time
 
+# Discovery must not create new inputs in an otherwise clean checkout.
+sys.dont_write_bytecode = True
 import verification_receipt as receipt
 
 # These are the production checks from CI's static-preflight job. Keep command
@@ -29,6 +32,83 @@ CHECKS = (
     ("package-groups", "static_analysis", "Workspace Swift package groups", ["python3", "scripts/check-workspace-package-groups.py", "--check"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
 )
+
+
+# Additional inputs read by each existing recipe. Its command script is included
+# automatically below. Patterns are repository-relative fnmatch patterns.
+# Unknown files select the full recipe; this is not a general dependency graph.
+CHECK_INPUTS = {
+    "xcstrings": ("*.xcstrings",),
+    "localization": ("*.xcstrings", "scripts/localization-allowed-omissions.json",
+                     "scripts/localization-plurals.json"),
+    "project-tests": ("scripts/normalize-pbxproj.py",),
+    "project": ("scripts/normalize-pbxproj.py", "cmux.xcodeproj/project.pbxproj",
+                ".xcode-version"),
+    "launch-policy": (
+        "scripts/claude-launch-environment-policy.json",
+        "Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/ClaudeSessionEnvironmentPolicy+Generated.swift",
+        "agent-chat/adapters/claude-environment-policy.generated.ts",
+        "Resources/bin/cmux-claude-wrapper"),
+    "test-wiring": ("scripts/lint-pbxproj-test-wiring.sh", "cmuxTests/*",
+                    "cmux.xcodeproj/project.pbxproj"),
+    "package-groups": ("Packages/*", "cmux.xcworkspace/contents.xcworkspacedata"),
+    "feature-flags": ("web/*", "Sources/*", "Packages/*", "ios/*", "CLI/*",
+                      "scripts/retired-feature-flags.txt"),
+}
+
+
+def affected_checks(repo, base):
+    paths, evidence = changed_files(repo, base, include_deleted=True)
+    reasons = {item[0]: [] for item in CHECKS}
+    # This lint checks review dates against today's date, not just file contents.
+    reasons["feature-flags"].append("time_sensitive")
+    unknown = []
+    for path in paths:
+        matched = False
+        for name, _, _, argv in CHECKS:
+            if any(fnmatch.fnmatchcase(path, pattern)
+                   for pattern in (argv[1],) + CHECK_INPUTS[name]):
+                reasons[name].append(path)
+                matched = True
+        prose = (path in ("README.md", "CONTRIBUTING.md", "CLAUDE.md", "AGENTS.md", "STYLE.md")
+                 or (path.endswith(".md") and path.startswith(("docs/", "skills/"))))
+        if not matched and not prose:
+            unknown.append(path)
+    if unknown:
+        for values in reasons.values():
+            values.append("unknown_input_fallback")
+    selected = [name for name, _, _, _ in CHECKS if reasons[name]]
+    evidence.update(paths=paths, reasons={name: reasons[name] for name in selected},
+                    omitted={name: {"status": "skipped", "executed": False,
+                                   "reason": "no_changed_declared_input"}
+                             for name in reasons if name not in selected},
+                    fallback_paths=unknown, scope="existing fast static recipe only")
+    return selected, evidence
+
+
+def affected_inputs(repo, paths):
+    result = []
+    for name in paths:
+        path = repo / name
+        state, value = "file", None
+        try:
+            value = receipt.digest(path.read_bytes())
+        except FileNotFoundError:
+            state = "absent"
+        except IsADirectoryError:
+            state = "directory"
+        except OSError:
+            state = "unreadable"
+        result.append({"path": name, "sha256": value, "state": state})
+    return result
+
+
+def explain_affected(evidence, stream):
+    print(f'Affected selection: {len(evidence["reasons"])}/{len(CHECKS)} checks; '
+          f'{len(evidence["paths"])} changed paths.', file=stream)
+    for name, reasons in evidence["reasons"].items():
+        # repr keeps filenames with newlines from becoming terminal control text.
+        print(f"  {name}: " + ", ".join(repr(reason) for reason in reasons), file=stream)
 
 
 def stop_process(proc):
@@ -115,7 +195,7 @@ def observe_swift_inputs(repo, paths):
     return inputs
 
 
-def changed_swift_files(repo, base):
+def changed_files(repo, base, include_deleted=False):
     """Select the current working-tree contents, including nonignored new files."""
     def git(*args):
         return subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
@@ -123,19 +203,24 @@ def changed_swift_files(repo, base):
     try:
         base_sha = git("rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}").decode().strip()
         merge_base = git("merge-base", base_sha, "HEAD").decode().strip()
-        changed = git("diff", "--name-only", "-z", "--diff-filter=ACMR", "--no-renames",
+        changed = git("diff", "--name-only", "-z", "--diff-filter=ACDMRTUXB" if include_deleted else "--diff-filter=ACMR", "--no-renames",
                       merge_base, "--")
         # Managed native caches may predate the checkout's ignore rules. Do not
         # select generated test runners there as contributor source edits.
         untracked = git("ls-files", "--others", "--exclude-standard", "-z", "--",
                         ".", ":(top,exclude).glaeda/apple-build/**")
     except (OSError, subprocess.SubprocessError) as error:
-        raise ValueError(f"Cannot select changed Swift files against {base!r}; "
+        kind = "inputs" if include_deleted else "Swift files"
+        raise ValueError(f"Cannot select changed {kind} against {base!r}; "
                          "check the Git checkout and local base ref") from error
-    names = sorted({os.fsdecode(p) for p in (changed + untracked).split(b"\0") if p.endswith(b".swift")})
+    names = sorted({os.fsdecode(p) for p in (changed + untracked).split(b"\0") if p and (include_deleted or p.endswith(b".swift"))})
     return names, {"base_ref": base, "base_sha": base_sha, "merge_base_sha": merge_base,
                    "excluded_untracked_prefixes": [".glaeda/apple-build/"],
                    "contents": "current working tree, including staged/unstaged and nonignored untracked files"}
+
+
+def changed_swift_files(repo, base):
+    return changed_files(repo, base)
 
 
 def stdin_swift_files(data):
@@ -144,8 +229,13 @@ def stdin_swift_files(data):
     return [os.fsdecode(p) for p in data.split(b"\0") if p.endswith(b".swift")]
 
 
-def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_changed=None, swift_stdin0=None):
+def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_changed=None, swift_stdin0=None, affected=None):
     before = receipt.observe(repo)
+    affected_selection = None
+    if affected is not None:
+        selected, affected_selection = affected_checks(repo, affected)
+        affected_before = affected_inputs(repo, affected_selection["paths"])
+        explain_affected(affected_selection, stream)
     names = list(swift_files or [])
     selection = {"explicit": bool(names)}
     if swift_changed is not None:
@@ -166,6 +256,8 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
                         "claim_class": "pre_build_static_sanity",
                         "argv": ["python3", "scripts/verify-local.py"] +
                         [arg for name in selected for arg in ("--only", name)]}
+    if affected is not None:
+        result["recipe"]["argv"] = ["python3", "scripts/verify-local.py", "--affected", affected]
     if paths:
         result["recipe"]["argv"] += ["--swift"] + [str(p.relative_to(repo.resolve())) for p in paths]
     elif swift_changed is not None:
@@ -232,6 +324,10 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
             print(f"Rerun from this checkout: {shlex.join(rerun)}", file=stream)
     result["source"]["after"] = receipt.observe(repo)
     result["evidence"] = {"kind": "local_static_preflight", "executions": executions}
+    if affected_selection is not None:
+        affected_selection["inputs_before"] = affected_before
+        affected_selection["inputs_after"] = affected_inputs(repo, affected_selection["paths"])
+        result["evidence"]["affected_selection"] = affected_selection
     swift_after = observe_swift_inputs(repo, paths)
     if swift_requested:
         result["evidence"]["swift_inputs"] = {"before": swift_before, "after": swift_after}
@@ -262,6 +358,12 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
         status = "interrupted"
         qualifications.append("selected_swift_source_drift_observed")
         print("Selected Swift input changed or became unreadable; rerun parsing.", file=stream)
+    if affected_selection is not None and (
+            affected_before != affected_selection["inputs_after"]
+            or any(p["state"] == "unreadable" for p in affected_before)):
+        status = "interrupted"
+        qualifications.append("affected_input_drift_observed")
+        print("Changed input drifted or was unreadable; rerun selection.", file=stream)
     if "source_drift_observed" in qualifications:
         status = "interrupted"
         print("Source changed during checks; rerun against the current checkout.", file=stream)
@@ -280,12 +382,14 @@ def run(repo, selected, timeout, stream=sys.stdout, swift_files=None, swift_chan
 def main():
     parser = argparse.ArgumentParser(
         description="Fast pre-build checks: shared CI sanity checks, with optional Swift syntax parsing.",
-        usage="%(prog)s [--swift-changed [BASE]] [--only CHECK] [options]",
+        usage="%(prog)s [--affected [BASE] | --only CHECK] [--swift-changed [BASE]] [options]",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Start here:
   python3 scripts/verify-local.py                         Shared CI static checks
   python3 scripts/verify-local.py --swift-changed          Also parse local Swift edits
   python3 scripts/verify-local.py --swift-changed origin/main  Include committed branch edits
+  python3 scripts/verify-local.py --affected               Run affected static checks
+  python3 scripts/verify-local.py --affected origin/main --list  Explain selection without running checks
   python3 scripts/verify-local.py --list                   Discover focused check names
 
 Compose (use shell pipefail to preserve producer/check failures):
@@ -300,6 +404,8 @@ Details and examples: docs/verification-receipts.md""")
                         help="Run this named check only; repeat to select several")
     selection.add_argument("--swift-changed", nargs="?", const="HEAD", metavar="BASE",
                         help="Parse dirty/new Swift files; with BASE, also include branch changes since its merge-base")
+    selection.add_argument("--affected", nargs="?", const="HEAD", metavar="BASE",
+                        help="Select static checks from changed inputs; unknown inputs run all checks; expiry policy always runs")
     selection.add_argument("--list", action="store_true", help="List check names and underlying commands without executing")
     composition = parser.add_argument_group("explicit selection and pipelines")
     composition.add_argument("--swift", nargs="+", action="extend", default=[], metavar="FILE",
@@ -312,10 +418,22 @@ Details and examples: docs/verification-receipts.md""")
                            help="Trusted target checkout; its scripts execute locally (default: this checkout)")
     execution.add_argument("--timeout", type=float, default=60, help="Seconds per check (default 60)")
     args = parser.parse_args()
+    if args.affected is not None and args.only:
+        parser.error("--affected and --only are alternatives; use --list to inspect affected checks")
     if args.list:
+        chosen = None
+        if args.affected is not None:
+            try:
+                chosen, evidence = affected_checks(args.repo.resolve(), args.affected)
+            except ValueError as error:
+                parser.error(str(error))
+            explain_affected(evidence, sys.stdout)
         for name, phase, label, argv in CHECKS:
+            if chosen is not None and name not in chosen:
+                continue
             print(f"{name}: {label} [{phase}]\n  {' '.join(argv)}")
-        print("swift-syntax: Parse Swift files [parsing; --swift-changed [BASE], --swift-stdin0, or --swift FILE ...]")
+        if chosen is None:
+            print("swift-syntax: Parse Swift files [parsing; --swift-changed [BASE], --swift-stdin0, or --swift FILE ...]")
         return 0
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be a finite positive number")
@@ -324,7 +442,7 @@ Details and examples: docs/verification-receipts.md""")
     try:
         result = run(args.repo.resolve(), selected, args.timeout,
                      stream=sys.stderr if json_stdout else sys.stdout, swift_files=args.swift,
-                     swift_changed=args.swift_changed,
+                     swift_changed=args.swift_changed, affected=args.affected,
                      swift_stdin0=sys.stdin.buffer.read() if args.swift_stdin0 else None)
     except ValueError as error:
         parser.error(str(error))
