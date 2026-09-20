@@ -113,7 +113,6 @@ export function makeCoderouterAccountsPostHandler(
   // create an account that the same machine could not subsequently read on an
   // organization team, so machine writes are always team-visible.
   const visibility = resolved.value.access?.kind === "vm" ? "team" : requestedVisibility;
-  if (visibility !== "private" && visibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
   if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
   const credential = parseCredential(value);
   if (!credential) {
