@@ -22,6 +22,15 @@ HISTORY_INPUTS = {
     "tests/test_package_resolved_policy_remote_inputs.py",
     "tests/test_check_package_resolved_policy.py",
 }
+# Exact inputs of the Cloud skill coverage check in workflow-guard-tests.
+# New tests and skill files retain the conservative fallback until mapped.
+WORKFLOW_TEST_INPUTS = {
+    "tests/test_cloud_vm_skill_coverage.py",
+    "skills/cmux-cloud-vm/SKILL.md",
+    "skills/cmux-cloud-vm/references/commands.md",
+    "skills/cmux-cloud-vm/references/agent-workflows.md",
+    "skills/cmux-cloud-vm/references/guest.md",
+}
 
 
 def plain_documentation(path: str) -> bool:
@@ -49,7 +58,9 @@ def classify(paths: list[str], *, event: str, macos: str) -> dict[str, bool]:
         # The mixed suite includes source, resource, and packaging contracts.
         # Keep it for code changes until those contracts have finer ownership.
         routes["linux_guard_tests"] = True
-        if path in CLI_INPUTS:
+        if path in WORKFLOW_TEST_INPUTS:
+            pass
+        elif path in CLI_INPUTS:
             routes["linux_guard_cli"] = True
         elif path in HISTORY_INPUTS:
             routes["linux_guard_history"] = True
