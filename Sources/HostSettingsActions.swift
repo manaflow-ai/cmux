@@ -311,7 +311,7 @@ final class HostSettingsActions: SettingsHostActions {
             directory: cliURL.deletingLastPathComponent().path,
             executable: cliURL.path,
             arguments: arguments,
-            timeout: nil
+            timeout: 30
         )
         try Task.checkCancellation()
         guard result.executionError == nil, !result.timedOut, result.exitStatus == 0 else {
