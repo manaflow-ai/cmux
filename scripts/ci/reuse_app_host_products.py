@@ -25,6 +25,8 @@ from pathlib import Path
 import app_host_test_products as products
 
 RECEIPT = "cmux-product-reuse.json"
+BUILD_LOG = "cmux-build.log"
+MAX_BUILD_LOG_BYTES = 256 * 1024**2
 PREFIX = "app-host-products-v1-"
 ARCHIVE = "app-host-products.aar"
 ARCHIVER = Path(__file__).resolve().parent / "app-host-products-archive.sh"
@@ -255,6 +257,19 @@ def unpack(archive, staging, digest):
         raise subprocess.CalledProcessError(status, process.args)
 
 
+def build_log_bytes(path):
+    """A cache hit must retain the actual warning evidence, never an empty stand-in."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("build log must be a regular file")
+    if not 0 < path.stat().st_size <= MAX_BUILD_LOG_BYTES:
+        raise ValueError("build log is empty or exceeds the size limit")
+    with path.open("rb") as source:
+        data = source.read(MAX_BUILD_LOG_BYTES + 1)
+    if not 0 < len(data) <= MAX_BUILD_LOG_BYTES:
+        raise ValueError("build log is empty or exceeds the size limit")
+    return data
+
+
 def restore(api, value, derived, current_run, current_identity):
     """Restore in staging; a miss never leaves partial products in DerivedData."""
     for artifact, run in select(api, value, current_run):
@@ -276,6 +291,11 @@ def restore(api, value, derived, current_run, current_identity):
                         raise ValueError("invalid producer revision")
                     if api.get(f"git/commits/{revision}")["tree"]["sha"] != value["tree"]:
                         raise ValueError("producer source tree mismatch")
+                # Keep warning validation active on reuse hits. Old artifacts
+                # without the producer log/digest are misses, not warning-free builds.
+                build_log = build_log_bytes(root / BUILD_LOG)
+                if hashlib.sha256(build_log).hexdigest() != receipt["build_log_sha256"]:
+                    raise ValueError("producer build log digest mismatch")
                 original = json.loads((root / products.RECEIPT).read_text())
                 if original["revision"] != receipt["revision"]:
                     raise ValueError("producer revision mismatch")
@@ -293,6 +313,10 @@ def restore(api, value, derived, current_run, current_identity):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(root), destination)
             products.restore(derived, current_identity)
+            log_destination = derived / BUILD_LOG
+            if log_destination.is_symlink():
+                raise ValueError("build log destination must not be a symbolic link")
+            log_destination.write_bytes(build_log)
             provenance = destination / "cmux-original-producer.json"
             upstream = json.loads(provenance.read_text()) if provenance.exists() else None
             provenance.write_text(json.dumps({
@@ -321,8 +345,13 @@ def main():
         if value is None:
             return
         root = derived / "Build/Products"
+        build_log = build_log_bytes(derived / BUILD_LOG)
+        if (root / BUILD_LOG).is_symlink():
+            raise ValueError("archived build log must not be a symbolic link")
+        (root / BUILD_LOG).write_bytes(build_log)
         (root / RECEIPT).write_text(json.dumps({"contract": value,
             "revision": read("git", "rev-parse", "HEAD"),
+            "build_log_sha256": hashlib.sha256(build_log).hexdigest(),
             "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"]}))
     elif mode == "restore":
         hit = False
