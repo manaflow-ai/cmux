@@ -20,10 +20,10 @@ struct CloudMachineWorkspaceResolutionTests {
             }
         ]
         let resolver = VMRemoteWorkspaceResolver()
-        #expect(resolver.resolveVMMachineTerminal(machine: "machine", catalog: catalog, workspaceID: "ws-first")
-            == .resolved(workspaceID: "ws-first", terminalID: "term-first", tabID: "tab-first"))
         #expect(resolver.resolveVMMachineTerminal(machine: "machine", catalog: catalog)
             == .resolved(workspaceID: "ws-later", terminalID: "term-later", tabID: "tab-later"))
-        #expect(resolver.resolveVMMachineTerminal(machine: "machine", catalog: catalog, workspaceID: "deleted") == .unavailable)
+        #expect(resolver.resolveVMRemoteTerminalPlacement("first", machine: "machine", workspaceID: "ws-first", in: catalog)
+            == .resolved(terminalID: "term-first", tabID: "tab-first"))
+        #expect(resolver.resolveVMRemoteTerminalPlacement("first", machine: "machine", workspaceID: "deleted", in: catalog) == .notFound)
     }
 }
