@@ -230,7 +230,7 @@ final class CloudPresenceLink {
                 }
                 let listRequestID = takeRequestID()
                 listClientsRequestID = listRequestID
-                connection.send(commandBuilder.typedPresenceList(requestID: listRequestID))
+                connection.send(commandBuilder.typedListClients(requestID: listRequestID))
                 return
             }
             guard requestID == listClientsRequestID else { return }

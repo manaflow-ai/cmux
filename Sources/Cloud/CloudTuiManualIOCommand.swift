@@ -294,6 +294,11 @@ struct CloudTuiManualIOCommand: Sendable {
         .presenceList(id: requestID, request: .init())
     }
 
+    /// Reads the requesting connection's daemon-assigned client id.
+    func typedListClients(requestID: UInt64) -> CloudTuiGenerated.Command {
+        .listClients(id: requestID, request: .init())
+    }
+
     /// Builds the schema-generated presence clear command.
     func typedPresenceClear(requestID: UInt64) -> CloudTuiGenerated.Command {
         .presenceClear(id: requestID, request: .init())

@@ -32,7 +32,7 @@ struct CloudTuiSwiftSDKTests {
             #"{"event":"presence-changed","client":11,"name":null,"kind":null,"color":3,"surface":null,"pointer":null,"highlight":null,"updated_at_ms":4,"generation":9}"#.utf8
         )
         let event = try JSONDecoder().decode(CloudTuiGenerated.Event.self, from: data)
-        guard case let .presenceChanged payload = event else {
+        guard case .presenceChanged(let payload) = event else {
             Issue.record("expected presence-changed event")
             return
         }
