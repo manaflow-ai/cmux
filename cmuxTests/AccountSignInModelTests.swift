@@ -20,7 +20,7 @@ struct AccountSignInModelTests {
         model.startSignInIfNeeded()
 
         #expect(model.phase == .loading(.openingBrowser))
-        await Task.yield()
+        await flow.waitForStart()
 
         #expect(flow.startCount == 1)
         #expect(model.signInURL == flow.issuedURL)
@@ -32,7 +32,7 @@ struct AccountSignInModelTests {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        await flow.waitForStart()
         flow.isPresentingSignIn = false
 
         model.openSignInInBrowser()
@@ -50,7 +50,7 @@ struct AccountSignInModelTests {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        await flow.waitForStart()
         let identity = AccountIdentity(
             id: "stack-user",
             displayName: "Stack User",
@@ -69,7 +69,7 @@ struct AccountSignInModelTests {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        await flow.waitForStart()
         #expect(model.phase == .loading(.waiting))
 
         // The popup ended without a recorded failure (user hit Cancel):
@@ -111,7 +111,7 @@ struct AccountSignInModelTests {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        await flow.waitForStart()
         flow.isPresentingSignIn = false
         flow.lastSignInFailure = .offline
 
@@ -125,7 +125,7 @@ struct AccountSignInModelTests {
         flow.copySucceeds = false
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        await flow.waitForStart()
 
         model.openSignInInBrowser()
         #expect(model.browserOpenState == .failed)
@@ -141,7 +141,7 @@ struct AccountSignInModelTests {
         let flow = FakeAccountSignInFlow()
         let model = AccountSignInModel(flow: flow)
         model.presentSignIn()
-        await Task.yield()
+        await flow.waitForStart()
 
         flow.signInIsSlow = true
         #expect(model.phase == .loading(.waitingSlow))
@@ -187,6 +187,7 @@ private final class FakeAccountSignInFlow: AccountSignInFlow {
     var lastSignInFailure: AccountSignInModel.Failure?
     let issuedURL = URL(string: "https://example.com/sign-in?state=fixture")!
     private(set) var startCount = 0
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
     private(set) var openedURL: URL?
     private(set) var copiedURL: URL?
     var openSucceeds = true
@@ -196,9 +197,21 @@ private final class FakeAccountSignInFlow: AccountSignInFlow {
         isPresentingSignIn ? issuedURL : nil
     }
 
+    func waitForStart() async {
+        guard startCount == 0 else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append(continuation)
+        }
+    }
+
     func startSignInForPane() -> URL? {
         startCount += 1
         isPresentingSignIn = true
+        // The model finishes its synchronous MainActor startup body before
+        // a waiting test can resume on the same actor.
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
         return issuedURL
     }
 
