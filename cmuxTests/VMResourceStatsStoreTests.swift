@@ -190,4 +190,22 @@ struct VMResourceStatsStoreTests {
         }
         #expect(store.snapshot.count == 256)
     }
+
+    @Test func aValidatedFleetReplacesThePreviousScopeAfterReset() {
+        let store = VMResourceStatsStore(now: { self.time })
+        let oldFleet = Set(["old-a", "old-b"])
+        let newFleet = Set(["new-a", "new-b"])
+        let reading = stats(memory: 8192, disk: 32768)
+        store.retain(machineIDs: oldFleet)
+        store.finishRead(store.beginRead(machineID: "old-a"), stats: reading)
+        store.reset()
+
+        // The panel calls retain only after its list response passes its
+        // refresh-generation and account-scope guards.
+        store.retain(machineIDs: newFleet)
+        store.finishRead(store.beginRead(machineID: "new-a"), stats: reading)
+        for id in oldFleet { #expect(store.stats(for: id) == nil) }
+        #expect(store.stats(for: "new-a") == reading)
+        #expect(store.stats(for: "new-b") == nil)
+    }
 }

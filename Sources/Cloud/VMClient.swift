@@ -848,7 +848,6 @@ actor VMClient {
                 return summary
             }
             machineCache.record(hasAnyMachine: !vms.isEmpty)
-            await resourceStats.retain(machineIDs: Set(vms.map(\.id)))
             return VMListPage(vms: vms, limits: limits)
         }
     }
