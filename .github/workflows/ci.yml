@@ -1565,7 +1565,7 @@ jobs:
           scripts/ci/require_selected_test_execution.sh \
             "$test_log" cmuxTests/GlobalSearchShortcutBehaviorTests
 
-      - name: Run Cloud lifecycle acceptance
+      - name: Run Cloud machine ordering acceptance
         if: ${{ !cancelled() && steps.prepare-app-host-home.outcome == 'success' && matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         timeout-minutes: 10
         run: |
