@@ -198,8 +198,8 @@ extension SurfaceCatalog {
         }
         let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
         guard let workspaceID else { return nil }
-        if member.resource.kind == .display, projections.contains(where: {
-            $0.resource == member.resource && $0.remoteTabID == nil && $0.remoteWorkspaceID == workspaceID
+        if projections.contains(where: {
+            $0.resource == member.resource && $0.isLocalWorkspaceView && $0.remoteWorkspaceID == workspaceID
         }) {
             return nil
         }
