@@ -1,3 +1,4 @@
+import CmuxComputerUse
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -663,6 +664,9 @@ struct cmuxApp: App {
                     }
                     Button("Cloud Tree Style Gallery…") {
                         CloudTreeStyleGalleryWindowController.shared.show()
+                    }
+                    Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
+                        AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
                     }
                     Menu("Cloud Terminal Error Style") {
                         Button("Preview in Selected Terminal") {
@@ -1609,6 +1613,7 @@ struct cmuxApp: App {
         BackgroundDebugWindowController.shared.show()
         StartupAppearanceDebugWindowController.shared.show()
         MenuBarExtraDebugWindowController.shared.show()
+        AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
         PDFPreviewChromeDebugWindowController.shared.show()
         FeedPreviewWindowController.shared.show()
         FeedTextEditorDebugWindowController.shared.show()
@@ -1660,6 +1665,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.menubarDebug",
     "cmux.spinnerGallery",
     "cmux.cloudTreeStyleGallery",
+    "cmux.cloudSidebarDebugLab",
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",
@@ -1877,6 +1883,9 @@ private struct DebugWindowControlsView: View {
                         Button("Menu Bar Extra Debug…") {
                             MenuBarExtraDebugWindowController.shared.show()
                         }
+                        Button(String(localized: "debug.menu.cloudSidebarSpacingLab", defaultValue: "Cloud Sidebar Spacing Lab…")) {
+                            AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
+                        }
                         Button(
                             String(
                                 localized: "debug.menu.pdfPreviewChromeDebug",
@@ -1913,6 +1922,7 @@ private struct DebugWindowControlsView: View {
                             BonsplitTabBarDebugWindowController.shared.show()
                             StartupAppearanceDebugWindowController.shared.show()
                             MenuBarExtraDebugWindowController.shared.show()
+                            AppDelegate.shared?.debugWindowsCoordinator.cloudSidebarDebugLabController.show()
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()

@@ -3,7 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RELOAD_ORIGINAL_ARGS=("$@")
-export SWIFTPM_MIRROR_CONFIG="${SWIFTPM_MIRROR_CONFIG:-$SCRIPT_DIR/../config/swiftpm/mirrors.json}"
 # shellcheck source=scripts/lib/mobile-attach.sh
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
@@ -662,12 +661,18 @@ if [[ -n "\$SOCKET_ARG" ]]; then
     TAG="\${SOCKET_NAME#cmux-debug-}"
     TAG="\${TAG%.sock}"
     if [[ "\$TAG" =~ ^[A-Za-z0-9_-]+$ ]]; then
-      TAG_CLI="\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
-      if live_cli_bundle "\$TAG_CLI" >/dev/null; then
-        if [[ "\$HAS_EXPLICIT_SOCKET" == "0" ]] || socket_is_live "\$SOCKET_ARG"; then
-          exec "\$TAG_CLI" "\$@"
+      # reload.sh links /tmp/cmux-<tag> to the DerivedData it built the tag into,
+      # which is not the per-tag default when tags share one.
+      TAG_CLI_SUFFIX="Build/Products/Debug/cmux DEV \$TAG.app/Contents/Resources/bin/cmux"
+      for TAG_CLI in "/tmp/cmux-\$TAG/\$TAG_CLI_SUFFIX" "\$HOME/Library/Developer/Xcode/DerivedData/cmux-\$TAG/\$TAG_CLI_SUFFIX"; do
+        # /tmp is shared, so only trust a CLI this user owns.
+        [[ -O "\$TAG_CLI" ]] || continue
+        if live_cli_bundle "\$TAG_CLI" >/dev/null; then
+          if [[ "\$HAS_EXPLICIT_SOCKET" == "0" ]] || socket_is_live "\$SOCKET_ARG"; then
+            exec "\$TAG_CLI" "\$@"
+          fi
         fi
-      fi
+      done
     fi
   fi
 fi
@@ -916,6 +921,9 @@ Options:
   --name <app name>      Override app display/bundle name.
   --bundle-id <id>       Override bundle identifier.
   --derived-data <path>  Override derived data path.
+                         Defaults to CMUX_DERIVED_DATA when set (an absolute
+                         path to a DerivedData kept warm for this checkout and
+                         shared by its tags), else one directory per tag.
   --no-global-cli-links  Do not update /tmp/cmux-cli, /tmp/cmux-last-cli-path,
                          or PATH cmux-dev shims. Useful for isolated dogfood.
   --swift-frontend-workaround
@@ -1007,6 +1015,31 @@ tagged_derived_data_path() {
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
 }
 
+# A tag only changes the bundle id, names, socket and state files. None of those
+# are compiler inputs, so a new tag built into a DerivedData that is already warm
+# for this checkout recompiles nothing, while a fresh per-tag DerivedData is a full
+# cold build. CMUX_DERIVED_DATA lets whatever owns the checkout (a pool of reused
+# worktrees, a fleet lease) name that warm directory once, so callers do not have
+# to pass --derived-data on every reload. It must be absolute, and only one build
+# may use it at a time; that is the owner's lock to hold, not this script's.
+resolve_tagged_derived_data() {
+  # Precedence: --derived-data, then CMUX_DERIVED_DATA, then one directory per tag.
+  local slug="$1" explicit_set="${2:-0}" explicit_path="${3:-}"
+  if [[ "$explicit_set" -eq 1 ]]; then
+    echo "$explicit_path"
+    return 0
+  fi
+  if [[ -n "${CMUX_DERIVED_DATA:-}" ]]; then
+    if [[ "$CMUX_DERIVED_DATA" != /* ]]; then
+      echo "error: CMUX_DERIVED_DATA must be an absolute path, got '$CMUX_DERIVED_DATA'" >&2
+      return 1
+    fi
+    echo "$CMUX_DERIVED_DATA"
+    return 0
+  fi
+  tagged_derived_data_path "$slug"
+}
+
 remove_app_bundle_output() {
   local path="${1:-}"
   if [[ -z "$path" || ! -e "$path" ]]; then
@@ -1056,8 +1089,36 @@ validate_app_bundle() {
   fi
 }
 
+# Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
+# that is not the tag's own may hold other tags, so only the tag's app is removed from it.
+tag_build_cleanup_paths() {
+  local tag="$1" derived="${2:-}"
+  local own="" link="/tmp/cmux-${tag}"
+  own="$(tagged_derived_data_path "$tag")"
+  if [[ -z "$derived" && -L "$link" ]]; then
+    derived="$(readlink "$link" 2>/dev/null || true)"
+  fi
+  if [[ -n "$derived" && "$derived" != "$own" && "$derived" != "$link" ]]; then
+    printf '%q ' "${derived%/}/Build/Products/Debug/cmux DEV ${tag}.app"
+    [[ -d "$own" ]] || return 0
+  fi
+  printf '%q ' "$own"
+}
+
+# Prints the commands that remove one tag's build and state. They are meant to be pasted
+# into a shell, and a DerivedData, symlink target, or HOME can hold any character, so every
+# argument is escaped with %q instead of being wrapped in quotes.
+print_tag_cleanup_commands() {
+  local tag="$1" derived="${2:-}"
+  printf '  pkill -f %q\n' "cmux DEV ${tag}.app/Contents/MacOS/cmux DEV"
+  printf '  rm -rf %s%q %q\n' "$(tag_build_cleanup_paths "$tag" "$derived")" "/tmp/cmux-${tag}" "/tmp/cmux-debug-${tag}.sock"
+  printf '  rm -f %q\n' "/tmp/cmux-debug-${tag}.log"
+  printf '  rm -f %q\n' "$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock"
+}
+
 print_tag_cleanup_reminder() {
   local current_slug="$1"
+  local current_derived="${2:-}"
   local path=""
   local tag=""
   local seen=" "
@@ -1074,6 +1135,10 @@ print_tag_cleanup_reminder() {
     if [[ "$tag" == "$current_slug" ]]; then
       continue
     fi
+    # Anyone can create a name under /tmp. Only a tag slug names a build of ours.
+    if [[ ! "$tag" =~ ^[A-Za-z0-9_-]+$ ]]; then
+      continue
+    fi
     # Only surface stale debug tag builds.
     if [[ ! -d "$path/Build/Products/Debug" ]]; then
       continue
@@ -1084,7 +1149,8 @@ print_tag_cleanup_reminder() {
     seen="${seen}${tag} "
     stale_tags+=("$tag")
   done < <(
-    find /tmp -maxdepth 1 -name 'cmux-*' -print0 2>/dev/null
+    # The trailing slash makes find descend when /tmp is itself a symlink.
+    find /tmp/ -maxdepth 1 -name 'cmux-*' -print0 2>/dev/null
     find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'cmux-*' -print0 2>/dev/null
   )
 
@@ -1101,17 +1167,11 @@ print_tag_cleanup_reminder() {
     done
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
-      echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
-      echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
-      echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
+      print_tag_cleanup_commands "$tag"
     done
   fi
   echo "After you verify current tag, cleanup command:"
-  echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
-  echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
-  echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
+  print_tag_cleanup_commands "$current_slug" "$current_derived"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -1180,6 +1240,10 @@ while [[ $# -gt 0 ]]; do
       DERIVED_DATA="${2:-}"
       if [[ -z "$DERIVED_DATA" ]]; then
         echo "error: --derived-data requires a value" >&2
+        exit 1
+      fi
+      if [[ "$DERIVED_DATA" != /* ]]; then
+        echo "error: --derived-data must be an absolute path, got '$DERIVED_DATA'" >&2
         exit 1
       fi
       DERIVED_SET=1
@@ -1276,9 +1340,7 @@ if [[ -n "$TAG" ]]; then
   if [[ "$BUNDLE_SET" -eq 0 ]]; then
     BUNDLE_ID="com.cmuxterm.app.debug.${TAG_ID}"
   fi
-  if [[ "$DERIVED_SET" -eq 0 ]]; then
-    DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
-  fi
+  DERIVED_DATA="$(resolve_tagged_derived_data "$TAG_SLUG" "$DERIVED_SET" "${DERIVED_DATA:-}")"
   cleanup_stale_cli_pointer_target || true
   cleanup_stale_tag_state "$TAG_SLUG" || true
 fi
@@ -2159,5 +2221,5 @@ fi
 # tag-cleanup reminder still runs here, but its output goes to $RELOAD_LOG
 # (visible by tail -f or by inspecting the log path printed in the summary).
 if [[ -n "${TAG_SLUG:-}" ]]; then
-  print_tag_cleanup_reminder "$TAG_SLUG"
+  print_tag_cleanup_reminder "$TAG_SLUG" "$DERIVED_DATA"
 fi
