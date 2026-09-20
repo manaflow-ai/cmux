@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,33 +8,36 @@ import XCTest
 #endif
 
 @MainActor
-final class CloudVMLoadingPanelTests: XCTestCase {
-    func testCloudWorkspaceLoadingHeadlineReplacesBaseProgressCopyAndResets() {
+struct CloudVMLoadingPanelTests {
+    @Test func loadingHeadlineReplacesBaseProgressCopyAndResets() {
         let panel = CloudVMLoadingPanel(workspaceId: UUID())
         panel.configureLoadingHeadline("Creating a workspace on early-plum-alpaca…")
 
         guard case .loading(let headline) = panel.phase else {
-            return XCTFail("headline configuration must remain in the loading phase")
+            Issue.record("headline configuration must remain in the loading phase")
+            return
         }
-        XCTAssertEqual(headline, "Creating a workspace on early-plum-alpaca…")
+        #expect(headline == "Creating a workspace on early-plum-alpaca…")
         panel.resetLoading()
         guard case .loading(let resetHeadline) = panel.phase else {
-            return XCTFail("reset must return to loading")
+            Issue.record("reset must return to loading")
+            return
         }
-        XCTAssertNil(resetHeadline)
+        #expect(resetHeadline == nil)
     }
 
-    func testFailureReplacesLoadingHeadlineAndShowsFailurePhase() {
+    @Test func failureReplacesLoadingHeadlineAndShowsFailurePhase() {
         let panel = CloudVMLoadingPanel(workspaceId: UUID())
         panel.configureLoadingHeadline("Creating a workspace on early-plum-alpaca…")
 
         panel.showFailure("The Cloud VM service is unavailable")
 
-        XCTAssertTrue(panel.hasFailed)
-        XCTAssertFalse(panel.isLoading)
+        #expect(panel.hasFailed)
+        #expect(!panel.isLoading)
         guard case .failed(let message, _) = panel.phase else {
-            return XCTFail("failure must be the sole presentation phase")
+            Issue.record("failure must be the sole presentation phase")
+            return
         }
-        XCTAssertEqual(message, "The Cloud VM service is unavailable")
+        #expect(message == "The Cloud VM service is unavailable")
     }
 }

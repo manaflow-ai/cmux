@@ -12,10 +12,14 @@ function fixture(body: (root: string, run: (command: string) => void, calls: () 
   const bin = join(root, "bin");
   mkdirSync(bin);
   mkdirSync(join(root, "etc/systemd/system"), { recursive: true });
+  mkdirSync(join(root, "etc/zsh"), { recursive: true });
+  const source = `[ -r ${root}/etc/profile.d/cmux-browser.sh ] && . ${root}/etc/profile.d/cmux-browser.sh`;
+  writeFileSync(join(root, "etc/bash.bashrc"), `${source}\n`);
+  writeFileSync(join(root, "etc/zsh/zshenv"), `${source}\n`);
   const tool = (name: string, script: string) => writeFileSync(join(bin, name), `#!/bin/sh\n${script}\n`, { mode: 0o755 });
   tool("getent", "exit 0");
   tool("runuser", 'shift 3; exec "$@"');
-  tool("xdg-mime", 'printf "mime\\n" >> "$FIXTURE_ROOT/calls"');
+  tool("xdg-mime", 'printf "mime\\n" >> "$FIXTURE_ROOT/calls"; printf "cmux-browser.desktop\\n"');
   tool("systemctl", `
 printf '%s\\n' "$*" >> "$FIXTURE_ROOT/calls"
 case "$1" in
@@ -43,13 +47,13 @@ esac`);
 
 test("an unchanged browser integration does not repeat MIME setup on create or attach", () => fixture((root, run, calls) => {
   run(guestBrowserInstallCommand());
-  expect(calls()).toHaveLength(3);
+  expect(calls()).toHaveLength(6);
   run(guestBrowserInstallCommand());
-  expect(calls()).toHaveLength(3);
+  expect(calls()).toHaveLength(6);
   const opener = GUEST_BROWSER_FILES[0];
   writeFileSync(join(root, opener.path), "broken");
   run(guestBrowserInstallCommand());
-  expect(calls()).toHaveLength(6);
+  expect(calls()).toHaveLength(12);
   expect(readFileSync(join(root, opener.path), "utf8")).toBe(opener.content);
 }));
 

@@ -314,10 +314,10 @@ describe("Freestyle platform contract", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
-    expect(fake.execs).toHaveLength(2);
+    expect(fake.execs).toHaveLength(3);
     const command = fake.execs[0] ?? "";
     expect(command).toContain(`sha256sum '${GUEST_CMUX_SHIM_PATH}'`);
-    expect(fake.execs[1]).toBe("echo hi");
+    expect(fake.execs[2]).toBe("echo hi");
     expect(fake.writes).toHaveLength(0);
     expect(command).not.toContain("crt_");
   });

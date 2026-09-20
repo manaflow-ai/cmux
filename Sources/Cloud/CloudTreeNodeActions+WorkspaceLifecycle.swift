@@ -60,17 +60,24 @@ extension CloudTreeNodeActions {
             }
         }
 
+        let createdRemoteWorkspace = existingWorkspace == nil
         let workspace: SurfaceRemoteWorkspace = if let existingWorkspace { existingWorkspace } else { try await provider.createRemoteWorkspace(name: name) }
         onReceipt(workspace, nil)
+        guard !openLocally || isLiveReservation(reservation) else {
+            if createdRemoteWorkspace { await cleanupRemoteWorkspaceCreation(provider: provider, workspace: workspace, terminal: nil) }
+            throw CancellationError()
+        }
         await provider.refresh()
         let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
             resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
         }
         let terminal: SurfaceResource
+        var createdRemoteTerminal = false
         if let existing {
             terminal = existing
         } else {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+            createdRemoteTerminal = true
         }
         onReceipt(workspace, terminal)
         guard openLocally else {
@@ -104,6 +111,16 @@ extension CloudTreeNodeActions {
             committed = true
             return (workspace, terminal, opened)
         }
+        guard isLiveReservation(reservation) else {
+            if createdRemoteTerminal || createdRemoteWorkspace {
+                await cleanupRemoteWorkspaceCreation(
+                    provider: provider,
+                    workspace: workspace,
+                    terminal: createdRemoteTerminal ? terminal : nil
+                )
+            }
+            throw CancellationError()
+        }
         let projections = try await catalog.projectGroup(
             group,
             into: .workspace(id: reservation.workspaceID, placement: .split),
@@ -113,6 +130,15 @@ extension CloudTreeNodeActions {
         if let loadingWorkspace = Workspace.liveWorkspace(id: reservation.workspaceID),
            loadingWorkspace.panels[reservation.loadingPanelID] != nil {
             SurfacePaneFactory.close(panelID: reservation.loadingPanelID, in: reservation.workspaceID)
+        } else {
+            if createdRemoteTerminal || createdRemoteWorkspace {
+                await cleanupRemoteWorkspaceCreation(
+                    provider: provider,
+                    workspace: workspace,
+                    terminal: createdRemoteTerminal ? terminal : nil
+                )
+            }
+            throw CancellationError()
         }
         let generatedTitle = localWorkspaceTitle(
             hostName: resolvedMachineName(machine, snapshot: catalog.snapshot),
@@ -184,6 +210,22 @@ extension CloudTreeNodeActions {
               workspace.panels.count == 1,
               workspace.panels[reservation.loadingPanelID] is CloudVMLoadingPanel else { return }
         manager.closeWorkspace(workspace, recordHistory: false)
+    }
+
+    @MainActor
+    private static func isLiveReservation(_ reservation: LocalWorkspaceReservation?) -> Bool {
+        guard let reservation,
+              let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) else { return false }
+        return workspace.panels[reservation.loadingPanelID] is CloudVMLoadingPanel
+    }
+
+    private static func cleanupRemoteWorkspaceCreation(
+        provider: any SurfaceProvider,
+        workspace: SurfaceRemoteWorkspace,
+        terminal: SurfaceResource?
+    ) async {
+        if let terminal { try? await provider.closeTerminal(terminal.id) }
+        try? await provider.closeRemoteWorkspace(id: workspace.id)
     }
 
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
