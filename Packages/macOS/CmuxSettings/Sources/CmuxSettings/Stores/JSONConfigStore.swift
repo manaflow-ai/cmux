@@ -296,15 +296,15 @@ public actor JSONConfigStore {
     /// source text from one disk snapshot.
     private nonisolated func readDocument(
         at url: URL
-    ) throws -> (root: [String: Any], source: String?) {
+    ) throws -> (root: [String: Any], source: String?, originalData: Data?) {
         let data: Data
         do {
             data = try Data(contentsOf: url)
         } catch let error as NSError where error.domain == NSCocoaErrorDomain
             && error.code == NSFileReadNoSuchFileError {
-            return ([:], nil)
+            return ([:], nil, nil)
         }
-        if data.isEmpty { return ([:], "") }
+        if data.isEmpty { return ([:], "", data) }
 
         let source = try sanitizer.sourceText(from: data)
         let sanitized = try sanitizer.sanitize(data)
@@ -312,7 +312,7 @@ public actor JSONConfigStore {
         guard let dictionary = object as? [String: Any] else {
             throw JSONConfigStoreReadError.notADictionary
         }
-        return (dictionary, source)
+        return (dictionary, source, data)
     }
 
     /// Resolves the location a write should target for `url`.
@@ -395,7 +395,7 @@ public actor JSONConfigStore {
             source = "{\n}\n"
         }
         let updatedSource = try editingSource(source)
-        let data = Data(updatedSource.utf8)
+        let data = try sanitizer.encodedSource(updatedSource, preserving: document.originalData)
 
         // Validate our edited document before touching disk. This also gives
         // the cache the exact semantic root represented by the retained source;
