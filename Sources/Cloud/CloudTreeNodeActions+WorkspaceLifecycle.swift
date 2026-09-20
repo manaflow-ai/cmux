@@ -73,7 +73,9 @@ extension CloudTreeNodeActions {
         guard !openLocally || isLiveReservation(reservation) else {
             if createdRemoteWorkspace {
                 onReceiptInvalidated(workspace)
-                await cleanupRemoteWorkspaceCreation(provider: provider, workspace: workspace, terminal: nil)
+                await cleanupRemoteWorkspaceCreation(
+                    provider: provider, workspace: workspace, terminal: nil, closeWorkspace: true
+                )
             }
             throw CancellationError()
         }
@@ -111,11 +113,12 @@ extension CloudTreeNodeActions {
         guard let reservation else { throw CancellationError() }
         guard isLiveReservation(reservation) else {
             if createdRemoteTerminal || createdRemoteWorkspace {
-                onReceiptInvalidated(workspace)
+                if createdRemoteWorkspace { onReceiptInvalidated(workspace) }
                 await cleanupRemoteWorkspaceCreation(
                     provider: provider,
                     workspace: workspace,
-                    terminal: createdRemoteTerminal ? terminal : nil
+                    terminal: createdRemoteTerminal ? terminal : nil,
+                    closeWorkspace: createdRemoteWorkspace
                 )
             }
             throw CancellationError()
@@ -134,11 +137,12 @@ extension CloudTreeNodeActions {
             projectionHost.closeStarter(reservation.loadingPanelID, reservation.workspaceID)
         } else {
             if createdRemoteTerminal || createdRemoteWorkspace {
-                onReceiptInvalidated(workspace)
+                if createdRemoteWorkspace { onReceiptInvalidated(workspace) }
                 await cleanupRemoteWorkspaceCreation(
                     provider: provider,
                     workspace: workspace,
-                    terminal: createdRemoteTerminal ? terminal : nil
+                    terminal: createdRemoteTerminal ? terminal : nil,
+                    closeWorkspace: createdRemoteWorkspace
                 )
             }
             throw CancellationError()
@@ -249,10 +253,11 @@ extension CloudTreeNodeActions {
     private static func cleanupRemoteWorkspaceCreation(
         provider: any SurfaceProvider,
         workspace: SurfaceRemoteWorkspace,
-        terminal: SurfaceResource?
+        terminal: SurfaceResource?,
+        closeWorkspace: Bool
     ) async {
         if let terminal { try? await provider.closeTerminal(terminal.id) }
-        try? await provider.closeRemoteWorkspace(id: workspace.id)
+        if closeWorkspace { try? await provider.closeRemoteWorkspace(id: workspace.id) }
     }
 
     /// The full close, shared by the sidebar's "Close Workspace…" (menu and hover ×) and
