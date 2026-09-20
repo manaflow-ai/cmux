@@ -52,6 +52,8 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/ClaudeHookLifecycleCleanupTests",
     "cmuxTests/ClaudeHookLiveDeliveryTargetTests",
     "cmuxTests/ClaudeHookPIDAuthenticationTests",
+    "cmuxTests/CloudMachineDragSourceTests",
+    "cmuxTests/CloudMachineOrderingTests",
     "cmuxTests/CloudNotificationDismissParityTests",
     "cmuxTests/CloudWorkspaceRenameSurfaceParityTests",
     "cmuxTests/CmuxBundledBinPathIntegrationTests",
