@@ -15,14 +15,14 @@ struct MemoryResourceSample: Sendable {
     private let descriptors: DarwinFileDescriptorSnapshot
 
     /// Called on the sampling worker; UI-owned counts are supplied separately.
-    init(processSnapshot: CmuxTopProcessSnapshot, appPID: Int = Int(getpid())) {
+    init(processSnapshot: CmuxTopProcessSnapshot, appPID: Int = Int(getpid())) async {
         self.appPID = appPID
         appProcess = processSnapshot.process(pid: appPID)
         sampledAt = processSnapshot.sampledAt
         surfaces = GhosttyApp.terminalSurfaceRegistry.diagnosticSnapshot()
         let system = DarwinSystemMemorySnapshot()
         self.system = system
-        aggregate = DarwinMemoryPressureAggregateSampler(
+        aggregate = await DarwinMemoryPressureAggregateSampler(
             processID: appPID,
             snapshotProvider: { processSnapshot },
             availableMemoryProvider: { system?.availableBytes }
