@@ -387,6 +387,9 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate checkout failure network diagnostics
+        run: python3 tests/test_ci_checkout_network_diagnostics.py
+
       - name: Validate Swift Testing suite timeout guard
         run: python3 tests/test_swift_testing_suite_timeout.py
 
@@ -938,10 +941,51 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           persist-credentials: false
+
+      # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
+      # checkout once only after that action fails; healthy jobs still perform
+      # one checkout, and a second failure remains a hard failure with evidence.
+      - name: Retry checkout after transient network failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Diagnose checkout network failure
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 1
+        run: |
+          set -u
+
+          # Keep provider/network evidence in the job log without failing the original
+          # operation. These commands are intentionally read-only and emit no tokens.
+          echo "== network diagnostics (runner=${RUNNER_NAME:-unknown}) ==" >&2
+          if command -v scutil >/dev/null 2>&1; then
+            scutil --dns 2>&1 || true
+          fi
+          if command -v route >/dev/null 2>&1; then
+            route -n get default 2>&1 || true
+          fi
+          if command -v ifconfig >/dev/null 2>&1; then
+            ifconfig 2>&1 || true
+          fi
+          if command -v dscacheutil >/dev/null 2>&1; then
+            dscacheutil -q host -a name github.com 2>&1 || true
+          fi
+          if command -v curl >/dev/null 2>&1; then
+            curl --connect-timeout 5 --max-time 10 --silent --show-error --head https://github.com/ 2>&1 || true
+          fi
+          echo "== end network diagnostics ==" >&2
+          exit 1
 
       - name: Select Xcode
         run: |
@@ -1025,6 +1069,10 @@ jobs:
               echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
               rm -rf "$SOURCE_PACKAGES_DIR"  # whole dir — resolve will not re-materialize artifacts into a partial tree
             fi
+            # Keep the existing three-attempt policy, but record resolver
+            # state when a package attempt fails so provider incidents are
+            # distinguishable from SwiftPM or cache defects.
+            scripts/ci/capture-network-diagnostics.sh || true
             if [ "$attempt" -eq 3 ]; then
               echo "Failed to resolve Swift packages after 3 attempts" >&2
               exit 1
@@ -2595,10 +2643,51 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
           persist-credentials: false
+
+      # WarpBuild can lose GitHub DNS on an otherwise healthy runner. Retry the
+      # checkout once only after that action fails; healthy jobs still perform
+      # one checkout, and a second failure remains a hard failure with evidence.
+      - name: Retry checkout after transient network failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Diagnose checkout network failure
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 1
+        run: |
+          set -u
+
+          # Keep provider/network evidence in the job log without failing the original
+          # operation. These commands are intentionally read-only and emit no tokens.
+          echo "== network diagnostics (runner=${RUNNER_NAME:-unknown}) ==" >&2
+          if command -v scutil >/dev/null 2>&1; then
+            scutil --dns 2>&1 || true
+          fi
+          if command -v route >/dev/null 2>&1; then
+            route -n get default 2>&1 || true
+          fi
+          if command -v ifconfig >/dev/null 2>&1; then
+            ifconfig 2>&1 || true
+          fi
+          if command -v dscacheutil >/dev/null 2>&1; then
+            dscacheutil -q host -a name github.com 2>&1 || true
+          fi
+          if command -v curl >/dev/null 2>&1; then
+            curl --connect-timeout 5 --max-time 10 --silent --show-error --head https://github.com/ 2>&1 || true
+          fi
+          echo "== end network diagnostics ==" >&2
+          exit 1
 
       - name: Prepare isolated admission DerivedData
         run: |
