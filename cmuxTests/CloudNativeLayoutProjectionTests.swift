@@ -10,6 +10,33 @@ import Testing
 @MainActor
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
+    @Test func newWorkspaceActionKeepsTheSelectedDeviceContext() async throws {
+        let manager = TabManager(createInitialWorkspace: false)
+        let workspace = Workspace(title: "Other Mac", initialSurface: .cloudVMLoading)
+        manager.tabs = [workspace]
+        manager.selectedTabId = workspace.id
+        defer { workspace.teardownAllPanels(); manager.tabs = [] }
+        let panelID = try #require(workspace.focusedPanelId)
+        let machine = SurfaceMachineID.device(.init(deviceID: "other-mac", tag: "test"))
+        workspace.cloudBindingState.updateCatalogMetadata(resources: [panelID: .init(machine: machine, kind: .terminal, key: "remote")], machineNames: [:])
+        let app = AppDelegate()
+        let operations = CloudWorkspaceOperationController(isAvailable: { true })
+        var targets: [SurfaceMachineID] = []
+        app.deviceWorkspaceCreationCoordinator = DeviceWorkspaceCreationCoordinator(operations: operations,
+            create: { target, owner in
+                #expect(owner === manager)
+                targets.append(target)
+            })
+        #expect(app.performNewWorkspaceAction(tabManager: manager))
+        #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        await operations.waitForPendingOperations()
+        #expect(targets == [machine])
+        #expect(manager.tabs.map(\.id) == [workspace.id], "The route must not create a local fallback workspace")
+        app.deviceWorkspaceCreationCoordinator = nil
+        #expect(!app.performNewWorkspaceAction(tabManager: manager))
+        #expect(manager.tabs.map(\.id) == [workspace.id])
+    }
+
     @Test func deviceLayoutWritesAreScopedAndRejectStaleRevisions() throws {
         let workspaceID = UUID()
         let a = UUID().uuidString
