@@ -1015,6 +1015,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             activeViewportPolicy = .natural
             if releasesViewport {
                 store?.clearTerminalViewport(surfaceID: surfaceID)
+                #if DEBUG
+                MobileReleaseGateUIProbe.terminalDidUnmount(surfaceID: surfaceID)
+                #endif
             }
         }
 
