@@ -11,12 +11,12 @@ extension CloudTreeOutlineView.Coordinator {
         return true
     }
 
-    /// A boundary move is consumed even when it cannot change order, so a
-    /// focused Cloud header never accidentally reorders the local workspace.
+    /// Cloud focus consumes reorder keys even for a child or empty selection;
+    /// an unavailable machine move must never reorder a local workspace.
     func moveSelectedMachine(by offset: Int) -> Bool {
-        guard let outlineView,
-              let node = outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode,
-              let id = node.machineOrderID else { return false }
+        guard let outlineView else { return false }
+        guard let node = outlineView.item(atRow: outlineView.selectedRow) as? CloudTreeNode,
+              let id = node.machineOrderID else { return true }
         if let actions = machineActions.ordering {
             moveMachine(id, move: offset < 0 ? .up : .down, using: actions)
         }
@@ -40,16 +40,22 @@ extension CloudTreeOutlineView.Coordinator {
         }
     }
 
-    func configureMachineReorderAccessibility(_ cell: NSView, node: CloudTreeNode) {
+    func configureMachineReorderAccessibility(_ cell: CloudTreeCellView, node: CloudTreeNode) {
         guard let id = node.machineOrderID, let actions = machineActions.ordering else {
-            cell.setAccessibilityCustomActions(nil)
+            cell.machineReorderAccessibilityActions = nil
             return
         }
-        cell.setAccessibilityCustomActions(machineMoveOptions.map { title, move in
-            NSAccessibilityCustomAction(name: title, handler: { [weak self] in
-                self?.moveMachine(id, move: move, using: actions) == true
-            })
-        })
+        // Availability can change when a neighboring machine is pinned without
+        // this cell repainting. Query it when AX asks, not only at configuration.
+        cell.machineReorderAccessibilityActions = { [weak self] in
+            guard let self else { return [] }
+            return self.machineMoveOptions.compactMap { title, move in
+                guard actions.canMove(id, move) else { return nil }
+                return NSAccessibilityCustomAction(name: title, handler: { [weak self] in
+                    self?.moveMachine(id, move: move, using: actions) == true
+                })
+            }
+        }
     }
 
     /// This Mac and pending creates keep their slots. Reordering preserves

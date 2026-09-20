@@ -232,6 +232,17 @@ struct CloudMachineOrderingTests {
         let app = try #require(AppDelegate.shared)
         #expect(app.moveFocusedCloudMachine(by: 1, event: event))
         #expect(fixture.order == ["a", "d", "b", "c"])
+        let fixedOrder = fixture.order
+        let child = try #require(CloudTreeNodeBuilder.flattened([try fixture.root("a")]).first { $0.isDragSource })
+        for selected in [coordinator.nodes[0], child] {
+            outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: selected)), byExtendingSelection: false)
+            #expect(app.moveFocusedCloudMachine(by: -1, event: event))
+            #expect(fixture.order == fixedOrder)
+        }
+        outline.deselectAll(nil)
+        #expect(app.moveFocusedCloudMachine(by: 1, event: event))
+        #expect(fixture.order == fixedOrder)
+        outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: try fixture.root("d"))), byExtendingSelection: false)
         let cell = try #require(coordinator.outlineView(outline, viewFor: outline.outlineTableColumn, item: try fixture.root("d")))
         let down = try #require(cell.accessibilityCustomActions()?.first {
             $0.name == String(localized: "contextMenu.moveDown", defaultValue: "Move Down")
@@ -247,5 +258,22 @@ struct CloudMachineOrderingTests {
         let restored = CloudMachinePinStore(defaults: fixture.base.defaults, scopeProvider: { "user:a|team:one" })
         #expect(restored.orderedMachineIDs(["c", "b", "a", "d"]) == fixture.order)
         #expect(restored.pinnedMachineIDs.isEmpty)
+    }
+
+    @Test("Accessibility availability follows pin boundaries without repainting peers")
+    func accessibilityAvailability() throws {
+        let fixture = CloudMachineOrderingFixture(ids: ["a", "b"])
+        defer { fixture.close() }
+        let coordinator = fixture.coordinator
+        let outline = try #require(coordinator.outlineView)
+        let cell = try #require(coordinator.outlineView(outline, viewFor: outline.outlineTableColumn, item: try fixture.root("b")))
+        #expect(cell.accessibilityCustomActions()?.map(\.name) == [
+            String(localized: "contextMenu.moveUp", defaultValue: "Move Up"),
+            String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")
+        ])
+        fixture.store.setPinned(true, machineID: "a")
+        #expect(cell.accessibilityCustomActions()?.isEmpty == true)
+        fixture.store.setPinned(false, machineID: "a")
+        #expect(cell.accessibilityCustomActions()?.count == 2)
     }
 }
