@@ -246,8 +246,18 @@ extension TerminalController {
             }
             return response
         }
+        if request.method == "system.memory" {
+            let result = await v2SystemMemory(params: request.params.mapValues(\.foundationObject))
+            let typedResult = Self.controlCallResult(fromLegacy: result)
+            socketReadSnapshotStore.publishResponse(
+                method: request.method,
+                params: request.params,
+                result: typedResult
+            )
+            return Self.v2Encoder.response(id: request.id, typedResult)
+        }
 
-        if request.method == "system.memory" || request.method == "surface.read_text" {
+        if request.method == "surface.read_text" {
             // These legacy bodies still return Foundation-shaped values. Run
             // the miss on the main actor only when no published snapshot exists;
             // steady-state polling takes the branch above and never enters
@@ -393,72 +403,6 @@ extension TerminalController {
             id: id,
             code: "request_error",
             message: "Request failed before returning a result"
-        )
-    }
-
-    private nonisolated func v2SystemTopAsync(_ request: ControlRequest) async -> String {
-        let base = await v2MainAsync {
-            let foundationParams = request.params.mapValues(\.foundationObject)
-            return Self.controlCallResult(
-                fromLegacy: self.v2SystemTopBasePayload(params: foundationParams)
-            )
-        }
-        guard case .ok(let basePayload) = base,
-              case .object(let baseObject) = basePayload,
-              case .bool(let includeProcesses)? = baseObject["include_processes"],
-              case .array(let rawWindows)? = baseObject["windows"] else {
-            return Self.v2Encoder.response(id: request.id, base)
-        }
-        guard let windowsObject = JSONValue.array(rawWindows).foundationObject as? [[String: Any]] else {
-            return Self.v2Encoder.error(
-                id: request.id,
-                code: "internal_error",
-                message: "Invalid system.top payload"
-            )
-        }
-
-        let processSnapshot = CmuxTopProcessSnapshot.capture(
-            includeProcessDetails: includeProcesses
-        )
-        var windows = windowsObject
-        let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windows)
-        let totalPIDs = v2AnnotateTopWindows(
-            &windows,
-            processSnapshot: processSnapshot,
-            browserPIDOccurrences: browserPIDOccurrences,
-            includeProcesses: includeProcesses
-        )
-        let aggregates = processAggregates(
-            from: processSnapshot,
-            totalPIDs: totalPIDs
-        )
-        let memoryDiagnostic = v2TopMemoryDiagnosticPayload(
-            processSnapshot: processSnapshot,
-            annotatedWindows: windows
-        )
-
-        var payload = baseObject
-        payload["sample"] = JSONValue(
-            foundationObject: processSnapshot.samplePayload()
-        ) ?? .object([:])
-        payload["totals"] = JSONValue(
-            foundationObject: processSnapshot.summaryPayload(for: totalPIDs)
-        ) ?? .object([:])
-        payload["memory_diagnostic"] = JSONValue(
-            foundationObject: memoryDiagnostic
-        ) ?? .object([:])
-        payload["program_totals"] = JSONValue(
-            foundationObject: aggregates.programs
-        ) ?? .array([])
-        payload["coding_agents"] = JSONValue(
-            foundationObject: aggregates.codingAgents
-        ) ?? .array([])
-        payload["windows"] = JSONValue(
-            foundationObject: windows
-        ) ?? .array([])
-        return Self.v2Encoder.response(
-            id: request.id,
-            .ok(.object(payload))
         )
     }
 
@@ -620,7 +564,7 @@ extension TerminalController {
         )
     }
 
-    private nonisolated static func controlCallResult(
+    nonisolated static func controlCallResult(
         fromLegacy result: V2CallResult
     ) -> ControlCallResult {
         switch result {
