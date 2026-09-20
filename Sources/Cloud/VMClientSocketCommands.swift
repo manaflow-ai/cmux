@@ -567,7 +567,7 @@ extension TerminalController {
                 // attach request could begin. Reuse a cached provider verdict
                 // when available; otherwise let openCmuxRemote return the typed
                 // transport-unsupported error.
-                if let cachedCapabilities = await MainActor.run({ registry.provider(machineID: vmId)?.capabilities }),
+                if let cachedCapabilities = await MainActor.run(body: { registry.provider(machineID: vmId)?.capabilities }),
                    !cachedCapabilities.cmuxRemote {
                     throw VMClientError.httpStatus(501, #"{"error":"vm_attach_transport_unsupported"}"#)
                 }
