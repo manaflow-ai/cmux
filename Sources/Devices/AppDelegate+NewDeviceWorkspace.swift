@@ -9,13 +9,7 @@ extension AppDelegate {
         DeviceWorkspaceCreationCoordinator(operations: operations) { machine, manager in
             guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
             let originID = manager.selectedTabId
-            var host = SurfaceCatalog.NewWorkspaceHost.appOptimistic
-            host.create = { title in
-                guard let workspace = manager.addWorkspaceIfActive(title: title, titleSource: .auto,
-                    initialSurface: .cloudVMLoading, inheritWorkingDirectory: false, select: false,
-                    autoWelcomeIfNeeded: false, allowTextBoxFocusDefault: false) else { throw CancellationError() }
-                return (workspace.id, workspace.focusedPanelId)
-            }
+            let host = CloudWorkspaceCreationHost(manager: manager)
             let result = try await CloudTreeNodeActions.createWorkspaceAndOpenLocally(machine: machine,
                 provider: provider, catalog: catalog, name: nil, focus: false, host: host)
             guard !Task.isCancelled, manager.selectedTabId == originID,
