@@ -8,6 +8,7 @@ the pull request's checkout would run that pull request's code.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -46,7 +47,7 @@ def main() -> int:
             return 1
         invocations = [line.strip() for line in step["run"].splitlines() if line.strip().startswith("bun ")]
         loose = [line for line in invocations if not line.startswith(f"bun {ISOLATION}")]
-        if not invocations or loose or "|| true" in step["run"]:
+        if not invocations or loose or re.search(r"\|\|\s*true\b", step["run"]):
             print(f"FAIL: '{name}' must start every check with: bun {ISOLATION}")
             return 1
     print("PASS: trusted web complexity runs from the trusted checkout with an empty Bun config")
