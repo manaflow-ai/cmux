@@ -18,12 +18,14 @@ on:
           - default
           - github
           - warp
+          - r2
 
 permissions:
   contents: read
 
 env:
   SWIFTPM_MIRROR_CONFIG: ${{ github.workspace }}/config/swiftpm/mirrors.json
+  CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -251,6 +253,9 @@ jobs:
 
       - name: Validate pull request caches are read-only
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      - name: Validate the R2 cache store script
+        run: bash tests/test_ci_r2_cache.sh
 
       - name: Validate nightly prune Python compatibility
         run: PYTHON_BIN=python3.9 bash ./tests/test_ci_nightly_prune_python_compat.sh
