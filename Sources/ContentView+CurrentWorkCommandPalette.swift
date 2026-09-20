@@ -22,7 +22,7 @@ extension ContentView {
                 id: "palette.currentWork." + item.resourceRef,
                 rank: index,
                 title: item.label,
-                subtitle: CurrentWorkPalettePresentation.subtitle(item: item, canFocus: canFocus),
+                subtitle: CurrentWorkPalettePresentation(item: item).subtitle(canFocus: canFocus),
                 shortcutHint: nil,
                 kindLabel: item.placement.kind == "local"
                     ? String(localized: "commandPalette.currentWork.local", defaultValue: "Local")
@@ -77,7 +77,7 @@ extension ContentView {
     ) -> CurrentWorkPaletteFocusTarget? {
         for projection in item.projections {
             guard let current = SurfaceCatalog.shared.projection(forPanel: projection.panelID),
-                  CurrentWorkPalettePresentation.matches(item: item, projection: projection, current: current),
+                  CurrentWorkPalettePresentation(item: item).matches(projection: projection, current: current),
                   let target = targets[current.panelID], target.workspaceID == current.workspaceID else { continue }
             return target
         }
