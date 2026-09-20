@@ -163,16 +163,17 @@ ZSBTeXN0ZW1FeGl0KG1haW4oKSkK
 
     static func command(action: String, requestID: UUID? = nil) -> String {
         let argument = requestID.map { " --request-id \($0.uuidString.lowercased())" } ?? ""
-        return """
+        let body = """
         set -eu
         path=\"\(path)\"
         mkdir -p \"$HOME/.cmux\"
-        if [ ! -x \"$path\" ]; then printf '%s' \"\(encodedSource)\" | base64 -d > \"$path\"; chmod 700 \"$path\"; fi
+        if [ ! -x \"$path\" ]; then printf %s \"\(encodedSource)\" | base64 -d > \"$path\"; chmod 700 \"$path\"; fi
         if ! pgrep -u \"$(id -u)\" -f \"$path serve\" >/dev/null 2>&1; then
           nohup \"$path\" serve > \"$HOME/.cmux/display-service.log\" 2>&1 &
           for i in $(seq 1 100); do [ -S /run/cmux-desktop/display-control.sock ] && break; sleep 0.1; done
         fi
         \"$path\" \(action)\(argument)
         """
+        return "runuser -u cmux -- env HOME=/home/cmux USER=cmux /bin/bash -lc '\(body)'"
     }
 }
