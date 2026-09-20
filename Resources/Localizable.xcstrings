@@ -538466,6 +538466,124 @@
         }
       }
     }
+  },
+  "cli.amp.hooks.unsupportedFile": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ is not a regular file; leaving it alone"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ ist keine reguläre Datei und bleibt unverändert."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ n’est pas un fichier ordinaire ; aucune modification."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ ليس ملفًا عاديًا؛ سيُترك دون تغيير."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ no es un archivo normal; no se modificará."
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ 不是一般檔案；將保持不變。"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ 不是普通文件；将保持不变。"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@은(는) 일반 파일이 아니므로 변경하지 않습니다."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "%@ は通常のファイルではないため、変更しません。"
+        }
+      }
+    }
+  },
+  "cli.amp.hooks.statusEncodingFailed": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Failed to encode Amp hook installation status"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Der Installationsstatus der Amp-Hooks konnte nicht codiert werden."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Impossible d’encoder l’état d’installation des hooks Amp."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "تعذّر ترميز حالة تثبيت خطافات Amp."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "No se pudo codificar el estado de instalación de los hooks de Amp."
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "無法編碼 Amp 掛鉤安裝狀態。"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "无法编码 Amp 钩子安装状态。"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Amp 훅 설치 상태를 인코딩하지 못했습니다."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Amp フックのインストール状態をエンコードできませんでした。"
+        }
+      }
+    }
   }
   },
   "version": "1.0"

@@ -57,7 +57,10 @@ extension CMUXCLI {
             return nil
         }
         guard attributes[.type] as? FileAttributeType == .typeRegular else {
-            throw CLIError(message: "\(url.path) is not a regular file; leaving it alone")
+            throw CLIError(message: String(
+                format: String(localized: "cli.amp.hooks.unsupportedFile", defaultValue: "%@ is not a regular file; leaving it alone"),
+                url.path
+            ))
         }
         return try String(contentsOf: url, encoding: .utf8)
     }
@@ -77,7 +80,10 @@ extension CMUXCLI {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         guard let json = String(data: data, encoding: .utf8) else {
-            throw CLIError(message: "Failed to encode Amp hook installation status")
+            throw CLIError(message: String(
+                localized: "cli.amp.hooks.statusEncodingFailed",
+                defaultValue: "Failed to encode Amp hook installation status"
+            ))
         }
         print(json)
     }
