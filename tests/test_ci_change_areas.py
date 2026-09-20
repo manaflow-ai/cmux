@@ -969,7 +969,7 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         assert "      - linux-preflight" in block
         assert "if: ${{ needs.changes.outputs.macos == 'true' }}" not in block
         expected_needs = ["changes", "linux-preflight"]
-        if job_name == "release-build":
+        if job_name in {"app-host-unit-tests", "macos-compile-admission", "tests-build-and-lag", "release-build"}:
             expected_needs.append("swift-package-tests")
         if job_name in {"app-host-unit-tests", "tests-build-and-lag", "release-build"}:
             expected_needs.append("macos-compile-admission")
