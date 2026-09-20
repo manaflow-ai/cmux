@@ -5,7 +5,8 @@ extension SurfaceCatalog {
     func reconcileDeviceNames(on machine: SurfaceMachineID) {
         guard machine.deviceInstance != nil else { return }
         let environment = cloudWorkspaceRenameService.environment
-        let localIDs = Set(projections.filter { $0.resource.machine == machine }.map(\.workspaceID))
+        let membersByWorkspace = Dictionary(grouping: projections, by: \.workspaceID)
+        let localIDs = Set(projections.lazy.filter { $0.resource.machine == machine }.map(\.workspaceID))
         for localID in localIDs {
             guard let workspace = environment.workspace(localID) else { continue }
             // Older builds accidentally stored device IDs in the Cloud-only binding
@@ -14,7 +15,7 @@ extension SurfaceCatalog {
                SurfaceMachineID(rawValue: binding.vmID).deviceInstance != nil {
                 workspace.cloudVMBinding = nil
             }
-            let members = projections.filter { $0.workspaceID == localID }
+            let members = membersByWorkspace[localID] ?? []
             for projection in members where projection.resource.machine == machine {
                 guard let resource = resources[projection.resource], resource.kind == .terminal,
                       workspace.panels[projection.panelID] != nil else { continue }

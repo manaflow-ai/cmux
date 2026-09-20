@@ -116,9 +116,7 @@ struct CloudTreeDeviceRowContent: View {
         var parts: [String] = []
         if row.workspaceCount > 0 {
             parts.append(
-                row.workspaceCount == 1
-                    ? String(localized: "cloudTree.device.workspaceCount.one", defaultValue: "1 workspace")
-                    : String(format: String(localized: "cloudTree.device.workspaceCount.other", defaultValue: "%d workspaces"), row.workspaceCount)
+                String(localized: "cloudTree.device.workspaceCount.other", defaultValue: "\(row.workspaceCount) workspaces")
             )
         }
         if row.terminalCount > 0 {

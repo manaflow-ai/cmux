@@ -24,6 +24,9 @@ public indirect enum DeviceWorkspaceLayoutNode: Codable, Equatable, Sendable {
     /// - Parameter decoder: The decoder for one node and its descendants.
     /// - Throws: A decoding error for an unknown node or missing required fields.
     public init(from decoder: any Decoder) throws {
+        guard decoder.codingPath.count <= 64 else {
+            throw DeviceWorkspaceLayoutValidationError.limitExceeded
+        }
         let values = try decoder.container(keyedBy: CodingKeys.self)
         switch try values.decode(String.self, forKey: .type) {
         case "pane":

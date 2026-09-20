@@ -38,8 +38,9 @@ enum MobileHostEventTopicPolicy {
             // supersedes an earlier one for the same panel.
             return coalesceKey != nil
         case DeviceWorkspaceLayoutHost.eventTopic:
-            // Each Mac layout event is a complete, workspace-scoped snapshot.
-            return coalesceKey != nil
+            // A different topic/workspace cannot replace this snapshot. The
+            // viewer has no gap recovery signal, so layout changes stay lossless.
+            return false
         case "terminal.bytes", "terminal.updated", "workspace.updated":
             return true
         default:

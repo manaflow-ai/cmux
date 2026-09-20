@@ -33,9 +33,11 @@ extension IrxBrokerService {
             )
         }
         registrationInFlight = task
+        registrationTasks[operationID] = task
         registrationParameters = parameters
         registrationOperationID = operationID
         defer {
+            registrationTasks[operationID] = nil
             if registrationOperationID == operationID {
                 registrationInFlight = nil
                 registrationParameters = nil

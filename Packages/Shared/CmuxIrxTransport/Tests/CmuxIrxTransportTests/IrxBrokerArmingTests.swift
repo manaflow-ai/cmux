@@ -75,7 +75,8 @@ struct IrxBrokerArmingTests {
         let service = try IrxBrokerService(configuration: .init(
             baseURL: URL(string: "https://example.invalid")!, clientNamespace: "test.cmux.cancellation",
             tag: "test", platform: .mac, displayName: nil, cacheDirectory: dir),
-            identity: IrxBrokerArmingSupport.identity(), accessTokenPair: {
+            identity: IrxIdentity(privateKeyData: Data(repeating: 7, count: 32),
+                deviceID: UUID().uuidString, appInstanceID: UUID().uuidString), accessTokenPair: {
                 try await withTaskCancellationHandler {
                     started.continuation.yield(())
                     try await Task.sleep(for: .seconds(300))
@@ -84,9 +85,15 @@ struct IrxBrokerArmingTests {
                     cancelled.continuation.yield(())
                 }
             }, journal: IrxJournal(subsystem: "dev.cmux.tests", category: "registration-cancellation"))
-        let first = Task { try await service.register(pairingEnabled: true, relayURLHint: nil) }
+        let first = Task {
+            defer { started.continuation.finish() }
+            return try await service.register(pairingEnabled: true, relayURLHint: nil)
+        }
         var starts = started.stream.makeAsyncIterator()
-        _ = await starts.next()
+        guard await starts.next() != nil else {
+            Issue.record("Registration did not reach credentials: \(await first.result)")
+            return
+        }
         let second = Task { try await service.register(pairingEnabled: false, relayURLHint: nil) }
         while !(await service.registrationTailIsDisabled()) { await Task.yield() }
         await service.deactivate()

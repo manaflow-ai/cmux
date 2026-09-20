@@ -100301,55 +100301,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"
+            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, devices, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, custom [sidebar-name]"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, devices, custom [sidebar-name]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要一个模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud oder custom [Seitenleisten-Name]"
+            "value": "right-sidebar set erfordert einen Modus: files, find, vault, sessions, feed, dock, cloud, devices oder custom [Seitenleisten-Name]"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud ou custom [nom-barre-latérale]"
+            "value": "right-sidebar set requiert un mode : files, find, vault, sessions, feed, dock, cloud, devices ou custom [nom-barre-latérale]"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو custom [sidebar-name]"
+            "value": "يتطلب أمر right-sidebar set وضعًا: files، أو find، أو vault، أو sessions، أو feed، أو dock، أو cloud، أو devices، أو custom [sidebar-name]"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud o custom [sidebar-name]"
+            "value": "right-sidebar set requiere un modo: files, find, vault, sessions, feed, dock, cloud, devices o custom [sidebar-name]"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud 或 custom [sidebar-name]"
+            "value": "right-sidebar set 需要模式：files、find、vault、sessions、feed、dock、cloud、devices 或 custom [sidebar-name]"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud 또는 custom [sidebar-name]"
+            "value": "right-sidebar set에는 다음 모드 중 하나가 필요합니다: files, find, vault, sessions, feed, dock, cloud, devices 또는 custom [sidebar-name]"
           }
         }
       }
@@ -536811,6 +536811,598 @@
           "stringUnit": {
             "state": "translated",
             "value": "Скинути %1$@ до %2$@"
+          }
+        }
+      }
+    },
+    "cli.vm.open.deviceTargets": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziele (aus `cmux vm tree`; <machine> ist eine Cloud-ID oder `device:<uuid>@<tag>` eines anderen Mac):"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cibles (depuis `cmux vm tree` ; <machine> est un identifiant cloud ou `device:<uuid>@<tag>` pour un autre Mac) :"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الأهداف (من `cmux vm tree`؛ <machine> هو معرّف سحابي أو `device:<uuid>@<tag>` لجهاز Mac آخر):"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Destinos (de `cmux vm tree`; <machine> es un ID de la nube o `device:<uuid>@<tag>` de otro Mac):"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標（來自 `cmux vm tree`；<machine> 是雲端 ID 或另一部 Mac 的 `device:<uuid>@<tag>`）："
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标（来自 `cmux vm tree`；<machine> 是云端 ID 或另一台 Mac 的 `device:<uuid>@<tag>`）："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 (`cmux vm tree`에서 확인; <machine>은 클라우드 ID 또는 다른 Mac의 `device:<uuid>@<tag>`):"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象（`cmux vm tree` で確認。<machine> はクラウド ID または別の Mac の `device:<uuid>@<tag>`）："
+          }
+        }
+      }
+    },
+    "cli.vm.open.deviceExample": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a terminal on another Mac (from `cmux vm tree`)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ein Terminal auf einem anderen Mac (aus `cmux vm tree`)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un terminal sur un autre Mac (depuis `cmux vm tree`)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طرفية على جهاز Mac آخر (من `cmux vm tree`)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un terminal en otro Mac (de `cmux vm tree`)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一部 Mac 上的終端機（來自 `cmux vm tree`）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台 Mac 上的终端（来自 `cmux vm tree`）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac의 터미널 (`cmux vm tree`에서 확인)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別の Mac のターミナル（`cmux vm tree` で確認）"
+          }
+        }
+      }
+    },
+    "cloudTree.device.status.unknownSince": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last seen %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt gesehen: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vu pour la dernière fois %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "آخر ظهور %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visto por última vez %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次出現：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次出现：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 확인: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終確認：%@"
+          }
+        }
+      }
+    },
+    "cloudTree.device.status.offlineSince": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline · seen %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offline · gesehen %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hors ligne · vu %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متصل · شوهد %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin conexión · visto %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離線 · %@出現"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线 · %@出现"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오프라인 · %@ 확인"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフライン · %@に確認"
+          }
+        }
+      }
+    },
+    "cloudTree.device.age.minutes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldm ago"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %lld Min."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il y a %lld min"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل %lld د"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hace %lld min"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分鐘前"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 分钟前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld분 전"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld分前"
+          }
+        }
+      }
+    },
+    "cloudTree.device.age.hours": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh ago"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %lld Std."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il y a %lld h"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل %lld س"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hace %lld h"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 小時前"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 小时前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld시간 전"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld時間前"
+          }
+        }
+      }
+    },
+    "cloudTree.device.age.days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldd ago"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %lld T."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "il y a %lld j"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قبل %lld ي"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hace %lld d"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天前"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 天前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld일 전"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld日前"
+          }
+        }
+      }
+    },
+    "cloudTree.device.workspaceCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld workspace"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld workspaces"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld個のワークスペース"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 个工作区"
+                }
+              }
+            }
+          }
+        },
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Arbeitsbereich"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Arbeitsbereiche"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld espace de travail"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld d’espaces de travail"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld espaces de travail"
+                }
+              }
+            }
+          }
+        },
+        "ar": {
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "صفر مساحة عمل (%lld)"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "مساحة عمل واحدة (%lld)"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "مساحتا عمل (%lld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مساحات عمل"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مساحة عمل"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld مساحة عمل"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld espacio de trabajo"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld espacios de trabajo"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld espacios de trabajo"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hant": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 個工作區"
+                }
+              }
+            }
+          }
+        },
+        "ko": {
+          "variations": {
+            "plural": {
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld개의 작업 공간"
+                }
+              }
+            }
           }
         }
       }

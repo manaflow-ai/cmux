@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxFoundation
 import Foundation
 import Observation
 
@@ -43,7 +44,7 @@ final class DeviceRegistryClient {
     private var signingOut = false
     private var observedSignedOut = false
     private var lastLeaseRenewal: ContinuousClock.Instant?
-    private var leaseTask: Task<Void, Never>?
+    private let leaseScheduler = MainActorRepeatingActionScheduler()
 
     /// The identity of a registration POST, for deduplication.
     struct Registration: Equatable {
@@ -113,7 +114,7 @@ final class DeviceRegistryClient {
     }
 
     private func incomingAccessDidChange() {
-        let allowed = MobileRemoteControlPolicy.allowsIncomingAccess()
+        let allowed = MobileHostService.isListeningEnabled
         guard observedIncomingAccess != allowed else { return }
         observedIncomingAccess = allowed
         updateLeaseRenewal()
@@ -165,27 +166,20 @@ final class DeviceRegistryClient {
     /// Renews the server's discovery lease independently of presence-worker backpressure.
     func maintainAvailabilityLease() {
         guard !signingOut, !latestRoutes.isEmpty,
-              MobileRemoteControlPolicy.allowsIncomingAccess(),
+              MobileHostService.isListeningEnabled,
               Self.leaseRenewalDue(lastSuccess: lastLeaseRenewal, now: .now) else { return }
         enqueuePublication(renewLease: true)
     }
 
     private func updateLeaseRenewal() {
         let shouldRun = !signingOut && auth?.authenticatedSessionIdentity != nil
-            && !latestRoutes.isEmpty && MobileRemoteControlPolicy.allowsIncomingAccess()
-        if !shouldRun {
-            leaseTask?.cancel()
-            leaseTask = nil
+            && !latestRoutes.isEmpty && MobileHostService.isListeningEnabled
+        guard shouldRun else {
+            leaseScheduler.cancel()
             return
         }
-        guard leaseTask == nil else { return }
-        leaseTask = Task { @MainActor [weak self] in
-            let clock = ContinuousClock()
-            while !Task.isCancelled {
-                // This delay is the lease renewal cadence, not UI synchronization.
-                do { try await clock.sleep(for: .seconds(60)) } catch { return }
-                self?.maintainAvailabilityLease()
-            }
+        leaseScheduler.startIfIdle(every: .seconds(60)) { [weak self] in
+            self?.maintainAvailabilityLease()
         }
     }
 
@@ -239,7 +233,7 @@ final class DeviceRegistryClient {
                 generation: snapshot.generation, accountID: snapshot.accountID
               ) else { return }
         let teamID = auth.resolvedTeamID
-        let incomingAllowed = MobileRemoteControlPolicy.allowsIncomingAccess()
+        let incomingAllowed = MobileHostService.isListeningEnabled
         let routes = incomingAllowed ? latestRoutes : []
         let current = Registration(
             teamID: teamID, tag: MobileHostIdentity.instanceTag(), routes: routes,

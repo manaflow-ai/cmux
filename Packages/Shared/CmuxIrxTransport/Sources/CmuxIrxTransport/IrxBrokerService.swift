@@ -160,6 +160,8 @@ public actor IrxBrokerService {
     private let credentialCache: any IrxJSONCache<IrxRelayCredentialSnapshot>
     private let grantCache: any IrxJSONCache<[String: IrxGrantSnapshot]>
     var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
+    /// Retains every queued operation so deactivation cancels the active request as well as its tail.
+    var registrationTasks: [UUID: Task<IrxBindingSnapshot, any Error>] = [:]
     struct RegistrationParameters: Equatable {
         let pairingEnabled: Bool
         let relayURLHint: String?
@@ -722,7 +724,8 @@ public actor IrxBrokerService {
     public func deactivate() {
         lifecycleEpoch &+= 1
         deactivated = true
-        registrationInFlight?.cancel()
+        for task in registrationTasks.values { task.cancel() }
+        registrationTasks.removeAll()
         registrationInFlight = nil
         registrationParameters = nil
         registrationOperationID = nil

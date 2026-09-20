@@ -835,8 +835,7 @@ extension CMUXCLI {
         Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]
                cmux vm open <id> <port> [--print]
 
-        Targets (copy them from `cmux vm tree`; <machine> is a cloud id or another
-        Mac's `device:<uuid>@<tag>`):
+        \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
           <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
           <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
@@ -859,7 +858,7 @@ extension CMUXCLI {
           cmux vm open vivid-newt/main/term_2f9c…/tab_a
           cmux vm open vivid-newt:desktop
           cmux vm open vivid-newt:port/3000 --print
-          cmux vm open device:1f0c…@nightly/main/6C27…   a terminal on another Mac (from `cmux vm tree`)
+          cmux vm open device:1f0c…@nightly/main/6C27…   \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceExample", defaultValue: "a terminal on another Mac (from `cmux vm tree`)"))
         """
     }
 

@@ -30,6 +30,7 @@ public struct DeviceWorkspaceLayoutSnapshot: Codable, Equatable, Sendable {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         workspaceID = try values.decode(String.self, forKey: .workspaceID)
         layout = try values.decode(DeviceWorkspaceLayoutNode.self, forKey: .layout)
+        _ = try layout.validatedSurfaceIDs()
         revision = try values.decodeIfPresent(String.self, forKey: .revision) ?? ""
         sequence = try values.decodeIfPresent(UInt64.self, forKey: .sequence) ?? 0
     }

@@ -72,13 +72,13 @@ struct CloudTreeDeviceRow: Equatable {
             if presenceUnknown {
                 if let lastSeen = presence?.lastSeenAt {
                     let format = String(localized: "cloudTree.device.status.unknownSince", defaultValue: "Last seen %@")
-                    return String(format: format, Self.relativeAge(from: lastSeen, now: now))
+                    return format.replacingOccurrences(of: "%@", with: Self.relativeAge(from: lastSeen, now: now))
                 }
                 return String(localized: "cloudTree.device.status.unknown", defaultValue: "Not seen yet")
             }
             if let lastSeen = presence?.lastSeenAt {
                 let format = String(localized: "cloudTree.device.status.offlineSince", defaultValue: "Offline \u{00B7} seen %@")
-                return String(format: format, Self.relativeAge(from: lastSeen, now: now))
+                return format.replacingOccurrences(of: "%@", with: Self.relativeAge(from: lastSeen, now: now))
             }
             return String(localized: "cloudTree.device.status.offline", defaultValue: "Offline")
         }
@@ -114,13 +114,13 @@ struct CloudTreeDeviceRow: Equatable {
         }
         let minutes = seconds / 60
         if minutes < 60 {
-            return String(format: String(localized: "cloudTree.device.age.minutes", defaultValue: "%dm ago"), minutes)
+            return String(localized: "cloudTree.device.age.minutes", defaultValue: "\(minutes)m ago")
         }
         let hours = minutes / 60
         if hours < 48 {
-            return String(format: String(localized: "cloudTree.device.age.hours", defaultValue: "%dh ago"), hours)
+            return String(localized: "cloudTree.device.age.hours", defaultValue: "\(hours)h ago")
         }
-        return String(format: String(localized: "cloudTree.device.age.days", defaultValue: "%dd ago"), hours / 24)
+        return String(localized: "cloudTree.device.age.days", defaultValue: "\(hours / 24)d ago")
     }
 
     /// The tag-qualified display name for text-only contexts (`surface.catalog`,
