@@ -310,6 +310,22 @@ struct CloudDesktopAccessTests {
         #expect(browser.cloudRestoreURL(on: target).absoluteString == "http://10.0.0.7:8000/projects/123?tab=logs#tail")
     }
 
+    @Test("Display restore ignores untrusted noVNC host and port query items")
+    func displayRestoreFiltersTransportQuery() throws {
+        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { browser.close() }
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6902), coordinator: nil,
+            wake: {}, startForward: { _ in 46902 }, stopForward: {}, route: .loopback)
+        let display = SurfaceResourceID(machine: .cloud("a"), kind: .display, key: "display:2")
+        browser.cloudAccess.configure(model: model, url: URL(string: "http://10.0.0.7:6902/vnc.html")!, resourceID: display)
+        browser.pendingCloudRestoreURL = try #require(URL(string: "http://10.0.0.7:6902/vnc.html?host=evil.test&port=9999&path=websockify"))
+        let target = try #require(URL(string: "http://10.0.0.7:6902/vnc.html?path=websockify"))
+        let restored = browser.cloudRestoreURL(on: target)
+        #expect(restored.host == "10.0.0.7" && restored.port == 6902)
+        #expect(restored.query?.contains("host=") != true && restored.query?.contains("port=") != true)
+        #expect(restored.query?.contains("path=websockify") == true)
+    }
+
     @Test("A forwarded /vnc.html URL is not a display when its resource is a browser")
     func nonDisplayVNCPathDoesNotUseDesktopReadiness() {
         let state = CloudBrowserAccessState()
