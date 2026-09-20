@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSettingsUI
 import Foundation
 import Testing
 
@@ -28,6 +29,8 @@ struct AgentIntegrationSettingsControllerTests {
         ("missing", AgentIntegrationInstallState.missing),
         ("installed", AgentIntegrationInstallState.installed),
         ("stale", AgentIntegrationInstallState.stale),
+        ("conflict", AgentIntegrationInstallState.conflict),
+        ("unavailable", AgentIntegrationInstallState.unavailable),
     ])
     func readsAuthoritativeStatus(state: String, expected: AgentIntegrationInstallState) async {
         let runner = AgentIntegrationScriptedRunner(results: [
@@ -70,5 +73,17 @@ struct AgentIntegrationSettingsControllerTests {
         let result = await controller.perform(.install, for: .amp)
         #expect(!result.succeeded)
         #expect(result.message?.contains("secret diagnostic") == false)
+    }
+
+    /// An unreadable hook must disable installation until a later probe succeeds.
+    @Test func failedStatusCanRecoverWithoutRunningAnInstaller() async {
+        let runner = AgentIntegrationScriptedRunner(results: [
+            CommandResult(stdout: nil, stderr: "private hook path", exitStatus: 1, timedOut: false, executionError: nil),
+            CommandResult(stdout: #"{"integration":"amp","state":"missing"}"#, stderr: nil, exitStatus: 0, timedOut: false, executionError: nil)
+        ])
+        let controller = AgentIntegrationSettingsController(commands: runner, executablePath: "/tmp/cmux", environment: ["HOME": "/tmp"])
+        #expect(await controller.installState(.amp) == .unavailable)
+        #expect(await controller.installState(.amp) == .missing)
+        #expect(await runner.arguments == Array(repeating: ["hooks", "amp", "install", "--status-json"], count: 2))
     }
 }

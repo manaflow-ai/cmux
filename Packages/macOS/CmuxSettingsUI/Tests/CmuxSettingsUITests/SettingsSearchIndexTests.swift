@@ -177,6 +177,16 @@ struct SettingsSearchIndexTests {
         #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
     }
 
+    /// Install and repair queries must navigate to the existing Amp card.
+    @Test(arguments: ["Amp", "Amp install", "Amp repair", "Amp hooks"])
+    func ampInstallationSearchTargetsVisibleCard(query: String) throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let hit = try #require(index.match(query).first)
+        #expect(hit.id == "setting:automation:amp")
+        #expect(hit.kind == .setting(parent: .automation))
+        #expect(index.anchorID(forSettingsPath: "automation.ampIntegration") == hit.anchorID)
+    }
+
     @Test func conditionalAutoNamingAgentSearchUsesVisibleWorkspaceAutoNamingRow() throws {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         #expect(index.anchorID(forSettingsPath: "automation.autoNamingAgent") == nil)
