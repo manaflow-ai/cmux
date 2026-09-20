@@ -12,6 +12,30 @@ import Testing
 
 @Suite("Local tmux session-list decoder")
 struct HostSettingsActionsLocalTmuxTests {
+    private struct TimedOutRunner: CommandRunning {
+        func run(directory: String, executable: String, arguments: [String], timeout: TimeInterval?) async -> CommandResult {
+            #expect(timeout != nil && timeout! > 0 && timeout! <= 30)
+            return CommandResult(stdout: nil, stderr: nil, exitStatus: nil, timedOut: true, executionError: nil)
+        }
+    }
+
+    @Test("Settings CLI requests have a finite deadline and report timeout failure")
+    func timeoutReportsActionFailure() async throws {
+        do {
+            _ = try await HostSettingsActions.runLocalTmuxCLI(
+                executableURL: URL(fileURLWithPath: "/fixture/cmux"),
+                arguments: ["local-tmux", "list", "--json"],
+                runner: TimedOutRunner()
+            )
+            Issue.record("Timed out CLI request succeeded")
+        } catch let error as LocalTmuxSettingsActionError {
+            guard case .commandFailed = error else {
+                Issue.record("Unexpected timeout error: \(error)")
+                return
+            }
+        }
+    }
+
     @Test("Cancellation reaches the local tmux CLI", .timeLimit(.minutes(1)))
     func cancellationStopsCLI() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

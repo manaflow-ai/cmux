@@ -301,9 +301,13 @@ final class HostSettingsActions: SettingsHostActions {
         return try await Self.runLocalTmuxCLI(executableURL: cliURL, arguments: arguments)
     }
 
-    nonisolated static func runLocalTmuxCLI(executableURL cliURL: URL, arguments: [String]) async throws -> Data {
+    nonisolated static func runLocalTmuxCLI(
+        executableURL cliURL: URL,
+        arguments: [String],
+        runner: any CommandRunning = CommandRunner()
+    ) async throws -> Data {
         try Task.checkCancellation()
-        let result = await CommandRunner().run(
+        let result = await runner.run(
             directory: cliURL.deletingLastPathComponent().path,
             executable: cliURL.path,
             arguments: arguments,
