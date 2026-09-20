@@ -4,21 +4,25 @@ on:
   pull_request:
     paths:
       - "skills/cmux-browser/**"
+      - "skills/cmux-settings/**"
       - ".agents/skills"
       - ".claude/skills/**"
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_settings_jsonc.py"
       - ".github/workflows/cmux-skill-contract.yml"
   push:
     branches: [main]
     paths:
       - "skills/cmux-browser/**"
+      - "skills/cmux-settings/**"
       - ".agents/skills"
       - ".claude/skills/**"
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
+      - "tests/test_cmux_settings_jsonc.py"
       - ".github/workflows/cmux-skill-contract.yml"
 
 permissions:
@@ -43,3 +47,6 @@ jobs:
 
       - name: Exercise browser skill regression guard
         run: python3 tests/test_cmux_browser_skill.py
+
+      - name: Exercise settings JSONC mutation regressions
+        run: python3 tests/test_cmux_settings_jsonc.py

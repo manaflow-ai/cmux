@@ -12,6 +12,47 @@ struct JSONConfigStoreTests {
         return (JSONConfigStore(fileURL: fileURL), fileURL, SettingCatalog())
     }
 
+    @Test(arguments: [
+        #"{"app": 1, "app": {"appearance": "dark"}}"#,
+        #"{"app": {"appearance": "shadowed", "keep": 1}, "app": {"appearance": "dark"}}"#,
+        #"{"app": {"nested": 1, "nested": {"appearance": "dark"}}}"#,
+    ])
+    func resetUsesEffectiveDuplicateAncestors(source: String) async throws {
+        let (store, fileURL, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        try Data(source.utf8).write(to: fileURL)
+        let path = source.contains("nested") ? "app.nested.appearance" : "app.appearance"
+        let key = JSONKey<String>(id: path, defaultValue: "default")
+        try await store.reset(key)
+        #expect(await store.value(for: key) == "default")
+        let fresh = JSONConfigStore(fileURL: fileURL)
+        #expect(await fresh.value(for: key) == "default")
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        if source.contains("shadowed") {
+            #expect(updated.contains(#""keep": 1"#))
+        }
+    }
+
+    @Test(arguments: [String.Encoding.utf8, .utf16LittleEndian, .utf16BigEndian, .utf32LittleEndian, .utf32BigEndian])
+    func editsPreserveSourceEncodingAndBOM(encoding: String.Encoding) async throws {
+        let (store, fileURL, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let source = "\u{feff}" + #"{"app": {"appearance": "dark"}}"#
+        let original = try #require(source.data(using: encoding))
+        try original.write(to: fileURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        try await store.set("light", for: key)
+        let expected = try #require(source.replacingOccurrences(of: "dark", with: "light").data(using: encoding))
+        #expect(try Data(contentsOf: fileURL) == expected)
+        #expect(await JSONConfigStore(fileURL: fileURL).value(for: key) == "light")
+        try await store.reset(key)
+        let resetBytes = try Data(contentsOf: fileURL)
+        let marker = try #require("\u{feff}".data(using: encoding))
+        #expect(resetBytes.starts(with: marker))
+        let resetText = try #require(String(data: resetBytes, encoding: encoding))
+        #expect(!resetText.contains("appearance"))
+    }
+
     @Test func readsDefaultWhenFileMissing() async {
         let (store, _, _) = makeStore()
         let value = await store.value(for: JSONKey<String>(id: "automation.socketPassword", defaultValue: ""))
@@ -162,6 +203,280 @@ struct JSONConfigStoreTests {
 
         try await store.reset(catalog.app.devWindowDisplay)
         #expect(store.snapshotValue(for: catalog.app.devWindowDisplay) == "")
+    }
+
+
+    @Test func setPreservesCommentsWhitespaceOrderingAndTrailingCommas() async throws {
+        let (store, fileURL, _) = makeStore()
+        let source = """
+        {
+          // root documentation
+          "zeta": { "keep": true },
+          "app": {
+            // before appearance
+            "before": 1,
+            "appearance": "light", // inline appearance documentation
+            // after appearance
+            "after": 2,
+          },
+          "alpha": 1,
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: fileURL)
+
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        try await store.set("dark", for: key)
+
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        let expected = source.replacingOccurrences(
+            of: "\"appearance\": \"light\"",
+            with: "\"appearance\": \"dark\""
+        )
+        #expect(updated == expected)
+    }
+
+    @Test func setCreatesNestedPathWithExistingTrailingCommaStyle() async throws {
+        let (store, fileURL, _) = makeStore()
+        let source = """
+        {
+          "app": {
+            "appearance": "dark",
+          },
+          "other": 1,
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: fileURL)
+
+        let key = JSONKey<Bool>(id: "app.nested.leaf", defaultValue: false)
+        try await store.set(true, for: key)
+
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        #expect(updated.contains(
+            """
+            "nested": {
+                  "leaf": true
+                },
+            """
+        ))
+        #expect(updated.range(of: "\"app\"")!.lowerBound < updated.range(of: "\"other\"")!.lowerBound)
+
+        let sanitized = try JSONCSanitizer().sanitize(Data(updated.utf8))
+        let parsed = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any]
+        let app = parsed?["app"] as? [String: Any]
+        let nested = app?["nested"] as? [String: Any]
+        #expect(nested?["leaf"] as? Bool == true)
+    }
+
+    @Test func resetRemovesNestedPathAndPrunesPlainEmptyParentsLosslessly() async throws {
+        let (store, fileURL, _) = makeStore()
+        let source = """
+        {
+          "automation": {
+            "nested": {
+              "leaf": true,
+            },
+          },
+          "keep": 1,
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: fileURL)
+
+        let key = JSONKey<Bool>(id: "automation.nested.leaf", defaultValue: false)
+        try await store.reset(key)
+
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        #expect(updated == """
+        {
+          "keep": 1,
+        }
+
+        """)
+    }
+
+    @Test func resetKeepsDocumentationInsideNowEmptyParent() async throws {
+        let (store, fileURL, _) = makeStore()
+        let source = """
+        {
+          "automation": {
+            // Why this section exists.
+            "socketPassword": "secret",
+          },
+          "keep": true,
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: fileURL)
+
+        let key = JSONKey<String>(id: "automation.socketPassword", defaultValue: "")
+        try await store.reset(key)
+
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        #expect(updated.contains("// Why this section exists."))
+        #expect(!updated.contains("\"socketPassword\""))
+        #expect(updated.contains("\"keep\": true,"))
+    }
+
+    @Test func setThroughSymlinkEditsTargetAndKeepsLink() async throws {
+        let (store, fileURL, _) = makeStore()
+        let targetURL = fileURL.deletingLastPathComponent().appendingPathComponent("target.json")
+        let source = """
+        {
+          // target docs
+          "app": {
+            "appearance": "light",
+          },
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: targetURL)
+        try FileManager.default.createSymbolicLink(
+            atPath: fileURL.path,
+            withDestinationPath: targetURL.path
+        )
+
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        try await store.set("dark", for: key)
+
+        let destination = try FileManager.default.destinationOfSymbolicLink(atPath: fileURL.path)
+        #expect(destination == targetURL.path)
+        let target = try String(contentsOf: targetURL, encoding: .utf8)
+        #expect(target == source.replacingOccurrences(
+            of: "\"appearance\": \"light\"",
+            with: "\"appearance\": \"dark\""
+        ))
+    }
+
+    @Test func malformedConfigRefusesMutationWithoutChangingBytes() async throws {
+        let (store, fileURL, _) = makeStore()
+        let malformed = Data(
+            """
+            {
+              // truncated object
+              "app": {
+                "appearance": "light",
+
+            """.utf8
+        )
+        try malformed.write(to: fileURL)
+
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        var didThrow = false
+        do {
+            try await store.set("dark", for: key)
+        } catch {
+            didThrow = true
+        }
+
+        #expect(didThrow)
+        #expect(try Data(contentsOf: fileURL) == malformed)
+    }
+
+    @Test func semanticNoOpsAreByteStableAndSkipAtomicReplace() async throws {
+        let (store, fileURL, _) = makeStore()
+        let source = """
+        {
+          // preserve every byte on no-op
+          "app": {
+            "appearance": "dark",
+          },
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: fileURL)
+        let marker = Date(timeIntervalSince1970: 1_700_000_000)
+        try FileManager.default.setAttributes(
+            [.modificationDate: marker],
+            ofItemAtPath: fileURL.path
+        )
+        let attributesBefore = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let modifiedBefore = attributesBefore[.modificationDate] as? Date
+        let bytesBefore = try Data(contentsOf: fileURL)
+
+        try await store.set(
+            "dark",
+            for: JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        )
+        try await store.reset(
+            JSONKey<String>(id: "app.missing", defaultValue: "")
+        )
+
+        let attributesAfter = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        let modifiedAfter = attributesAfter[.modificationDate] as? Date
+        #expect(try Data(contentsOf: fileURL) == bytesBefore)
+        #expect(modifiedAfter == modifiedBefore)
+    }
+
+
+    @Test func setTargetsFoundationEffectiveDuplicateKey() async throws {
+        let (store, fileURL, _) = makeStore()
+        let source = """
+        {
+          "app": {
+            "appearance": "shadowed",
+            "appearance": "system",
+          },
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: fileURL)
+
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "default")
+        try await store.set("dark", for: key)
+
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        #expect(updated.contains("\"appearance\": \"system\""))
+        #expect(updated.contains("\"appearance\": \"dark\""))
+        #expect(await store.value(for: key) == "dark")
+    }
+
+    @Test(arguments: [
+        #"{"app": 1, "app": {"appearance": "shadowed"}}"#,
+        #"{"app": {"appearance": "old"}, "app": {"appearance": "shadowed"}}"#,
+        #"{"app": {"appearance": "old"}, "app": 1}"#,
+        #"{"app": {"appearance": "old", "appearance": "shadowed"}}"#,
+    ])
+    func setDuplicatePathsAgreesWithFreshFoundationRead(source: String) async throws {
+        let (store, fileURL, _) = makeStore()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        try Data(source.utf8).write(to: fileURL)
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "system")
+        try await store.set("light", for: key)
+        #expect(await store.value(for: key) == "light")
+        #expect(await JSONConfigStore(fileURL: fileURL).value(for: key) == "light")
+        let bytes = try Data(contentsOf: fileURL)
+        let root = try #require(JSONSerialization.jsonObject(with: JSONCSanitizer().sanitize(bytes)) as? [String: Any])
+        let app = try #require(root["app"] as? [String: Any])
+        #expect(app["appearance"] as? String == "light")
+        if source.contains("shadowed") {
+            #expect(String(decoding: bytes, as: UTF8.self).contains("shadowed"))
+        }
+    }
+
+    @Test func resetDuplicateKeysDoesNotExposeShadowedValue() async throws {
+        let (store, fileURL, _) = makeStore()
+        let source = """
+        {
+          "app": {
+            "appearance": "shadowed",
+            "keep": "authored",
+          },
+          "app": {
+            "appearance": "system",
+            "appearance": "light",
+          },
+          "other": 1,
+        }
+        """ + "\n"
+        try Data(source.utf8).write(to: fileURL)
+
+        let key = JSONKey<String>(id: "app.appearance", defaultValue: "default")
+        try await store.reset(key)
+
+        let updated = try String(contentsOf: fileURL, encoding: .utf8)
+        #expect(updated.contains("\"keep\": \"authored\""))
+        #expect(updated.contains("\"other\": 1"))
+        #expect(await store.value(for: key) == "default")
+
+        let sanitized = try JSONCSanitizer().sanitize(Data(updated.utf8))
+        let parsed = try JSONSerialization.jsonObject(with: sanitized) as? [String: Any]
+        let app = parsed?["app"] as? [String: Any]
+        #expect(app?["appearance"] == nil)
     }
 
 }

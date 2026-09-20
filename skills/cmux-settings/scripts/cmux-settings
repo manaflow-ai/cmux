@@ -3,8 +3,8 @@
 
 cmux watches the file and auto-reloads on save, so writes take effect
 immediately. The file is JSONC (JSON with // and /* */ comments); this
-script writes comment-free formatting (2-space indent, trailing newline)
-and only writes when the parsed value actually changes.
+set/unset edits retain comments and unrelated formatting, and only write when
+the parsed value actually changes.
 
 Usage:
   cmux-settings path                    print the config path
@@ -37,6 +37,8 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+from cmux_jsonc_edit import JSONCEditError, remove_jsonc_path, set_jsonc_path
 
 DEFAULT_PATH = Path.home() / ".config" / "cmux" / "cmux.json"
 SCHEMA_URL = (
@@ -128,15 +130,37 @@ def load_settings(path: Path) -> dict[str, Any]:
         raise SystemExit(f"error: {path} is not valid JSONC: {e}")
 
 
-def atomic_write(path: Path, data: dict[str, Any]) -> None:
+def resolved_write_path(path: Path) -> Path:
+    """Resolve a cmux.json symlink once so atomic replace keeps the link."""
+    if path.is_symlink():
+        return path.resolve(strict=False)
+    return path
+
+
+def source_for_edit(path: Path, data: dict[str, Any]) -> str:
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+
+
+def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
     ) as tmp:
-        tmp.write(encoded)
+        tmp.write(text)
         tmp_path = Path(tmp.name)
-    os.replace(tmp_path, path)
+    try:
+        os.replace(tmp_path, path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+
+def atomic_write(path: Path, data: dict[str, Any]) -> None:
+    write_path = resolved_write_path(path)
+    encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    atomic_write_text(write_path, encoded)
 
 
 def split_path(dotted: str) -> list[str]:
@@ -295,26 +319,45 @@ def cmd_get(args: argparse.Namespace) -> int:
 
 
 def cmd_set(args: argparse.Namespace) -> int:
-    path = Path(args.file)
+    configured_path = Path(args.file)
+    path = resolved_write_path(configured_path)
     data = load_settings(path)
+    source = source_for_edit(path, data)
     parts = split_path(args.key)
     value = parse_value(args.value)
     changed = set_at(data, parts, value)
     if not changed:
         print(f"unchanged: {args.key} = {json.dumps(value)}")
         return 0
-    atomic_write(path, data)
+
+    try:
+        updated = set_jsonc_path(source, parts, value)
+        json.loads(strip_jsonc(updated))
+    except (JSONCEditError, json.JSONDecodeError) as error:
+        raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+
+    atomic_write_text(path, updated)
     print(f"set: {args.key} = {json.dumps(value)}")
     return 0
 
 
 def cmd_unset(args: argparse.Namespace) -> int:
-    path = Path(args.file)
+    configured_path = Path(args.file)
+    path = resolved_write_path(configured_path)
     data = load_settings(path)
-    if not unset_at(data, split_path(args.key)):
+    source = source_for_edit(path, data)
+    parts = split_path(args.key)
+    if not unset_at(data, parts):
         print(f"unchanged: {args.key} (not present)")
         return 0
-    atomic_write(path, data)
+
+    try:
+        updated = remove_jsonc_path(source, parts)
+        json.loads(strip_jsonc(updated))
+    except (JSONCEditError, json.JSONDecodeError) as error:
+        raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
+
+    atomic_write_text(path, updated)
     print(f"unset: {args.key}")
     return 0
 
