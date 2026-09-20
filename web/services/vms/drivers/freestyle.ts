@@ -1214,7 +1214,7 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          await this.ensureGuestCli(vm, vmId);
+          await this.ensureGuestCli(vm, vmId, false);
           const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
@@ -1450,9 +1450,15 @@ export class FreestyleProvider implements VMProvider {
           // was not ready inside the settle budget; heal, then run it again.
           const fingerprint = options?.deviceFingerprint;
           // Repair the guest CLI and machine identity before the daemon can
-          // consume an eligible first-use grant. This is idempotent and does
-          // not rearm the grant during attach.
-          await this.ensureGuestCli(vm, vmId);
+          // consume an eligible first-use grant. Independent hook/reporter
+          // setup may run beside this idempotent check, but all three settle
+          // before the daemon consumes the grant.
+          const [guestCli] = await Promise.allSettled([
+            this.ensureGuestCli(vm, vmId, false),
+            this.ensureAgentHooks(vm, vmId),
+            this.ensureResourceReporter(vm, vmId),
+          ]);
+          if (guestCli.status === "rejected") throw guestCli.reason;
           const promptSetup = `${guestWelcomeEligibilityCommand(vmId, options?.providerMetadata?.cloudWelcomeEligible === true)} && `
             + (options?.promptIdentity ? `${guestPromptInstallCommand(options.promptIdentity)} && ` : "");
           let bundleResult = await this.execResult(
@@ -1465,17 +1471,6 @@ export class FreestyleProvider implements VMProvider {
             healed = true;
             await this.ensureCmuxTuiRunning(vm, vmId);
             bundleResult = await this.execResult(vm, promptSetup + cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint, cloudWelcome: options?.providerMetadata?.cloudWelcomeEligible === true }));
-          }
-          if (!healed && bundleResult?.exitCode === 0) {
-            // The settled daemon's CLI files, agent hooks, and systemd reporter
-            // own separate paths. Prepare them concurrently, retaining the CLI
-            // gate and waiting for every side effect before returning an error.
-            const [cli] = await Promise.allSettled([
-              this.ensureGuestCli(vm, vmId, false),
-              this.ensureAgentHooks(vm, vmId),
-              this.ensureResourceReporter(vm, vmId),
-            ]);
-            if (cli.status === "rejected") throw cli.reason;
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
             throw new ProviderError(
