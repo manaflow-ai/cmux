@@ -80,7 +80,8 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             }
             state.remoteSink = RemoteSink(terminalID: terminalID, sender: sender)
             state.remoteEpoch &+= 1
-            appendRemoteLocked(state.pending, to: &state)
+            let pending = state.pending
+            appendRemoteLocked(pending, to: &state)
             state.pending.removeAll(keepingCapacity: true)
             startRemoteWorkerLocked(&state)
             promoteRequestedRouterIfReadyLocked(&state)
@@ -180,7 +181,8 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
             // fresh authenticated binding succeeds.
             state.pending.append(input)
             if !remoteQueueIsEmptyLocked(state) {
-                state.pending.append(contentsOf: state.remoteQueue[state.remoteQueueHead...])
+                let suffix = Array(state.remoteQueue[state.remoteQueueHead...])
+                state.pending.append(contentsOf: suffix)
             }
             clearRemoteQueueLocked(&state)
             state.remoteSink = nil
