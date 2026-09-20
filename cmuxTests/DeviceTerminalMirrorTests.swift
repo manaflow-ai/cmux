@@ -1,6 +1,7 @@
 import CmuxMobileRPC
 import CmuxTerminal
 import Foundation
+import GhosttyKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -19,6 +20,44 @@ struct DeviceTerminalMirrorTests {
 
     private func envelope(_ topic: String, _ object: [String: Any]) throws -> MobileEventEnvelope {
         MobileEventEnvelope(topic: topic, payloadJSON: try JSONSerialization.data(withJSONObject: object), streamID: nil)
+    }
+
+    @Test("Opening a smaller Mac mirror does not resize the host terminal", .timeLimit(.minutes(1)))
+    func mirrorAttachPreservesHostGrid() async throws {
+        let requests = AsyncStream<String>.makeStream()
+        let events = DeviceLinkTerminalEvents()
+        let surface = TerminalSurface(
+            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: nil, ioMode: .manualMirror
+        )
+        var methods: [String] = []
+        let session = DeviceTerminalMirrorSession(
+            remoteWorkspaceID: "workspace", remoteSurfaceID: surfaceID,
+            events: events, clientID: "mac-mirror", isConnected: { true },
+            requestData: { method, params in
+                methods.append(method)
+                #expect(params["viewport_columns"] == nil)
+                #expect(params["viewport_rows"] == nil)
+                requests.continuation.yield(method)
+                return try JSONSerialization.data(withJSONObject: [
+                    "columns": 160, "rows": 48, "seq": 0, "data_b64": ""
+                ])
+            }
+        )
+        defer { session.stop(); events.finishAll(); requests.continuation.finish() }
+        session.bind(surface: surface)
+        // The actual renderer callback runs before attach when the new pane
+        // receives its first (smaller) size. It must not negotiate the host down.
+        surface.onManualSizeApplied?(TerminalSurfaceRawSizingSample(
+            columns: 80, rows: 24, cellWidthPx: 14, cellHeightPx: 30,
+            surfaceWidthPx: 1120, surfaceHeightPx: 720,
+            viewBoundsPt: CGSize(width: 560, height: 360), backingScale: 2
+        ))
+        session.start()
+        for await method in requests.stream {
+            if method == "mobile.terminal.replay" { break }
+        }
+        #expect(methods == ["mobile.terminal.replay"])
     }
 
     @Test("Output overflow cannot erase the need to recover a terminal link")
