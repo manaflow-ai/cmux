@@ -98,12 +98,13 @@ if [[ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" && -n "${EXPANDED_CODE_SIGN_IDENTIT
 fi
 
 # Xcode's dependency-analysis output is keyed by the normal architecture and
-# deployment-target settings. The Xcode phase pins the script overrides to
+# deployment-target and signing settings. The Xcode phase pins the script overrides to
 # those same build settings before invoking this script. The stamp is
 # intentionally optional so direct script callers retain override support.
 if [[ -n "${CMUX_DIFF_SIDECAR_STAMP:-}" ]]; then
   # Include the requested architecture and deployment target in both the
-  # stamp path and contents. Xcode may reuse one DerivedData tree across arm64,
+  # stamp path and contents, together with signing settings. Xcode may reuse
+  # one DerivedData tree across arm64,
   # x86_64, and universal configurations.
   # Only one stamp may certify the shared output. On A -> B -> A, leaving
   # A's old stamp would falsely certify the binary written by B.

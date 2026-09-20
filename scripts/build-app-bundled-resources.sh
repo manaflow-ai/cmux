@@ -52,9 +52,9 @@ hash_git_worktree() {
 # Match build-cmux-cua.sh's inherited PATH and working directory. Resolve these
 # before the hash pipeline so failed probes cannot certify reusable outputs.
 RUST_TOOLCHAIN_IDENTITY="$(
-  command -v rustc
-  rustc --version --verbose
-  command -v cargo
+  command -v rustc &&
+  rustc --version --verbose &&
+  command -v cargo &&
   cargo --version --verbose
 )" || { echo "error: cannot identify cmux-cua Rust toolchain" >&2; exit 1; }
 
