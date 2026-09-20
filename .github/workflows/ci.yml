@@ -877,6 +877,9 @@ jobs:
         run: bun run test:db:behavior
 
   app-host-unit-tests:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -1037,7 +1040,17 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
       - name: Download compiled app-host test product
+        if: steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}
@@ -2839,6 +2852,9 @@ jobs:
           compression-level: 0
 
   tests-build-and-lag:
+    permissions:
+      contents: read
+      actions: read
     needs:
       - changes
       - linux-preflight
@@ -2912,7 +2928,17 @@ jobs:
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
+      - name: Try shared R2 artifact transport
+        id: r2-products
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_ARTIFACT_R2_URL: ${{ vars.CI_ARTIFACT_R2_URL }}
+          ARTIFACT_ID: ${{ needs.macos-compile-admission.outputs.artifact_id }}
+        run: python3 scripts/ci/restore-r2-artifact.py
+
       - name: Download compiled app-host test product
+        if: steps.r2-products.outputs.hit != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.macos-compile-admission.outputs.artifact_id }}

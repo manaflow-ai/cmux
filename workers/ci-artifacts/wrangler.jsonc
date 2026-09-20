@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cmux-ci-artifacts",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-20",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS",
+      "bucket_name": "cmux-ci-artifacts"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ARTIFACT_IMPORTS",
+        "class_name": "ArtifactImport"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "ArtifactImport"
+      ]
+    }
+  ],
+  "secrets": {
+    "required": [
+      "GITHUB_ARTIFACT_TOKEN"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "vars": {
+    "IMPORT_TIMEOUT_MS": "150000"
+  }
+}
