@@ -556,7 +556,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 で、マシンごとに最大 64 GB RAM を利用できます。月払いのみです。"
+        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
       }
     },
     "testflight": {
@@ -925,8 +925,8 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "マシンごとに最大 64 GB RAM",
-        "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+        "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有",
+        "無制限のワークスペースと iOS アプリ"
       ]
     },
     "team": {
@@ -1034,7 +1034,7 @@
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
           "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
-          "max": "各 VM に 64 GB RAM と 16 vCPU",
+          "max": "すべての VM で 64 GB RAM と 16 vCPU を共有",
           "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
@@ -1146,7 +1146,7 @@
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、32 GB または 64 GB RAM の Cloud VM を利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 64 GB RAM と 16 vCPU を共有します。Pro のすべてを含み、この共有リソースの範囲内で 32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
         },
         {
           "q": "cmux Vault とは何ですか?",

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 
 
@@ -939,7 +940,7 @@ def test_required_tests_status_waits_for_app_host_matrix() -> None:
     assert "      - app-host-unit-tests" in block
     assert "if: ${{ always() }}" in block
     assert 'preflight["result"] != "success"' in block
-    assert 'macos == "true" and tests["result"] != "success"' in block
+    assert 'suite_required and tests["result"] != "success"' in block
     assert 'tests["result"] not in {"success", "skipped"}' in block
 
 
@@ -976,9 +977,77 @@ def test_macos_jobs_wait_for_linux_preflight() -> None:
         expected_if = (
             "if: ${{ !cancelled() && "
             + " && ".join(f"needs.{need}.result == 'success'" for need in expected_needs)
-            + " && needs.changes.outputs.macos == 'true' }}"
+            + " && needs.changes.outputs.macos == 'true'"
+            + ("" if job_name == "macos-compile-admission" else " && needs.changes.outputs.full_suite == 'true'")
+            + " }}"
         )
         assert expected_if in block, f"{job_name} must gate on direct needs explicitly"
+
+
+def run_tests_gate(needs: dict) -> subprocess.CompletedProcess:
+    script = workflow_job_step_script("tests", "Check app-host unit test routing")
+    body = script.split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+    return subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(body)],
+        env={**os.environ, "TESTS_NEEDS": json.dumps(needs)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def tests_gate_needs(full_suite: str | None, app_host: str, admission: str = "success") -> dict:
+    outputs = {"macos": "true"}
+    if full_suite is not None:
+        outputs["full_suite"] = full_suite
+    return {
+        "changes": {"result": "success", "outputs": outputs},
+        "linux-preflight": {"result": "success"},
+        "macos-compile-admission": {"result": admission},
+        "app-host-unit-tests": {"result": app_host},
+        "swift-package-tests": {"result": "skipped" if app_host == "skipped" else "success"},
+        "agent-session-web-resources": {"result": "skipped"},
+    }
+
+
+def test_compile_only_runs_pass_the_tests_gate_without_the_suite() -> None:
+    assert run_tests_gate(tests_gate_needs("false", app_host="skipped")).returncode == 0
+    # Compile admission still has to pass, and a suite job that ran and failed still blocks.
+    assert run_tests_gate(tests_gate_needs("false", app_host="skipped", admission="failure")).returncode == 1
+    assert run_tests_gate(tests_gate_needs("false", app_host="failure")).returncode == 1
+
+
+def test_full_suite_runs_still_require_the_suite() -> None:
+    assert run_tests_gate(tests_gate_needs("true", app_host="success")).returncode == 0
+    assert run_tests_gate(tests_gate_needs("true", app_host="skipped")).returncode == 1
+    # A missing output means the suite step did not report, which must not relax the gate.
+    assert run_tests_gate(tests_gate_needs(None, app_host="skipped")).returncode == 1
+
+
+def test_only_pull_requests_under_the_compile_only_policy_skip_the_suite() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import wants_full_suite
+
+    assert wants_full_suite("pull_request", "compile-only", []) is False
+    assert wants_full_suite("pull_request", "compile-only", ["bug", "full-ci"]) is True
+    assert wants_full_suite("pull_request", "compile-only", None) is True
+    assert wants_full_suite("pull_request", "", []) is True
+    assert wants_full_suite("pull_request", "full", []) is True
+    for event in ("merge_group", "workflow_dispatch", "push"):
+        assert wants_full_suite(event, "compile-only", []) is True
+
+
+def test_merge_groups_stop_at_the_first_failure() -> None:
+    shards = workflow_job_block("app-host-unit-tests")
+    assert "fail-fast: ${{ github.event_name == 'merge_group' }}" in shards
+    # The job that may cancel runs must come from the default branch, where a
+    # queued pull request cannot edit it, and must not run repository code.
+    watcher = (ROOT / ".github/workflows/merge-group-fail-fast.yml").read_text(encoding="utf-8")
+    assert "  workflow_run:\n    workflows: [CI]\n    types: [requested]" in watcher
+    assert "if: ${{ github.event.workflow_run.event == 'merge_group' }}" in watcher
+    assert "permissions: {}" in watcher and "actions: write" in watcher
+    assert "uses:" not in watcher
+    assert "actions: write" not in CI_WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
