@@ -41,7 +41,8 @@ extension CloudTreeNodeActions {
         openLocally: Bool = true,
         host: SurfaceCatalog.NewWorkspaceHost? = nil,
         validateOperation: @MainActor () throws -> Void = { try Task.checkCancellation() },
-        existingWorkspace: SurfaceRemoteWorkspace? = nil
+        existingWorkspace: SurfaceRemoteWorkspace? = nil,
+        existingTerminal: SurfaceResource? = nil
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
@@ -80,6 +81,7 @@ extension CloudTreeNodeActions {
             let existing = existingTerminal ?? catalog.snapshot.resources(on: machine).first { resource in
                 resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
             }
+            if createdWorkspace != nil, let existing { createdTerminal = existing }
             try validateOperation()
             guard !openLocally || isLiveReservation(reservation) else { throw CancellationError() }
             let terminal: SurfaceResource
