@@ -92,4 +92,43 @@ struct TerminalScrollBarGutterStabilityTests {
         #expect(withHistory == harness.paneWidth)
         #expect(afterReset == harness.paneWidth)
     }
+
+    @Test("AppKit's legacy scroller remains visible for Automatic and Always", arguments: ["Automatic", "Always"])
+    func legacyPresentationRespectsAppKit(preference: String) throws {
+        // Automatic can select legacy for a connected mouse. The resolved
+        // AppKit style, rather than our interpretation of the preference
+        // string, owns presentation. Use a temporary argument domain so this
+        // test never changes the user's persisted preferences.
+        let defaults = UserDefaults.standard
+        let previousArguments = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
+        var arguments = previousArguments
+        arguments["AppleShowScrollBars"] = preference
+        defaults.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        defer { defaults.setVolatileDomain(previousArguments, forName: UserDefaults.argumentDomain) }
+
+        let harness = Harness(scrollerStyle: .legacy)
+        let scrollView = try #require(harness.hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
+        let scroller = try #require(scrollView.verticalScroller)
+        let width = harness.contentWidth(after: Self.withHistory)
+        #expect(scroller.alphaValue == 1, "Do not hide the legacy scrollbar AppKit selected")
+        #expect(harness.contentWidth(after: Self.emptyHistory) == width)
+        #expect(scroller.alphaValue == 1)
+        #expect(scrollView.scrollerStyle == .legacy)
+    }
+
+    @Test("Unrelated defaults notifications do not reconcile terminal geometry")
+    func unrelatedDefaultsLeavePendingLayoutAlone() {
+        let harness = Harness(scrollerStyle: .legacy)
+        // Model a pending pane layout. A defaults notification must not apply
+        // the full geometry path and resize the terminal before layout does.
+        harness.hostedView.surfaceView.frame.size.width -= 20
+        let pendingFrame = harness.hostedView.surfaceView.frame
+
+        NotificationCenter.default.post(
+            name: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard
+        )
+
+        #expect(harness.hostedView.surfaceView.frame == pendingFrame)
+    }
 }
