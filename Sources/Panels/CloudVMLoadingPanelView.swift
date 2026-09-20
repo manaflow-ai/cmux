@@ -18,28 +18,29 @@ struct CloudVMLoadingPanelView: View {
         return TimelineView(schedule) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
             VStack(spacing: 14) {
-                if let loadingHeadline = panel.loadingHeadline {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(loadingHeadline)
-                        .cmuxFont(size: 14, weight: .semibold)
-                        .foregroundStyle(.primary)
-                    Text(String(format: String(
-                        localized: "panel.cloudVM.loading.elapsed",
-                        defaultValue: "%ds elapsed"
-                    ), elapsedSeconds))
-                    .cmuxFont(size: 12, weight: .medium)
-                    .foregroundStyle(.secondary)
-                } else {
-                    switch panel.phase {
-                    case .loading:
+                switch panel.phase {
+                case .loading(let loadingHeadline):
+                    if let loadingHeadline {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(loadingHeadline)
+                            .cmuxFont(size: 14, weight: .semibold)
+                            .foregroundStyle(.primary)
+                        Text(String(format: String(
+                            localized: "panel.cloudVM.loading.elapsed",
+                            defaultValue: "%ds elapsed"
+                        ), elapsedSeconds))
+                        .cmuxFont(size: 12, weight: .medium)
+                        .foregroundStyle(.secondary)
+                    } else {
                         ProgressView()
                             .controlSize(.small)
                         Text(String(localized: "panel.cloudVM.loading.headline", defaultValue: "Opening Base"))
                             .cmuxFont(size: 14, weight: .semibold)
                             .foregroundStyle(.primary)
                         CloudVMLoadingStatusView(elapsedSeconds: elapsedSeconds)
-                    case .failed(let message, let failedElapsedSeconds):
+                    }
+                case .failed(let message, let failedElapsedSeconds):
                         CmuxSystemSymbolImage(systemName: "exclamationmark.triangle.fill", pointSize: 18, tint: .orange)
                         Text(String(localized: "panel.cloudVM.loading.failed.headline", defaultValue: "Base unavailable"))
                             .cmuxFont(size: 14, weight: .semibold)
@@ -80,7 +81,6 @@ struct CloudVMLoadingPanelView: View {
                         ), failedElapsedSeconds))
                         .cmuxFont(size: 11)
                         .foregroundStyle(.tertiary)
-                    }
                 }
             }
             .padding(32)

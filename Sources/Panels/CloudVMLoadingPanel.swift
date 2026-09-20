@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 final class CloudVMLoadingPanel: Panel {
     enum Phase {
-        case loading
+        case loading(headline: String? = nil)
         case failed(String, elapsedSeconds: Int)
     }
 
@@ -14,10 +14,7 @@ final class CloudVMLoadingPanel: Panel {
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .cloudVMLoading
     @Published var startedAt: Date
-    @Published var phase: Phase = .loading
-    /// Optional operation text for a Cloud workspace reservation. Base
-    /// provisioning leaves this nil and keeps the existing status card.
-    @Published var loadingHeadline: String? = nil
+    @Published var phase: Phase = .loading(headline: nil)
 
     var displayTitle: String {
         String(localized: "panel.cloudVM.loading.title", defaultValue: "Cloud VM")
@@ -32,7 +29,8 @@ final class CloudVMLoadingPanel: Panel {
     }
 
     func configureLoadingHeadline(_ headline: String) {
-        loadingHeadline = headline
+        guard case .loading = phase else { return }
+        phase = .loading(headline: headline)
     }
 
     func close() {}
@@ -62,8 +60,7 @@ final class CloudVMLoadingPanel: Panel {
 
     func resetLoading() {
         startedAt = Date()
-        phase = .loading
-        loadingHeadline = nil
+        phase = .loading(headline: nil)
     }
 
     private static func presentableFailureMessage(from rawMessage: String) -> String {

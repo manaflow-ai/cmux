@@ -49,6 +49,10 @@ extension CloudTreeNodeActions {
         let reservation = openLocally
             ? reserveLocalWorkspace(machine: machine, focus: focus, catalog: catalog)
             : nil
+        // An app-owned presentation workspace is part of the transaction. Do
+        // not create remote state that cannot be shown locally if the host is
+        // unavailable or its active window changed during admission.
+        guard !openLocally || reservation != nil else { throw CancellationError() }
         var committed = false
         defer {
             if !committed, let reservation {

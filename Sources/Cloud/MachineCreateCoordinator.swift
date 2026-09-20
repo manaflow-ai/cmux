@@ -105,6 +105,13 @@ final class MachineCreateCoordinator {
         let attempt = lifecycle.reserve(request.lifecycleRequest)
         requests[attempt.operationID] = request
         launches[attempt.operationID] = launch
+#if DEBUG
+        cmuxDebugLog(
+            "cloud.create.accepted operation=\(attempt.operationID.uuidString) " +
+            "workspace=\(request.presentationWorkspaceID?.uuidString ?? \"none\") " +
+            "time=\(Date().timeIntervalSince1970)"
+        )
+#endif
         postDidChange()
         return attempt
     }
@@ -222,6 +229,14 @@ final class MachineCreateCoordinator {
             lastFinished = finished
             let id = finished.operation.id
             handles[id] = nil
+#if DEBUG
+            cmuxDebugLog(
+                "cloud.create.completed operation=\(id.uuidString) " +
+                "workspace=\(finished.operation.request.presentationWorkspaceID?.uuidString ?? \"none\") " +
+                "outcome=\(String(describing: finished.outcome)) " +
+                "elapsed=\(Date().timeIntervalSince(finished.operation.startedAt))"
+            )
+#endif
             if case .created(_, let workspaceID) = finished.outcome {
                 resumeWaiter(id, workspaceID: workspaceID)
                 if let workspaceID {
