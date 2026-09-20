@@ -214,7 +214,7 @@ struct CloudSidebarSurfaceRegressionTests {
             #expect(presentation.action == action)
             #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
             if state != .loading && state != .unsupported {
-                #expect(presentation.message.contains("system-wide VPN"), "cmux forwarding truth must remain visible")
+                #expect(presentation.message.contains("system-wide Cloud VPN"), "cmux forwarding truth must remain visible")
             }
         }
     }

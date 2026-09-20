@@ -65,10 +65,10 @@ final class CloudPortsStatusContent: NSView {
         super.layout()
         let width = max(1, bounds.width)
         let inset: CGFloat = 2
-        let titleHeight = Self.textHeight(titleLabel.stringValue, font: titleLabel.font, width: width - inset * 2)
+        let titleHeight = Self.textHeight(titleLabel.stringValue, font: titleLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
         titleLabel.frame = NSRect(x: inset, y: 2, width: width - inset * 2, height: titleHeight)
         let messageY = titleLabel.frame.maxY + 2
-        let messageHeight = Self.textHeight(messageLabel.stringValue, font: messageLabel.font, width: width - inset * 2)
+        let messageHeight = Self.textHeight(messageLabel.stringValue, font: messageLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
         messageLabel.frame = NSRect(x: inset, y: messageY, width: width - inset * 2, height: messageHeight)
         if actionButton.isHidden {
             actionButton.frame = .zero

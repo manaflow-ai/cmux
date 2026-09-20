@@ -1,40 +1,6 @@
 import Foundation
 
 extension SurfaceMachineInfo {
-    init(
-        id: SurfaceMachineID,
-        name: String,
-        status: String,
-        image: String?,
-        hasDesktop: Bool,
-        memoryMb: Int?,
-        diskMb: Int?,
-        linkState: SurfaceLinkState,
-        linkError: String?,
-        cpuPercent: Double?,
-        memoryUsedMb: Int?,
-        diskUsedMb: Int?,
-        remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil,
-        privateAddress: String? = nil,
-        portDiscoveryState: CloudPortDiscoveryState = .notRequested
-    ) {
-        self.id = id
-        self.name = name
-        self.status = status
-        self.image = image
-        self.hasDesktop = hasDesktop
-        self.memoryMb = memoryMb
-        self.diskMb = diskMb
-        self.linkState = linkState
-        self.linkError = linkError
-        self.cpuPercent = cpuPercent
-        self.memoryUsedMb = memoryUsedMb
-        self.diskUsedMb = diskUsedMb
-        self.remoteWorkspaces = remoteWorkspaces
-        self.privateAddress = privateAddress
-        self.portDiscoveryState = portDiscoveryState
-    }
-
     private enum CodingKeys: String, CodingKey {
         case id, name, status, image, hasDesktop, memoryMb, diskMb, linkState, linkError
         case cpuPercent, memoryUsedMb, diskUsedMb, remoteWorkspaces, privateAddress
