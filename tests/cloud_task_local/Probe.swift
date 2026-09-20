@@ -29,6 +29,11 @@ struct CloudTaskLocalProbe {
                 // Resume through another actor while retaining the same context.
                 let span = await ContextReader().spanID()
                 precondition(span == child.spanID)
+                let cleared = await CloudOperationContext.withCurrent(nil) {
+                    CloudOperationContext.current == nil
+                }
+                precondition(cleared)
+                precondition(CloudOperationContext.current?.spanID == child.spanID)
                 return ["span": child.spanID]
             }
             precondition(CloudOperationContext.current?.spanID == root.spanID)

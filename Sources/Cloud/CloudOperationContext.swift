@@ -7,9 +7,9 @@ struct CloudOperationContext: Sendable {
     /// `TaskLocal.withValue` implementation. Passing this larger value directly
     /// can violate the task allocator's LIFO invariant in optimized callers.
     private final class TaskLocalValue: Sendable {
-        let context: CloudOperationContext
+        let context: CloudOperationContext?
 
-        init(_ context: CloudOperationContext) {
+        init(_ context: CloudOperationContext?) {
             self.context = context
         }
     }
@@ -21,7 +21,7 @@ struct CloudOperationContext: Sendable {
     }
 
     static func withCurrent<T>(
-        _ context: CloudOperationContext,
+        _ context: CloudOperationContext?,
         isolation: isolated (any Actor)? = #isolation,
         _ operation: () async throws -> T
     ) async rethrows -> T {
