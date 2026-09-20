@@ -82,7 +82,7 @@ import UIKit
     let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 100))
     controller.view.addSubview(input.toolbarView)
     window.rootViewController = controller
-    window.makeKeyAndVisible()
+    window.isHidden = false
     defer { window.isHidden = true }
     let button = try #require(input.toolbarView.descendant(
         withAccessibilityIdentifier: "terminal.inputAccessory.control"
