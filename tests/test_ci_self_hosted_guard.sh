@@ -80,6 +80,30 @@ check_release_build_runner_disk_capacity() {
   echo "PASS: release-build uses release-specific macOS 26 runner fallback"
 }
 
+check_build_lag_deriveddata_cache_path() {
+  # A fresh checkout resets every file time, so a restored DerivedData never
+  # spares a rebuild. The job builds into a stable path and caches none of it.
+  if ! awk '
+    /^  tests-build-and-lag:/ { in_job=1; next }
+    in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
+
+    in_job && /- name: Prepare isolated DerivedData/ { in_prepare=1; next }
+    in_prepare && /^[[:space:]]*- name:/ { in_prepare=0 }
+    in_prepare && /DERIVED_DATA_PATH="\$RUNNER_TEMP\/cmux-deriveddata-tests-build-and-lag"/ { saw_prepare_path=1 }
+    in_prepare && /GITHUB_RUN_ID|GITHUB_RUN_ATTEMPT/ { saw_dynamic_prepare_path=1 }
+
+    in_job && /key:[[:space:]]*deriveddata-/ { saw_deriveddata_cache=1 }
+
+    END {
+      exit !(saw_prepare_path && !saw_dynamic_prepare_path && !saw_deriveddata_cache)
+    }
+  ' "$CI_FILE"; then
+    echo "FAIL: tests-build-and-lag must build into the stable RUNNER_TEMP DerivedData path and must not cache DerivedData"
+    exit 1
+  fi
+
+  echo "PASS: tests-build-and-lag builds into a stable DerivedData path and caches none of it"
+}
 
 check_e2e_runner_fallbacks() {
   if ! awk '
