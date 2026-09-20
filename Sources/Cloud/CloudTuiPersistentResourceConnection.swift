@@ -142,7 +142,7 @@ actor CloudTuiPersistentResourceConnection {
         guard !closed else { throw Self.protocolFailure }
         let encoded = try request.envelope(id: nextID())
         guard encoded.count <= 256 * 1024 - 1 else { throw CloudMachineLink.LinkError.inputTooLarge }
-        connection.send(line: encoded + Data([0x0A]))
+        try await connection.sendChecked(line: encoded + Data([0x0A]))
     }
 
     /// Open the revisioned event feed on the control connection. One queued

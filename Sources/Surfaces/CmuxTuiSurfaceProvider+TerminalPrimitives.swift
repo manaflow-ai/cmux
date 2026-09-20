@@ -8,6 +8,7 @@ extension CmuxTuiSurfaceProvider {
         _ relay: CloudOptimisticInputRelay,
         terminalID: String
     ) async {
+        relay.beginRemoteBinding()
         do {
             _ = try await links.connected(machineID: machineID)
         } catch {

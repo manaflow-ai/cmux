@@ -11,6 +11,11 @@ import Foundation
 // framing field and pending demand are accessed only on `queue`. Continuations
 // hand immutable frames back to the single async consumer.
 final class CloudTuiManualIOConnection: @unchecked Sendable {
+    enum CheckedSendError: Error {
+        case closed
+        case bufferFull
+    }
+
     private static let maximumLineBytes = 16 * 1024 * 1024
     private static let readChunkBytes = 16 * 1024
 
@@ -43,6 +48,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
     // This storage is queue-owned and reused for every socket read.
     private var readBuffer = [UInt8](repeating: 0, count: CloudTuiManualIOConnection.readChunkBytes)
     private var pendingWrites: [Data] = []
+    private var pendingWriteContinuations: [CheckedContinuation<Void, Error>?] = []
     private var pendingWriteOffset = 0
     private var pendingWriteBytes = 0
     private let pendingWriteByteLimit = 256 * 1024
@@ -137,8 +143,34 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 return
             }
             pendingWrites.append(line)
+            pendingWriteContinuations.append(nil)
             pendingWriteBytes += line.count
             flushWritesLocked()
+        }
+    }
+
+    /// Enqueues a line and completes only after the nonblocking socket has
+    /// accepted every byte. A closed or full queue is reported to the caller so
+    /// remote PTY input can remain buffered for a reconnect instead of being
+    /// silently discarded.
+    func sendChecked(line: Data) async throws {
+        try Task.checkCancellation()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            queue.async { [self, line] in
+                guard !closed, descriptor >= 0 else {
+                    continuation.resume(throwing: CheckedSendError.closed)
+                    return
+                }
+                guard pendingWriteBytes + line.count <= pendingWriteByteLimit else {
+                    closeLocked()
+                    continuation.resume(throwing: CheckedSendError.bufferFull)
+                    return
+                }
+                pendingWrites.append(line)
+                pendingWriteContinuations.append(continuation)
+                pendingWriteBytes += line.count
+                flushWritesLocked()
+            }
         }
     }
 
@@ -316,6 +348,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
             let remaining = first.count - pendingWriteOffset
             guard remaining > 0 else {
                 pendingWrites.removeFirst()
+                pendingWriteContinuations.removeFirst()?.resume()
                 pendingWriteOffset = 0
                 continue
             }
@@ -332,6 +365,7 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
                 pendingWriteBytes -= result
                 if pendingWriteOffset == first.count {
                     pendingWrites.removeFirst()
+                    pendingWriteContinuations.removeFirst()?.resume()
                     pendingWriteOffset = 0
                 }
                 continue
@@ -366,8 +400,13 @@ final class CloudTuiManualIOConnection: @unchecked Sendable {
         pendingLine.removeAll(keepingCapacity: false)
         pendingLineSearchOffset = 0
         pendingWrites.removeAll(keepingCapacity: false)
+        let writeContinuations = pendingWriteContinuations
+        pendingWriteContinuations.removeAll(keepingCapacity: false)
         pendingWriteOffset = 0
         pendingWriteBytes = 0
+        for continuation in writeContinuations {
+            continuation?.resume(throwing: CheckedSendError.closed)
+        }
         let descriptorToClose = self.descriptor
         let writeSource = self.writeSource
         self.writeSource = nil
