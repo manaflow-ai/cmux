@@ -180,6 +180,43 @@ class SyncTestWiringTests(unittest.TestCase):
         self.assertIn("ABCDEFABCDEFABCDEFABCDEF /* Neighbor.swift in Sources */", text)
         self.assertIn("FEDCBAFEDCBAFEDCBAFEDCBA /* Neighbor.swift */", text)
 
+    def test_stale_comment_never_removes_an_unmanaged_source(self) -> None:
+        for present in (True, False):
+            with self.subTest(managed_file_present=present):
+                repo = self.make_repo("base.pbxproj", ["ExistingTests.swift"] if present else [])
+                project = repo / "cmux.xcodeproj/project.pbxproj"
+                text = self.project_text(repo).replace(
+                    "/* End PBXBuildFile section */",
+                    "\t\tAAAAAAAAAAAAAAAAAAAAAAAA /* ExistingTests.swift in Sources */ = "
+                    "{isa = PBXBuildFile; fileRef = EEEEEEEEEEEEEEEEEEEEEEEE "
+                    "/* ExternalPackageTests.swift */; };\n/* End PBXBuildFile section */",
+                ).replace(
+                    "files = (\n",
+                    "files = (\n\t\t\t\tAAAAAAAAAAAAAAAAAAAAAAAA /* ExistingTests.swift in Sources */,\n",
+                    1,
+                )
+                project.write_text(text, encoding="utf-8")
+                self.run_sync(repo)
+                repaired = self.project_text(repo)
+                self.assertIn("AAAAAAAAAAAAAAAAAAAAAAAA /* ExistingTests.swift in Sources */ =", repaired)
+                self.assertIn("AAAAAAAAAAAAAAAAAAAAAAAA /* ExistingTests.swift in Sources */,", repaired)
+                self.assertEqual(self.run_sync(repo, "--check").returncode, 0)
+
+    def test_deleted_file_is_detected_after_its_group_child_was_removed(self) -> None:
+        repo = self.make_repo("base.pbxproj", [])
+        project = repo / "cmux.xcodeproj/project.pbxproj"
+        project.write_text(self.project_text(repo).replace(
+            "\t\t\t\t444444444444444444444444 /* ExistingTests.swift */,\n", ""
+        ), encoding="utf-8")
+        check = self.run_sync(repo, "--check", check=False)
+        self.assertEqual(check.returncode, 1, check.stdout + check.stderr)
+        self.run_sync(repo)
+        text = self.project_text(repo)
+        self.assertNotIn("444444444444444444444444", text)
+        self.assertNotIn("555555555555555555555555", text)
+        self.assertIn("EEEEEEEEEEEEEEEEEEEEEEEE", text)
+        self.assertEqual(self.run_sync(repo, "--check").returncode, 0)
+
     def test_external_source_root_entry_is_preserved(self) -> None:
         repo = self.make_repo("base.pbxproj", ["ExistingTests.swift", "NewTests.swift"])
         before = self.project_text(repo)
