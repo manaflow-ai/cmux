@@ -304,7 +304,7 @@ final class BrowserImportMappingTests: XCTestCase {
             ]
         )
 
-        let window = BrowserDataImportCoordinator.shared.debugMakeImportWizardWindow(
+        let window = BrowserDataImportCoordinator().debugMakeImportWizardWindow(
             browsers: [browser],
             destinationProfiles: destinationProfiles,
             defaultDestinationProfileID: destinationProfiles[0].id
