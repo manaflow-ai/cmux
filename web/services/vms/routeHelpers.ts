@@ -56,6 +56,7 @@ import {
 } from "./requestContext";
 import {
   vmArtifactUnavailableCopy,
+  vmDisplayNameCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
@@ -63,6 +64,7 @@ import {
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
+import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
 import { ProviderArtifactUnavailableError } from "./drivers/types";
 import type { Locale } from "../../i18n/routing";
 
@@ -471,6 +473,23 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
     action: copy.action,
     displayTitle: copy.title,
     extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+  });
+}
+
+/**
+ * The 400 for a create or rename whose `displayName` fails `normalizedDisplayName`.
+ * A person typed that name, so the copy comes from the `vmErrors.displayName`
+ * catalog in the request locale; `details.field`/`maxLength` stay machine-readable.
+ */
+export async function invalidVmDisplayNameResponse(request: Request): Promise<Response> {
+  const copy = await vmDisplayNameCopy(vmRequestLocale(request), { maxLength: DISPLAY_NAME_MAX_LENGTH });
+  return vmErrorResponse({
+    error: "vm_invalid_request",
+    status: 400,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    details: { field: "displayName", maxLength: DISPLAY_NAME_MAX_LENGTH },
   });
 }
 

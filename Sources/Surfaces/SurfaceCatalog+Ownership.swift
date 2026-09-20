@@ -1,6 +1,27 @@
 import Foundation
 
 extension SurfaceCatalog {
+    /// Captures the authoritative identity, including Cloud resources still awaiting a provider.
+    /// Pending remote identity takes precedence over a live local placeholder.
+    func projectionRecord(forPanel panelID: UUID) -> SurfaceProjectionRecord? {
+        guard let projection = pendingRestoredProjections.projection(forPanel: panelID)
+            ?? projection(forPanel: panelID) else { return nil }
+        return SurfaceProjectionRecord(
+            panelID: panelID,
+            resource: projection.resource,
+            remoteWorkspaceID: projection.remoteWorkspaceID,
+            remoteTabID: projection.remoteTabID
+        )
+    }
+
+    /// Only a provider's remote materialization supersedes a pending Cloud identity.
+    /// The local shell/browser registered during restore is still its placeholder.
+    func consumePendingProjectionIfMaterialized(_ projection: SurfaceProjection) {
+        if !projection.resource.machine.isLocal {
+            pendingRestoredProjections.remove(panelID: projection.panelID)
+        }
+    }
+
     func projection(forPanel panelID: UUID) -> SurfaceProjection? {
         projections.first { $0.panelID == panelID }
     }

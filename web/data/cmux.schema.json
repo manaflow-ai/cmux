@@ -1710,6 +1710,7 @@
           "propertyNames": {
             "enum": [
               "openSettings",
+              "openTeamPicker",
               "reloadConfiguration",
               "showHideAllWindows",
               "globalSearch",
