@@ -2,13 +2,11 @@
 
 ## Summary
 
-- What changed?
-- Why?
+<!-- Explain the concrete problem and resulting behavior. -->
 
 ## Testing
 
-- How did you test this change?
-- What did you verify manually?
+<!-- Say what ran and what it established. Include manual verification when relevant. -->
 
 ## Demo Video
 
@@ -16,6 +14,7 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 
 - Video URL or attachment:
 
+<!--
 ## Review Trigger (Copy/Paste as PR comment)
 
 ```text
@@ -24,6 +23,7 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 @greptile-apps review
 @cubic-dev-ai review
 ```
+-->
 
 ## Checklist
 
