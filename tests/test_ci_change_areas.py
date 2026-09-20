@@ -1604,7 +1604,7 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
     assert "needs: activation_changes" in benchmark
     assert "if: ${{ needs.activation_changes.outputs.macos == 'true' }}" in benchmark
     # The benchmark routes through MACOS_RUNNER_15 (Blacksmith) for all events,
-    # including PRs. Depot remains only as a manual workflow_dispatch override.
+    # including PRs. Manual runner overrides stay outside required CI.
     assert "vars.MACOS_RUNNER_15" in benchmark
 
     assert "      - activation_changes" in sentinel
