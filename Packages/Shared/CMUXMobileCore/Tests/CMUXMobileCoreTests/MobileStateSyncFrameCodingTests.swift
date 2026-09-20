@@ -4,6 +4,25 @@ import Testing
 @testable import CMUXMobileCore
 
 struct MobileStateSyncFrameCodingTests {
+    @Test("Workspace sync retains split ratios, tab groups, and selected tabs")
+    func workspaceLayoutSurvivesSync() throws {
+        let layout: [String: Any] = [
+            "type": "split", "direction": "horizontal", "ratio": 0.65,
+            "first": ["type": "pane", "pane_id": "left", "surface_ids": ["t-1", "t-2"], "selected_surface_id": "t-2"],
+            "second": [
+                "type": "split", "direction": "vertical", "ratio": 0.3,
+                "first": ["type": "pane", "pane_id": "top", "surface_ids": ["t-3"]],
+                "second": ["type": "pane", "pane_id": "bottom", "surface_ids": ["t-4"]]
+            ]
+        ]
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(workspace)) as? [String: Any])
+        object["layout"] = layout
+        let decoded = try JSONDecoder().decode(WorkspaceSyncRecord.self, from: JSONSerialization.data(withJSONObject: object))
+        let encoded = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(decoded)) as? [String: Any])
+        let restored = try #require(encoded["layout"] as? [String: Any])
+        #expect(NSDictionary(dictionary: restored).isEqual(to: layout))
+    }
+
     private var workspace: WorkspaceSyncRecord {
         WorkspaceSyncRecord(
             id: "ws-1",
