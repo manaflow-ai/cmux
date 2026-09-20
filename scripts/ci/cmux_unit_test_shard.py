@@ -38,6 +38,7 @@ FOCUSED_GATE_SELECTORS = {
     "cmuxTests/AgentRestoreLiveOwnerAdmissionTests",
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",
+    "cmuxTests/CloudNotificationDismissParityTests",
     "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
     "cmuxTests/GhosttyNumericLocaleTests",
