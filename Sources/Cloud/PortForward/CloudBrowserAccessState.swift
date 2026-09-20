@@ -290,7 +290,7 @@ final class CloudBrowserAccessState {
         if model?.usesBrowserProxy == true {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   url.host?.lowercased() == remoteURL.host?.lowercased() else { return false }
-            if let resourceID, let expectedPort = Self.displayPort(for: resourceID) {
+            if let resourceID, let expectedPort = Self.resourcePort(for: resourceID) {
                 let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
                 return requestedPort == expectedPort
             }
@@ -330,10 +330,15 @@ final class CloudBrowserAccessState {
             && (a.port ?? (a.scheme == "https" ? 443 : 80)) == (b.port ?? (b.scheme == "https" ? 443 : 80))
     }
 
-    private static func displayPort(for resource: SurfaceResourceID) -> Int? {
-        guard resource.kind == .display,
-              let number = Int(resource.key.split(separator: ":").last ?? ""),
-              (1...16).contains(number) else { return nil }
-        return 6900 + number
+    private static func resourcePort(for resource: SurfaceResourceID) -> Int? {
+        if resource.kind == .display,
+           let number = Int(resource.key.split(separator: ":").last ?? ""),
+           (1...16).contains(number) {
+            return 6900 + number
+        }
+        if resource.kind == .browser, resource.key.hasPrefix("port:") {
+            return Int(resource.key.dropFirst("port:".count))
+        }
+        return nil
     }
 }

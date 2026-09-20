@@ -224,7 +224,8 @@ class DisplayService:
     def components_alive(self, number):
         named = self.named_processes.get(number)
         if named is not None:
-            return bool(named) and all(self.process_alive(process) for process in named.values())
+            return bool(named) and all(self.process_alive(process) for process in named.values()) \
+                and ("xvnc" in named or rfb_ready(number))
         processes = self.processes.get(number, [])
         return bool(processes) and all(self.process_alive(process) for process in processes)
 
@@ -235,8 +236,47 @@ class DisplayService:
         return websockify is None or self.process_alive(websockify)
 
     def track_process(self, number, name, process):
+        named = self.named_processes.setdefault(number, {})
+        previous = named.get(name)
+        if previous is not None:
+            self.processes[number] = [
+                item for item in self.processes.get(number, []) if item is not previous
+            ]
         self.processes.setdefault(number, []).append(process)
-        self.named_processes.setdefault(number, {})[name] = process
+        named[name] = process
+
+    def remove_process(self, number, name):
+        process = self.named_processes.setdefault(number, {}).pop(name, None)
+        if process is None:
+            return
+        self.processes[number] = [item for item in self.processes.get(number, []) if item is not process]
+        try:
+            process.terminate()
+        except OSError:
+            pass
+
+    def recover_processes(self, number):
+        self.processes[number] = []
+        self.named_processes[number] = {}
+        uid = str(os.getuid())
+        for name in ("openbox", "tint2", "vncconfig"):
+            marker = f"cmux-display-{number}-{name}"
+            try:
+                output = subprocess.check_output(["pgrep", "-u", uid, "-x", marker], text=True)
+                pid = int(output.splitlines()[0])
+            except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
+                continue
+            self.track_process(number, name, OwnedProcess(pid))
+        try:
+            output = subprocess.check_output(
+                ["pgrep", "-u", uid, "-f", rf"(?:Xvnc|Xtigervnc).*:{number}(?:\s|$)"],
+                text=True
+            )
+            pid = int(output.splitlines()[0])
+        except (OSError, ValueError, IndexError, subprocess.CalledProcessError):
+            pid = 0
+        if pid > 1:
+            self.track_process(number, "xvnc", OwnedProcess(pid))
 
     def start_dbus(self, number, environment):
         bus = subprocess.run(["dbus-launch", "--sh-syntax"], env=environment,
@@ -300,6 +340,8 @@ class DisplayService:
             raise NoVNCUnavailable("display runtime unavailable")
         if not rfb_is_ready and not vnc:
             raise RuntimeError("display runtime unavailable")
+        if rfb_is_ready and number not in self.named_processes:
+            self.recover_processes(number)
         if not rfb_is_ready:
             self.terminate(number)
             rfb_port = 5900 + number
@@ -320,12 +362,7 @@ class DisplayService:
             dbus = named.get("dbus")
             if dbus is None or not self.process_alive(dbus):
                 for name in ("openbox", "tint2", "vncconfig"):
-                    process = named.pop(name, None)
-                    if process is not None:
-                        try:
-                            process.terminate()
-                        except OSError:
-                            pass
+                    self.remove_process(number, name)
                 self.start_dbus(number, environment)
             self.start_session_components(number, environment, runtime)
         websockify_process = self.websockify_processes.get(number)

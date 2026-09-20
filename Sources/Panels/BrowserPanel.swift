@@ -3238,7 +3238,16 @@ final class BrowserPanel: Panel, ObservableObject {
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
                 )
-                self.cloudAccess.didCommit(url: webView.url, navigationID: navigation.map(ObjectIdentifier.init))
+                let leavingCloudRoute = self.retainsCloudResourceForDuplication
+                    && webView.url.map {
+                        ["http", "https"].contains($0.scheme?.lowercased() ?? "")
+                            && !self.cloudAccess.owns($0)
+                    } == true
+                if leavingCloudRoute {
+                    self.leaveCloudResourceForLocalNavigation()
+                } else {
+                    self.cloudAccess.didCommit(url: webView.url, navigationID: navigation.map(ObjectIdentifier.init))
+                }
                 // An about:blank placeholder leaves the restore-stall detector armed.
                 if !Self.isAboutBlankURL(webView.url) {
                     self.hasCommittedDocumentSinceWebViewReplacement = true
