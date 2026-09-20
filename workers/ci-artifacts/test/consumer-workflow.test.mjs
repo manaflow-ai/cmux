@@ -15,6 +15,8 @@ function context(value) {
   return new data.Dictionary(...Object.entries(value).map(([key, v]) => ({ key, value: context(v) })));
 }
 function evaluate(expression, values) {
+  // GitHub accepts either bare or fully wrapped step conditions.
+  expression = expression.trim().replace(/^\$\{\{([\s\S]*?)\}\}$/, "$1").trim();
   const ast = new Parser(new Lexer(expression).lex().tokens, Object.keys(values), []).parse();
   return new Evaluator(ast, context(values)).evaluate().coerceString();
 }
@@ -22,9 +24,11 @@ function render(expression, values) {
   return expression.replace(/\$\{\{([\s\S]*?)\}\}/g, (_, code) => evaluate(code, values));
 }
 
+const scenarios = ["true", "false", ""].flatMap((layerHit) =>
+  [true, false].map((enabled) => ({ layerHit, enabled })));
 for (const jobName of ["app-host-unit-tests", "tests-build-and-lag"]) {
-  for (const enabled of [true, false]) {
-    test(`${jobName}: actual workflow selects ${enabled ? "verified R2 bytes" : "default GitHub fallback"}`, (t) => {
+  for (const { layerHit, enabled } of scenarios) {
+    test(`${jobName}: layers=${layerHit || "absent"}, R2=${enabled ? "enabled" : "disabled"}`, (t) => {
       const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-artifact-workflow-"));
       t.after(() => fs.rmSync(temporary, { recursive: true, force: true }));
       const bin = path.join(temporary, "bin");
@@ -55,23 +59,39 @@ else:
         github: { token: "read-only-job-token" },
         vars: { CI_ARTIFACT_R2_URL: enabled ? "https://broker.example" : "" },
         needs: { "macos-compile-admission": { outputs: { artifact_id: "123" } } },
+        steps: {
+          "restore-layers": { outputs: { hit: layerHit } },
+          "r2-products": { outputs: { hit: "" } },
+        },
       };
       const output = path.join(temporary, "output");
-      execFileSync("bash", ["-e", "-c", restore.run], { cwd: root, env: {
+      const tryR2 = evaluate(restore.if, values) === "true";
+      assert.equal(tryR2, layerHit !== "true");
+      if (tryR2) execFileSync("bash", ["-e", "-c", restore.run], { cwd: root, env: {
         ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: temporary,
         GITHUB_OUTPUT: output, GITHUB_RUN_ID: "456", GITHUB_REPOSITORY: "manaflow-ai/cmux",
         ...Object.fromEntries(Object.entries(restore.env).map(([key, value]) => [key, render(value, values)])),
       } });
-      const hit = Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("="))).hit;
-      const download = evaluate(fallback.if, { steps: { "r2-products": { outputs: { hit } } } }) === "true";
-      assert.equal(download, !enabled);
+      const hit = tryR2
+        ? Object.fromEntries(fs.readFileSync(output, "utf8").trim().split("\n").map((line) => line.split("="))).hit
+        : "";
+      values.steps["r2-products"].outputs.hit = hit;
+      const download = evaluate(fallback.if, values) === "true";
+      assert.equal(download, layerHit !== "true" && !enabled);
+      // All routes still enter the same inner integrity/provenance restore;
+      // only a verified layer assembly can select its alternate unpack path.
+      const inner = job.steps.find((step) => step.name === "Restore compiled app-host test product");
+      assert.equal(inner.if, undefined);
+      assert.equal(inner.run, "scripts/ci/restore-app-host-test-product.sh");
+      assert.equal(render(inner.env.CMUX_LAYER_RESTORED, values), layerHit);
       const wrapped = jobName === "app-host-unit-tests";
       assert.equal(fallback.uses, wrapped
         ? "./.github/actions/download-test-product"
         : "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131");
       assert.equal(render(fallback.with[wrapped ? "artifact-id" : "artifact-ids"], values), "123");
-      assert.equal(fs.existsSync(path.join(temporary, "metadata-called")), enabled);
-      if (enabled) assert.equal(fs.readFileSync(path.join(temporary, "app-host-products/app-host-products.aar"), "utf8"), "opaque product and producer log");
+      assert.equal(fs.existsSync(path.join(temporary, "metadata-called")), tryR2 && enabled);
+      assert.equal(fs.existsSync(path.join(temporary, "app-host-products")), tryR2 && enabled);
+      if (tryR2 && enabled) assert.equal(fs.readFileSync(path.join(temporary, "app-host-products/app-host-products.aar"), "utf8"), "opaque product and producer log");
     });
   }
 }
