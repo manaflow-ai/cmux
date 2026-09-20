@@ -205,7 +205,10 @@ class DisplayService:
             environment.pop(key, None)
         while not self.shutdown.is_set():
             try:
-                self.start_components(number, environment, runtime)
+                # The supervisor is a health check, not a timer-driven restart.
+                # Preserve an active RFB/noVNC session until its owned endpoints fail.
+                if not self.processes.get(number) or not ready(number):
+                    self.start_components(number, environment, runtime)
                 state = "running" if ready(number) else "unavailable"
             except (OSError, RuntimeError, subprocess.SubprocessError):
                 self.terminate(number)
