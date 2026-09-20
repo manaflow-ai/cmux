@@ -30,6 +30,7 @@ struct VMClientReadCoalescingTests {
         }
         try await eventually { await fixture.readRequests.entries.values.reduce(0) { $0 + $1.waiters.count } == 40 }
         await CloudRefreshURLProtocol.releaseResponses()
+        try await eventually { await CloudRefreshURLProtocol.requestCounts().count == 10 }
         await requests.value
         let counts = await CloudRefreshURLProtocol.requestCounts()
         #expect(counts.count == 10)
