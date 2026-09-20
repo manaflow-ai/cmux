@@ -449,8 +449,14 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
                 nodeActions.newTerminal(machine, nil)
             }
-        case .displaysPool:
-            EmptyView()
+        case .displaysPool(let machine, let count):
+            if count > 0 {
+                plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
+                    nodeActions.newDisplay(machine)
+                }
+            } else {
+                EmptyView()
+            }
         case .workspacesGroup(let machine):
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
