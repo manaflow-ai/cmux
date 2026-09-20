@@ -22,9 +22,6 @@ import {
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
 import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
-import {
-  coderouterOrganizationFromCookieHeader,
-} from "@/services/coderouter/organizationScope";
 import { listClaudeAccounts } from "@/services/coderouter/claudeUpstream";
 import {
   CoderouterAccountsSection,
@@ -261,10 +258,6 @@ async function resolveCoderouterAuthorization(
     const selectedTeam = selectTeam(
       teams,
       requestedTeamId,
-      coderouterOrganizationFromCookieHeader(
-        requestHeaders.get("cookie"),
-        authenticated.user.id,
-      ),
       authenticated.user.selectedTeamId,
     );
     return {
@@ -459,17 +452,12 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
 function selectTeam(
   teams: readonly DashboardTeam[],
   requestedTeamId: string | undefined,
-  scopedTeamId: string | null,
   selectedTeamId: string | null,
 ): DashboardTeam {
   const requested = requestedTeamId?.trim();
   if (requested) {
     const selected = teams.find((team) => team.id === requested);
     if (selected) return selected;
-  }
-  if (scopedTeamId) {
-    const scoped = teams.find((team) => team.id === scopedTeamId);
-    if (scoped) return scoped;
   }
   if (selectedTeamId) {
     const selected = teams.find((team) => team.id === selectedTeamId);
